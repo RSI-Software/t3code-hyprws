@@ -5,6 +5,13 @@ import type {
   DesktopPreviewRecordingFrame,
   DesktopPreviewRecordingInputEvent,
 } from "@t3tools/contracts";
+export {
+  DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER,
+  EnvironmentId,
+  ProjectId,
+  type DesktopPreviewRecordingFrame,
+  type DesktopPreviewRecordingInputEvent,
+} from "@t3tools/contracts"; // fork-hook: multi-window/route-nav-contracts-bridge
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -23,6 +30,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { projectWindowIdentity } from "../window/WindowIdentity.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewManager from "./Manager.ts";
 
@@ -2448,7 +2456,7 @@ describe("PreviewManager", () => {
     ),
   );
 
-  effectIt.effect("releases frame capture when the main window closes", () =>
+  effectIt.effect("disposes preview tabs when their owning window closes", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         let closeMainWindow: (() => void) | undefined;
@@ -2467,6 +2475,13 @@ describe("PreviewManager", () => {
           id === undefined ? null : (webContentsById.get(id) ?? null),
         );
 
+        const otherWindow = yield* manager.forWindow(
+          projectWindowIdentity(
+            EnvironmentId.make("environment-1"),
+            ProjectId.make("other-project"),
+          ),
+        );
+        yield* otherWindow.navigate("tab_other_window", "https://other.example");
         yield* manager.createTab("tab_window_close_recording");
         yield* manager.createTab("tab_window_close_race");
         yield* manager.registerWebview("tab_window_close_recording", 42);
@@ -2486,12 +2501,17 @@ describe("PreviewManager", () => {
         expect(Exit.isFailure(racedStart)).toBe(true);
         if (Exit.isFailure(racedStart)) {
           expect(Option.getOrThrow(Cause.findErrorOption(racedStart.cause))).toMatchObject({
-            _tag: "PreviewMainWindowClosedError",
+            _tag: "PreviewTabNotFoundError",
             tabId: "tab_window_close_race",
           });
         }
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
+        expect(yield* otherWindow.automationStatus("tab_other_window")).toMatchObject({
+          tabId: "tab_other_window",
+          url: "https://other.example/",
+          loading: true,
+        });
 
         const grants: Array<{ video?: unknown }> = [];
         host.displayMediaHandler()?.({ frame: host.mainFrame }, (value) => grants.push(value));
@@ -2510,7 +2530,7 @@ describe("PreviewManager", () => {
   effectIt.effect("does not arm recording after the main window closes during warmup", () =>
     withManager((manager) =>
       Effect.gen(function* () {
-        let closeMainWindow: (() => void) | undefined;
+        const closeMainWindowListeners: Array<() => void> = [];
         let finishWarmup!: (image: TestCapturedPreviewImage) => void;
         let markWarmupStarted!: () => void;
         const warmupStarted = new Promise<void>((resolve) => {
@@ -2535,7 +2555,7 @@ describe("PreviewManager", () => {
         yield* manager.setMainWindow({
           isDestroyed: () => false,
           once: vi.fn((event: string, listener: () => void) => {
-            if (event === "closed") closeMainWindow = listener;
+            if (event === "closed") closeMainWindowListeners.push(listener);
           }),
           webContents: { setBackgroundThrottling: vi.fn() },
         } as never);
@@ -2544,7 +2564,7 @@ describe("PreviewManager", () => {
           .startRecording("tab_window_close_warmup")
           .pipe(Effect.forkChild({ startImmediately: true }));
         yield* Effect.promise(() => warmupStarted);
-        closeMainWindow?.();
+        for (const listener of closeMainWindowListeners) listener();
         finishWarmup(capturedImage);
 
         const exit = yield* Fiber.await(start);
