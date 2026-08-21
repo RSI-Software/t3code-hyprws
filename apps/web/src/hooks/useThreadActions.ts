@@ -33,7 +33,7 @@ import {
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
-import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
+import { resolveThreadRouteFamily, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
@@ -201,10 +201,14 @@ export function useThreadActions() {
       threadRef: target,
     };
   }, []);
-  const getCurrentRouteThreadRef = useCallback(() => {
-    const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
-    return resolveThreadRouteRef(currentRouteParams);
-  }, [router]);
+  const getCurrentRouteParams = useCallback(
+    () => router.state.matches[router.state.matches.length - 1]?.params ?? {},
+    [router],
+  );
+  const getCurrentRouteThreadRef = useCallback(
+    () => resolveThreadRouteRef(getCurrentRouteParams()),
+    [getCurrentRouteParams],
+  );
 
   const archiveThread = useCallback(
     async (target: ScopedThreadRef, opts: { onArchived?: () => void } = {}) => {
@@ -379,8 +383,7 @@ export function useThreadActions() {
           if (fallbackThread) {
             const navigationResult = await settlePromise(() =>
               router.navigate({
-                to: "/$environmentId/$threadId",
-                params: buildThreadRouteParams(
+                ...resolveThreadRouteFamily(getCurrentRouteParams()).thread(
                   scopeThreadRef(fallbackThread.environmentId, fallbackThread.id),
                 ),
                 replace: true,
@@ -391,7 +394,10 @@ export function useThreadActions() {
             }
           } else {
             const navigationResult = await settlePromise(() =>
-              router.navigate({ to: "/", replace: true }),
+              router.navigate({
+                ...resolveThreadRouteFamily(getCurrentRouteParams()).index(),
+                replace: true,
+              }),
             );
             if (navigationResult._tag === "Failure") {
               return navigationResult;
@@ -399,7 +405,10 @@ export function useThreadActions() {
           }
         } else {
           const navigationResult = await settlePromise(() =>
-            router.navigate({ to: "/", replace: true }),
+            router.navigate({
+              ...resolveThreadRouteFamily(getCurrentRouteParams()).index(),
+              replace: true,
+            }),
           );
           if (navigationResult._tag === "Failure") {
             return navigationResult;
@@ -458,6 +467,7 @@ export function useThreadActions() {
       clearTerminalUiState,
       closeTerminal,
       deleteThreadMutation,
+      getCurrentRouteParams,
       getCurrentRouteThreadRef,
       refreshVcsStatus,
       removeWorktree,

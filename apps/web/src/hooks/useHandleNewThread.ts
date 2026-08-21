@@ -27,7 +27,7 @@ import { readThreadShell, useProjects, useThread } from "../state/entities";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
 import { primaryServerSettingsAtom } from "../state/server";
-import { resolveThreadRouteTarget } from "../threadRoutes";
+import { resolveThreadRouteFamily, resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
 
@@ -60,10 +60,14 @@ export function useNewThreadHandler() {
   const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const router = useRouter();
-  const getCurrentRouteTarget = useCallback(() => {
-    const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
-    return resolveThreadRouteTarget(currentRouteParams);
-  }, [router]);
+  const getCurrentRouteParams = useCallback(
+    () => router.state.matches[router.state.matches.length - 1]?.params ?? {},
+    [router],
+  );
+  const getCurrentRouteTarget = useCallback(
+    () => resolveThreadRouteTarget(getCurrentRouteParams()),
+    [getCurrentRouteParams],
+  );
 
   return useCallback(
     (
@@ -316,8 +320,9 @@ export function useNewThreadHandler() {
             return opened;
           }
           await router.navigate({
-            to: "/draft/$draftId",
-            params: { draftId: emptyStoredDraftThread.draftId },
+            ...resolveThreadRouteFamily(getCurrentRouteParams()).draft(
+              emptyStoredDraftThread.draftId,
+            ),
             replace: options?.replace ?? false,
           });
           return opened;
@@ -390,8 +395,7 @@ export function useNewThreadHandler() {
           });
           carryComposerContentTo(racedDraft.draftId);
           await router.navigate({
-            to: "/draft/$draftId",
-            params: { draftId: racedDraft.draftId },
+            ...resolveThreadRouteFamily(getCurrentRouteParams()).draft(racedDraft.draftId),
             replace: options?.replace ?? false,
           });
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
@@ -423,14 +427,20 @@ export function useNewThreadHandler() {
         carryComposerContentTo(draftId);
 
         await router.navigate({
-          to: "/draft/$draftId",
-          params: { draftId },
+          ...resolveThreadRouteFamily(getCurrentRouteParams()).draft(draftId),
           replace: options?.replace ?? false,
         });
         return { draftId, threadId };
       })();
     },
-    [getCurrentRouteTarget, primaryServerSettings, projectGroupingSettings, projects, router],
+    [
+      getCurrentRouteParams,
+      getCurrentRouteTarget,
+      primaryServerSettings,
+      projectGroupingSettings,
+      projects,
+      router,
+    ],
   );
 }
 
