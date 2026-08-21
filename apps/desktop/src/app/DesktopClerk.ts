@@ -1,20 +1,22 @@
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
-import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { makeComponentLogger } from "./DesktopObservability.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
+
+const { logWarning } = makeComponentLogger("desktop-clerk");
 
 export class DesktopClerkBridgeInitializationError extends Schema.TaggedError<DesktopClerkBridgeInitializationError>()(
   "DesktopClerkBridgeInitializationError",
@@ -45,11 +47,9 @@ export class DesktopClerkBridgeCleanupError extends Schema.TaggedError<DesktopCl
 export class DesktopClerk extends Context.Service<
   DesktopClerk,
   {
-    readonly configure: Effect.Effect<
-      void,
-      never,
-      ElectronApp.ElectronApp | ElectronWindow.ElectronWindow | Scope.Scope
-    >;
+    readonly configure: <E>(
+      openArguments: (argv: readonly string[]) => Effect.Effect<void, E>,
+    ) => Effect.Effect<void, never, ElectronApp.ElectronApp | Scope.Scope>;
   }
 >()("@t3tools/desktop/app/DesktopClerk") {}
 
@@ -120,11 +120,12 @@ export const make = Effect.gen(function* () {
   );
 
   return DesktopClerk.of({
-    configure: Effect.gen(function* () {
+    configure: Effect.fn("desktop.clerk.configure")(function* <E>(
+      openArguments: (argv: readonly string[]) => Effect.Effect<void, E>,
+    ) {
       const electronApp = yield* ElectronApp.ElectronApp;
-      const electronWindow = yield* ElectronWindow.ElectronWindow;
-      const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
-      const runPromise = Effect.runPromiseWith(context);
+      const context = yield* Effect.context<ElectronApp.ElectronApp | Scope.Scope>();
+      const runFork = Effect.runForkWith(context);
 
       // The SDK bridge holds Electron's single-instance lock (acquired at
       // bridge creation) so OAuth deep-link callbacks on Windows/Linux are
@@ -136,17 +137,33 @@ export const make = Effect.gen(function* () {
         return yield* Effect.interrupt;
       }
 
-      yield* electronApp.on("second-instance", () => {
-        void runPromise(
-          Effect.gen(function* () {
-            const mainWindow = yield* electronWindow.currentMainOrFirst;
-            if (Option.isSome(mainWindow)) {
-              yield* electronWindow.reveal(mainWindow.value);
-            }
-          }),
+      const openEventArguments = (
+        source: "second-instance" | "open-url",
+        argv: readonly string[],
+      ) =>
+        openArguments(argv).pipe(
+          Effect.catchCause((cause) =>
+            logWarning("failed to open launch arguments", {
+              source,
+              argv: [...argv],
+              error: Cause.pretty(cause),
+            }),
+          ),
         );
+
+      // Clerk's bridge subscribes to these same Electron app events for OAuth
+      // callbacks; EventEmitter delivers them to both listeners.
+      yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
+        runFork(openEventArguments("second-instance", argv));
       });
-    }).pipe(Effect.withSpan("desktop.clerk.configure")),
+      yield* electronApp.on(
+        "open-url",
+        (event: { readonly preventDefault: () => void }, url: string) => {
+          event.preventDefault();
+          runFork(openEventArguments("open-url", [url]));
+        },
+      );
+    }),
   });
 });
 
