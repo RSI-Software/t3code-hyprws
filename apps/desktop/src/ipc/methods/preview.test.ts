@@ -1,15 +1,19 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   DEFAULT_BROWSER_PROFILE_ID,
+  EnvironmentId,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewCaptureFailure,
+  ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
+import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
@@ -22,6 +26,7 @@ const { fromPartition } = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   BrowserWindow: {
+    fromWebContents,
     getAllWindows: vi.fn(() => []),
   },
   session: {
