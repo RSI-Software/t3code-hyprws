@@ -14,6 +14,7 @@ import {
   getProjectSortTimestamp,
   hasUnseenCompletion,
   isContextMenuPointerDown,
+  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -458,6 +459,38 @@ describe("isSidebarNestedLinkClick", () => {
   it("leaves ordinary row clicks alone", () => {
     expect(isSidebarNestedLinkClick({ closest: () => null } as unknown as EventTarget)).toBe(false);
     expect(isSidebarNestedLinkClick(null)).toBe(false);
+  });
+});
+
+describe("isProjectInSidebarScope", () => {
+  const forcedProjectRef = {
+    environmentId: EnvironmentId.make("environment-remote"),
+    projectId: ProjectId.make("shared-project"),
+  };
+
+  it("matches both the environment and project id for a forced physical scope", () => {
+    expect(isProjectInSidebarScope(forcedProjectRef, forcedProjectRef)).toBe(true);
+    expect(
+      isProjectInSidebarScope(
+        {
+          environmentId: localEnvironmentId,
+          projectId: forcedProjectRef.projectId,
+        },
+        forcedProjectRef,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps every project visible when scope is mutable", () => {
+    expect(
+      isProjectInSidebarScope(
+        {
+          environmentId: localEnvironmentId,
+          projectId: ProjectId.make("project-1"),
+        },
+        null,
+      ),
+    ).toBe(true);
   });
 });
 
