@@ -33,6 +33,13 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
+import { HyprlandPlacement } from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
+import {
+  HUB_WINDOW_IDENTITY,
+  type WindowIdentity,
+  windowPreloadArguments,
+} from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 
@@ -94,6 +101,9 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>; // fork-hook: multi-window/open-arguments-type
+    readonly restoreWindowSession: Effect.Effect<void>; // fork-hook: multi-window/restore-window-session-type
+    readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>; // fork-hook: multi-window/close-identity-type
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
@@ -297,6 +307,8 @@ export const make = Effect.gen(function* () {
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
+  const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false);
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
@@ -321,7 +333,9 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const currentMainWindow = electronWindow
+    .get(HUB_WINDOW_IDENTITY)
+    .pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
   const zoomWindow = Effect.fn("desktop.window.zoomWindow")(function* (
@@ -341,8 +355,9 @@ export const make = Effect.gen(function* () {
     Option.Option<Electron.BrowserWindow>,
     DesktopWindowError
   > {
+    const { identity, windowId, dispatched } = yield* WindowDispatch.requireWindowCreateTargetFork; // fork-hook: multi-window/create-target
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
-    yield* previewManager.getBrowserSession();
+    if (identity.kind === "hub") yield* previewManager.getBrowserSession(); // fork-hook: multi-window/hub-preview-session
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
@@ -403,6 +418,9 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
+    WindowPlacement.retitleWindowFork(window, environment.displayName, (pageTitle) =>
+      identity.kind === "hub" ? null : pageTitle.trim() || null,
+    ); // fork-hook: multi-window/project-title
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
@@ -812,10 +830,22 @@ export const make = Effect.gen(function* () {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      void runPromise(
+        // The compositor maps the window a beat after it is shown, so bind it to
+        // its Hyprland client now while the title is still the one it mapped with.
+        WindowPlacement.claimShownFork({
+          hyprlandPlacement,
+          windowId,
+          title: window.getTitle(),
+          knownAddresses: knownAddressesFork,
+          titleHold: titleHoldFork, // fork-hook: multi-window/claim-title-hold
+          titleClaims: titleClaimsFork, // fork-hook: multi-window/claim-title-release
+        }),
+      ); // fork-hook: multi-window/window-id-claim
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (environment.isDevelopment && environment.devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
@@ -828,35 +858,66 @@ export const make = Effect.gen(function* () {
     return Option.some(window);
   });
 
-  const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
-    if (Option.isSome(window)) {
-      yield* electronWindow.setMain(window.value);
-      yield* logWindowInfo("main window created");
-    }
-    return window;
-  }).pipe(Effect.withSpan("desktop.window.createMain"));
-
-  const ensureMain = Effect.gen(function* () {
-    if (yield* Ref.get(desktopState.quitting)) return Option.none<Electron.BrowserWindow>();
-    const existingWindow = yield* currentMainWindow;
-    if (Option.isSome(existingWindow)) {
-      return existingWindow;
-    }
-    return yield* createMain;
-  }).pipe(Effect.withSpan("desktop.window.ensureMain"));
-
   const requireWindow = (window: Option.Option<Electron.BrowserWindow>) =>
     Option.match(window, {
       onNone: () => Effect.interrupt,
       onSome: Effect.succeed,
     });
+  const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
+    identity: WindowIdentity,
+    windowId?: WindowId, // fork-hook: multi-window/window-id-ensure-param
+  ) {
+    if (yield* Ref.get(desktopState.quitting)) return Option.none(); // fork-hook: multi-window/quit-ensure
+    const create = (reservedId: WindowId) =>
+      createWindow().pipe(
+        WindowDispatch.withWindowCreateTargetFork({ identity, windowId: reservedId }),
+        Effect.flatMap(Effect.fromOption),
+      ); // fork-hook: multi-window/window-id-create
+    const ensured = yield* electronWindow
+      .getOrCreate(identity, create, windowId)
+      .pipe(Effect.catchNoSuchElement); // fork-hook: multi-window/window-id-get-or-create
+    if (Option.isNone(ensured)) return ensured; // fork-hook: multi-window/quit-ensure-cancelled
+    const result = ensured.value; // fork-hook: multi-window/quit-ensure-result
+    if (result.created) {
+      yield* logWindowInfo(
+        identity.kind === "hub" ? "main window created" : "project window created",
+        {
+          identity: identity.kind === "hub" ? "hub" : "project",
+          ...(identity.kind === "hub"
+            ? {}
+            : { environmentId: identity.ref.environmentId, projectId: identity.ref.projectId }),
+        },
+      );
+    }
+    return Option.some(result); // fork-hook: multi-window/window-id-ensure-result
+  }); // fork-hook: multi-window/ensure-identity
 
-  const revealOrCreateMain = Effect.gen(function* () {
-    const window = yield* ensureMain.pipe(Effect.flatMap(requireWindow));
-    yield* electronWindow.reveal(window);
+  const revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
+    identity: WindowIdentity,
+  ) {
+    // Read before creation: ready-to-show may settle and clear the ref while
+    // ensureIdentity is still returning, but that must not turn into a late focus.
+    const suppressInitialReveal =
+      identity.kind === "hub" && Option.isSome(yield* Ref.get(pendingDevAgentPlacementRef));
+    const window = yield* ensureIdentity(identity).pipe(
+      Effect.map(Option.map((ensured) => ensured.window)),
+      Effect.flatMap(requireWindow),
+    ); // fork-hook: multi-window/window-id-reveal
+    if (!suppressInitialReveal) yield* electronWindow.reveal(window);
     return window;
-  }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
+  }); // fork-hook: multi-window/reveal-or-create-identity
+
+  const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.map(Option.map(({ window }) => window)), // fork-hook: multi-window/window-id-create-main
+    Effect.withSpan("desktop.window.createMain"),
+  );
+  const ensureMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.map(Option.map(({ window }) => window)), // fork-hook: multi-window/window-id-ensure-main
+    Effect.withSpan("desktop.window.ensureMain"),
+  );
+  const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.revealOrCreateMain"),
+  );
 
   const waitingForBackend = Effect.gen(function* () {
     if (yield* Ref.get(backendReadyRef)) return false;
@@ -868,7 +929,7 @@ export const make = Effect.gen(function* () {
     if (yield* waitingForBackend) return;
     const existingWindow = yield* currentMainWindow;
     if (Option.isSome(existingWindow)) return;
-    yield* createMain;
+    yield* ensureMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
   const showConnectingSplash = Effect.gen(function* () {
@@ -957,6 +1018,7 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.prepareReveal(existingWindow.value);
       }
     }),
+    closeIdentity: electronWindow.close, // fork-hook: multi-window/close-identity
     activate: Effect.gen(function* () {
       if (yield* Ref.get(desktopState.quitting)) return;
       const existingWindow = yield* currentMainWindow;

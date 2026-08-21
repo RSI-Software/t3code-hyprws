@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option"; // fork-hook: multi-window/option-import
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -67,6 +68,11 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
   return Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected window creation"),
     main: Effect.die("unexpected main window read"),
+    get: () => Effect.die("unexpected identity window read"),
+    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    close: () => Effect.void,
+    identityFor: () => Effect.succeed(Option.none()),
+    listIdentities: Effect.succeed([]),
     currentMainOrFirst: Effect.die("unexpected current window read"),
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
@@ -89,6 +95,10 @@ function layerDesktopWindow(
     createMain: Effect.die("unexpected window creation"),
     ensureMain: Effect.die("unexpected window creation"),
     revealOrCreateMain: Effect.die("unexpected window creation"),
+    openIdentity: () => Effect.die("unexpected identity window open"),
+    openArguments: () => Effect.void,
+    restoreWindowSession: Effect.void,
+    closeIdentity: () => Effect.void,
     activate: input.activate ?? Effect.void,
     createMainIfBackendReady: Effect.void,
     showConnectingSplash: Effect.void,

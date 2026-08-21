@@ -20,6 +20,7 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopUserData from "./DesktopUserData.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { desktopLaunchArguments } from "./DesktopLaunchArguments.fork.ts"; // fork-hook: multi-window/launch-arguments
 import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
@@ -148,6 +149,7 @@ export const make = Effect.gen(function* () {
       const webLinks = yield* DesktopWebLinks.DesktopWebLinks;
       const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
       const runPromise = Effect.runPromiseWith(context);
+      const launch = yield* desktopLaunchArguments.router; // fork-hook: multi-window/launch-arguments
 
       const startProviderAuthHandoff = (value: string | undefined) => {
         if (!value) return false;
@@ -206,6 +208,8 @@ export const make = Effect.gen(function* () {
         return true;
       };
       yield* electronApp.on("open-url", (event: { preventDefault: () => void }, url: string) => {
+        if (launch.openUrl(event, url, [startProviderAuthHandoff, resumeProviderAuth, openAppLink]))
+          return; // fork-hook: multi-window/launch-arguments
         if (
           startProviderAuthHandoff(url) ||
           resumeProviderAuth(url) ||
@@ -227,6 +231,7 @@ export const make = Effect.gen(function* () {
           )
         )
           return;
+        if (launch.secondInstance(argv)) return; // fork-hook: multi-window/launch-arguments
         void runPromise(
           Effect.gen(function* () {
             const mainWindow = yield* electronWindow.currentMainOrFirst;
