@@ -174,6 +174,8 @@ it.effect.each([false, true])(
             ensureMain: record("window").pipe(
               Effect.andThen(Deferred.succeed(windowStarted, undefined)),
             ),
+            restoreWindowSession: Effect.void, // fork-hook: multi-window/desktop-app-test-restore-window-session
+            openArguments: () => Effect.void, // fork-hook: multi-window/desktop-app-test-open-arguments
           } as unknown as DesktopWindow.DesktopWindow["Service"]),
           Effect.provideService(DesktopBackendPool.DesktopBackendPool, {
             primary: Effect.succeed({
