@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 import ChatView from "../components/ChatView";
 import {
@@ -13,15 +13,21 @@ import {
 } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
+import {
+  buildProjectIndexRoute,
+  isValidProjectRouteId,
+  resolveProjectContentRedirect,
+  resolveProjectRouteRef,
+} from "../projectRoutes";
 import { resolveThreadRouteFamily } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
 
-function DraftChatThreadRouteView() {
+export function DraftChatThreadRouteView() {
   const navigate = useNavigate();
-  const { draftId: rawDraftId } = Route.useParams();
-  const routeFamily = Route.useParams({
-    select: (params) => resolveThreadRouteFamily(params),
-  });
+  const routeParams = useParams({ strict: false });
+  const rawDraftId = routeParams.draftId ?? "";
+  const projectRouteRef = resolveProjectRouteRef(routeParams);
+  const routeFamily = resolveThreadRouteFamily(routeParams);
   const draftId = DraftId.make(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
   const threadRefs = useThreadRefs();
@@ -41,16 +47,39 @@ function DraftChatThreadRouteView() {
     serverThreadStarted,
     backgroundSubmissionPending,
   });
+  const projectContentRedirect = projectRouteRef
+    ? resolveProjectContentRedirect({
+        routeRef: projectRouteRef,
+        contentRef: draftSession
+          ? {
+              environmentId: draftSession.environmentId,
+              projectId: draftSession.projectId,
+            }
+          : null,
+        contentIdValid: isValidProjectRouteId(routeParams.draftId),
+      })
+    : null;
 
   useEffect(() => {
-    if (!inferredThreadRef || draftSession?.promotedTo) {
+    if (!projectRouteRef || projectContentRedirect !== "project-index") {
+      return;
+    }
+    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
+  }, [navigate, projectContentRedirect, projectRouteRef]);
+
+  useEffect(() => {
+    if (
+      projectContentRedirect === "project-index" ||
+      !inferredThreadRef ||
+      draftSession?.promotedTo
+    ) {
       return;
     }
     markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef]);
+  }, [draftSession?.promotedTo, inferredThreadRef, projectContentRedirect]);
 
   useEffect(() => {
-    if (!canonicalThreadRef) {
+    if (!canonicalThreadRef || projectContentRedirect === "project-index") {
       return;
     }
 
@@ -65,16 +94,26 @@ function DraftChatThreadRouteView() {
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate, routeFamily]);
+  }, [canonicalThreadRef, navigate, projectContentRedirect, routeFamily]);
 
   useEffect(() => {
-    if (draftSession || canonicalThreadRef) {
+    if (draftSession || canonicalThreadRef || projectContentRedirect === "project-index") {
       return;
     }
-    void navigate({ ...routeFamily.index(), replace: true });
-  }, [canonicalThreadRef, draftSession, navigate, routeFamily]);
+    void navigate({
+      ...(projectRouteRef ? buildProjectIndexRoute(projectRouteRef) : routeFamily.index()),
+      replace: true,
+    });
+  }, [
+    canonicalThreadRef,
+    draftSession,
+    navigate,
+    projectContentRedirect,
+    projectRouteRef,
+    routeFamily,
+  ]);
 
-  if (!draftSession) {
+  if (!draftSession || projectContentRedirect === "project-index") {
     return null;
   }
 
