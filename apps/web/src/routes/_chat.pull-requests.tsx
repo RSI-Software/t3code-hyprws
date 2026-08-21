@@ -10,7 +10,9 @@ import { usePullRequestCloseBatch } from "~/components/pullRequest/usePullReques
 import { SidebarPointerSensor } from "~/components/Sidebar.pointer";
 import { resolveSidebarSweepKeys } from "~/components/Sidebar.logic";
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
-import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { pullRequestHostOf, resolveEnvironmentMachineKind, ThreadId } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -21,9 +23,9 @@ import type {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestListState,
+  ScopedProjectRef,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUpIcon,
@@ -36,7 +38,6 @@ import {
   ListChecksIcon,
   PenLineIcon,
   UsersIcon,
-  Plug2Icon,
   Maximize2Icon,
   Minimize2Icon,
   SearchIcon,
@@ -122,6 +123,11 @@ import {
   PullRequestRow,
   type PullRequestRowTarget,
 } from "../components/pullRequest/PullRequestRow";
+import { WindowProjectScopeToggle } from "../components/WindowProjectScopeToggle";
+import {
+  normalizePullRequestProjectScopePatch,
+  usePullRequestProjectScope,
+} from "../components/pullRequest/PullRequestProjectScope";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatusSeed } from "../components/RightPanelTabs";
 import {
@@ -160,7 +166,7 @@ import {
   type PullRequestSurface,
 } from "../rightPanelStore";
 import { useDebouncedValue } from "../state/queries";
-import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
+import { useProjects } from "../state/entities";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useEnvironments } from "../state/environments";
 import {
@@ -198,6 +204,8 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedProjectId?: ProjectId;
   readonly selectedHost?: string;
   readonly selectedEnvironmentId?: EnvironmentId;
+  /** Project-window list scope. Absent keeps the physical project scope. */
+  readonly scope?: "all"; // fork-hook: project-windows/pull-request-window-scope
 }
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -285,8 +293,8 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
   return labels.length === 0 ? {} : { labels };
 }
 
-export const Route = createFileRoute("/_chat/pull-requests")({
-  validateSearch: (raw: Record<string, unknown>): PullRequestsSearch => ({
+export function validatePullRequestsSearch(raw: Record<string, unknown>): PullRequestsSearch {
+  return {
     involvement:
       raw.involvement === "reviewing" || raw.involvement === "authored" ? raw.involvement : "all",
     state:
@@ -331,20 +339,43 @@ export const Route = createFileRoute("/_chat/pull-requests")({
       ? { author: raw.author.trim().slice(0, 200) }
       : {}),
     ...pullRequestSearchLabels(raw.labels),
-  }),
-  component: PullRequestsRouteView,
+    ...(raw.scope === "all" ? { scope: raw.scope } : {}),
+  };
+}
+
+export const Route = createFileRoute("/_chat/pull-requests")({
+  validateSearch: validatePullRequestsSearch,
+  component: HubPullRequestsRouteView,
 });
 
-function PullRequestsRouteView() {
+function HubPullRequestsRouteView() {
   useEscapeToGoBack();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  return (
+    <PullRequestsPage
+      forcedProjectRef={null}
+      search={search}
+      onNavigate={(update) => void navigate({ search: update, replace: true })}
+    />
+  );
+}
+
+export function PullRequestsPage({
+  forcedProjectRef,
+  search,
+  onNavigate,
+}: {
+  readonly forcedProjectRef: ScopedProjectRef | null;
+  readonly search: PullRequestsSearch;
+  readonly onNavigate: (update: (previous: PullRequestsSearch) => PullRequestsSearch) => void;
+}) {
   const modifiers = useShortcutModifierState(true);
   const speedMode =
     modifiers.shiftKey && !modifiers.metaKey && !modifiers.ctrlKey && !modifiers.altKey;
-  const search = Route.useSearch();
   const sort = search.sort ?? "ready";
   const statsPolicy: PullRequestStatsPolicy =
     sort === "ready" || sort === "largest" || sort === "smallest" ? "eager" : "visible";
-  const navigate = useNavigate({ from: Route.fullPath });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     capableEnvironments,
@@ -1423,7 +1454,7 @@ function PullRequestsRouteView() {
   );
   const hostEntries = hosts.length > 0 ? hosts : expectedHosts;
   const hostMenuOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
-    { value: "", label: "All", Icon: Plug2Icon },
+    { value: "", label: "All hosts", Icon: LayersIcon },
     ...hostEntries.map((entry) => {
       const summary = hosts.find((host) => host.host === entry.host);
       return {
@@ -1441,7 +1472,11 @@ function PullRequestsRouteView() {
     ...capableEnvironments.map((environment) => ({
       value: environment.environmentId,
       label: environment.label,
-      Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
+      Icon: environmentMachineIcon(
+        resolveEnvironmentMachineKind(
+          environment.serverConfig?.settings === undefined ? null : environment.serverConfig,
+        ),
+      ),
     })),
   ];
   const sortMenu = (
@@ -1453,6 +1488,17 @@ function PullRequestsRouteView() {
       value={sort}
       options={SORT_OPTIONS}
       onChange={(next) => updateListScope({ sort: next })}
+    />
+  );
+  const projectScopeToggle = (
+    <WindowProjectScopeToggle
+      forcedProjectRef={forcedProjectRef}
+      listScope={projectScope.listScope}
+      onNavigate={(urlScope) =>
+        projectScope.onScopeChange(urlScope, (scopePatch) =>
+          updateListScope({ ...scopePatch, environmentId: undefined }),
+        )
+      }
     />
   );
   const filtersMenu = (
@@ -1490,11 +1536,14 @@ function PullRequestsRouteView() {
       hostOptions={hostMenuOptions}
       onHost={(host) => updateListScope({ host })}
       server={scopedEnvironmentId ?? undefined}
-      serverOptions={serverMenuOptions}
+      serverOptions={projectScope.showHubScopeFilters ? serverMenuOptions : []}
       onServer={(server) => updateListScope({ environmentId: server, projectId: undefined })}
       projects={scopedProjects}
-      projectId={scopedProjectId}
-      projectEnvironmentId={scopedProject?.environmentId}
+      projectId={projectScope.showHubScopeFilters ? scopedProjectId : undefined}
+      projectEnvironmentId={
+        projectScope.showHubScopeFilters ? scopedProject?.environmentId : undefined
+      }
+      showProjectFilter={projectScope.showHubScopeFilters}
       unavailable={unavailableProjects}
       onProject={(projectId, environmentId) =>
         updateListScope(environmentId === undefined ? { projectId } : { projectId, environmentId })
@@ -1515,6 +1564,7 @@ function PullRequestsRouteView() {
     searchInput,
     sortMenu,
     filtersMenu,
+    projectScopeToggle,
     rightPanelControl: !pullRequestsSupported ? null : (
       <span
         aria-hidden
@@ -1626,7 +1676,7 @@ function PullRequestsRouteView() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isCommandPaletteOpen()) return;
       const command = resolveShortcutCommand(event, keybindings, {
-        context: getShortcutContext(),
+        context: { terminalFocus: isTerminalFocused() },
       });
       if (command === "rightPanel.close") closeActiveSurfaceFromShortcut(event);
       if (command === "rightPanel.toggle") toggleRightPanelFromShortcut(event);
@@ -1695,8 +1745,6 @@ function PullRequestsRouteView() {
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel
-              getShortcutContext={getShortcutContext}
-              shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               key={renderedPullRequestSurface.id}
               environmentId={panelEnvironmentId}
               onGuideShown={onGuideShown}
@@ -2149,7 +2197,6 @@ function CompactFilterMenu<Value extends string>({
   triggerIcon,
   triggerLabel,
   outlined = false,
-  iconOnly = false,
   value,
   options,
   onChange,
@@ -2159,7 +2206,6 @@ function CompactFilterMenu<Value extends string>({
   triggerIcon?: ReactNode;
   triggerLabel?: string;
   outlined?: boolean;
-  iconOnly?: boolean;
   value: Value;
   options: ReadonlyArray<PullRequestFilterOption<Value>>;
   onChange: (value: Value) => void;
@@ -2181,9 +2227,7 @@ function CompactFilterMenu<Value extends string>({
         }
         className={cn("min-w-0", className)}
       >
-        {iconOnly ? (
-          <current.Icon aria-hidden className="size-4" />
-        ) : triggerLabel ? (
+        {triggerLabel ? (
           <>
             {triggerIcon}
             <span>{triggerLabel}</span>
@@ -2299,6 +2343,7 @@ function PullRequestsColumn({
   searchInput,
   sortMenu,
   filtersMenu,
+  projectScopeToggle,
   rightPanelControl,
   titlebarControls,
   rightPanelOpen,
@@ -2319,6 +2364,7 @@ function PullRequestsColumn({
   searchInput: ReactNode;
   sortMenu: ReactNode;
   filtersMenu: ReactNode;
+  projectScopeToggle: ReactNode;
   rightPanelControl: ReactNode;
   titlebarControls: ReactNode;
   rightPanelOpen: boolean;
@@ -2450,21 +2496,12 @@ function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
+              {projectScopeToggle}
               <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
                 {searchInput}
               </div>
               {sortMenu}
               {filtersMenu}
-              <CompactFilterMenu
-                label="Filter by provider"
-                outlined
-                iconOnly={host !== undefined}
-                triggerIcon={<Plug2Icon aria-hidden className="size-4" />}
-                triggerLabel="All"
-                value={host ?? ""}
-                options={hostMenuOptions}
-                onChange={(next) => onHost(next === "" ? undefined : next)}
-              />
               {!condensed ? (
                 <PullRequestRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               ) : null}
