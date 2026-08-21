@@ -80,6 +80,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "projectSearch.toggle",
   "theme.select",
   "appearance.cycle",
+  "project.openWindow",
   "themeEditor.toggle",
   "composer.stash",
   "composer.host",
