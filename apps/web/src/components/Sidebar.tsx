@@ -8,6 +8,13 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
+
+import {
+  filterSidebarProjects,
+  resolveSidebarPhysicalScope,
+  setSidebarLogicalScope,
+} from "./sidebar/SidebarPhysicalScope";
+import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
@@ -79,6 +86,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -793,6 +801,7 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const forcedProjectRef = useSidebarPhysicalScope();
   const {
     projects,
     serverConfigs,
@@ -885,6 +894,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
@@ -895,6 +908,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const acknowledgeWoke = useAcknowledgeThreadWoke();
   const routeTarget = useThreadRouteTarget();
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -1039,8 +1056,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return environmentLabelById.get(thread.environmentId) ?? null;
   };
+  const {
+    projectGroup: scopedProjectGroup,
+    effectiveScopeKey: effectiveProjectScopeKey,
+    projectKeys: scopedProjectKeys,
+  } = useMemo(
+    () =>
+      resolveSidebarPhysicalScope({
+        forcedProjectRef,
+        projectGroups,
+        logicalScopeKey: projectScopeKey,
+      }),
+    [forcedProjectRef, projectGroups, projectScopeKey],
+  );
   const selectedProjectScopeItem =
-    projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
+    projectScopeItems.find((item) => item.value === (effectiveProjectScopeKey ?? "all")) ??
     projectScopeItems[0]!;
   const filteredProjectScopeItems = filterSidebarProjectScopeItems({
     items: projectScopeItems,
@@ -1048,8 +1078,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
-  const scopedProjectGroup = revealWidensScope ? null : chosenProjectGroup;
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
     searchEnvironmentIds,
     threadSearchQuery,
@@ -1111,6 +1139,27 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       dispatchProjectScopeMenu({ type: "project-settings-opened" });
       openProjectSettings(projectGroup);
     },
+  );
+
+  const handleOpenProjectWindow = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+      if (!desktopBridge) return;
+      void desktopBridge
+        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        });
+    },
+    [desktopBridge],
   );
 
   const {
@@ -1288,7 +1337,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isMobile) {
       setOpenMobile(false);
     }
-    void router.navigate({ to: "/draft/$draftId", params: { draftId } });
+    void router.navigate(routeFamily.draft(draftId));
   };
 
   const clearThreadSearch = () => {
@@ -1408,7 +1457,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
       : shell
         ? () => void handleNewThread(scopeProjectRef(shell.environmentId, shell.projectId))
-        : () => void router.navigate({ to: "/" });
+        : () => void router.navigate(routeFamily.index());
   };
 
   const attemptSettle = (
@@ -2733,6 +2782,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   isItemEqualToValue={(a, b) => a.value === b.value}
                   open={projectScopeMenuState.open}
                   onOpenChange={(open) => {
+                    if (forcedProjectRef !== null) return;
                     if (open) suppressNextScopeChangeRef.current = false;
                     dispatchProjectScopeMenu({ type: "open-changed", open });
                   }}
@@ -2745,8 +2795,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    if (!item || forcedProjectRef !== null) return;
+                    setSidebarLogicalScope(
+                      forcedProjectRef,
+                      item.value === "all" ? null : item.value,
+                      setProjectScopeKey,
+                    );
                   }}
                 >
                   <ComboboxTrigger
@@ -2757,6 +2811,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             ? `Filter threads by project: ${scopedProjectGroup.displayName}`
                             : "Filter threads by project"
                         }
+                        disabled={forcedProjectRef !== null}
                       />
                     }
                   >
@@ -2847,6 +2902,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
+              }
+              projectSettingsAction={
+                forcedProjectRef !== null && scopedProjectGroup !== null ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <SidebarHeaderIconButton
+                          label={`Project settings for ${scopedProjectGroup.displayName}`}
+                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                            void handleProjectSettings(event, scopedProjectGroup);
+                          }}
+                        >
+                          <SettingsIcon />
+                        </SidebarHeaderIconButton>
+                      }
+                    />
+                    <TooltipPopup side="right">Project settings</TooltipPopup>
+                  </Tooltip>
+                ) : undefined
               }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
