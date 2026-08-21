@@ -77,6 +77,7 @@ import { useShallow } from "zustand/react/shallow";
 import { createDeferredStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
+import { resolveProjectRefFromPathname } from "./projectRoutes";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
@@ -88,6 +89,19 @@ const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
+
+export function resolveComposerDraftStorageKey(pathname: string): string {
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  if (projectRef === null) {
+    return COMPOSER_DRAFT_STORAGE_KEY;
+  }
+  return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(projectRef.environmentId)}:${encodeURIComponent(projectRef.projectId)}`;
+}
+
+// Test doubles stub `window` without `location`; treat that like a server render.
+export const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
+  typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
+);
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -2389,7 +2403,7 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   }
   try {
     const persisted = getLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
+      activeComposerDraftStorageKey,
       PersistedComposerDraftStoreStorage,
     );
     if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
@@ -4353,7 +4367,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
       };
     },
     {
-      name: COMPOSER_DRAFT_STORAGE_KEY,
+      name: activeComposerDraftStorageKey,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,

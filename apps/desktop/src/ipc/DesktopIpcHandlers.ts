@@ -47,6 +47,7 @@ import {
   openSystemSettings,
   checkSystemPermission,
   pasteAsText,
+  openProjectWindow,
   probeRemoteEditors,
   pickFolder,
   pickProjectFavicon,
@@ -143,6 +144,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
+  yield* ipc.handle(openProjectWindow);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
