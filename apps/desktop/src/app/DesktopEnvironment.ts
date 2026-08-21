@@ -39,6 +39,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly processArch: string;
     readonly isPackaged: boolean;
     readonly isDevelopment: boolean;
+    readonly devToolsEnabled: boolean; // fork-hook: multi-window/devtools-enabled
     readonly appVersion: string;
     readonly appPath: string;
     readonly resourcesPath: string;
@@ -49,6 +50,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
     readonly savedEnvironmentRegistryPath: string;
+    readonly windowSessionPath: string; // fork-hook: multi-window/window-session-path
     readonly serverSettingsPath: string;
     readonly logDir: string;
     readonly browserArtifactsDir: string;
@@ -192,6 +194,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     processArch: input.processArch,
     isPackaged: input.isPackaged,
     isDevelopment,
+    devToolsEnabled: config.devToolsEnabled, // fork-hook: multi-window/devtools-enabled
     appVersion: input.appVersion,
     appPath: input.appPath,
     resourcesPath,
@@ -202,6 +205,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
+    windowSessionPath: path.join(stateDir, "window-session.json"), // fork-hook: multi-window/window-session-path
     serverSettingsPath: path.join(stateDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
