@@ -1,0 +1,198 @@
+import { assert, describe, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
+import * as References from "effect/References";
+import { beforeEach, vi } from "vite-plus/test";
+const { createClerkBridgeMock, storageAdapter, storageMock } = vi.hoisted(() => ({
+  createClerkBridgeMock: vi.fn(),
+  storageAdapter: {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  },
+  storageMock: vi.fn(),
+}));
+vi.mock("@clerk/electron", () => ({
+  createClerkBridge: createClerkBridgeMock,
+}));
+vi.mock("@clerk/electron/storage", () => ({
+  storage: storageMock,
+}));
+import * as NodePath from "@effect/platform-node/NodePath";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as ElectronApp from "../electron/ElectronApp.ts";
+import * as ElectronShell from "../electron/ElectronShell.ts";
+import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopWebLinks from "./DesktopWebLinks.ts";
+import { desktopLaunchArguments } from "./DesktopLaunchArguments.fork.ts";
+// Upstream registers `second-instance` at layer construction, so the layer's app
+// shares the test's listener map.
+const makeDesktopClerkLayer = (
+  listeners: Map<string, (...args: readonly unknown[]) => void>,
+  registeredEvents: string[] = [],
+) => {
+  const environment = DesktopEnvironment.DesktopEnvironment.of({
+    stateDir: "/tmp/t3-state",
+    isDevelopment: true,
+    userDataDirectoryOverride: Option.none(),
+    appDataDirectory: "/tmp/app-data",
+    platform: "darwin",
+  } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
+  const electronApp = {
+    setPath: () => Effect.void,
+    requestSingleInstanceLock: Effect.succeed(true),
+    quit: Effect.void,
+    on: (eventName: string, listener: (...args: readonly unknown[]) => void) =>
+      Effect.sync(() => {
+        registeredEvents.push(eventName);
+        listeners.set(eventName, listener);
+      }),
+  } as unknown as ElectronApp.ElectronApp["Service"];
+  return DesktopClerk.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodePath.layerPosix,
+        Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
+        Layer.succeed(ElectronApp.ElectronApp, electronApp),
+        Layer.succeed(ElectronShell.ElectronShell, {} as ElectronShell.ElectronShell["Service"]),
+        FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
+      ),
+    ),
+  );
+};
+describe("DesktopClerk", () => {
+  it.effect("leaves web and file URLs to upstream while routing application links", () =>
+    Effect.gen(function* () {
+      const opened: string[][] = [];
+      yield* desktopLaunchArguments.install((argv) =>
+        Effect.sync(() => void opened.push([...argv])),
+      );
+      const router = yield* desktopLaunchArguments.router;
+      const event = { preventDefault: vi.fn() };
+      const auth = vi.fn(() => false);
+      for (const url of ["https://example.com", "http://example.com", "file:///page.html"]) {
+        assert.isFalse(router.openUrl(event, url, [auth]));
+      }
+      assert.equal(event.preventDefault.mock.calls.length, 0);
+      assert.equal(auth.mock.calls.length, 0);
+      assert.isTrue(router.openUrl(event, "t3code://app/project/env/project", [auth]));
+      yield* Effect.yieldNow;
+      assert.deepEqual(opened, [["t3code://app/project/env/project"]]);
+      assert.equal(event.preventDefault.mock.calls.length, 1);
+    }),
+  );
+  beforeEach(() => {
+    createClerkBridgeMock.mockReset();
+    storageMock.mockReset();
+  });
+  it.effect("routes Linux second-instance deep links and macOS open-url arguments", () => {
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    const quit = vi.fn();
+    const registeredEvents: string[] = [];
+    const listeners = new Map<string, (...args: readonly unknown[]) => void>();
+    const electronApp = {
+      quit: Effect.sync(quit),
+      on: (eventName: string, listener: (...args: readonly unknown[]) => void) =>
+        Effect.sync(() => {
+          registeredEvents.push(eventName);
+          listeners.set(eventName, listener);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
+    return Effect.gen(function* () {
+      const clerk = yield* DesktopClerk.DesktopClerk;
+      const openedArguments: string[][] = [];
+      yield* desktopLaunchArguments.install((argv) =>
+        Effect.sync(() => {
+          openedArguments.push([...argv]);
+        }),
+      );
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      listeners.get("second-instance")?.({}, [
+        "/repo/apps/desktop/node_modules/electron/dist/electron",
+        "--no-sandbox",
+        "dist-electron/main.cjs",
+        "t3code-dev://app/project/env/project",
+      ]);
+      const preventDefault = vi.fn();
+      listeners.get("open-url")?.({ preventDefault }, "t3code://app/project/env/project");
+      yield* Effect.yieldNow;
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.equal(quit.mock.calls.length, 0);
+      assert.deepEqual(registeredEvents, ["second-instance", "open-url", "open-file"]);
+      assert.deepEqual(openedArguments, [
+        [
+          "/repo/apps/desktop/node_modules/electron/dist/electron",
+          "--no-sandbox",
+          "dist-electron/main.cjs",
+          "t3code-dev://app/project/env/project",
+        ],
+        ["t3code://app/project/env/project"],
+      ]);
+      assert.equal(preventDefault.mock.calls.length, 1);
+    }).pipe(
+      Effect.provide(makeDesktopClerkLayer(listeners, registeredEvents)),
+      Effect.provideService(ElectronApp.ElectronApp, electronApp),
+      Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, {
+        receive: () => Effect.void,
+        setRendererReady: () => Effect.void,
+      }),
+    );
+  });
+  it.effect("logs launch-argument failures with their source and argv", () => {
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    const listeners = new Map<string, (...args: readonly unknown[]) => void>();
+    const electronApp = {
+      quit: Effect.void,
+      on: (eventName: string, listener: (...args: readonly unknown[]) => void) =>
+        Effect.sync(() => {
+          listeners.set(eventName, listener);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
+    const records: Array<{
+      readonly message: unknown;
+      readonly annotations: Readonly<Record<string, unknown>>;
+    }> = [];
+    const logger = Logger.make(({ fiber, message }) => {
+      records.push({
+        message,
+        annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
+      });
+    });
+    const argv = ["electron", "--project=env/project"];
+    return Effect.gen(function* () {
+      const clerk = yield* DesktopClerk.DesktopClerk;
+      yield* desktopLaunchArguments.install(() => Effect.fail("window open failed"));
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      listeners.get("second-instance")?.({}, argv);
+      yield* Effect.yieldNow;
+      assert.isTrue(Exit.isSuccess(exit));
+      const warning = records.find(
+        (record) =>
+          Array.isArray(record.message) && record.message[0] === "failed to open launch arguments",
+      );
+      assert.isDefined(warning);
+      assert.equal(warning.annotations.component, "desktop-clerk");
+      assert.equal(warning.annotations.source, "second-instance");
+      assert.deepEqual(warning.annotations.argv, argv);
+      assert.include(String(warning.annotations.error), "window open failed");
+    }).pipe(
+      Effect.provide(makeDesktopClerkLayer(listeners)),
+      Effect.provideService(ElectronApp.ElectronApp, electronApp),
+      Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, {
+        receive: () => Effect.void,
+        setRendererReady: () => Effect.void,
+      }),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+    );
+  });
+});

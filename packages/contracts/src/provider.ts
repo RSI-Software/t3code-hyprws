@@ -4,6 +4,7 @@ import {
   ApprovalRequestId,
   EventId,
   IsoDateTime,
+  ProjectId, // fork-hook: multi-window/provider-project-id-import
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -52,6 +53,7 @@ export type ProviderSession = typeof ProviderSession.Type;
 
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
+  projectId: Schema.optional(ProjectId), // fork-hook: multi-window/provider-project-id
   provider: Schema.optional(ProviderDriverKind),
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
