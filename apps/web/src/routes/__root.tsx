@@ -1,6 +1,10 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedProjectKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import {
   Outlet,
   Link,
@@ -56,6 +60,8 @@ import { cn } from "../lib/utils";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
+import { resolveProjectRefFromPathname } from "../projectRoutes";
+import { hubThreadRouteFamily } from "../threadRoutes";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -74,7 +80,12 @@ import {
   primaryServerConfigEventAtom,
   primaryServerWelcomeAtom,
 } from "../state/server";
-import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import {
+  readProject,
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+  useProjects,
+} from "../state/entities";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -203,9 +214,13 @@ function RootRouteView() {
 
   const appShell = (
     <CommandPalette>
-      <AppSidebarLayout>
+      {pathname.startsWith("/project/") ? (
         <Outlet />
-      </AppSidebarLayout>
+      ) : (
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      )}
     </CommandPalette>
   );
 
@@ -340,12 +355,25 @@ function FontAppearanceSync() {
 function DocumentTitleSync() {
   const primaryServerVersion =
     useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-  const title = resolveServerBackedAppDisplayName({
-    baseName: APP_BASE_NAME,
-    fallbackDisplayName: APP_DISPLAY_NAME,
-    fallbackStageLabel: APP_STAGE_LABEL,
-    primaryServerVersion,
-  });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const projects = useProjects();
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  const projectTitle =
+    projectRef === null
+      ? null
+      : (projects.find(
+          (project) =>
+            project.environmentId === projectRef.environmentId &&
+            project.id === projectRef.projectId,
+        )?.title ?? null);
+  const title =
+    projectTitle ??
+    resolveServerBackedAppDisplayName({
+      baseName: APP_BASE_NAME,
+      fallbackDisplayName: APP_DISPLAY_NAME,
+      fallbackStageLabel: APP_STAGE_LABEL,
+      primaryServerVersion,
+    });
 
   useEffect(() => {
     document.title = title;
@@ -543,11 +571,9 @@ function EventRouter({
         return;
       }
       await navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId: payload.environment.environmentId,
-          threadId: payload.bootstrapThreadId,
-        },
+        ...hubThreadRouteFamily.thread(
+          scopeThreadRef(payload.environment.environmentId, payload.bootstrapThreadId),
+        ),
         replace: true,
       });
       handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;

@@ -33,8 +33,13 @@ import { Route as SettingsArchivedRouteImport } from './routes/settings.archived
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
+import { Route as ProjectEnvironmentIdProjectIdRouteImport } from './routes/project.$environmentId.$projectId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ProjectEnvironmentIdProjectIdIndexRouteImport } from './routes/project.$environmentId.$projectId.index'
+import { Route as ProjectEnvironmentIdProjectIdPullRequestsRouteImport } from './routes/project.$environmentId.$projectId.pull-requests'
+import { Route as ProjectEnvironmentIdProjectIdThreadThreadIdRouteImport } from './routes/project.$environmentId.$projectId.thread.$threadId'
+import { Route as ProjectEnvironmentIdProjectIdDraftDraftIdRouteImport } from './routes/project.$environmentId.$projectId.draft.$draftId'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -156,6 +161,12 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
+const ProjectEnvironmentIdProjectIdRoute =
+  ProjectEnvironmentIdProjectIdRouteImport.update({
+    id: '/project/$environmentId/$projectId',
+    path: '/project/$environmentId/$projectId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -166,6 +177,30 @@ const ChatEnvironmentIdThreadIdRoute =
     id: '/$environmentId/$threadId',
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
+  } as any)
+const ProjectEnvironmentIdProjectIdIndexRoute =
+  ProjectEnvironmentIdProjectIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
+  } as any)
+const ProjectEnvironmentIdProjectIdPullRequestsRoute =
+  ProjectEnvironmentIdProjectIdPullRequestsRouteImport.update({
+    id: '/pull-requests',
+    path: '/pull-requests',
+    getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
+  } as any)
+const ProjectEnvironmentIdProjectIdThreadThreadIdRoute =
+  ProjectEnvironmentIdProjectIdThreadThreadIdRouteImport.update({
+    id: '/thread/$threadId',
+    path: '/thread/$threadId',
+    getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
+  } as any)
+const ProjectEnvironmentIdProjectIdDraftDraftIdRoute =
+  ProjectEnvironmentIdProjectIdDraftDraftIdRouteImport.update({
+    id: '/draft/$draftId',
+    path: '/draft/$draftId',
+    getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -194,6 +229,11 @@ export interface FileRoutesByFullPath {
   '/settings/storage': typeof SettingsStorageRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdRouteWithChildren
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
+  '/project/$environmentId/$projectId/': typeof ProjectEnvironmentIdProjectIdIndexRoute
+  '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
+  '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
@@ -221,6 +261,10 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
+  '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdIndexRoute
+  '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
+  '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -250,6 +294,11 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdRouteWithChildren
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
+  '/project/$environmentId/$projectId/': typeof ProjectEnvironmentIdProjectIdIndexRoute
+  '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
+  '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -279,6 +328,11 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/project/$environmentId/$projectId'
+    | '/project/$environmentId/$projectId/pull-requests'
+    | '/project/$environmentId/$projectId/'
+    | '/project/$environmentId/$projectId/draft/$draftId'
+    | '/project/$environmentId/$projectId/thread/$threadId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
@@ -306,6 +360,10 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/project/$environmentId/$projectId/pull-requests'
+    | '/project/$environmentId/$projectId'
+    | '/project/$environmentId/$projectId/draft/$draftId'
+    | '/project/$environmentId/$projectId/thread/$threadId'
   id:
     | '__root__'
     | '/_chat'
@@ -334,6 +392,11 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/project/$environmentId/$projectId'
+    | '/project/$environmentId/$projectId/pull-requests'
+    | '/project/$environmentId/$projectId/'
+    | '/project/$environmentId/$projectId/draft/$draftId'
+    | '/project/$environmentId/$projectId/thread/$threadId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -345,6 +408,7 @@ export interface RootRouteChildren {
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
+  ProjectEnvironmentIdProjectIdRoute: typeof ProjectEnvironmentIdProjectIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -517,6 +581,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/project/$environmentId/$projectId': {
+      id: '/project/$environmentId/$projectId'
+      path: '/project/$environmentId/$projectId'
+      fullPath: '/project/$environmentId/$projectId'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -530,6 +601,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/$environmentId/$threadId'
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
+    }
+    '/project/$environmentId/$projectId/': {
+      id: '/project/$environmentId/$projectId/'
+      path: '/'
+      fullPath: '/project/$environmentId/$projectId/'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdIndexRouteImport
+      parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
+    }
+    '/project/$environmentId/$projectId/pull-requests': {
+      id: '/project/$environmentId/$projectId/pull-requests'
+      path: '/pull-requests'
+      fullPath: '/project/$environmentId/$projectId/pull-requests'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdPullRequestsRouteImport
+      parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
+    }
+    '/project/$environmentId/$projectId/thread/$threadId': {
+      id: '/project/$environmentId/$projectId/thread/$threadId'
+      path: '/thread/$threadId'
+      fullPath: '/project/$environmentId/$projectId/thread/$threadId'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdThreadThreadIdRouteImport
+      parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
+    }
+    '/project/$environmentId/$projectId/draft/$draftId': {
+      id: '/project/$environmentId/$projectId/draft/$draftId'
+      path: '/draft/$draftId'
+      fullPath: '/project/$environmentId/$projectId/draft/$draftId'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdDraftDraftIdRouteImport
+      parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
     }
   }
 }
@@ -588,6 +687,30 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
+interface ProjectEnvironmentIdProjectIdRouteChildren {
+  ProjectEnvironmentIdProjectIdPullRequestsRoute: typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
+  ProjectEnvironmentIdProjectIdIndexRoute: typeof ProjectEnvironmentIdProjectIdIndexRoute
+  ProjectEnvironmentIdProjectIdDraftDraftIdRoute: typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
+  ProjectEnvironmentIdProjectIdThreadThreadIdRoute: typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
+}
+
+const ProjectEnvironmentIdProjectIdRouteChildren: ProjectEnvironmentIdProjectIdRouteChildren =
+  {
+    ProjectEnvironmentIdProjectIdPullRequestsRoute:
+      ProjectEnvironmentIdProjectIdPullRequestsRoute,
+    ProjectEnvironmentIdProjectIdIndexRoute:
+      ProjectEnvironmentIdProjectIdIndexRoute,
+    ProjectEnvironmentIdProjectIdDraftDraftIdRoute:
+      ProjectEnvironmentIdProjectIdDraftDraftIdRoute,
+    ProjectEnvironmentIdProjectIdThreadThreadIdRoute:
+      ProjectEnvironmentIdProjectIdThreadThreadIdRoute,
+  }
+
+const ProjectEnvironmentIdProjectIdRouteWithChildren =
+  ProjectEnvironmentIdProjectIdRoute._addFileChildren(
+    ProjectEnvironmentIdProjectIdRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   ConnectRoute: ConnectRoute,
@@ -597,6 +720,8 @@ const rootRouteChildren: RootRouteChildren = {
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
+  ProjectEnvironmentIdProjectIdRoute:
+    ProjectEnvironmentIdProjectIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
