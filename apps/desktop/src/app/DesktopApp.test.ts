@@ -173,6 +173,8 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           ensureMain: stub
             .record("window")
             .pipe(Effect.andThen(Deferred.succeed(stub.windowStarted, undefined))),
+          restoreWindowSession: Effect.void, // fork-hook: multi-window/desktop-app-test-restore-window-session
+          openArguments: () => Effect.void, // fork-hook: multi-window/desktop-app-test-open-arguments
           createMainIfBackendReady: stub
             .record("window")
             .pipe(Effect.andThen(Deferred.succeed(stub.windowStarted, undefined))),

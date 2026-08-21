@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import { DesktopSnapShotId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -54,8 +55,20 @@ import {
   PASSKEY_BRIDGE_ARGUMENT,
   PRIMARY_PASTE_DISABLED_ARGUMENT,
 } from "../preview/GuestProtocol.ts";
+import {
+  desktopEnvironmentLayerFork,
+  registerDesktopWindowForkTests,
+} from "./DesktopWindow.fork.suite.ts"; // fork-hook: multi-window/fork-suite-import
+import * as DesktopWindowSession from "./DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
+import * as HyprlandPlacement from "./HyprlandPlacement.ts"; // fork-hook: multi-window/hyprland-placement-import
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  projectWindowIdentity,
+  windowIdentityKey,
+} from "./WindowIdentity.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -117,6 +130,7 @@ function makeFakeBrowserWindow() {
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
+    getTitle: vi.fn(() => "T3 Code"), // fork-hook: multi-window/fake-window-title
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
@@ -165,6 +179,7 @@ function makeFakeBrowserWindow() {
     setAutoHideCursor: window.setAutoHideCursor,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
+    setTitle: window.setTitle, // fork-hook: multi-window/fake-window-set-title
     webContentsListeners,
     webContentsOnce: webContents.once,
     windowListeners,
@@ -263,6 +278,11 @@ function layerTest(input: {
   }>;
   readonly primaryPasteEnabled?: boolean;
   readonly previewPasskeyBridgeEnabled?: boolean;
+  readonly previewMainWindowSets?: Electron.BrowserWindow[]; // fork-hook: multi-window/preview-main-window-sets
+  readonly previewBrowserSessionRequests?: number[]; // fork-hook: multi-window/preview-browser-session-requests
+  readonly environmentEnv?: Record<string, string | undefined>; // fork-hook: multi-window/environment-env-input
+  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[]; // fork-hook: multi-window/restore-entries-input
+  readonly workspaceMoves?: { key: string; workspace: string }[]; // fork-hook: multi-window/workspace-moves-input
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -299,6 +319,28 @@ function layerTest(input: {
     applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
   } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
 
+  const hyprlandPlacementLayer = Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
+    isAvailable: input.workspaceMoves !== undefined,
+    claim: () => Effect.void,
+    forget: () => Effect.void,
+    workspaceOf: () => Effect.succeed(Option.none()),
+    moveToWorkspace: (key, workspace) =>
+      Effect.sync(() => {
+        input.workspaceMoves?.push({ key, workspace: workspace.name });
+      }),
+  } satisfies HyprlandPlacement.HyprlandPlacement["Service"]); // fork-hook: multi-window/hyprland-placement-fake
+  const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+    capture: () => Effect.void,
+    consume: Effect.succeed(input.restoreEntries ?? []),
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]); // fork-hook: multi-window/window-session-fake
+
+  const projectWindows = new Map<string, Electron.BrowserWindow>(); // fork-hook: multi-window/project-windows
+  const getIdentityWindow = (
+    identity: Parameters<ElectronWindow.ElectronWindow["Service"]["get"]>[0],
+  ) =>
+    identity.kind === "hub"
+      ? Ref.get(input.mainWindow)
+      : Effect.sync(() => Option.fromNullishOr(projectWindows.get(windowIdentityKey(identity)))); // fork-hook: multi-window/identity-window-get
   const layerElectronWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
       Effect.sync(() => {
@@ -309,6 +351,40 @@ function layerTest(input: {
         Effect.as(input.window),
       ),
     main: Ref.get(input.mainWindow),
+    get: getIdentityWindow,
+    getOrCreate: (identity, create) =>
+      getIdentityWindow(identity).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              create.pipe(
+                Effect.tap((window) =>
+                  identity.kind === "hub"
+                    ? Ref.set(input.mainWindow, Option.some(window))
+                    : Effect.sync(() => {
+                        projectWindows.set(windowIdentityKey(identity), window);
+                      }),
+                ),
+                Effect.map((window) => ({ window, created: true as boolean })),
+              ),
+            onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+          }),
+        ),
+      ), // fork-hook: multi-window/restore-create-new
+    close: (identity) =>
+      identity.kind === "hub"
+        ? Ref.set(input.mainWindow, Option.none())
+        : Effect.sync(() => {
+            projectWindows.delete(windowIdentityKey(identity));
+            input.window.close();
+          }),
+    identityFor: (window) =>
+      Ref.get(input.mainWindow).pipe(
+        Effect.map((main) =>
+          Option.contains(main, window) ? Option.some(HUB_WINDOW_IDENTITY) : Option.none(),
+        ),
+      ),
+    listIdentities: Effect.succeed([]),
     currentMainOrFirst: Ref.get(input.mainWindow).pipe(
       Effect.map(Option.orElse(() => Option.fromNullishOr(input.fallbackWindow ?? null))),
     ),
@@ -344,10 +420,13 @@ function layerTest(input: {
         input.platform === undefined
           ? layerDesktopEnvironment
           : layerDesktopEnvironmentFor(input.platform),
+        desktopEnvironmentLayerFork(environmentInput, input.environmentEnv), // fork-hook: multi-window/environment-env
         layerDesktopAppSettings,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
         DesktopState.layer,
+        hyprlandPlacementLayer, // fork-hook: multi-window/hyprland-placement-layer
+        windowSessionLayer, // fork-hook: multi-window/window-session-layer
         layerElectronApp,
         Layer.succeed(ElectronMenu.ElectronMenu, {
           pasteAndMatchStyle: Effect.void,
@@ -375,8 +454,16 @@ function layerTest(input: {
           attachGuest: () => () => {},
         }),
         Layer.mock(PreviewManager.PreviewManager)({
-          getBrowserSession: () => Effect.succeed({} as Electron.Session),
+          getBrowserSession: () =>
+            Effect.sync(() => {
+              input.previewBrowserSessionRequests?.push(1);
+              return {} as Electron.Session;
+            }),
           setMainWindow: input.setPreviewMainWindow ?? (() => Effect.void),
+          setWindow: (_identity, window) =>
+            Effect.sync(() => {
+              input.previewMainWindowSets?.push(window);
+            }),
           prepareWebview: () => Effect.void,
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
@@ -384,6 +471,13 @@ function layerTest(input: {
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
             }),
+          forWindow: () =>
+            Effect.succeed({
+              reapplyZoom: () =>
+                Effect.sync(() => {
+                  input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
+                }),
+            } as never), // fork-hook: multi-window/preview-for-window
         }),
       ),
     ),
@@ -445,6 +539,23 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           return outcome;
         }),
       main: Ref.get(mainWindow),
+      get: () => Ref.get(mainWindow), // fork-hook: multi-window/splash-identity-window-get
+      getOrCreate: (_identity, create) =>
+        Ref.get(mainWindow).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () =>
+                create.pipe(
+                  Effect.tap((window) => Ref.set(mainWindow, Option.some(window))),
+                  Effect.map((window) => ({ window, created: true as boolean })),
+                ),
+              onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+            }),
+          ),
+        ),
+      close: () => Ref.set(mainWindow, Option.none()),
+      identityFor: () => Effect.succeed(Option.none()),
+      listIdentities: Effect.succeed([]),
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
@@ -471,6 +582,17 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           layerDesktopClientSettings,
           layerDesktopServerExposure,
           DesktopState.layer,
+          Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
+            isAvailable: false,
+            claim: () => Effect.void,
+            forget: () => Effect.void,
+            workspaceOf: () => Effect.succeed(Option.none()),
+            moveToWorkspace: () => Effect.void,
+          } satisfies HyprlandPlacement.HyprlandPlacement["Service"]), // fork-hook: multi-window/splash-hyprland-placement
+          Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+            capture: () => Effect.void,
+            consume: Effect.succeed([]),
+          } satisfies DesktopWindowSession.DesktopWindowSession["Service"]), // fork-hook: multi-window/splash-window-session
           layerElectronApp,
           layerElectronMenu,
           Layer.succeed(ElectronShell.ElectronShell, {
@@ -489,6 +611,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.mock(PreviewManager.PreviewManager)({
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
             setMainWindow: () => Effect.void,
+            setWindow: () => Effect.void, // fork-hook: multi-window/splash-preview-set-window
             isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
             getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           }),
@@ -1845,4 +1968,9 @@ describe("DesktopWindow", () => {
       }).pipe(Effect.provide(layer));
     }),
   );
+  registerDesktopWindowForkTests({ makeFakeBrowserWindow, makeTestLayer }); // fork-hook: multi-window/fork-suite-register
 });
+export type DesktopWindowHarnessFork = {
+  makeFakeBrowserWindow: typeof makeFakeBrowserWindow;
+  makeTestLayer: typeof makeTestLayer;
+}; // fork-hook: multi-window/fork-suite-harness
