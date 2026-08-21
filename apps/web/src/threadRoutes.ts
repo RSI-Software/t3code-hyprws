@@ -12,6 +12,10 @@ export type ThreadRouteTarget =
       draftId: DraftId;
     };
 
+type ThreadRouteParams = Partial<
+  Record<"environmentId" | "projectId" | "threadId" | "draftId", string | undefined>
+>;
+
 type DraftThreadRouteState = {
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -53,6 +57,26 @@ export function buildDraftThreadRouteParams(draftId: DraftId): {
   draftId: DraftId;
 } {
   return { draftId };
+}
+
+export const hubThreadRouteFamily = {
+  kind: "hub",
+  thread: (threadRef: ScopedThreadRef) => ({
+    to: "/$environmentId/$threadId" as const,
+    params: buildThreadRouteParams(threadRef),
+  }),
+  draft: (draftId: DraftId) => ({
+    to: "/draft/$draftId" as const,
+    params: buildDraftThreadRouteParams(draftId),
+  }),
+  index: () => ({ to: "/" as const }),
+};
+
+export type ThreadRouteFamily = typeof hubThreadRouteFamily;
+
+/** Selects the navigation family represented by the current route params. */
+export function resolveThreadRouteFamily(_params: ThreadRouteParams): ThreadRouteFamily {
+  return hubThreadRouteFamily;
 }
 
 export function resolveThreadRouteRef(
