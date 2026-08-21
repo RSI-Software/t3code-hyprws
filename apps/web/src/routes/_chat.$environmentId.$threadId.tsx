@@ -4,7 +4,11 @@ import { useEffect } from "react";
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
-import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
+import {
+  resolveThreadRouteFamily,
+  resolveThreadRouteRef,
+  resolveThreadRouteRenderState,
+} from "../threadRoutes";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { SidebarInset } from "~/components/ui/sidebar";
 import {
@@ -20,6 +24,9 @@ function ChatThreadRouteView() {
   const navigate = useNavigate();
   const threadRef = Route.useParams({
     select: (params) => resolveThreadRouteRef(params),
+  });
+  const routeFamily = Route.useParams({
+    select: (params) => resolveThreadRouteFamily(params),
   });
   const shell = useEnvironmentQuery(
     threadRef === null ? null : environmentShell.stateAtom(threadRef.environmentId),
@@ -63,9 +70,9 @@ function ChatThreadRouteView() {
     }
 
     if (renderState === "missing" && environmentHasAnyThreads) {
-      void navigate({ to: "/", replace: true });
+      void navigate({ ...routeFamily.index(), replace: true });
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, threadRef]);
+  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, routeFamily, threadRef]);
 
   useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread) {
