@@ -87,7 +87,6 @@ import { readLocalApi } from "../localApi";
 import { useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
-import { useActiveEnvironmentId } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { assetEnvironment } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
@@ -1442,6 +1441,12 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
+export function resolveChatMarkdownEnvironmentId(
+  threadRef: ScopedThreadRef | undefined,
+): ScopedThreadRef["environmentId"] | null {
+  return threadRef?.environmentId ?? null;
+}
+
 function ChatMarkdown({
   text,
   cwd,
@@ -1463,8 +1468,8 @@ function ChatMarkdown({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const preparedConnection = usePreparedConnection(threadRef?.environmentId ?? null);
-  const environmentId = useActiveEnvironmentId();
+  const environmentId = resolveChatMarkdownEnvironmentId(threadRef);
+  const preparedConnection = usePreparedConnection(environmentId);
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,

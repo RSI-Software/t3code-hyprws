@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
-import { orderedListGutterStyle } from "./ChatMarkdown";
+import { orderedListGutterStyle, resolveChatMarkdownEnvironmentId } from "./ChatMarkdown";
+
+describe("resolveChatMarkdownEnvironmentId", () => {
+  it("uses the thread environment instead of the active environment", () => {
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+
+    expect(
+      resolveChatMarkdownEnvironmentId({
+        environmentId: remoteEnvironmentId,
+        threadId: ThreadId.make("thread-1"),
+      }),
+    ).toBe(remoteEnvironmentId);
+  });
+
+  it("does not fall back to an unrelated environment without a thread", () => {
+    expect(resolveChatMarkdownEnvironmentId(undefined)).toBeNull();
+  });
+});
 
 describe("orderedListGutterStyle", () => {
   it("leaves the default gutter alone for single-digit lists", () => {
