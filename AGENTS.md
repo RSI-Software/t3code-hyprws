@@ -1,5 +1,21 @@
 # T3 Code
 
+## Fork direction
+
+This checkout is the `RSI-Software/t3code-hyprws` fork.
+Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
+
+Upstream guidance below remains the default unless this section or the fork guide overrides it.
+
+- Treat a project-scoped desktop window as the user's T3 instance.
+- Keep the hub available and share the Electron process, backend pool, auth, providers, and persisted state.
+- Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
+- Keep local `main` identical to `upstream/main`; never add fork commits to it.
+- Maintain the fork delta on `project-windows` and create focused worktrees from that branch with Worktrunk.
+- Rebase `project-windows` onto `upstream/main`; never merge upstream into the fork branch.
+- Publish rebased history only with the explicit expected-old lease documented in the fork guide.
+- Keep patches small, upstream-native, and checked across every affected client and connection mode.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
