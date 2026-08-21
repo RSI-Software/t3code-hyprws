@@ -7,6 +7,7 @@ import {
   buildDraftThreadRouteParams,
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
+  resolveThreadRouteFamily,
   resolveThreadRouteRenderState,
   resolveThreadRouteRef,
   resolveThreadRouteTarget,
@@ -20,6 +21,20 @@ describe("threadRoutes", () => {
       environmentId: "env-1",
       threadId: "thread-1",
     });
+  });
+
+  it("resolves hub thread, draft, and missing-route navigation through one family", () => {
+    const family = resolveThreadRouteFamily({});
+
+    expect(family.thread(scopeThreadRef("env-1" as never, ThreadId.make("thread-1")))).toEqual({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: "env-1", threadId: "thread-1" },
+    });
+    expect(family.draft(DraftId.make("draft-1"))).toEqual({
+      to: "/draft/$draftId",
+      params: { draftId: "draft-1" },
+    });
+    expect(family.index()).toEqual({ to: "/" });
   });
 
   it("resolves a scoped ref only when both params are present", () => {
