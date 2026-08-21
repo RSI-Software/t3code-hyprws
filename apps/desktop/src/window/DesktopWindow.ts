@@ -1,6 +1,7 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -29,6 +30,15 @@ import * as PreviewManager from "../preview/Manager.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts";
+import { HyprlandPlacement } from "./HyprlandPlacement.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  projectWindowPreloadArgument,
+  windowIdentityKey,
+  type WindowIdentity,
+} from "./WindowIdentity.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -84,6 +94,8 @@ type DesktopWindowRuntimeServices =
   | ElectronShell.ElectronShell
   | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow
+  | HyprlandPlacement
+  | DesktopWindowSession.DesktopWindowSession
   | PreviewManager.PreviewManager;
 
 export type DesktopWindowError =
@@ -98,6 +110,17 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly openIdentity: (
+      identity: WindowIdentity,
+    ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>;
+    /**
+     * Loads the windows an update relaunch left behind, queued until the
+     * backend is ready. Must run before openArguments so an explicit launch
+     * intent still wins over a restore.
+     */
+    readonly restoreWindowSession: Effect.Effect<void>;
+    readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>;
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
@@ -207,6 +230,60 @@ function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
   const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+export function getWindowApplicationUrl(isDevelopment: boolean, identity: WindowIdentity): string {
+  const baseUrl = getDesktopUrl(isDevelopment);
+  if (identity.kind === "hub") return baseUrl;
+  const environmentId = encodeURIComponent(identity.ref.environmentId);
+  const projectId = encodeURIComponent(identity.ref.projectId);
+  const applicationUrl = new URL(baseUrl);
+  applicationUrl.hash = `/project/${environmentId}/${projectId}`;
+  return applicationUrl.href;
+}
+
+function getHashRoutePathname(url: URL): string {
+  return url.hash.slice(1).split(/[?#]/u, 1)[0] ?? "";
+}
+
+// Routes a project window may show besides its own project subtree. These are
+// whole-app pages that replace the view and navigate back out again, so
+// bouncing them to the hub would close the project window mid-task.
+const PROJECT_WINDOW_SHARED_ROUTE_PREFIXES = [
+  "/settings",
+  "/projects",
+  "/usage",
+  "/pull-requests",
+  "/connect",
+  "/pair",
+] as const;
+
+function isSharedProjectWindowRoute(pathname: string): boolean {
+  return PROJECT_WINDOW_SHARED_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+export function isRendererUrlForWindowIdentity(
+  isDevelopment: boolean,
+  identity: WindowIdentity,
+  rendererUrl: string,
+): boolean {
+  if (identity.kind === "hub") return true;
+  try {
+    const expected = new URL(getWindowApplicationUrl(isDevelopment, identity));
+    const actual = new URL(rendererUrl);
+    const expectedPathname = getHashRoutePathname(expected);
+    const actualPathname = getHashRoutePathname(actual);
+    return (
+      actual.origin === expected.origin &&
+      (actualPathname === expectedPathname ||
+        actualPathname.startsWith(`${expectedPathname}/`) ||
+        isSharedProjectWindowRoute(actualPathname))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isSameOriginRendererNavigation(input: {
@@ -322,12 +399,23 @@ export const make = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
+  const hyprlandPlacement = yield* HyprlandPlacement;
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
   // Window-side latch for the primary backend's readiness. Set by
   // handleBackendReady (driven by the pool's onReady callback), cleared
   // by handleBackendNotReady (driven by onShutdown). Only consumed by
   // createMainIfBackendReady, which gates the post-readiness window
   // open in development and the macOS "activate without windows" path.
   const backendReadyRef = yield* Ref.make(false);
+  // Deliberately restore only the hub. Project windows are reopened only from
+  // an explicit launch intent, so stale remote environments never create
+  // speculative windows during startup.
+  const pendingInitialIdentityRef = yield* Ref.make<Option.Option<WindowIdentity>>(
+    Option.some(HUB_WINDOW_IDENTITY),
+  );
+  // Windows carried across an update relaunch. Empty on every other launch, so
+  // the hub-only default above still describes a normal cold start.
+  const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -359,20 +447,29 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const currentMainWindow = electronWindow
+    .get(HUB_WINDOW_IDENTITY)
+    .pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
-    Electron.BrowserWindow,
-    DesktopWindowError
-  > {
-    yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+  let revealOrCreateIdentity: (
+    identity: WindowIdentity,
+  ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (
+    identity: WindowIdentity,
+  ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
+    if (identity.kind === "hub") {
+      yield* previewManager.getBrowserSession();
+    }
+    const applicationUrl = getWindowApplicationUrl(environment.isDevelopment, identity);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const persistedSettings = yield* desktopSettings.get;
-    const persistedBounds = persistedSettings.mainWindowBounds;
+    // Bounds remain hub-only for the MVP. This preserves the existing settings
+    // document and prevents concurrent project windows from racing one slot.
+    const persistedBounds = identity.kind === "hub" ? persistedSettings.mainWindowBounds : null;
     const displayBoundsResult = yield* Effect.sync(() => {
       try {
         return {
@@ -403,10 +500,13 @@ export const make = Effect.gen(function* () {
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
-      title: environment.displayName,
+      title: identity.kind === "hub" ? environment.displayName : identity.ref.projectId,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
+        ...(identity.kind === "project"
+          ? { additionalArguments: [projectWindowPreloadArgument(identity.ref)] }
+          : {}),
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -425,7 +525,8 @@ export const make = Effect.gen(function* () {
     }
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
-    let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
+    let boundsPersistenceEnabled =
+      identity.kind === "hub" && (persistedBounds === null || restoredPersistedBounds);
     const readPersistableBounds = (): DesktopAppSettings.DesktopWindowBounds | null => {
       if (window.isDestroyed()) {
         return null;
@@ -508,9 +609,11 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    flushMainWindowBounds = flushBoundsPersist;
+    if (identity.kind === "hub") {
+      flushMainWindowBounds = flushBoundsPersist;
+    }
 
-    yield* previewManager.setMainWindow(window);
+    yield* previewManager.setWindow(identity, window);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -666,17 +769,21 @@ export const make = Effect.gen(function* () {
       if (input.type === "gestureScrollEnd") window.webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
     });
 
-    window.on("page-title-updated", (event) => {
+    window.on("page-title-updated", (event, title) => {
       event.preventDefault();
-      window.setTitle(environment.displayName);
+      window.setTitle(
+        identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
+      );
     });
-    window.on("resize", scheduleBoundsPersist);
-    window.on("move", scheduleBoundsPersist);
-    window.on("maximize", scheduleBoundsPersist);
-    window.on("unmaximize", scheduleBoundsPersist);
-    window.on("close", () => {
-      runFork(flushBoundsPersist);
-    });
+    if (identity.kind === "hub") {
+      window.on("resize", scheduleBoundsPersist);
+      window.on("move", scheduleBoundsPersist);
+      window.on("maximize", scheduleBoundsPersist);
+      window.on("unmaximize", scheduleBoundsPersist);
+      window.on("close", () => {
+        runFork(flushBoundsPersist);
+      });
+    }
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -743,7 +850,9 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
-      window.setTitle(environment.displayName);
+      if (identity.kind === "hub") {
+        window.setTitle(environment.displayName);
+      }
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(
@@ -772,6 +881,27 @@ export const make = Effect.gen(function* () {
         );
       },
     );
+    if (identity.kind === "project") {
+      const guardProjectScope = (_event: unknown, url: string) => {
+        if (isRendererUrlForWindowIdentity(environment.isDevelopment, identity, url)) return;
+        runFork(
+          logWindowWarning("project window left its scope", {
+            url,
+            environmentId: identity.ref.environmentId,
+            projectId: identity.ref.projectId,
+          }),
+        );
+        runFork(
+          revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
+            Effect.andThen(electronWindow.close(identity)),
+            Effect.asVoid,
+          ),
+        );
+      };
+      window.webContents.on("did-navigate", guardProjectScope);
+      window.webContents.on("did-navigate-in-page", guardProjectScope);
+    }
+
     window.webContents.on("render-process-gone", (_event, details) => {
       const recoverable =
         details.reason === "crashed" ||
@@ -826,42 +956,64 @@ export const make = Effect.gen(function* () {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      // The compositor maps the window a beat after it is shown, so bind it to
+      // its Hyprland client now while the title is still the one it mapped
+      // with. Only used to remember the workspace across an update relaunch.
+      void runPromise(hyprlandPlacement.claim(windowIdentityKey(identity), window.getTitle()));
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (environment.isDevelopment && environment.devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
-      void runPromise(electronWindow.clearMain(Option.some(window)));
+      void runPromise(hyprlandPlacement.forget(windowIdentityKey(identity)));
+      if (identity.kind === "hub") {
+        void runPromise(electronWindow.clearMain(Option.some(window)));
+      }
     });
 
     return window;
   });
 
-  const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
-    yield* electronWindow.setMain(window);
-    yield* logWindowInfo("main window created");
-    return window;
-  }).pipe(Effect.withSpan("desktop.window.createMain"));
-
-  const ensureMain = Effect.gen(function* () {
-    const existingWindow = yield* currentMainWindow;
-    if (Option.isSome(existingWindow)) {
-      return existingWindow.value;
+  const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
+    identity: WindowIdentity,
+  ) {
+    const result = yield* electronWindow.getOrCreate(identity, createWindow(identity));
+    if (result.created) {
+      yield* logWindowInfo(
+        identity.kind === "hub" ? "main window created" : "project window created",
+        {
+          identity: identity.kind === "hub" ? "hub" : "project",
+          ...(identity.kind === "hub"
+            ? {}
+            : { environmentId: identity.ref.environmentId, projectId: identity.ref.projectId }),
+        },
+      );
     }
-    return yield* createMain;
-  }).pipe(Effect.withSpan("desktop.window.ensureMain"));
+    return result.window;
+  });
 
-  const revealOrCreateMain = Effect.gen(function* () {
-    const window = yield* ensureMain;
+  revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
+    identity: WindowIdentity,
+  ) {
+    const window = yield* ensureIdentity(identity);
     yield* electronWindow.reveal(window);
     return window;
-  }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
+  });
+
+  const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.createMain"),
+  );
+  const ensureMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.ensureMain"),
+  );
+  const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.revealOrCreateMain"),
+  );
 
   // With the local environment disabled there is no backend to wait for: the
   // renderer is served from bundled assets and only talks to remote environments.
@@ -870,11 +1022,41 @@ export const make = Effect.gen(function* () {
     return (yield* desktopSettings.get).localEnvironmentEnabled;
   });
 
+  /**
+   * Reopens the windows an update relaunch recorded, then puts each one back on
+   * the workspace it came from. One window failing is logged and skipped: a
+   * project that has since gone away must not strand the whole restore.
+   */
+  const drainPendingRestore = Effect.gen(function* () {
+    const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
+    if (entries.length === 0) return false;
+    for (const entry of entries) {
+      const key = windowIdentityKey(entry.identity);
+      const opened = yield* Effect.exit(ensureIdentity(entry.identity));
+      if (Exit.isFailure(opened)) {
+        yield* logWindowWarning("failed to restore window", { identity: key });
+        continue;
+      }
+      const workspace = entry.workspace;
+      if (workspace === null) continue;
+      // Fire and forget: claim polls for the compositor client, and the next
+      // window should not wait behind it.
+      runFork(
+        Effect.andThen(
+          hyprlandPlacement.claim(key, opened.value.getTitle()),
+          hyprlandPlacement.moveToWorkspace(key, workspace),
+        ),
+      );
+    }
+    yield* logWindowInfo("window session reopened", { windows: entries.length });
+    return true;
+  }).pipe(Effect.withSpan("desktop.window.drainPendingRestore"));
+
   const createMainIfBackendReady = Effect.gen(function* () {
     if (yield* waitingForBackend) return;
     const existingWindow = yield* currentMainWindow;
     if (Option.isSome(existingWindow)) return;
-    yield* createMain;
+    yield* ensureMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
   const showConnectingSplash = Effect.gen(function* () {
@@ -957,6 +1139,32 @@ export const make = Effect.gen(function* () {
         yield* electronWindow.prepareReveal(existingWindow.value);
       }
     }),
+    openIdentity: revealOrCreateIdentity,
+    restoreWindowSession: Effect.gen(function* () {
+      const entries = yield* windowSession.consume;
+      if (entries.length === 0) return;
+      yield* Ref.set(pendingRestoreRef, entries);
+    }).pipe(Effect.withSpan("desktop.window.restoreWindowSession")),
+    openArguments: Effect.fn("desktop.window.openArguments")(function* (argv) {
+      const explicitIdentity = resolveWindowIdentityFromArguments(argv);
+      const backendReady = yield* Ref.get(backendReadyRef);
+      if (!backendReady) {
+        // A launch with no intent must not overwrite a pending restore with the
+        // hub default, or an update relaunch loses every project window.
+        const hasPendingRestore = (yield* Ref.get(pendingRestoreRef)).length > 0;
+        yield* Ref.set(
+          pendingInitialIdentityRef,
+          explicitIdentity === null
+            ? hasPendingRestore
+              ? Option.none()
+              : Option.some(HUB_WINDOW_IDENTITY)
+            : Option.some(explicitIdentity),
+        );
+        return;
+      }
+      yield* revealOrCreateIdentity(explicitIdentity ?? HUB_WINDOW_IDENTITY);
+    }),
+    closeIdentity: electronWindow.close,
     activate: Effect.gen(function* () {
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
@@ -983,6 +1191,13 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      const restored = yield* drainPendingRestore;
+      const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
+      if (Option.isSome(pendingIdentity)) {
+        yield* revealOrCreateIdentity(pendingIdentity.value);
+        return;
+      }
+      if (restored) return;
       yield* createMainIfBackendReady;
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
@@ -1018,8 +1233,12 @@ export const make = Effect.gen(function* () {
       if (environment.platform === "darwin") syncMacosWindowButtons(window.value);
       // Chromium pushes the new level down to embedded guests, which would zoom
       // the previewed page along with the app UI. The preview browser keeps its
-      // own zoom, so put each guest back where the preview left it.
-      yield* previewManager.reapplyZoom();
+      // own zoom, so put each guest owned by this window back where it was.
+      const identity = yield* electronWindow.identityFor(window.value);
+      const windowPreviewManager = Option.isSome(identity)
+        ? yield* previewManager.forWindow(identity.value)
+        : previewManager;
+      yield* windowPreviewManager.reapplyZoom();
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;

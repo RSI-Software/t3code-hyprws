@@ -48,6 +48,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { withProviderSessionIdentity } from "../providerSessionEnvironment.ts";
 
 import {
   ProviderAdapterRequestError,
@@ -2303,6 +2304,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+        const sessionEnvironment = withProviderSessionIdentity(effectiveEnvironment, input); // fork-hook: multi-window/session-identity-env
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -2310,7 +2312,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ...(options?.models ? { models: options.models } : {}),
           binaryPath: effectiveConfig.binaryPath,
           launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, effectiveEnvironment),
-          ...(effectiveEnvironment ? { environment: effectiveEnvironment } : {}),
+          environment: sessionEnvironment,
           ...(effectiveConfig.homePath ? { homePath: effectiveConfig.homePath } : {}),
           ...(isCodexResumeCursorSchema(input.resumeCursor)
             ? { resumeCursor: input.resumeCursor }
@@ -2323,10 +2325,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ...(mcpSession
             ? {
                 environment: {
-                  ...McpProviderSession.withAgentDeviceEnvironment(
-                    effectiveEnvironment ?? process.env,
-                    mcpSession,
-                  ),
+                  ...McpProviderSession.withAgentDeviceEnvironment(sessionEnvironment, mcpSession),
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
                 appServerArgs: [
