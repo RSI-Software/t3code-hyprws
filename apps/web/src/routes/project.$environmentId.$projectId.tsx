@@ -1,0 +1,47 @@
+import { Outlet, createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
+import { useEffect } from "react";
+
+import { ThreadRouteView } from "../components/ThreadRouteView";
+import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
+import { resolveThreadRouteTarget } from "../threadRoutes";
+import { useAllEnvironmentShellsBootstrapped, useProject } from "../state/entities";
+
+function ProjectRouteLayout() {
+  const navigate = useNavigate();
+  const projectRef = Route.useParams({ select: resolveProjectRouteRef });
+  const threadTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  const project = useProject(projectRef);
+  const bootstrapComplete = useAllEnvironmentShellsBootstrapped();
+  const redirectTarget = resolveProjectAvailabilityRedirect({
+    routeRef: projectRef,
+    bootstrapComplete,
+    projectExists: project !== null,
+  });
+
+  useEffect(() => {
+    if (redirectTarget === "hub") {
+      void navigate({ to: "/", replace: true });
+    }
+  }, [navigate, redirectTarget]);
+
+  if (projectRef === null || project === null) {
+    return null;
+  }
+
+  return threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />;
+}
+
+export const Route = createFileRoute("/project/$environmentId/$projectId")({
+  beforeLoad: async ({ context }) => {
+    if (
+      context.authGateState.status !== "authenticated" &&
+      context.authGateState.status !== "hosted-static"
+    ) {
+      throw redirect({ to: "/pair", replace: true });
+    }
+  },
+  component: ProjectRouteLayout,
+});
