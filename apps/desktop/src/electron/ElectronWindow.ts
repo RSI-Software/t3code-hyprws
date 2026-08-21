@@ -11,9 +11,15 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore"; // fork-hook: multi-window/registry-semaphore-import
 
 import * as Electron from "electron";
 
+import {
+  HUB_WINDOW_IDENTITY,
+  type WindowIdentity,
+  windowIdentityKey,
+} from "../window/WindowIdentity.ts";
 import {
   activateWindowsForeground,
   isWindowsShellHostedForeground,
@@ -115,6 +121,19 @@ export class ElectronWindow extends Context.Service<
       behavior?: { readonly auxiliary?: boolean },
     ) => Effect.Effect<Electron.BrowserWindow, ElectronWindowCreateError>;
     readonly main: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+    readonly get: (
+      identity: WindowIdentity,
+    ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+    readonly getOrCreate: <E>(
+      identity: WindowIdentity,
+      create: Effect.Effect<Electron.BrowserWindow, E>,
+    ) => Effect.Effect<{ readonly window: Electron.BrowserWindow; readonly created: boolean }, E>;
+    readonly close: (identity: WindowIdentity) => Effect.Effect<void>;
+    readonly identityFor: (
+      window: Electron.BrowserWindow,
+    ) => Effect.Effect<Option.Option<WindowIdentity>>;
+    /** Every live registered window, in registration order. */
+    readonly listIdentities: Effect.Effect<readonly WindowIdentity[]>;
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
@@ -144,6 +163,11 @@ export const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
+  const windowsByIdentity = new Map<
+    string,
+    { readonly identity: WindowIdentity; readonly window: Electron.BrowserWindow }
+  >();
+  const registrySemaphore = yield* Semaphore.make(1);
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -170,7 +194,33 @@ export const make = Effect.gen(function* () {
         }),
     }).pipe(Effect.orDie);
 
+  const getLiveWindow = Effect.fn("desktop.electron.window.get")(function* (
+    identity: WindowIdentity,
+  ) {
+    const key = windowIdentityKey(identity);
+    const entry = windowsByIdentity.get(key);
+    if (entry === undefined) {
+      return Option.none<Electron.BrowserWindow>();
+    }
+    if (yield* isWindowDestroyed(entry.window)) {
+      windowsByIdentity.delete(key);
+      return Option.none<Electron.BrowserWindow>();
+    }
+    return Option.some(entry.window);
+  });
+
+  const registerWindow = (identity: WindowIdentity, window: Electron.BrowserWindow) => {
+    const key = windowIdentityKey(identity);
+    windowsByIdentity.set(key, { identity, window });
+    window.once("closed", () => {
+      if (windowsByIdentity.get(key)?.window === window) {
+        windowsByIdentity.delete(key);
+      }
+    });
+  };
+
   const liveMain = Effect.gen(function* () {
+    }
     const main = yield* Ref.get(mainWindowRef);
     if (Option.isNone(main) || (yield* isWindowDestroyed(main.value))) {
       return Option.none<Electron.BrowserWindow>();
@@ -246,6 +296,43 @@ export const make = Effect.gen(function* () {
       });
     }),
     main: liveMain,
+    get: getLiveWindow,
+    getOrCreate: (identity, create) =>
+      registrySemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const existing = yield* getLiveWindow(identity);
+          if (Option.isSome(existing)) {
+            return { window: existing.value, created: false } as const;
+          }
+          const window = yield* create;
+          registerWindow(identity, window);
+          if (identity.kind === "hub") {
+            yield* Ref.set(mainWindowRef, Option.some(window));
+          }
+          return { window, created: true } as const;
+        }),
+      ),
+    close: (identity) =>
+      registrySemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const existing = yield* getLiveWindow(identity);
+          if (Option.isNone(existing)) return;
+          windowsByIdentity.delete(windowIdentityKey(identity));
+          existing.value.close();
+        }),
+      ),
+    listIdentities: Effect.sync(() =>
+      Array.from(windowsByIdentity.values())
+        .filter((entry) => !entry.window.isDestroyed())
+        .map((entry) => entry.identity),
+    ),
+    identityFor: (window) =>
+      Effect.sync(() => {
+        for (const entry of windowsByIdentity.values()) {
+          if (entry.window === window) return Option.some(entry.identity);
+        }
+        return Option.none<WindowIdentity>();
+      }),
     currentMainOrFirst,
     focusedMainOrFirst,
     setMain: Effect.fn("ElectronWindow.setMain")(function (window) {
