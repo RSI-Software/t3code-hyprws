@@ -39,22 +39,38 @@ import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
+export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedErrorClass<PreviewIpcSenderNotAuthorizedError>()(
+  "PreviewIpcSenderNotAuthorizedError",
+  { reason: Schema.Literals(["missing-sender", "unregistered-window"]) },
+) {
+  override get message(): string {
+    return "Preview IPC sender is not an authorized desktop window.";
+  }
+}
+
+const previewForSender = Effect.fn("desktop.ipc.preview.resolveSender")(function* (
+  event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
+) {
+  return yield* PreviewWindowPolicy.resolvePreviewForSender(
+    event,
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    (reason) => new PreviewIpcSenderNotAuthorizedError({ reason }),
+  );
+});
+
 export const installPreviewEventForwarding = Effect.fn(
   "desktop.ipc.preview.installEventForwarding",
 )(function* () {
-  const electronWindow = yield* ElectronWindow.ElectronWindow;
-  const manager = yield* PreviewManager.PreviewManager;
-  yield* manager.subscribeStateChanges((tabId, state) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL, tabId, state),
-  );
-  yield* manager.subscribeRecordingFrames((frame) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL, frame),
-  );
-  yield* manager.subscribeRecordingInputs((event) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_RECORDING_INPUT_CHANNEL, event),
-  );
-  yield* manager.subscribePointerEvents((event) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, event),
+  yield* PreviewWindowPolicy.installEventForwarding(
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    {
+      stateChange: IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL,
+      recordingFrame: IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL,
+      recordingInput: IpcChannels.PREVIEW_RECORDING_INPUT_CHANNEL,
+      pointerEvent: IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL,
+    },
   );
   yield* manager.subscribeOpenLinks((event) =>
     electronWindow.sendAll(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, event),
@@ -75,13 +91,11 @@ const createTab = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CREATE_TAB_CHANNEL,
   payload: DesktopPreviewCreateTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.createTab")(function* ({
-    tabId,
-    zoomFactor,
-    colorScheme,
-    serverTab,
-  }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.createTab")(function* (
+    { tabId, zoomFactor, colorScheme },
+    event,
+  ) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.createTab(tabId, { zoomFactor, colorScheme, serverTab });
   }),
 });
@@ -469,3 +483,15 @@ export const methods = [
   stopRecording,
   saveRecording,
 ] as const;
+PreviewIpcFork.scopeMethodsToSender(methods); // fork-hook: multi-window/preview-window-requester
+
+// fork-hook: multi-window/preview-methods-export
+export {
+  clearCache,
+  clearCookies,
+  closeTab,
+  createTab,
+  getPreviewConfig,
+  navigate,
+  registerWebview,
+};
