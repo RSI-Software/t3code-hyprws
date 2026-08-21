@@ -14,7 +14,6 @@ import {
 import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
 import {
-  buildProjectIndexRoute,
   isValidProjectRouteId,
   resolveProjectContentRedirect,
   resolveProjectRouteRef,
@@ -64,8 +63,8 @@ export function DraftChatThreadRouteView() {
     if (!projectRouteRef || projectContentRedirect !== "project-index") {
       return;
     }
-    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
-  }, [navigate, projectContentRedirect, projectRouteRef]);
+    void navigate({ ...routeFamily.index(), replace: true });
+  }, [navigate, projectContentRedirect, projectRouteRef, routeFamily]);
 
   useEffect(() => {
     if (
@@ -100,10 +99,7 @@ export function DraftChatThreadRouteView() {
     if (draftSession || canonicalThreadRef || projectContentRedirect === "project-index") {
       return;
     }
-    void navigate({
-      ...(projectRouteRef ? buildProjectIndexRoute(projectRouteRef) : routeFamily.index()),
-      replace: true,
-    });
+    void navigate({ ...routeFamily.index(), replace: true });
   }, [
     canonicalThreadRef,
     draftSession,
