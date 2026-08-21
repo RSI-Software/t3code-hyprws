@@ -1,6 +1,7 @@
 import { AuthPreviewOperateScope } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useEffect } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -15,9 +16,11 @@ import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef } from "../lib/chatThreadActions"; // fork-hook: multi-window/thread-action-project-ref-import
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -30,7 +33,11 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 
-function ChatRouteGlobalShortcuts() {
+export function ChatRouteGlobalShortcuts({
+  forcedProjectRef = null,
+}: {
+  forcedProjectRef?: ScopedProjectRef | null;
+}) {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
@@ -94,7 +101,7 @@ function ChatRouteGlobalShortcuts() {
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef,
+          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
           handleNewThread,
         });
         return;
@@ -121,8 +128,35 @@ function ChatRouteGlobalShortcuts() {
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef,
+          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
           handleNewThread,
+        });
+        return;
+      }
+
+      if (command === "project.openWindow") {
+        const bridge = window.desktopBridge;
+        if (!supportsDesktopProjectWindows(bridge)) return;
+        const projectRef =
+          forcedProjectRef ??
+          resolveThreadActionProjectRef({
+            activeDraftThread,
+            activeThread: activeThread ?? undefined,
+            defaultProjectRef,
+            handleNewThread,
+          });
+        if (!projectRef) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        void bridge.openProjectWindow(projectRef).catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
         });
         return;
       }
@@ -179,6 +213,7 @@ function ChatRouteGlobalShortcuts() {
     clearSelection,
     canOperatePreview,
     handleNewThread,
+    forcedProjectRef,
     keybindings,
     defaultProjectRef,
     previewOpen,
