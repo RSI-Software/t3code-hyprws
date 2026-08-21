@@ -6,7 +6,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { ContextMenuItem, EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
@@ -684,6 +684,17 @@ export function shouldCreateNewThreadInCurrentProject(
   projectGroupCount: number,
 ): boolean {
   return shiftKey || projectGroupCount <= 1;
+}
+
+export function isProjectInSidebarScope(
+  projectRef: ScopedProjectRef,
+  forcedProjectRef: ScopedProjectRef | null,
+): boolean {
+  return (
+    forcedProjectRef === null ||
+    (projectRef.environmentId === forcedProjectRef.environmentId &&
+      projectRef.projectId === forcedProjectRef.projectId)
+  );
 }
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {

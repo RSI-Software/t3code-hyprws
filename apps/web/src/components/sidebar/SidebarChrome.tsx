@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { useFullPageBackOut } from "../../hooks/useLeaveFullPage"; // fork-hook: project-windows/sidebar-back-out-import
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
 import { useEnvironments } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -24,7 +26,7 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
+import { isSidebarUtilityPage } from "./mainAppLocation"; // fork-hook: project-windows/sidebar-back-out-main-app-import
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -128,11 +130,14 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const navigateToMainApp = useNavigateToMainApp();
+  const navigateToMainApp = useFullPageBackOut(); // fork-hook: project-windows/sidebar-back-out
   const { isMobile, setOpenMobile } = useSidebar();
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
+  const pathname = useLocation({ select: (location) => location.pathname }); // fork-hook: project-windows/sidebar-pathname
+  const projectRef = resolveProjectRefFromPathname(pathname); // fork-hook: project-windows/sidebar-project-ref
+  const isOnProjectUtilityPage = projectRef !== null && pathname.endsWith("/pull-requests"); // fork-hook: project-windows/sidebar-project-utility-page
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
@@ -147,10 +152,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handlePullRequestsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({
-      to: "/pull-requests",
+      ...listRouteTarget("pull-requests", projectRef),
       search: readPullRequestListPreferences(),
     });
-  }, [closeMobileSidebar, navigate]);
+  }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -170,7 +175,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   return (
     <SidebarMenu className="flex-row items-center">
-      {isOnUtilityPage ? (
+      {isOnUtilityPage || isOnProjectUtilityPage ? ( // fork-hook: project-windows/sidebar-back-visible
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
