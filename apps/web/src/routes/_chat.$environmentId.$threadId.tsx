@@ -1,9 +1,15 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
+import {
+  buildProjectIndexRoute,
+  isValidProjectRouteId,
+  resolveProjectContentRedirect,
+  resolveProjectRouteRef,
+} from "../projectRoutes";
 import {
   resolveThreadRouteFamily,
   resolveThreadRouteRef,
@@ -20,14 +26,12 @@ import {
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
 
-function ChatThreadRouteView() {
+export function ChatThreadRouteView() {
   const navigate = useNavigate();
-  const threadRef = Route.useParams({
-    select: (params) => resolveThreadRouteRef(params),
-  });
-  const routeFamily = Route.useParams({
-    select: (params) => resolveThreadRouteFamily(params),
-  });
+  const routeParams = useParams({ strict: false });
+  const threadRef = resolveThreadRouteRef(routeParams);
+  const projectRouteRef = resolveProjectRouteRef(routeParams);
+  const routeFamily = resolveThreadRouteFamily(routeParams);
   const shell = useEnvironmentQuery(
     threadRef === null ? null : environmentShell.stateAtom(threadRef.environmentId),
   );
@@ -63,16 +67,47 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  const projectContentRedirect = projectRouteRef
+    ? resolveProjectContentRedirect({
+        routeRef: projectRouteRef,
+        contentRef: serverThreadShell
+          ? {
+              environmentId: serverThreadShell.environmentId,
+              projectId: serverThreadShell.projectId,
+            }
+          : null,
+        contentIdValid: isValidProjectRouteId(routeParams.threadId),
+      })
+    : null;
 
   useEffect(() => {
-    if (!threadRef || !bootstrapComplete) {
+    if (!projectRouteRef || projectContentRedirect !== "project-index") {
+      return;
+    }
+    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
+  }, [navigate, projectContentRedirect, projectRouteRef]);
+
+  useEffect(() => {
+    if (!threadRef || !bootstrapComplete || projectContentRedirect === "project-index") {
       return;
     }
 
-    if (renderState === "missing" && environmentHasAnyThreads) {
-      void navigate({ ...routeFamily.index(), replace: true });
+    if (renderState === "missing" && (projectRouteRef !== null || environmentHasAnyThreads)) {
+      void navigate({
+        ...(projectRouteRef ? buildProjectIndexRoute(projectRouteRef) : routeFamily.index()),
+        replace: true,
+      });
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, routeFamily, threadRef]);
+  }, [
+    bootstrapComplete,
+    environmentHasAnyThreads,
+    navigate,
+    projectContentRedirect,
+    projectRouteRef,
+    renderState,
+    routeFamily,
+    threadRef,
+  ]);
 
   useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread) {
@@ -81,7 +116,7 @@ function ChatThreadRouteView() {
     finalizePromotedDraftThreadByRef(threadRef);
   }, [draftThread, serverThreadStarted, threadRef]);
 
-  if (!threadRef) {
+  if (!threadRef || projectContentRedirect === "project-index") {
     return null;
   }
 
