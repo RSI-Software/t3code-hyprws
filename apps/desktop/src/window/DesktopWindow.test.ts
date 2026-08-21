@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import { DesktopSnapShotId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -54,7 +55,15 @@ import {
 } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts";
+import * as HyprlandPlacement from "./HyprlandPlacement.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  projectWindowIdentity,
+  windowIdentityKey,
+} from "./WindowIdentity.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -100,6 +109,7 @@ function makeFakeBrowserWindow() {
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
+    getTitle: vi.fn(() => "T3 Code"),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
@@ -127,6 +137,7 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    close: window.close,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -144,6 +155,7 @@ function makeFakeBrowserWindow() {
     setAutoHideCursor: window.setAutoHideCursor,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
+    setTitle: window.setTitle,
     webContentsListeners,
     webContentsOnce: webContents.once,
     windowListeners,
@@ -194,17 +206,21 @@ const electronThemeLayer = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const makeDesktopEnvironmentLayer = (env: Record<string, string | undefined> = {}) =>
+  DesktopEnvironment.layer(environmentInput).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+          ...env,
+        }),
+      ),
     ),
-  ),
-);
+  );
+
+const desktopEnvironmentLayer = makeDesktopEnvironmentLayer();
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
@@ -226,6 +242,11 @@ function makeTestLayer(input: {
   readonly onPopupTemplate?: (input: ElectronMenu.ElectronMenuTemplateInput) => Effect.Effect<void>;
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
+  readonly previewMainWindowSets?: Electron.BrowserWindow[];
+  readonly previewBrowserSessionRequests?: number[];
+  readonly environmentEnv?: Record<string, string | undefined>;
+  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
+  readonly workspaceMoves?: { key: string; workspace: string }[];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -262,6 +283,30 @@ function makeTestLayer(input: {
     applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
   } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
 
+  const hyprlandPlacementLayer = Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
+    isAvailable: input.workspaceMoves !== undefined,
+    claim: () => Effect.void,
+    forget: () => Effect.void,
+    workspaceOf: () => Effect.succeed(Option.none()),
+    moveToWorkspace: (key, workspace) =>
+      Effect.sync(() => {
+        input.workspaceMoves?.push({ key, workspace: workspace.name });
+      }),
+  } satisfies HyprlandPlacement.HyprlandPlacement["Service"]);
+
+  const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+    capture: () => Effect.void,
+    consume: Effect.succeed(input.restoreEntries ?? []),
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
+
+  const projectWindows = new Map<string, Electron.BrowserWindow>();
+  const getIdentityWindow = (
+    identity: Parameters<ElectronWindow.ElectronWindow["Service"]["get"]>[0],
+  ) =>
+    identity.kind === "hub"
+      ? Ref.get(input.mainWindow)
+      : Effect.sync(() => Option.fromNullishOr(projectWindows.get(windowIdentityKey(identity))));
+
   const electronWindowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
       Effect.sync(() => {
@@ -271,6 +316,40 @@ function makeTestLayer(input: {
         Effect.as(input.window),
       ),
     main: Ref.get(input.mainWindow),
+    get: getIdentityWindow,
+    getOrCreate: (identity, create) =>
+      getIdentityWindow(identity).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              create.pipe(
+                Effect.tap((window) =>
+                  identity.kind === "hub"
+                    ? Ref.set(input.mainWindow, Option.some(window))
+                    : Effect.sync(() => {
+                        projectWindows.set(windowIdentityKey(identity), window);
+                      }),
+                ),
+                Effect.map((window) => ({ window, created: true as boolean })),
+              ),
+            onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+          }),
+        ),
+      ),
+    close: (identity) =>
+      identity.kind === "hub"
+        ? Ref.set(input.mainWindow, Option.none())
+        : Effect.sync(() => {
+            projectWindows.delete(windowIdentityKey(identity));
+            input.window.close();
+          }),
+    identityFor: (window) =>
+      Ref.get(input.mainWindow).pipe(
+        Effect.map((main) =>
+          Option.contains(main, window) ? Option.some(HUB_WINDOW_IDENTITY) : Option.none(),
+        ),
+      ),
+    listIdentities: Effect.succeed([]),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
@@ -286,11 +365,15 @@ function makeTestLayer(input: {
     Layer.provide(
       Layer.mergeAll(
         desktopAssetsLayer,
-        desktopEnvironmentLayer,
+        input.environmentEnv
+          ? makeDesktopEnvironmentLayer(input.environmentEnv)
+          : desktopEnvironmentLayer,
         desktopAppSettingsLayer,
         desktopClientSettingsLayer,
         desktopServerExposureLayer,
         DesktopState.layer,
+        hyprlandPlacementLayer,
+        windowSessionLayer,
         electronAppLayer,
         Layer.succeed(ElectronMenu.ElectronMenu, {
           setApplicationMenu: () => Effect.void,
@@ -312,14 +395,32 @@ function makeTestLayer(input: {
         electronThemeLayer,
         electronWindowLayer,
         Layer.mock(PreviewManager.PreviewManager)({
-          getBrowserSession: () => Effect.succeed({} as Electron.Session),
-          setMainWindow: () => Effect.void,
+          getBrowserSession: () =>
+            Effect.sync(() => {
+              input.previewBrowserSessionRequests?.push(1);
+              return {} as Electron.Session;
+            }),
+          setMainWindow: (window) =>
+            Effect.sync(() => {
+              input.previewMainWindowSets?.push(window);
+            }),
+          setWindow: (_identity, window) =>
+            Effect.sync(() => {
+              input.previewMainWindowSets?.push(window);
+            }),
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           reapplyZoom: () =>
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
             }),
+          forWindow: () =>
+            Effect.succeed({
+              reapplyZoom: () =>
+                Effect.sync(() => {
+                  input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
+                }),
+            } as never),
         }),
       ),
     ),
@@ -385,6 +486,23 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           return outcome;
         }),
       main: Ref.get(mainWindow),
+      get: () => Ref.get(mainWindow),
+      getOrCreate: (_identity, create) =>
+        Ref.get(mainWindow).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () =>
+                create.pipe(
+                  Effect.tap((window) => Ref.set(mainWindow, Option.some(window))),
+                  Effect.map((window) => ({ window, created: true as boolean })),
+                ),
+              onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+            }),
+          ),
+        ),
+      close: () => Ref.set(mainWindow, Option.none()),
+      identityFor: () => Effect.succeed(Option.none()),
+      listIdentities: Effect.succeed([]),
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
@@ -404,6 +522,17 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           DesktopAppSettings.layerTest(),
           desktopClientSettingsLayer,
           desktopServerExposureLayer,
+          Layer.succeed(HyprlandPlacement.HyprlandPlacement, {
+            isAvailable: false,
+            claim: () => Effect.void,
+            forget: () => Effect.void,
+            workspaceOf: () => Effect.succeed(Option.none()),
+            moveToWorkspace: () => Effect.void,
+          } satisfies HyprlandPlacement.HyprlandPlacement["Service"]),
+          Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+            capture: () => Effect.void,
+            consume: Effect.succeed([]),
+          } satisfies DesktopWindowSession.DesktopWindowSession["Service"]),
           electronAppLayer,
           electronMenuLayer,
           Layer.succeed(ElectronShell.ElectronShell, {
@@ -416,6 +545,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.mock(PreviewManager.PreviewManager)({
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
             setMainWindow: () => Effect.void,
+            setWindow: () => Effect.void,
             isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
             getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           }),
@@ -601,6 +731,218 @@ describe("DesktopWindow", () => {
     );
   });
 
+  it("builds and guards project-scoped renderer URLs", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment:remote"),
+      ProjectId.make("project one"),
+    );
+
+    assert.equal(
+      DesktopWindow.getWindowApplicationUrl(true, identity),
+      "t3code-dev://app/#/project/environment%3Aremote/project%20one",
+    );
+    assert.isTrue(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/#/project/environment%3Aremote/project%20one/thread/thread-1",
+      ),
+    );
+    assert.isFalse(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/#/project/environment%3Aremote/another-project",
+      ),
+    );
+    assert.isFalse(
+      DesktopWindow.isRendererUrlForWindowIdentity(true, identity, "t3code-dev://app/"),
+    );
+    // Whole-app pages stay in the project window: bouncing them to the hub
+    // would close the window as soon as the user opened settings.
+    assert.isTrue(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/#/settings/general",
+      ),
+    );
+    assert.isTrue(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/#/projects/environment%3Aremote%3Aproject%20one",
+      ),
+    );
+    for (const sharedRoute of ["/usage", "/pull-requests", "/connect", "/pair"]) {
+      assert.isTrue(
+        DesktopWindow.isRendererUrlForWindowIdentity(
+          true,
+          identity,
+          `t3code-dev://app/#${sharedRoute}`,
+        ),
+        sharedRoute,
+      );
+    }
+  });
+
+  it.effect("opens a pending project intent once and uses its renderer title", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const previewMainWindowSets: Electron.BrowserWindow[] = [];
+      const previewBrowserSessionRequests: number[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        previewMainWindowSets,
+        previewBrowserSessionRequests,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.openArguments(["t3code", "--project", "environment-1", "project-1"]);
+        assert.equal(yield* Ref.get(createCount), 0);
+
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(createdWindowOptions[0]?.title, "project-1");
+        assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
+          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
+        ]);
+        assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
+        assert.deepEqual(previewBrowserSessionRequests, []);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
+          "t3code-dev://app/#/project/environment-1/project-1",
+        ]);
+        assert.isFalse(fakeWindow.windowListeners.has("resize"));
+
+        const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
+        const preventDefault = vi.fn();
+        pageTitleUpdated?.({ preventDefault }, "Project One");
+        assert.equal(preventDefault.mock.calls.length, 1);
+        assert.deepEqual(fakeWindow.setTitle.mock.calls, [["Project One"]]);
+
+        yield* desktopWindow.openArguments(["t3code-dev://app/project/environment-1/project-1"]);
+        assert.equal(yield* Ref.get(createCount), 1);
+
+        fakeWindow.webContentsListeners.get("did-navigate-in-page")?.({}, "t3code-dev://app/");
+        yield* Effect.yieldNow;
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.equal(fakeWindow.close.mock.calls.length, 1);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[1], ["t3code-dev://app/"]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("reopens the windows an update relaunch recorded, on their old workspaces", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const workspaceMoves: { key: string; workspace: string }[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        workspaceMoves,
+        restoreEntries: [
+          { identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } },
+          {
+            identity: projectWindowIdentity(
+              EnvironmentId.make("environment-1"),
+              ProjectId.make("project-1"),
+            ),
+            workspace: { id: 4, name: "code" },
+          },
+        ],
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.restoreWindowSession;
+        // A relaunch after an update carries no arguments, so the hub default
+        // must not win over the recorded windows.
+        yield* desktopWindow.openArguments(["t3code"]);
+        assert.equal(yield* Ref.get(createCount), 0);
+
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-1/project-1`,
+        ]);
+
+        yield* Effect.yieldNow;
+        assert.deepEqual(workspaceMoves, [
+          { key: "hub", workspace: "1" },
+          { key: "project:environment-1:project-1", workspace: "code" },
+        ]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("leaves an unplaced restored window wherever Hyprland puts it", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const workspaceMoves: { key: string; workspace: string }[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        workspaceMoves,
+        restoreEntries: [{ identity: HUB_WINDOW_IDENTITY, workspace: null }],
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.restoreWindowSession;
+        yield* desktopWindow.openArguments(["t3code"]);
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        yield* Effect.yieldNow;
+        assert.deepEqual(workspaceMoves, []);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("still honours an explicit launch intent alongside a restore", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        workspaceMoves: [],
+        restoreEntries: [{ identity: HUB_WINDOW_IDENTITY, workspace: { id: 1, name: "1" } }],
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.restoreWindowSession;
+        yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+          `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment-2/project-2`,
+        ]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
   it.effect("does not open a development window until the backend is ready", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
@@ -663,6 +1005,28 @@ describe("DesktopWindow", () => {
           assert.equal(yield* Ref.get(createCount), 3);
         }).pipe(Effect.provide(layer));
       }),
+  );
+
+  it.effect("skips devtools when the development run opts out", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        environmentEnv: { T3CODE_DESKTOP_DEVTOOLS: "0" },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
   );
 
   it.effect("blocks only repeated Cmd+W input before it reaches the native window menu", () =>
