@@ -86,6 +86,9 @@ The last matching rule in `keybindings.json` wins, even across different command
 - `navigation.back` (`mod+[`) / `navigation.forward` (`mod+]`): Moves through visited pages.
 - `chat.new` / `chat.newLocal` / `chat.newWithoutProject` (`mod+alt+n`): Start new threads using your [new-thread defaults](./thread-sidebar.md#start-a-thread) or [without a project](./thread-sidebar.md#start-without-a-project).
 
+`project.openWindow` opens or reveals the active project's desktop window and defaults to
+`mod+alt+o`. The project-window command and its keybinding are shown only in the desktop app.
+
 ## Reserved and platform shortcuts
 
 - `mod+w` (desktop) closes the focused terminal, the selected range of right-panel tabs, or the active tab if there is no range. On web, browsers intercept `mod+w`. Rebind `rightPanel.close` and `terminal.close` to a shortcut such as `alt+w`.
