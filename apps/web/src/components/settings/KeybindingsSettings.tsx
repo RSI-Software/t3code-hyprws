@@ -37,6 +37,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
+import { supportsDesktopProjectWindows } from "../../desktopProjectWindows";
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
@@ -1314,7 +1315,19 @@ export function KeybindingsSettingsPanel() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
-  const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
+  const showProjectWindowBinding =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge);
+  const visibleKeybindings = useMemo(
+    () =>
+      showProjectWindowBinding
+        ? keybindings
+        : keybindings.filter((binding) => binding.command !== "project.openWindow"),
+    [keybindings, showProjectWindowBinding],
+  );
+  const rows = useMemo(
+    () => buildKeybindingRows(visibleKeybindings, query),
+    [query, visibleKeybindings],
+  );
   const groups = useMemo(() => groupKeybindingRows(rows), [rows]);
   // Settings search jumps to a command, so only its first row anchors.
   const anchorIds = useMemo(() => {
@@ -1337,7 +1350,13 @@ export function KeybindingsSettingsPanel() {
     setHandledSearchTargetId(searchTargetId);
     if (searchTargetId.startsWith("keybinding-")) setQuery("");
   }
-  const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
+  const commandOptions = useMemo(
+    () =>
+      buildKeybindingCommandOptions(visibleKeybindings).filter(
+        (command) => showProjectWindowBinding || command !== "project.openWindow",
+      ),
+    [showProjectWindowBinding, visibleKeybindings],
+  );
   const whenVariables = useMemo(() => buildWhenVariableOptions(), []);
 
   useEffect(() => {
