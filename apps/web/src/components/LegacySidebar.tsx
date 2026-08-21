@@ -117,8 +117,8 @@ import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
-  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
+  resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -1163,6 +1163,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
@@ -1767,12 +1771,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      return router.navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void router.navigate(routeFamily.thread(threadRef));
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
   );
   const handleThreadFileDrop = useCallback(
     async (threadRef: ScopedThreadRef, files: File[]) => {
@@ -1833,15 +1834,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void router.navigate(routeFamily.thread(threadRef));
     },
     [
       clearSelection,
       isMobile,
       rangeSelectTo,
+      routeFamily,
       router,
       setOpenMobile,
       setSelectionAnchor,
@@ -3122,6 +3121,10 @@ export default function LegacySidebar() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -3311,12 +3314,9 @@ export default function LegacySidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void navigate(routeFamily.thread(threadRef));
     },
-    [clearSelection, isMobile, navigate, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, navigate, routeFamily, setOpenMobile, setSelectionAnchor],
   );
 
   const projectDnDSensors = useSensors(

@@ -90,7 +90,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -264,7 +264,7 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
-import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import { resolveThreadRouteFamily } from "../threadRoutes";
 import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
@@ -1394,6 +1394,10 @@ export default function ChatView(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
@@ -2238,10 +2242,7 @@ export default function ChatView(props: ChatViewProps) {
           },
         );
         if (routeKind !== "draft" || draftId !== storedDraftSession.draftId) {
-          await navigate({
-            to: "/draft/$draftId",
-            params: buildDraftThreadRouteParams(storedDraftSession.draftId),
-          });
+          await navigate(routeFamily.draft(storedDraftSession.draftId));
         }
         return storedDraftSession.threadId;
       }
@@ -2272,10 +2273,7 @@ export default function ChatView(props: ChatViewProps) {
         interactionMode: DEFAULT_INTERACTION_MODE,
         ...input,
       });
-      await navigate({
-        to: "/draft/$draftId",
-        params: buildDraftThreadRouteParams(nextDraftId),
-      });
+      await navigate(routeFamily.draft(nextDraftId));
       return nextThreadId;
     },
     [
@@ -2287,6 +2285,7 @@ export default function ChatView(props: ChatViewProps) {
       navigate,
       projectGroupingSettings,
       routeKind,
+      routeFamily,
       setDraftThreadContext,
       setLogicalProjectDraftThreadId,
     ],
@@ -7061,10 +7060,7 @@ export default function ChatView(props: ChatViewProps) {
                   actionProps: {
                     children: "Open",
                     onClick: () => {
-                      void navigate({
-                        to: "/$environmentId/$threadId",
-                        params: buildThreadRouteParams(backgroundThreadRef),
-                      });
+                      void navigate(routeFamily.thread(backgroundThreadRef));
                     },
                   },
                 }),
@@ -7662,13 +7658,7 @@ export default function ChatView(props: ChatViewProps) {
 
     if (failure === null) {
       const navigateResult = await settlePromise(() =>
-        navigate({
-          to: "/$environmentId/$threadId",
-          params: {
-            environmentId: activeThread.environmentId,
-            threadId: nextThreadId,
-          },
-        }),
+        navigate(routeFamily.thread(scopeThreadRef(activeThread.environmentId, nextThreadId))),
       );
       failure = navigateResult._tag === "Failure" ? navigateResult : null;
     }
@@ -7715,6 +7705,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     navigate,
     resetLocalDispatch,
+    routeFamily,
     runtimeMode,
     startThreadTurn,
     environmentId,
