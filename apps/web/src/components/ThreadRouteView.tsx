@@ -13,6 +13,12 @@ import {
   useBackgroundDraftSubmissionPending,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import {
+  buildProjectIndexRoute,
+  isValidProjectRouteId,
+  resolveProjectContentRedirect,
+  resolveProjectRouteRef,
+} from "../projectRoutes";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import {
   useEnvironmentThreadRefs,
@@ -49,6 +55,12 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const routeFamily = useParams({
     strict: false,
     select: (params) => resolveThreadRouteFamily(params),
+  });
+  // Under `/project/$environmentId/$projectId` the view is scoped to that
+  // project; content from another project falls back to the project index.
+  const projectRouteRef = useParams({
+    strict: false,
+    select: (params) => resolveProjectRouteRef(params),
   });
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
@@ -126,16 +138,44 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
+  const contentProjectRef =
+    target.kind === "server"
+      ? serverThreadShell
+        ? { environmentId: serverThreadShell.environmentId, projectId: serverThreadShell.projectId }
+        : null
+      : draftSession
+        ? { environmentId: draftSession.environmentId, projectId: draftSession.projectId }
+        : null;
+  const projectContentRedirect = projectRouteRef
+    ? resolveProjectContentRedirect({
+        routeRef: projectRouteRef,
+        contentRef: contentProjectRef,
+        contentIdValid: isValidProjectRouteId(
+          target.kind === "server" ? target.threadRef.threadId : target.draftId,
+        ),
+      })
+    : null;
+  const redirectingToProjectIndex = projectContentRedirect === "project-index";
+  const indexRoute = projectRouteRef
+    ? buildProjectIndexRoute(projectRouteRef)
+    : routeFamily.index();
 
   useEffect(() => {
-    if (!inferredThreadRef || draftSession?.promotedTo) {
+    if (!projectRouteRef || !redirectingToProjectIndex) {
+      return;
+    }
+    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
+  }, [navigate, projectRouteRef, redirectingToProjectIndex]);
+
+  useEffect(() => {
+    if (redirectingToProjectIndex || !inferredThreadRef || draftSession?.promotedTo) {
       return;
     }
     markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef]);
+  }, [draftSession?.promotedTo, inferredThreadRef, redirectingToProjectIndex]);
 
   useEffect(() => {
-    if (!canonicalThreadRef) {
+    if (!canonicalThreadRef || redirectingToProjectIndex) {
       return;
     }
     let cancelled = false;
@@ -148,17 +188,29 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate, routeFamily]);
+  }, [canonicalThreadRef, navigate, redirectingToProjectIndex, routeFamily]);
 
   useEffect(() => {
-    if (target.kind !== "draft" || draftSession || canonicalThreadRef) {
+    if (
+      target.kind !== "draft" ||
+      draftSession ||
+      canonicalThreadRef ||
+      redirectingToProjectIndex
+    ) {
       return;
     }
-    void navigate({ ...routeFamily.index(), replace: true });
-  }, [canonicalThreadRef, draftSession, navigate, routeFamily, target.kind]);
+    void navigate({ ...indexRoute, replace: true });
+  }, [
+    canonicalThreadRef,
+    draftSession,
+    indexRoute,
+    navigate,
+    redirectingToProjectIndex,
+    target.kind,
+  ]);
 
   useEffect(() => {
-    if (target.kind !== "server" || !bootstrapComplete) {
+    if (target.kind !== "server" || !bootstrapComplete || redirectingToProjectIndex) {
       return;
     }
     // Navigation already resolved onto this path, so a drop aimed here
@@ -167,11 +219,20 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
-      if (environmentHasAnyThreads) {
-        void navigate({ ...routeFamily.index(), replace: true });
+      if (projectRouteRef !== null || environmentHasAnyThreads) {
+        void navigate({ ...indexRoute, replace: true });
       }
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, routeFamily, target]);
+  }, [
+    bootstrapComplete,
+    environmentHasAnyThreads,
+    indexRoute,
+    navigate,
+    projectRouteRef,
+    redirectingToProjectIndex,
+    renderState,
+    target,
+  ]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
@@ -181,7 +242,9 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   }, [draftThread, serverThreadStarted, target]);
 
   let view: React.ReactNode = null;
-  if (target.kind === "draft") {
+  if (redirectingToProjectIndex) {
+    view = null;
+  } else if (target.kind === "draft") {
     if (draftSession) {
       view = (
         <ChatView
