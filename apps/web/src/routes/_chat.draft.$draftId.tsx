@@ -13,12 +13,15 @@ import {
 } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
-import { buildThreadRouteParams } from "../threadRoutes";
+import { resolveThreadRouteFamily } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
 
 function DraftChatThreadRouteView() {
   const navigate = useNavigate();
   const { draftId: rawDraftId } = Route.useParams();
+  const routeFamily = Route.useParams({
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const draftId = DraftId.make(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
   const threadRefs = useThreadRefs();
@@ -56,24 +59,20 @@ function DraftChatThreadRouteView() {
       if (cancelled) {
         return;
       }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(canonicalThreadRef),
-        replace: true,
-      });
+      void navigate({ ...routeFamily.thread(canonicalThreadRef), replace: true });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate]);
+  }, [canonicalThreadRef, navigate, routeFamily]);
 
   useEffect(() => {
     if (draftSession || canonicalThreadRef) {
       return;
     }
-    void navigate({ to: "/", replace: true });
-  }, [canonicalThreadRef, draftSession, navigate]);
+    void navigate({ ...routeFamily.index(), replace: true });
+  }, [canonicalThreadRef, draftSession, navigate, routeFamily]);
 
   if (!draftSession) {
     return null;
