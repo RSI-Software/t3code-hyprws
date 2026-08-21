@@ -1,10 +1,12 @@
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { useFullPageBackOut } from "../../hooks/useLeaveFullPage";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes";
 import { useEnvironments } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
@@ -131,20 +133,20 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const canGoBack = useCanGoBack();
+  const backOutOfFullPage = useFullPageBackOut();
   const { isMobile, setOpenMobile } = useSidebar();
-  const currentFooterPage = useLocation({
-    select: (location) =>
-      /^\/settings(?:\/|$)/.test(location.pathname)
-        ? "settings"
-        : /^\/projects\/[^/]+\/?$/.test(location.pathname)
-          ? "project-settings"
-          : location.pathname === "/usage"
-            ? "usage"
-            : location.pathname === "/pull-requests"
-              ? "pull-requests"
-              : null,
-  });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  const currentFooterPage = /^\/settings(?:\/|$)/.test(pathname)
+    ? "settings"
+    : /^\/projects\/[^/]+\/?$/.test(pathname)
+      ? "project-settings"
+      : pathname === "/usage"
+        ? "usage"
+        : pathname === "/pull-requests" ||
+            (projectRef !== null && pathname.endsWith("/pull-requests"))
+          ? "pull-requests"
+          : null;
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
@@ -159,10 +161,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handlePullRequestsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({
-      to: "/pull-requests",
+      ...listRouteTarget("pull-requests", projectRef),
       search: readPullRequestListPreferences(),
     });
-  }, [closeMobileSidebar, navigate]);
+  }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -177,12 +179,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   const handleBackClick = useCallback(() => {
     closeMobileSidebar();
-    if (canGoBack) {
-      window.history.back();
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [canGoBack, closeMobileSidebar, navigate]);
+    backOutOfFullPage();
+  }, [backOutOfFullPage, closeMobileSidebar]);
 
   return (
     <SidebarMenu className="flex-row items-center">
