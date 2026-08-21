@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
   lazy,
@@ -145,7 +146,13 @@ function ProjectProjectionRetention() {
   return null;
 }
 
-export function AppSidebarLayout({ children }: { children: ReactNode }) {
+export function AppSidebarLayout({
+  children,
+  forcedProjectRef = null,
+}: {
+  children: ReactNode;
+  forcedProjectRef?: ScopedProjectRef | null;
+}) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   // Settings routes show the settings nav in place of whichever thread
@@ -243,9 +250,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             </Suspense>
           </>
         ) : legacySidebarEnabled ? (
-          <LegacyThreadSidebar />
+          <LegacyThreadSidebar forcedProjectRef={forcedProjectRef} />
         ) : (
-          <ThreadSidebar />
+          <ThreadSidebar forcedProjectRef={forcedProjectRef} />
         )}
         <SidebarRail onDoubleClick={resetSidebarWidth} />
       </Sidebar>
