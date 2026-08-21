@@ -135,8 +135,8 @@ import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
-  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
+  resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
@@ -2216,6 +2216,10 @@ export default function Sidebar() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
+  });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
   );
@@ -2805,12 +2809,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      return router.navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void router.navigate(routeFamily.thread(threadRef));
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
   );
 
   // Dropping files on a row opens that thread and attaches the files there.
@@ -2865,9 +2866,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate({ to: "/draft/$draftId", params: { draftId } });
+      void router.navigate(routeFamily.draft(draftId));
     },
-    [clearSelection, isMobile, router, setOpenMobile],
+    [clearSelection, isMobile, routeFamily, router, setOpenMobile],
   );
 
   const clearThreadSearch = useCallback(() => {
@@ -3008,9 +3009,9 @@ export default function Sidebar() {
         : shell
           ? () =>
               void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
-          : () => void router.navigate({ to: "/" });
+          : () => void router.navigate(routeFamily.index());
     },
-    [navigateToThread, router],
+    [navigateToThread, routeFamily, router],
   );
 
   const attemptSettle = useCallback(
