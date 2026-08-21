@@ -14,7 +14,6 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import {
-  buildProjectIndexRoute,
   isValidProjectRouteId,
   resolveProjectContentRedirect,
   resolveProjectRouteRef,
@@ -156,16 +155,14 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       })
     : null;
   const redirectingToProjectIndex = projectContentRedirect === "project-index";
-  const indexRoute = projectRouteRef
-    ? buildProjectIndexRoute(projectRouteRef)
-    : routeFamily.index();
+  const indexRoute = routeFamily.index();
 
   useEffect(() => {
     if (!projectRouteRef || !redirectingToProjectIndex) {
       return;
     }
-    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
-  }, [navigate, projectRouteRef, redirectingToProjectIndex]);
+    void navigate({ ...indexRoute, replace: true });
+  }, [indexRoute, navigate, projectRouteRef, redirectingToProjectIndex]);
 
   useEffect(() => {
     if (redirectingToProjectIndex || !inferredThreadRef || draftSession?.promotedTo) {

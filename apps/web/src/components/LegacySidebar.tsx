@@ -1805,17 +1805,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate(routeFamily.thread(threadRef));
+      return router.navigate(routeFamily.thread(threadRef));
     },
     [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
   );
   const handleThreadFileDrop = useCallback(
     async (threadRef: ScopedThreadRef, files: File[]) => {
       const dropId = queuePendingFileDrop({ threadRef, files });
-      const targetPathname = router.buildLocation({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      }).pathname;
+      const targetPathname = router.buildLocation(routeFamily.thread(threadRef)).pathname;
       if (targetPathname === router.state.location.pathname) return;
       try {
         await navigateToThread(threadRef);
@@ -1826,7 +1823,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         clearPendingFileDrop(dropId);
       }
     },
-    [clearPendingFileDrop, navigateToThread, queuePendingFileDrop, router],
+    [clearPendingFileDrop, navigateToThread, queuePendingFileDrop, routeFamily, router],
   );
 
   const handleThreadClick = useCallback(
