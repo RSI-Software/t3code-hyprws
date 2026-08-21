@@ -28,6 +28,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
+import type { ContextMenuItem, EnvironmentId, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import {
@@ -851,6 +852,17 @@ export function resolveScopedNewThreadProjectRef<
     (input.viewed && memberAt(input.viewed.environmentId, input.viewed.projectId)) ??
     memberAt(group.environmentId, group.id) ??
     null
+  );
+}
+
+export function isProjectInSidebarScope(
+  projectRef: ScopedProjectRef,
+  forcedProjectRef: ScopedProjectRef | null,
+): boolean {
+  return (
+    forcedProjectRef === null ||
+    (projectRef.environmentId === forcedProjectRef.environmentId &&
+      projectRef.projectId === forcedProjectRef.projectId)
   );
 }
 

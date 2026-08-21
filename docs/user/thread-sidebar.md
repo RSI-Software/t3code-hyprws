@@ -70,6 +70,17 @@ The server automatically links open PRs matching an unsettled thread's branch. O
 - **Command palette** (`Cmd/Ctrl+K`): Searches threads across connected environments by title, branch, PR, project, and message contents (use `"exact phrase"` for exact matches). On mobile, use the thread list search (or `Cmd+K` on iPad with a keyboard).
 - **Copy reference**: Copies the linked PR URL if one exists, otherwise a thread link that pastes into any composer as a thread chip. Use **Copy → Thread** (or **Copy thread** on mobile) to force a thread link, or **Thread ID** for scripts and the `t3` CLI.
 
+## Desktop project windows
+
+In the desktop app, open the project switcher and select the open-in-new-window button beside a project.
+The legacy sidebar offers the same action in each project's context menu.
+You can also run **Open project in new window** from the command palette.
+
+Opening a project that already has a window reveals that window instead of creating a duplicate.
+A project window's sidebar stays pinned to that project: the project filter shows its name and
+cannot be changed, and new threads start in it. The hub window still lists every project.
+Web and mobile clients do not show project-window actions.
+
 ## Usage limits, subagents, and thread details
 
 - **Usage limits**: When a provider hits a rate/usage limit (**Limited**), press **Resume** in an empty composer after reset (or send a message). If the provider reports a reset time, choose **Resume at reset** or **Snooze until reset**—or enable defaults in **Settings → Threads** (**Resume after usage limits** / **Snooze until limits reset**).

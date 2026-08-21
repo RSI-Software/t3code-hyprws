@@ -1,3 +1,4 @@
+import "./browserDraftScope.fork"; // fork-hook: multi-window/browser-draft-isolation
 import { beforeEach } from "vite-plus/test";
 import { commands } from "vite-plus/test/browser";
 
