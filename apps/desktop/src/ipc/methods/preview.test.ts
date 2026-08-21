@@ -1,8 +1,10 @@
 import { it as effectIt } from "@effect/vitest";
 import {
   DEFAULT_BROWSER_PROFILE_ID,
+  EnvironmentId,
   INCOGNITO_BROWSER_PROFILE_ID,
   PreviewAutomationStatus,
+  ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -11,8 +13,10 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
 const { fromPartition } = vi.hoisted(() => ({
@@ -23,6 +27,7 @@ const { fromPartition } = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   BrowserWindow: {
+    fromWebContents,
     getAllWindows: vi.fn(() => []),
   },
   session: {
@@ -117,7 +122,11 @@ describe("preview IPC methods", () => {
     Effect.map(
       PreviewIpc.registerWebview
         .handler({ tabId: "tab-1", webContentsId: 0 })
-        .pipe(Effect.provideService(PreviewManager.PreviewManager, null as never), Effect.exit),
+        .pipe(
+          Effect.provideService(ElectronWindow.ElectronWindow, null as never),
+          Effect.provideService(PreviewManager.PreviewManager, null as never),
+          Effect.exit,
+        ),
       (exit) => {
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isSuccess(exit)) return;
@@ -128,8 +137,17 @@ describe("preview IPC methods", () => {
     ),
   );
 
-  effectIt.effect("returns automation status for long runtime tab ids", () =>
-    Effect.gen(function* () {
+  effectIt.effect("returns automation status for long runtime tab ids", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const sender = { id: 7 } as Electron.WebContents;
+    const senderWindow = {} as Electron.BrowserWindow;
+    fromId.mockReturnValue(sender);
+    fromWebContents.mockReturnValue(senderWindow);
+
+    return Effect.gen(function* () {
       const tabId =
         `["environment-1","thread:delegated-task:${"a".repeat(120)}",` +
         `"server-epoch-1","preview-1"]`;
@@ -141,18 +159,23 @@ describe("preview IPC methods", () => {
         title: null,
         loading: false,
       };
-      const manager = PreviewManager.PreviewManager.of({
-        automationStatus: () => Effect.succeed(status),
-      } as unknown as PreviewManager.PreviewManager["Service"]);
 
       expect(tabId.length).toBeGreaterThan(128);
       expect(
-        yield* PreviewIpc.automationStatus
-          .handler({ tabId })
-          .pipe(Effect.provideService(PreviewManager.PreviewManager, manager)),
+        yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
+          Effect.provideService(ElectronWindow.ElectronWindow, {
+            identityFor: () => Effect.succeed(Option.some(identity)),
+          } as never),
+          Effect.provideService(PreviewManager.PreviewManager, {
+            forWindow: () =>
+              Effect.succeed({
+                automationStatus: () => Effect.succeed(status),
+              } as never),
+          } as never),
+        ),
       ).toEqual(status);
-    }),
-  );
+    });
+  });
 
   it("keeps the public automation status tab id limit", () => {
     const encode = Schema.encodeUnknownSync(PreviewAutomationStatus);
