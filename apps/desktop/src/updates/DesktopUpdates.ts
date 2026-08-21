@@ -34,6 +34,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts"; // fork-hook: multi-window/window-session-import
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -711,6 +712,7 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const installDownloadedUpdate = (expectedVersion?: string) =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -778,6 +780,10 @@ export const make = Effect.gen(function* () {
             (instance) => instance.stop({ timeout: Duration.seconds(5) }),
             { concurrency: "unbounded" },
           );
+          // Upstream relaunches into a bare app because it only ever has one
+          // window. The fork can be holding a window per project, each on its own
+          // workspace, so record that layout while the windows are still alive.
+          yield* windowSession.capture(yield* electronWindow.listIdentities, "update");
           yield* electronUpdater.quitAndInstall({
             isSilent: true,
             isForceRunAfter: true,

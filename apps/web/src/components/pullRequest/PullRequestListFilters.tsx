@@ -509,7 +509,7 @@ export function PullRequestFiltersMenu({
   server: EnvironmentId | undefined;
   serverOptions: ReadonlyArray<PullRequestFilterOption<string>>;
   onServer: (server: EnvironmentId | undefined) => void;
-  projects: ReadonlyArray<ProjectFaviconProject & { readonly id: ProjectId }>;
+  projects: ReadonlyArray<ProjectFaviconProject & { readonly id: ProjectId }> | null;
   projectId: ProjectId | undefined;
   projectEnvironmentId: EnvironmentId | undefined;
   unavailable: ReadonlyMap<string, string>;
@@ -542,24 +542,27 @@ export function PullRequestFiltersMenu({
     projectId === undefined || projectEnvironmentId === undefined
       ? ALL_PROJECTS_VALUE
       : pullRequestProjectKey({ id: projectId, environmentId: projectEnvironmentId });
-  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
-    { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
-    ...projects
-      .toSorted(
-        (left, right) =>
-          Number(unavailable.has(pullRequestProjectKey(left))) -
-          Number(unavailable.has(pullRequestProjectKey(right))),
-      )
-      .map((project) => ({
-        value: pullRequestProjectKey(project),
-        label: project.title,
-        Icon: FolderGit2Icon,
-        project,
-        ...(unavailable.has(pullRequestProjectKey(project))
-          ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
-          : {}),
-      })),
-  ];
+  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> =
+    projects === null
+      ? []
+      : [
+          { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
+          ...projects
+            .toSorted(
+              (left, right) =>
+                Number(unavailable.has(pullRequestProjectKey(left))) -
+                Number(unavailable.has(pullRequestProjectKey(right))),
+            )
+            .map((project) => ({
+              value: pullRequestProjectKey(project),
+              label: project.title,
+              Icon: FolderGit2Icon,
+              project,
+              ...(unavailable.has(pullRequestProjectKey(project))
+                ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
+                : {}),
+            })),
+        ];
   return (
     <Menu onOpenChange={onOpenChange}>
       <MenuTrigger render={<Button variant="outline" />}>
@@ -643,17 +646,23 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
-        <MenuSeparator />
-        <PullRequestFilterRadioSubmenu
-          label="Project"
-          value={projectValue}
-          options={projectOptions}
-          onChange={(next) => {
-            const project = projects.find((candidate) => pullRequestProjectKey(candidate) === next);
-            if (project) onProject(project.id, project.environmentId);
-            else if (projectId !== undefined) onProject(undefined, undefined);
-          }}
-        />
+        {projects === null ? null : (
+          <>
+            <MenuSeparator />
+            <PullRequestFilterRadioSubmenu
+              label="Project"
+              value={projectValue}
+              options={projectOptions}
+              onChange={(next) => {
+                const project = projects.find(
+                  (candidate) => pullRequestProjectKey(candidate) === next,
+                );
+                if (project) onProject(project.id, project.environmentId);
+                else if (projectId !== undefined) onProject(undefined, undefined);
+              }}
+            />
+          </>
+        )}
       </MenuPopup>
     </Menu>
   );

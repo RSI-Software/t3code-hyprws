@@ -3257,6 +3257,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         }),
     ).pipe(Effect.asVoid);
 
+  const hasTab = Effect.fn("PreviewManager.hasTab")(function* (tabId: string) {
+    return (yield* SynchronizedRef.get(tabsRef)).has(tabId);
+  }); // fork-hook: multi-window/preview-has-tab
   const destroy = Effect.fn("PreviewManager.destroy")(function* () {
     const tabs = yield* SynchronizedRef.get(tabsRef);
     yield* Effect.forEach(tabs.keys(), closeTab, { discard: true });
@@ -3282,6 +3285,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     goBack,
     goForward,
     hardReload,
+    hasTab, // fork-hook: multi-window/preview-has-tab-entry
     navigate,
     openPictureInPicture,
     openDevTools,
@@ -3313,6 +3317,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     subscribeRecordingInputs: (listener: RecordingInputListener) =>
       subscribe(recordingInputListenersRef, listener),
     subscribeStateChanges: (listener: Listener) => subscribe(listenersRef, listener),
+    destroy, // fork-hook: multi-window/preview-destroy-entry
     zoomIn: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "in")),
     zoomOut: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "out")),
   };
@@ -3446,6 +3451,7 @@ export class PreviewAutomationDebuggerAttachedError extends Schema.TaggedError<P
 
 export const PreviewManagerError = Schema.Union([
   PreviewTabNotFoundError,
+  PreviewWindowPolicy.PreviewTabOwnershipError, // fork-hook: multi-window/preview-ownership-error
   PreviewWebContentsNotFoundError,
   PreviewWebviewNotInitializedError,
   PreviewMainWindowClosedError,
@@ -3553,13 +3559,30 @@ export class PreviewManager extends Context.Service<
     readonly subscribeRecordingInputs: (
       listener: RecordingInputListener,
     ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly subscribeOwnedStateChanges: (
+      listener: PreviewWindowPolicy.OwnedStateListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-state-changes-type
+    readonly subscribeOwnedRecordingFrames: (
+      listener: PreviewWindowPolicy.OwnedRecordingFrameListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-frames-type
+    readonly subscribeOwnedRecordingInputs: (
+      listener: PreviewWindowPolicy.OwnedRecordingInputListener,
+    ) => Effect.Effect<void, never, Scope.Scope>; // fork-hook: multi-window/preview-owned-recording-inputs-type
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
+
+type OwnedRecordingInputListener = (
+  identity: WindowIdentity,
+  input: DesktopPreviewRecordingInputEvent,
+) => Effect.Effect<void>;
 
 /** @public */
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const browserSession = yield* BrowserSession.BrowserSession;
+  const ownedRecordingInputListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingInputListener>>(
+    new Set(),
+  ); // fork-hook: multi-window/recording-input-listeners-ref
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const downloadSessions = new WeakSet<Electron.Session>();
@@ -3603,6 +3626,33 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       });
     });
   };
+
+  const getBrowserSession = Effect.fn("PreviewManager.getBrowserSession")(function* (
+    scope?: string,
+    persistent?: boolean,
+    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
+  ) {
+    return yield* browserSession
+      .getSession(scope, persistent, namespace)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
+        ),
+      );
+  }); // fork-hook: multi-window/browser-session-getter
+  const getBrowserPartition = Effect.fn("PreviewManager.getBrowserPartition")(function* (
+    scope?: string,
+    persistent?: boolean,
+    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
+  ) {
+    return yield* browserSession
+      .getPartition(scope, persistent, namespace)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "getBrowserPartition", cause }),
+        ),
+      );
+  }); // fork-hook: multi-window/browser-partition-getter
 
   const operations = yield* makeNativeOperations(
     environment.browserArtifactsDir,
