@@ -29,6 +29,7 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -149,6 +150,7 @@ import {
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
+  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -2081,8 +2083,22 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
-export default function Sidebar() {
-  const projects = useProjects();
+export default function Sidebar({
+  forcedProjectRef = null,
+}: {
+  forcedProjectRef?: ScopedProjectRef | null;
+}) {
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () =>
+      allProjects.filter((project) =>
+        isProjectInSidebarScope(
+          scopeProjectRef(project.environmentId, project.id),
+          forcedProjectRef,
+        ),
+      ),
+    [allProjects, forcedProjectRef],
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
@@ -2309,6 +2325,21 @@ export default function Sidebar() {
   // app restarts keep it.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
+  const forcedProjectGroup = useMemo(
+    () =>
+      forcedProjectRef
+        ? (projectGroups.find((project) =>
+            project.memberProjectRefs.some(
+              (projectRef) =>
+                projectRef.environmentId === forcedProjectRef.environmentId &&
+                projectRef.projectId === forcedProjectRef.projectId,
+            ),
+          ) ?? null)
+        : null,
+    [forcedProjectRef, projectGroups],
+  );
+  const effectiveProjectScopeKey =
+    forcedProjectGroup?.projectKey ?? (forcedProjectRef === null ? projectScopeKey : null);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2327,9 +2358,9 @@ export default function Sidebar() {
   );
   const selectedProjectScopeItem = useMemo(
     () =>
-      projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
+      projectScopeItems.find((item) => item.value === (effectiveProjectScopeKey ?? "all")) ??
       projectScopeItems[0]!,
-    [projectScopeItems, projectScopeKey],
+    [effectiveProjectScopeKey, projectScopeItems],
   );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
@@ -2347,40 +2378,56 @@ export default function Sidebar() {
     () =>
       filterSidebarProjectScopeItems({
         items: projectScopeItems,
-        activeScopeKey: projectScopeKey,
+        activeScopeKey: effectiveProjectScopeKey,
         query: projectScopeMenuState.query,
         matches: (item, query) =>
           projectScopeFilter.contains(item, query, (candidate) => candidate.label),
       }),
-    [projectScopeFilter, projectScopeItems, projectScopeKey, projectScopeMenuState.query],
+    [
+      effectiveProjectScopeKey,
+      projectScopeFilter,
+      projectScopeItems,
+      projectScopeMenuState.query,
+    ],
   );
-  const scopedProjectGroup = useMemo(
-    () =>
-      projectScopeKey === null
-        ? null
-        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
-    [projectGroups, projectScopeKey],
-  );
+  const scopedProjectGroup =
+    forcedProjectGroup ??
+    (projectScopeKey === null
+      ? null
+      : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null));
   const scopedProjectKeys = useMemo(
     () =>
-      scopedProjectGroup === null
-        ? null
-        : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+      forcedProjectRef
+        ? new Set([`${forcedProjectRef.environmentId}:${forcedProjectRef.projectId}`])
+        : scopedProjectGroup === null
+          ? null
+          : new Set(
+              scopedProjectGroup.memberProjectRefs.map(
+                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+              ),
             ),
-          ),
-    [scopedProjectGroup],
+    [forcedProjectRef, scopedProjectGroup],
   );
   // A persisted scope whose project is gone falls back to all projects, but
   // only after every catalog environment has a live project snapshot. Cached
   // or disconnected environments cannot establish that the project is gone.
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   useEffect(() => {
-    if (projectScopeKey !== null && allProjectSnapshotsReady && scopedProjectGroup === null) {
+    if (
+      forcedProjectRef === null &&
+      projectScopeKey !== null &&
+      allProjectSnapshotsReady &&
+      scopedProjectGroup === null
+    ) {
       setProjectScopeKey(null);
     }
-  }, [allProjectSnapshotsReady, projectScopeKey, scopedProjectGroup, setProjectScopeKey]);
+  }, [
+    allProjectSnapshotsReady,
+    forcedProjectRef,
+    projectScopeKey,
+    scopedProjectGroup,
+    setProjectScopeKey,
+  ]);
   // Count-only subscription: the parent needs "are there draft rows" for the
   // empty state, while SidebarDraftBlock owns the per-keystroke content
   // subscription. Selecting a number keeps typing in a draft composer from
@@ -2411,7 +2458,7 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, forcedProjectRef, projectScopeKey]);
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
@@ -4254,20 +4301,27 @@ export default function Sidebar() {
       // One project: nothing to pick, create immediately. Shift+click creates
       // directly in the current project even with several projects, skipping
       // the palette picker.
-      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
+      if (
+        forcedProjectRef !== null ||
+        shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)
+      ) {
         if (isMobile) setOpenMobile(false);
-        void startNewThreadFromContext({
-          activeDraftThread: newThreadContext.activeDraftThread,
-          activeThread: newThreadContext.activeThread ?? undefined,
-          defaultProjectRef: newThreadContext.defaultProjectRef,
-          handleNewThread: newThreadContext.handleNewThread,
-        });
+        if (forcedProjectRef) {
+          void newThreadContext.handleNewThread(forcedProjectRef);
+        } else {
+          void startNewThreadFromContext({
+            activeDraftThread: newThreadContext.activeDraftThread,
+            activeThread: newThreadContext.activeThread ?? undefined,
+            defaultProjectRef: newThreadContext.defaultProjectRef,
+            handleNewThread: newThreadContext.handleNewThread,
+          });
+        }
         return;
       }
       if (isMobile) setOpenMobile(false);
       openCommandPalette({ open: "new-thread-in" });
     },
-    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
+    [forcedProjectRef, isMobile, newThreadContext, projectGroups.length, setOpenMobile],
   );
 
   // The button mirrors chat.new: in multi-project setups both route through
@@ -4392,6 +4446,7 @@ export default function Sidebar() {
                   isItemEqualToValue={(a, b) => a.value === b.value}
                   open={projectScopeMenuState.open}
                   onOpenChange={(open) => {
+                    if (forcedProjectRef !== null) return;
                     if (open) suppressNextScopeChangeRef.current = false;
                     dispatchProjectScopeMenu({ type: "open-changed", open });
                   }}
@@ -4404,7 +4459,7 @@ export default function Sidebar() {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
+                    if (!item || forcedProjectRef !== null) return;
                     setProjectScopeKey(item.value === "all" ? null : item.value);
                   }}
                 >
@@ -4413,6 +4468,7 @@ export default function Sidebar() {
                       <SidebarMenuButton
                         aria-label="Filter threads by project"
                         className="min-w-0 flex-1 ps-[calc(var(--sidebar-row-content-inset)-1px)] focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                        disabled={forcedProjectRef !== null}
                       />
                     }
                   >
@@ -4426,7 +4482,9 @@ export default function Sidebar() {
                     <span className="min-w-0 flex-1 truncate">
                       {scopedProjectGroup?.displayName ?? "All projects"}
                     </span>
-                    <ChevronDownIcon className="-mr-px size-4 shrink-0" />
+                    {forcedProjectRef === null ? (
+                      <ChevronDownIcon className="-mr-px size-4 shrink-0" />
+                    ) : null}
                   </ComboboxTrigger>
                   <ComboboxPopup
                     align="start"
