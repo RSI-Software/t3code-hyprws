@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -24,7 +25,11 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
-function ChatRouteGlobalShortcuts() {
+export function ChatRouteGlobalShortcuts({
+  forcedProjectRef = null,
+}: {
+  forcedProjectRef?: ScopedProjectRef | null;
+}) {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
@@ -85,7 +90,7 @@ function ChatRouteGlobalShortcuts() {
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef,
+          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
           handleNewThread,
         });
         return;
@@ -97,14 +102,14 @@ function ChatRouteGlobalShortcuts() {
         // The default sidebar routes creation through the command palette
         // whenever there is a real choice to make; the legacy sidebar (and
         // single-project setups) keep the immediate contextual create.
-        if (!legacySidebarEnabled && projectGroupCount > 1) {
+        if (forcedProjectRef === null && !legacySidebarEnabled && projectGroupCount > 1) {
           openCommandPalette({ open: "new-thread-in" });
           return;
         }
         void startNewThreadFromContext({
           activeDraftThread,
           activeThread: activeThread ?? undefined,
-          defaultProjectRef,
+          defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
           handleNewThread,
         });
         return;
@@ -163,6 +168,7 @@ function ChatRouteGlobalShortcuts() {
     activeThread,
     clearSelection,
     handleNewThread,
+    forcedProjectRef,
     keybindings,
     defaultProjectRef,
     previewOpen,

@@ -1,10 +1,12 @@
 import { Outlet, createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useAllEnvironmentShellsBootstrapped, useProject } from "../state/entities";
+import { ChatRouteGlobalShortcuts } from "./_chat";
 
 function ProjectRouteLayout() {
   const navigate = useNavigate();
@@ -31,7 +33,14 @@ function ProjectRouteLayout() {
     return null;
   }
 
-  return threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />;
+  return (
+    <>
+      <ChatRouteGlobalShortcuts forcedProjectRef={projectRef} />
+      <AppSidebarLayout forcedProjectRef={projectRef}>
+        {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      </AppSidebarLayout>
+    </>
+  );
 }
 
 export const Route = createFileRoute("/project/$environmentId/$projectId")({
