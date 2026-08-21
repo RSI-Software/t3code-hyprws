@@ -8,15 +8,29 @@ import {
 } from "~/components/files/projectFilesQueryState";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 
+/**
+ * How long the new-thread path waits for the project file before falling back
+ * to the global default. The query never settles while the environment is
+ * unreachable, and a draft is client-side state that must not wait on the
+ * network: without this bound, opening a project whose environment is down
+ * leaves the route stuck with nothing rendered.
+ */
+const PROJECT_FILE_DEFAULTS_TIMEOUT_MS = 2000;
+
 export async function readT3ProjectFile(
   environmentId: EnvironmentId,
   workspaceRoot: string,
+  timeoutMs: number = PROJECT_FILE_DEFAULTS_TIMEOUT_MS,
 ): Promise<T3ProjectFile | null> {
-  const result = await executeAtomQuery(
-    appAtomRegistry,
-    getProjectFileQueryAtom(environmentId, workspaceRoot, T3_PROJECT_FILE_NAME),
-    { reportDefect: false, reportFailure: false },
+  const result = await withTimeout(
+    executeAtomQuery(
+      appAtomRegistry,
+      getProjectFileQueryAtom(environmentId, workspaceRoot, T3_PROJECT_FILE_NAME),
+      { reportDefect: false, reportFailure: false },
+    ),
+    timeoutMs,
   );
+  if (result === null) return null;
   const data = resolveProjectFileQueryData(
     environmentId,
     workspaceRoot,
@@ -25,4 +39,16 @@ export async function readT3ProjectFile(
   );
   if (data === null || data.truncated) return null;
   return parseT3ProjectFile(data.contents);
+}
+
+async function withTimeout<A>(promise: Promise<A>, timeoutMs: number): Promise<A | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
