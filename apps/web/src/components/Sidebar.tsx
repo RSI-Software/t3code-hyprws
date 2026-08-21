@@ -147,6 +147,7 @@ import { useEnvironmentQuery } from "../state/query";
 import { useThreadSearch } from "../state/queries";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
+  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteFamily,
   resolveThreadRouteTarget,
