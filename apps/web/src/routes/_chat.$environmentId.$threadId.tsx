@@ -5,7 +5,6 @@ import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import {
-  buildProjectIndexRoute,
   isValidProjectRouteId,
   resolveProjectContentRedirect,
   resolveProjectRouteRef,
@@ -84,8 +83,8 @@ export function ChatThreadRouteView() {
     if (!projectRouteRef || projectContentRedirect !== "project-index") {
       return;
     }
-    void navigate({ ...buildProjectIndexRoute(projectRouteRef), replace: true });
-  }, [navigate, projectContentRedirect, projectRouteRef]);
+    void navigate({ ...routeFamily.index(), replace: true });
+  }, [navigate, projectContentRedirect, projectRouteRef, routeFamily]);
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete || projectContentRedirect === "project-index") {
@@ -93,10 +92,7 @@ export function ChatThreadRouteView() {
     }
 
     if (renderState === "missing" && (projectRouteRef !== null || environmentHasAnyThreads)) {
-      void navigate({
-        ...(projectRouteRef ? buildProjectIndexRoute(projectRouteRef) : routeFamily.index()),
-        replace: true,
-      });
+      void navigate({ ...routeFamily.index(), replace: true });
     }
   }, [
     bootstrapComplete,
