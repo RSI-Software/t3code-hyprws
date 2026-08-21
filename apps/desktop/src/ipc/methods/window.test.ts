@@ -1,3 +1,4 @@
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -25,10 +26,12 @@ import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import type { DesktopSettings } from "../../settings/DesktopAppSettings.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import {
   getLocalEnvironmentBootstraps,
   getWindowFullscreenState,
   pasteAsText,
+  openProjectWindow,
   pickProjectFavicon,
   probeRemoteEditors,
 } from "./window.ts";
@@ -151,6 +154,42 @@ describe("getLocalEnvironmentBootstraps", () => {
       const result = yield* getLocalEnvironmentBootstraps.handler();
       assert.deepEqual(result, []);
     }).pipe(Effect.provide(DesktopBackendPool.layerTest([stoppedInstance])));
+  });
+});
+
+describe("openProjectWindow", () => {
+  it.effect("validates scoped refs and delegates repeated opens to the window registry", () => {
+    const openedIdentities: Parameters<
+      DesktopWindow.DesktopWindow["Service"]["openIdentity"]
+    >[0][] = [];
+    const window = {} as Electron.BrowserWindow;
+    const layer = Layer.mock(DesktopWindow.DesktopWindow)({
+      openIdentity: (identity) =>
+        Effect.sync(() => {
+          openedIdentities.push(identity);
+          return window;
+        }),
+    });
+    const projectRef = {
+      environmentId: EnvironmentId.make("environment-1"),
+      projectId: ProjectId.make("project-1"),
+    };
+
+    return Effect.gen(function* () {
+      yield* openProjectWindow.handler(projectRef);
+      yield* openProjectWindow.handler(projectRef);
+
+      assert.deepEqual(openedIdentities, [
+        { kind: "project", ref: projectRef },
+        { kind: "project", ref: projectRef },
+      ]);
+
+      const malformed = yield* Effect.result(
+        openProjectWindow.handler({ environmentId: " ", projectId: "project-1" }),
+      );
+      assert.isTrue(malformed._tag === "Failure");
+      assert.lengthOf(openedIdentities, 2);
+    }).pipe(Effect.provide(layer));
   });
 });
 
