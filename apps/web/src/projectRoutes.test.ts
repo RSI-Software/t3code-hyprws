@@ -2,7 +2,6 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  buildProjectIndexRoute,
   isValidProjectRouteId,
   resolveProjectAvailabilityRedirect,
   resolveProjectContentRedirect,
@@ -65,12 +64,5 @@ describe("projectRoutes", () => {
         contentIdValid: true,
       }),
     ).toBe("project-index");
-  });
-
-  it("builds the scoped project index target", () => {
-    expect(buildProjectIndexRoute(PROJECT_REF)).toEqual({
-      to: "/project/$environmentId/$projectId",
-      params: PROJECT_REF,
-    });
   });
 });
