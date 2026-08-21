@@ -7,11 +7,14 @@ import {
   resolveProjectFileQueryData,
 } from "~/components/files/projectFilesQueryState";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { withProjectFileTimeoutFork } from "./t3ProjectFileDefaults.fork"; // fork-hook: multi-window/project-file-timeout-import
+const executeAtomQueryWithTimeout = withProjectFileTimeoutFork(executeAtomQuery); // fork-hook: multi-window/project-file-timeout-query
 
 export async function readT3ProjectFile(
   environmentId: EnvironmentId,
   workspaceRoot: string,
 ): Promise<T3ProjectFile | null> {
+  const executeAtomQuery = executeAtomQueryWithTimeout; // fork-hook: multi-window/project-file-timeout
   const result = await executeAtomQuery(
     appAtomRegistry,
     getProjectFileQueryAtom(environmentId, workspaceRoot, T3_PROJECT_FILE_NAME),
