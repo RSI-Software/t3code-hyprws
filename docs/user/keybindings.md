@@ -134,6 +134,9 @@ through the pages you have visited, like a browser's back and forward buttons.
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
 (`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
 
+`project.openWindow` opens or reveals the active project's desktop window and defaults to
+`mod+alt+o`. The project-window command and its keybinding are shown only in the desktop app.
+
 ## Reserved shortcuts
 
 In the desktop app, `mod+w` closes the focused terminal or the active right-panel
