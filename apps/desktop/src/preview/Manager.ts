@@ -65,6 +65,11 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  type WindowIdentity,
+  windowIdentityKey,
+} from "../window/WindowIdentity.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -3379,6 +3384,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         }),
     ).pipe(Effect.asVoid);
 
+  const hasTab = Effect.fn("PreviewManager.hasTab")(function* (tabId: string) {
+    return (yield* SynchronizedRef.get(tabsRef)).has(tabId);
+  });
+
   const destroy = Effect.fn("PreviewManager.destroy")(function* () {
     const tabs = yield* SynchronizedRef.get(tabsRef);
     yield* Effect.forEach(tabs.keys(), closeTab, { discard: true });
@@ -3405,6 +3414,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     goBack,
     goForward,
     hardReload,
+    hasTab,
     navigate,
     openPictureInPicture,
     openDevTools,
@@ -3438,6 +3448,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     subscribeRecordingFrames: (listener: RecordingFrameListener) =>
       subscribe(recordingFrameListenersRef, listener),
     subscribeStateChanges: (listener: Listener) => subscribe(listenersRef, listener),
+    destroy,
     zoomIn: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "in")),
     zoomOut: (tabId: string) => applyZoom(tabId, (current) => nextZoomLevel(current, "out")),
   };
@@ -3569,8 +3580,18 @@ export class PreviewAutomationDebuggerAttachedError extends Schema.TaggedError<P
   }
 }
 
+export class PreviewTabOwnershipError extends Schema.TaggedError<PreviewTabOwnershipError>()(
+  "PreviewTabOwnershipError",
+  { tabId: Schema.String, requestingWindow: Schema.String },
+) {
+  override get message(): string {
+    return `Preview tab ${this.tabId} is owned by another window.`;
+  }
+}
+
 export const PreviewManagerError = Schema.Union([
   PreviewTabNotFoundError,
+  PreviewTabOwnershipError,
   PreviewWebContentsNotFoundError,
   PreviewWebviewNotInitializedError,
   PreviewMainWindowClosedError,
@@ -3584,6 +3605,61 @@ export const PreviewManagerError = Schema.Union([
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
 
+export interface PreviewWindowManager {
+  readonly createTab: (
+    tabId: string,
+    defaults?: DesktopPreviewTabDefaults,
+  ) => Effect.Effect<PreviewTabState, PreviewManagerError>;
+  readonly closeTab: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly registerWebview: (
+    tabId: string,
+    webContentsId: number,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly prepareWebview: (webContents: Electron.WebContents) => Effect.Effect<void>;
+  readonly navigate: (tabId: string, url: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly goBack: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly goForward: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly refresh: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly reapplyZoom: () => Effect.Effect<void>;
+  readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly setColorScheme: (
+    tabId: string,
+    colorScheme: DesktopPreviewColorScheme,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly setAudioMuted: (
+    tabId: string,
+    audioMuted: boolean,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly openDevTools: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly setAnnotationTheme: (
+    theme: DesktopPreviewAnnotationTheme,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly pickElement: (
+    tabId: string,
+  ) => Effect.Effect<PreviewAnnotationSubmissionResult | null, PreviewManagerError>;
+  readonly cancelPickElement: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly captureScreenshot: (
+    tabId: string,
+  ) => Effect.Effect<DesktopPreviewScreenshotArtifact, PreviewManagerError>;
+  readonly revealArtifact: (path: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly copyArtifactToClipboard: (path: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly openPictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly closePictureInPicture: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly startRecording: (
+    tabId: string,
+    options?: RecordingInputOptions,
+  ) => Effect.Effect<void, PreviewManagerError>;
+  readonly stopRecording: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
+  readonly saveRecording: (
+    tabId: string,
+    mimeType: string,
+    data: Uint8Array,
+  ) => Effect.Effect<DesktopPreviewRecordingArtifact, PreviewManagerError>;
+}
+
 export class PreviewManager extends Context.Service<
   PreviewManager,
   {
@@ -3591,6 +3667,12 @@ export class PreviewManager extends Context.Service<
     readonly setForwardedShortcuts: (
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
     ) => Effect.Effect<void>;
+    readonly setWindow: (
+      identity: WindowIdentity,
+      window: BrowserWindow,
+    ) => Effect.Effect<void, PreviewManagerError>;
+    readonly disposeWindow: (identity: WindowIdentity) => Effect.Effect<void>;
+    readonly forWindow: (identity: WindowIdentity) => Effect.Effect<PreviewWindowManager>;
     readonly getBrowserSession: (
       scope?: string,
       persistent?: boolean,
@@ -3683,8 +3765,38 @@ export class PreviewManager extends Context.Service<
     readonly subscribeRecordingFrames: (
       listener: RecordingFrameListener,
     ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly subscribeOwnedStateChanges: (
+      listener: OwnedStateListener,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly subscribeOwnedPointerEvents: (
+      listener: OwnedPointerEventListener,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly subscribeOwnedRecordingFrames: (
+      listener: OwnedRecordingFrameListener,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly subscribeOwnedRecordingInputs: (
+      listener: OwnedRecordingInputListener,
+    ) => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
+
+type OwnedStateListener = (
+  identity: WindowIdentity,
+  tabId: string,
+  state: PreviewTabState,
+) => Effect.Effect<void>;
+type OwnedRecordingFrameListener = (
+  identity: WindowIdentity,
+  frame: DesktopPreviewRecordingFrame,
+) => Effect.Effect<void>;
+type OwnedPointerEventListener = (
+  identity: WindowIdentity,
+  event: DesktopPreviewPointerEvent,
+) => Effect.Effect<void>;
+type OwnedRecordingInputListener = (
+  identity: WindowIdentity,
+  input: DesktopPreviewRecordingInputEvent,
+) => Effect.Effect<void>;
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* PreviewManagerMake() {
@@ -3738,13 +3850,63 @@ export const make = Effect.gen(function* PreviewManagerMake() {
     });
   };
 
-  const operations = yield* makeNativeOperations(
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const parentScope = yield* Scope.Scope;
+  const context = yield* Effect.context<never>();
+  const runFork = Effect.runForkWith(context);
+  const makeOperations = makeNativeOperations(
     environment.browserArtifactsDir,
     environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
   );
+  type NativeOperations = Effect.Success<typeof makeOperations>;
+  interface WindowOperationsEntry {
+    readonly identity: WindowIdentity;
+    readonly operations: NativeOperations;
+    readonly scope: Scope.Closeable;
+    window?: BrowserWindow;
+  }
 
-  return PreviewManager.of({
-    setMainWindow: operations.setMainWindow,
+  const entries = new Map<string, WindowOperationsEntry>();
+  const entriesSemaphore = yield* Semaphore.make(1);
+  const ownedStateListenersRef = yield* Ref.make<ReadonlySet<OwnedStateListener>>(new Set());
+  const ownedPointerListenersRef = yield* Ref.make<ReadonlySet<OwnedPointerEventListener>>(
+    new Set(),
+  );
+  const ownedRecordingListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingFrameListener>>(
+    new Set(),
+  );
+  const ownedRecordingInputListenersRef = yield* Ref.make<ReadonlySet<OwnedRecordingInputListener>>(
+    new Set(),
+  ); // fork-hook: multi-window/recording-input-listeners-ref
+
+  const subscribe = <A>(ref: Ref.Ref<ReadonlySet<A>>, listener: A) =>
+    Effect.acquireRelease(
+      Ref.update(ref, (listeners) => new Set([...listeners, listener])),
+      () =>
+        Ref.update(ref, (listeners) => {
+          const next = new Set(listeners);
+          next.delete(listener);
+          return next;
+        }),
+    ).pipe(Effect.asVoid);
+
+  const deliverOwned = <A>(
+    kind: "state-change" | "recording-frame" | "recording-input" | "pointer-event",
+    listeners: ReadonlySet<A>,
+    deliver: (listener: A) => Effect.Effect<void>,
+  ) =>
+    Effect.forEach(
+      listeners,
+      (listener) =>
+        Effect.suspend(() => deliver(listener)).pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("Desktop preview event listener failed.", {
+                  eventKind: kind,
+                  cause,
+                }),
     setForwardedShortcuts: operations.setForwardedShortcuts,
     getBrowserSession: Effect.fn("PreviewManager.getBrowserSession")(
       function* (scope, persistent, namespace) {
@@ -3785,43 +3947,259 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           Effect.mapError(
             (cause) => new PreviewOperationError({ operation: "clearCookies", cause }),
           ),
-        );
-    }),
-    clearCache: Effect.fn("PreviewManager.clearCache")(function* (partitions) {
-      yield* browserSession
-        .clearCache(partitions)
-        .pipe(
-          Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCache", cause })),
-        );
-    }),
-    getBrowserPartition: Effect.fn("PreviewManager.getBrowserPartition")(
-      function* (scope, persistent, namespace) {
-        return yield* browserSession
-          .getPartition(scope, persistent, namespace)
-          .pipe(
-            Effect.mapError(
-              (cause) => new PreviewOperationError({ operation: "getBrowserPartition", cause }),
+        ),
+      { discard: true },
+    );
+
+  const createEntry = Effect.fn("PreviewManager.createWindowOperations")(function* (
+    identity: WindowIdentity,
+  ): Effect.fn.Return<WindowOperationsEntry> {
+    const scope = yield* Scope.fork(parentScope, "sequential");
+    const operations = yield* makeOperations.pipe(
+      Effect.provideService(Scope.Scope, scope),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.provide(context),
+    );
+    yield* Effect.all(
+      [
+        operations
+          .subscribeStateChanges((tabId, state) =>
+            Ref.get(ownedStateListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("state-change", listeners, (listener) =>
+                  listener(identity, tabId, state),
+                ),
+              ),
             ),
-          );
-      },
-    ),
-    setAnnotationTheme: operations.setAnnotationTheme,
-    setAnnotationSendEnabled: operations.setAnnotationSendEnabled,
-    pickElement: operations.pickElement,
-    cancelPickElement: operations.cancelPickElement,
-    captureScreenshot: operations.captureScreenshot,
-    revealArtifact: operations.revealArtifact,
-    copyArtifactToClipboard: operations.copyArtifactToClipboard,
-    openPictureInPicture: operations.openPictureInPicture,
-    closePictureInPicture: operations.closePictureInPicture,
-    startRecording: operations.startRecording,
-    stopRecording: operations.stopRecording,
-    saveRecording: operations.saveRecording,
-    subscribeStateChanges: operations.subscribeStateChanges,
-    subscribePointerEvents: operations.subscribePointerEvents,
-    subscribeOpenLinks: operations.subscribeOpenLinks,
-    subscribeRecordingFrames: operations.subscribeRecordingFrames,
-    subscribeRecordingInputs: operations.subscribeRecordingInputs,
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
+        operations
+          .subscribePointerEvents((event) =>
+            Ref.get(ownedPointerListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("pointer-event", listeners, (listener) => listener(identity, event)),
+              ),
+            ),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
+        operations
+          .subscribeRecordingFrames((frame) =>
+            Ref.get(ownedRecordingListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("recording-frame", listeners, (listener) => listener(identity, frame)),
+              ),
+            ),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
+        operations
+          .subscribeRecordingInputs((input) =>
+            Ref.get(ownedRecordingInputListenersRef).pipe(
+              Effect.flatMap((listeners) =>
+                deliverOwned("recording-input", listeners, (listener) => listener(identity, input)),
+              ),
+            ),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope)),
+      ],
+      { discard: true },
+    ).pipe(Effect.onError(() => Scope.close(scope, Exit.void).pipe(Effect.ignore)));
+    return { identity, operations, scope } satisfies WindowOperationsEntry;
+  });
+
+  const getEntry = (identity: WindowIdentity) =>
+    entriesSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const key = windowIdentityKey(identity);
+        const existing = entries.get(key);
+        if (existing) return existing;
+        const created = yield* createEntry(identity);
+        entries.set(key, created);
+        return created;
+      }),
+    );
+
+  const authorizeTab = Effect.fn("PreviewManager.authorizeTab")(function* (
+    entry: WindowOperationsEntry,
+    tabId: string,
+  ) {
+    if (yield* entry.operations.hasTab(tabId)) return;
+    for (const other of entries.values()) {
+      if (other !== entry && (yield* other.operations.hasTab(tabId))) {
+        return yield* new PreviewTabOwnershipError({
+          tabId,
+          requestingWindow: windowIdentityKey(entry.identity),
+        });
+      }
+    }
+  });
+
+  const scopedManager = (entry: WindowOperationsEntry): PreviewWindowManager => {
+    const operations = entry.operations;
+    const authorized = <A>(tabId: string, operation: Effect.Effect<A, PreviewManagerError>) =>
+      authorizeTab(entry, tabId).pipe(Effect.andThen(operation));
+    return {
+      createTab: operations.createTab,
+      closeTab: (tabId) => authorized(tabId, operations.closeTab(tabId)),
+      registerWebview: (tabId, webContentsId) =>
+        authorized(tabId, operations.registerWebview(tabId, webContentsId)),
+      prepareWebview: operations.prepareWebview,
+      navigate: (tabId, url) => authorized(tabId, operations.navigate(tabId, url)),
+      goBack: (tabId) => authorized(tabId, operations.goBack(tabId)),
+      goForward: (tabId) => authorized(tabId, operations.goForward(tabId)),
+      refresh: (tabId) => authorized(tabId, operations.refresh(tabId)),
+      zoomIn: (tabId) => authorized(tabId, operations.zoomIn(tabId)),
+      zoomOut: (tabId) => authorized(tabId, operations.zoomOut(tabId)),
+      resetZoom: (tabId) => authorized(tabId, operations.resetZoom(tabId)),
+      reapplyZoom: operations.reapplyZoom,
+      hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
+      setColorScheme: (tabId, colorScheme) =>
+        authorized(tabId, operations.setColorScheme(tabId, colorScheme)),
+      setAudioMuted: (tabId, audioMuted) =>
+        authorized(tabId, operations.setAudioMuted(tabId, audioMuted)),
+      openDevTools: (tabId) => authorized(tabId, operations.openDevTools(tabId)),
+      setAnnotationTheme: operations.setAnnotationTheme,
+      pickElement: (tabId) => authorized(tabId, operations.pickElement(tabId)),
+      cancelPickElement: (tabId) => authorized(tabId, operations.cancelPickElement(tabId)),
+      captureScreenshot: (tabId) => authorized(tabId, operations.captureScreenshot(tabId)),
+      revealArtifact: operations.revealArtifact,
+      copyArtifactToClipboard: operations.copyArtifactToClipboard,
+      openPictureInPicture: (tabId) => authorized(tabId, operations.openPictureInPicture(tabId)),
+      closePictureInPicture: (tabId) => authorized(tabId, operations.closePictureInPicture(tabId)),
+      startRecording: (tabId, options) =>
+        authorized(tabId, operations.startRecording(tabId, options)),
+      stopRecording: (tabId) => authorized(tabId, operations.stopRecording(tabId)),
+      saveRecording: (tabId, mimeType, data) =>
+        authorized(tabId, operations.saveRecording(tabId, mimeType, data)),
+      automationStatus: (tabId) => authorized(tabId, operations.automationStatus(tabId)),
+      automationSnapshot: (tabId) => authorized(tabId, operations.automationSnapshot(tabId)),
+      automationClick: (tabId, input) =>
+        authorized(tabId, operations.automationClick(tabId, input)),
+      automationType: (tabId, input) => authorized(tabId, operations.automationType(tabId, input)),
+      automationPress: (tabId, input) =>
+        authorized(tabId, operations.automationPress(tabId, input)),
+      automationScroll: (tabId, input) =>
+        authorized(tabId, operations.automationScroll(tabId, input)),
+      automationEvaluate: (tabId, input) =>
+        authorized(tabId, operations.automationEvaluate(tabId, input)),
+      automationWaitFor: (tabId, input) =>
+        authorized(tabId, operations.automationWaitFor(tabId, input)),
+    };
+  };
+
+  const forWindow = Effect.fn("PreviewManager.forWindow")(function* (identity: WindowIdentity) {
+    return scopedManager(yield* getEntry(identity));
+  });
+  const disposeWindow = Effect.fn("PreviewManager.disposeWindow")(function* (
+    identity: WindowIdentity,
+  ) {
+    yield* entriesSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const key = windowIdentityKey(identity);
+        const entry = entries.get(key);
+        if (!entry) return;
+        yield* Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
+        if (entries.get(key) === entry) entries.delete(key);
+      }),
+    );
+  });
+  const setWindow = Effect.fn("PreviewManager.setWindow")(function* (
+    identity: WindowIdentity,
+    window: BrowserWindow,
+  ) {
+    const entry = yield* getEntry(identity);
+    entry.window = window;
+    yield* entry.operations.setMainWindow(window);
+    window.once("closed", () => {
+      if (entry.window === window) runFork(disposeWindow(identity));
+    });
+  });
+
+  const clearCookies = Effect.fn("PreviewManager.clearCookies")(function* (
+    partitions?: ReadonlyArray<string>,
+  ) {
+    yield* browserSession
+      .clearCookies(partitions)
+      .pipe(
+        Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCookies", cause })),
+      );
+  });
+  const clearCache = Effect.fn("PreviewManager.clearCache")(function* (
+    partitions?: ReadonlyArray<string>,
+  ) {
+    yield* browserSession
+      .clearCache(partitions)
+      .pipe(
+        Effect.mapError((cause) => new PreviewOperationError({ operation: "clearCache", cause })),
+      );
+  });
+  const getBrowserSession = Effect.fn("PreviewManager.getBrowserSession")(function* (
+    scope?: string,
+    persistent?: boolean,
+    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
+  ) {
+    return yield* browserSession
+      .getSession(scope, persistent, namespace)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "getBrowserSession", cause }),
+        ),
+      );
+  }); // fork-hook: multi-window/browser-session-getter
+  const getBrowserPartition = Effect.fn("PreviewManager.getBrowserPartition")(function* (
+    scope?: string,
+    persistent?: boolean,
+    namespace?: BrowserSession.BrowserSessionPartitionNamespace,
+  ) {
+    return yield* browserSession
+      .getPartition(scope, persistent, namespace)
+      .pipe(
+        Effect.mapError(
+          (cause) => new PreviewOperationError({ operation: "getBrowserPartition", cause }),
+        ),
+      );
+  }); // fork-hook: multi-window/browser-partition-getter
+
+  const hub = yield* forWindow(HUB_WINDOW_IDENTITY);
+  const hubOnly = (identity: WindowIdentity) => identity.kind === "hub";
+  yield* Effect.addFinalizer(() =>
+    Effect.forEach(Array.from(entries.values()), (entry) => Scope.close(entry.scope, Exit.void), {
+      discard: true,
+    }).pipe(Effect.ignore),
+  );
+
+  return PreviewManager.of({
+    ...hub,
+    setMainWindow: (window) => setWindow(HUB_WINDOW_IDENTITY, window),
+    setWindow,
+    disposeWindow,
+    forWindow,
+    getBrowserSession,
+    isBrowserPartition: browserSession.isPartition,
+    clearCookies,
+    clearCache,
+    getBrowserPartition,
+    subscribeOwnedStateChanges: (listener) => subscribe(ownedStateListenersRef, listener),
+    subscribeOwnedPointerEvents: (listener) => subscribe(ownedPointerListenersRef, listener),
+    subscribeOwnedRecordingFrames: (listener) => subscribe(ownedRecordingListenersRef, listener),
+    subscribeOwnedRecordingInputs: (listener) =>
+      subscribe(ownedRecordingInputListenersRef, listener),
+    subscribeStateChanges: (listener) =>
+      subscribe(ownedStateListenersRef, (identity, tabId, state) =>
+        hubOnly(identity) ? listener(tabId, state) : Effect.void,
+      ),
+    subscribePointerEvents: (listener) =>
+      subscribe(ownedPointerListenersRef, (identity, event) =>
+        hubOnly(identity) ? listener(event) : Effect.void,
+      ),
+    subscribeRecordingFrames: (listener) =>
+      subscribe(ownedRecordingListenersRef, (identity, frame) =>
+        hubOnly(identity) ? listener(frame) : Effect.void,
+      ),
+    subscribeRecordingInputs: (listener) =>
+      subscribe(ownedRecordingInputListenersRef, (identity, input) =>
+        hubOnly(identity) ? listener(input) : Effect.void,
+      ),
   });
 }).pipe(Effect.withSpan("PreviewManager.make"));
 

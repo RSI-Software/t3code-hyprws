@@ -15,6 +15,12 @@ import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import {
+  filterSidebarProjects,
+  resolveSidebarPhysicalScope,
+  setSidebarLogicalScope,
+} from "./sidebar/SidebarPhysicalScope";
+import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
@@ -74,6 +80,7 @@ import {
   CircleDashedIcon,
   ClockIcon,
   EyeIcon,
+  ExternalLinkIcon,
   FolderIcon,
   GitBranchIcon,
   ListFilterIcon,
@@ -111,6 +118,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -173,6 +181,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
+  resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
@@ -2418,7 +2427,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
-  const projects = useProjects();
+  const forcedProjectRef = useSidebarPhysicalScope();
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () => filterSidebarProjects(allProjects, forcedProjectRef),
+    [allProjects, forcedProjectRef],
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
@@ -2503,6 +2517,10 @@ export default function Sidebar() {
       );
     },
   });
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2519,6 +2537,10 @@ export default function Sidebar() {
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
+  });
+  const routeFamily = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteFamily(params),
   });
   const routeDraftThread = useComposerDraftStore((store) =>
     routeTarget?.kind === "draft" ? store.getDraftSession(routeTarget.draftId) : null,
@@ -2636,6 +2658,19 @@ export default function Sidebar() {
       }),
     [persistedProjectScopeKey, projectGroups, projectGroupingSettings],
   );
+  const {
+    projectGroup: scopedProjectGroup,
+    effectiveScopeKey: effectiveProjectScopeKey,
+    projectKeys: scopedProjectKeys,
+  } = useMemo(
+    () =>
+      resolveSidebarPhysicalScope({
+        forcedProjectRef,
+        projectGroups,
+        logicalScopeKey: projectScopeKey,
+      }),
+    [forcedProjectRef, projectGroups, projectScopeKey],
+  );
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2675,9 +2710,9 @@ export default function Sidebar() {
   );
   const selectedProjectScopeItem = useMemo(
     () =>
-      projectScopeItems.find((item) => item.value === (projectScopeKey ?? "all")) ??
+      projectScopeItems.find((item) => item.value === (effectiveProjectScopeKey ?? "all")) ??
       projectScopeItems[0]!,
-    [projectScopeItems, projectScopeKey],
+    [effectiveProjectScopeKey, projectScopeItems],
   );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
@@ -2700,24 +2735,6 @@ export default function Sidebar() {
       }),
     [projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
   );
-  const scopedProjectGroup = useMemo(
-    () =>
-      projectScopeKey === null
-        ? null
-        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
-    [projectGroups, projectScopeKey],
-  );
-  const scopedProjectKeys = useMemo(
-    () =>
-      scopedProjectGroup === null
-        ? null
-        : new Set(
-            scopedProjectGroup.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-            ),
-          ),
-    [scopedProjectGroup],
-  );
   // Configs identify scratch projects, so both they and live project snapshots
   // must arrive before a persisted scope can be considered missing.
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
@@ -2735,6 +2752,7 @@ export default function Sidebar() {
   }, [
     allProjectConfigsReady,
     allProjectSnapshotsReady,
+    forcedProjectRef,
     persistedProjectScopeKey,
     projectGroups,
     projectGroupingSettings,
@@ -2770,7 +2788,28 @@ export default function Sidebar() {
   // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
     clearSelection();
-  }, [clearSelection, projectScopeKey]);
+  }, [clearSelection, forcedProjectRef, projectScopeKey]);
+
+  const handleOpenProjectWindow = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+      if (!desktopBridge) return;
+      void desktopBridge
+        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        });
+    },
+    [desktopBridge],
+  );
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot, projectRef?: ScopedProjectRef) => {
@@ -3216,12 +3255,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      return router.navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void router.navigate(routeFamily.thread(threadRef));
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
   );
 
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
@@ -3261,9 +3297,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate({ to: "/draft/$draftId", params: { draftId } });
+      void router.navigate(routeFamily.draft(draftId));
     },
-    [clearSelection, isMobile, router, setOpenMobile],
+    [clearSelection, isMobile, routeFamily, router, setOpenMobile],
   );
 
   const clearThreadSearch = useCallback(() => {
@@ -3406,9 +3442,9 @@ export default function Sidebar() {
         : shell
           ? () =>
               void handleNewThreadRef.current(scopeProjectRef(shell.environmentId, shell.projectId))
-          : () => void router.navigate({ to: "/" });
+          : () => void router.navigate(routeFamily.index());
     },
-    [navigateToThread, router],
+    [navigateToThread, routeFamily, router],
   );
 
   const attemptSettle = useCallback(
@@ -5020,20 +5056,27 @@ export default function Sidebar() {
       // One project: nothing to pick, create immediately. Shift+click creates
       // directly in the current project even with several projects, skipping
       // the palette picker.
-      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
+      if (
+        forcedProjectRef !== null ||
+        shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)
+      ) {
         if (isMobile) setOpenMobile(false);
-        void startNewThreadFromContext({
-          activeDraftThread: newThreadContext.activeDraftThread,
-          activeThread: newThreadContext.activeThread ?? undefined,
-          defaultProjectRef: newThreadContext.defaultProjectRef,
-          handleNewThread: newThreadContext.handleNewThread,
-        });
+        if (forcedProjectRef) {
+          void newThreadContext.handleNewThread(forcedProjectRef);
+        } else {
+          void startNewThreadFromContext({
+            activeDraftThread: newThreadContext.activeDraftThread,
+            activeThread: newThreadContext.activeThread ?? undefined,
+            defaultProjectRef: newThreadContext.defaultProjectRef,
+            handleNewThread: newThreadContext.handleNewThread,
+          });
+        }
         return;
       }
       if (isMobile) setOpenMobile(false);
       openCommandPalette({ open: "new-thread-in" });
     },
-    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
+    [forcedProjectRef, isMobile, newThreadContext, projectGroups.length, setOpenMobile],
   );
 
   // The button mirrors chat.new: in multi-project setups both route through
@@ -5070,6 +5113,7 @@ export default function Sidebar() {
                   isItemEqualToValue={(a, b) => a.value === b.value}
                   open={projectScopeMenuState.open}
                   onOpenChange={(open) => {
+                    if (forcedProjectRef !== null) return;
                     if (open) suppressNextScopeChangeRef.current = false;
                     dispatchProjectScopeMenu({ type: "open-changed", open });
                   }}
@@ -5082,8 +5126,12 @@ export default function Sidebar() {
                       suppressNextScopeChangeRef.current = false;
                       return;
                     }
-                    if (!item) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    if (!item || forcedProjectRef !== null) return;
+                    setSidebarLogicalScope(
+                      forcedProjectRef,
+                      item.value === "all" ? null : item.value,
+                      setProjectScopeKey,
+                    );
                   }}
                 >
                   <ComboboxTrigger
@@ -5094,6 +5142,7 @@ export default function Sidebar() {
                             ? `Filter threads by project: ${scopedProjectGroup.displayName}`
                             : "Filter threads by project"
                         }
+                        disabled={forcedProjectRef !== null}
                       />
                     }
                   >
@@ -5192,6 +5241,25 @@ export default function Sidebar() {
                     </ComboboxList>
                   </ComboboxPopup>
                 </Combobox>
+              }
+              projectSettingsAction={
+                forcedProjectRef !== null && scopedProjectGroup !== null ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <SidebarHeaderIconButton
+                          label={`Project settings for ${scopedProjectGroup.displayName}`}
+                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                            void handleProjectSettings(event, scopedProjectGroup);
+                          }}
+                        >
+                          <SettingsIcon />
+                        </SidebarHeaderIconButton>
+                      }
+                    />
+                    <TooltipPopup side="right">Project settings</TooltipPopup>
+                  </Tooltip>
+                ) : undefined
               }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
