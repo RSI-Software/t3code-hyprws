@@ -102,10 +102,12 @@ import {
   toComposerContextId,
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
+import { resolveProjectRefFromPathname } from "./projectRoutes";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 
 const isElementContextDetails = Schema.is(ElementContextDetails);
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
+import * as forkDraftScope from "./windowDraftScope.fork"; // fork-hook: multi-window/draft-scope-import
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -117,6 +119,19 @@ const isResponseContextRecord = Schema.is(ResponseContextRecord);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
+
+export function resolveComposerDraftStorageKey(pathname: string): string {
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  if (projectRef === null) {
+    return COMPOSER_DRAFT_STORAGE_KEY;
+  }
+  return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(projectRef.environmentId)}:${encodeURIComponent(projectRef.projectId)}`;
+}
+
+// Test doubles stub `window` without `location`; treat that like a server render.
+export const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
+  typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
+);
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -243,6 +258,7 @@ const composerPersistStorage: PersistStorage<ComposerPersistState> = {
   setItem: (name, value) => composerDebouncedStorage.setItem(name, value),
   removeItem: (name) => composerDebouncedStorage.removeItem(name),
 };
+forkDraftScope.install(composerDebouncedStorage, partializeComposerDraftStoreState); // fork-hook: multi-window/draft-scope-install
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("beforeunload", () => {
@@ -2456,9 +2472,12 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   if (threadKey.length === 0) {
     return [];
   }
+  if (forkDraftScope.ownsDraft(threadKey)) {
+    return forkDraftScope.attachmentIds(threadKey);
+  } // fork-hook: multi-window/draft-scope-attachments
   try {
     const persisted = getLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
+      activeComposerDraftStorageKey,
       PersistedComposerDraftStoreStorage,
     );
     if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
@@ -4413,7 +4432,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
       };
     },
     {
-      name: COMPOSER_DRAFT_STORAGE_KEY,
+      name: activeComposerDraftStorageKey,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,
@@ -4450,6 +4469,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
 composerDraftLoadedState = partializeComposerDraftStoreState(composerDraftStore.getState());
 
 export const useComposerDraftStore = composerDraftStore;
+forkDraftScope.adoptInto(composerDraftStore); // fork-hook: multi-window/draft-scope-adopt
 
 export function subscribeComposerDraftModelReconciliation(input: {
   readonly registry: AtomRegistry.AtomRegistry;
