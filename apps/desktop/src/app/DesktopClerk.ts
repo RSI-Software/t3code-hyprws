@@ -1,5 +1,6 @@
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,8 +19,11 @@ import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { makeComponentLogger } from "./DesktopObservability.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
+
+const { logWarning } = makeComponentLogger("desktop-clerk");
 
 export class DesktopClerkBridgeInitializationError extends Schema.TaggedError<DesktopClerkBridgeInitializationError>()(
   "DesktopClerkBridgeInitializationError",
@@ -50,11 +54,13 @@ export class DesktopClerkBridgeCleanupError extends Schema.TaggedError<DesktopCl
 export class DesktopClerk extends Context.Service<
   DesktopClerk,
   {
-    readonly configure: Effect.Effect<
+    readonly configure: <E>(
+      openArguments: (argv: readonly string[]) => Effect.Effect<void, E>,
+    ) => Effect.Effect<
       void,
       never,
       ElectronApp.ElectronApp | ElectronWindow.ElectronWindow | Scope.Scope
-    >;
+    >; // fork-hook: multi-window/clerk-open-arguments
   }
 >()("@t3tools/desktop/app/DesktopClerk") {}
 
@@ -126,10 +132,15 @@ export const make = Effect.gen(function* () {
   );
 
   return DesktopClerk.of({
-    configure: Effect.gen(function* () {
+    configure: Effect.fn("desktop.clerk.configure")(function* <E>(
+      openArguments: (argv: readonly string[]) => Effect.Effect<void, E>,
+    ) {
       const electronApp = yield* ElectronApp.ElectronApp;
       const electronWindow = yield* ElectronWindow.ElectronWindow;
-      const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
+      const context = yield* Effect.context<
+        ElectronApp.ElectronApp | ElectronWindow.ElectronWindow | Scope.Scope
+      >(); // fork-hook: multi-window/clerk-open-arguments
+      const runFork = Effect.runForkWith(context);
       const runPromise = Effect.runPromiseWith(context);
 
       // The SDK bridge holds Electron's single-instance lock (acquired at
@@ -188,20 +199,36 @@ export const make = Effect.gen(function* () {
       };
       const args = yield* HostProcessArguments;
       args.some((value) => startProviderAuthHandoff(value));
-      yield* electronApp.on("open-url", (event: { preventDefault: () => void }, url: string) => {
-        if (startProviderAuthHandoff(url) || resumeProviderAuth(url)) event.preventDefault();
-      });
+      const openEventArguments = (
+        source: "second-instance" | "open-url",
+        argv: readonly string[],
+      ) =>
+        openArguments(argv).pipe(
+          Effect.catchCause((cause) =>
+            logWarning("failed to open launch arguments", {
+              source,
+              argv: [...argv],
+              error: Cause.pretty(cause),
+            }),
+          ),
+        );
+
+      // Clerk's bridge subscribes to these same Electron app events for OAuth
+      // callbacks; EventEmitter delivers them to both listeners.
       yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
         if (argv?.some((value) => startProviderAuthHandoff(value) || resumeProviderAuth(value)))
           return;
-        void runPromise(
-          Effect.gen(function* () {
-            const mainWindow = yield* electronWindow.currentMainOrFirst;
-            if (Option.isSome(mainWindow)) yield* electronWindow.reveal(mainWindow.value);
-          }),
-        );
+        runFork(openEventArguments("second-instance", argv));
       });
-    }).pipe(Effect.withSpan("desktop.clerk.configure")),
+      yield* electronApp.on(
+        "open-url",
+        (event: { readonly preventDefault: () => void }, url: string) => {
+          event.preventDefault();
+          if (startProviderAuthHandoff(url) || resumeProviderAuth(url)) return; // fork-hook: multi-window/clerk-open-arguments
+          runFork(openEventArguments("open-url", [url]));
+        },
+      );
+    }),
   });
 });
 
