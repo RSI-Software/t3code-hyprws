@@ -33,7 +33,7 @@ import {
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
 import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { resolveThreadRouteFamily } from "../lib/threadRouteNavigation";
+import { resolveThreadRouteFamily } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
 
