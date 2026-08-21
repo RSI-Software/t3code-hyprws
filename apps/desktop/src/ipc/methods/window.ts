@@ -11,6 +11,7 @@ import {
   PickFolderOptionsSchema,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   REMOTE_CAPABLE_EDITOR_IDS,
+  ScopedProjectRef,
   SystemSettingsPaneSchema,
   type DesktopEnvironmentBootstrap,
   type PickedThemeFile,
@@ -441,6 +442,16 @@ export const openSystemSettings = DesktopIpc.makeIpcMethod({
 });
 
 const REMOTE_EDITOR_PROBE_CONCURRENCY = 8;
+
+export const openProjectWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_PROJECT_WINDOW_CHANNEL,
+  payload: ScopedProjectRef,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.openProjectWindow")(function* (projectRef) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    yield* desktopWindow.openIdentity({ kind: "project", ref: projectRef });
+  }),
+});
 
 export const probeRemoteEditors = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL,
