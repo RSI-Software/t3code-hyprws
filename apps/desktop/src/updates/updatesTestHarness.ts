@@ -13,6 +13,8 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts";
+import type { WindowIdentity } from "../window/WindowIdentity.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 
 /** Shared DesktopUpdates test harness: a fully stubbed updater layer whose
@@ -33,6 +35,7 @@ export interface UpdatesHarnessOptions {
   readonly quitAndInstall?: Effect.Effect<void, ElectronUpdater.ElectronUpdaterQuitAndInstallError>;
   readonly stopBackend?: Effect.Effect<void>;
   readonly startBackend?: Effect.Effect<void>;
+  readonly openWindowIdentities?: readonly WindowIdentity[];
   readonly env?: Record<string, string | undefined>;
   readonly platform?: NodeJS.Platform;
   /** Contents of the resources/package-type marker a Linux package ships. */
@@ -49,6 +52,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
+  const capturedSessions: { identities: WindowIdentity[]; reason: string }[] = [];
+  const openIdentities: readonly WindowIdentity[] = options.openWindowIdentities ?? [];
 
   const addListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
     const eventListeners = listeners.get(eventName) ?? new Set();
@@ -112,6 +117,11 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeedNone,
+    get: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-get
+    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    close: () => Effect.void,
+    identityFor: () => Effect.succeedNone, // fork-hook: project-windows/updates-harness-window-identity
+    listIdentities: Effect.succeed(openIdentities),
     currentMainOrFirst: Effect.succeedNone,
     focusedMainOrFirst: Effect.succeedNone,
     setMain: () => Effect.void,
@@ -234,9 +244,19 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       }),
   });
 
+  const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+    capture: (identities, reason) =>
+      Effect.sync(() => {
+        capturedSessions.push({ identities: [...identities], reason });
+        installSteps.push("capture");
+      }),
+    consume: Effect.succeed([]),
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
+
   const layer = DesktopUpdates.layer.pipe(
     Layer.provide(fileSystemLayer),
     Layer.provideMerge(updaterLayer),
+    Layer.provideMerge(windowSessionLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
@@ -259,6 +279,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     quitAndInstalls: () => quitAndInstallCount,
     installSteps,
     updateRestartMarkers,
+    capturedSessions,
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
     fullChangelog: () => fullChangelog,
