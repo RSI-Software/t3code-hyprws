@@ -1625,6 +1625,13 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
+export function resolveChatMarkdownEnvironmentId(
+  threadRef: ScopedThreadRef | undefined,
+  explicitEnvironmentId?: EnvironmentId | undefined,
+): ScopedThreadRef["environmentId"] | null {
+  return threadRef?.environmentId ?? explicitEnvironmentId ?? null;
+}
+
 function ChatMarkdown({
   text,
   cwd,
@@ -1650,7 +1657,7 @@ function ChatMarkdown({
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
+  const environmentId = resolveChatMarkdownEnvironmentId(threadRef, explicitEnvironmentId);
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions = canUseMarkdownFileShellActions(
     environmentId,

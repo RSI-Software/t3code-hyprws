@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -32,8 +32,36 @@ import ChatMarkdown, {
   canUseMarkdownFileShellActions,
   hasMarkdownFilePrimaryAction,
   orderedListGutterStyle,
+  resolveChatMarkdownEnvironmentId,
   shouldUseMarkdownFileBrowserPrimaryAction,
 } from "./ChatMarkdown";
+
+describe("resolveChatMarkdownEnvironmentId", () => {
+  it("uses the thread environment instead of the explicit environment", () => {
+    const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+
+    expect(
+      resolveChatMarkdownEnvironmentId(
+        {
+          environmentId: remoteEnvironmentId,
+          threadId: ThreadId.make("thread-1"),
+        },
+        EnvironmentId.make("environment-explicit"),
+      ),
+    ).toBe(remoteEnvironmentId);
+  });
+
+  it("uses the explicit environment for non-thread markdown", () => {
+    const explicitEnvironmentId = EnvironmentId.make("environment-explicit");
+    expect(resolveChatMarkdownEnvironmentId(undefined, explicitEnvironmentId)).toBe(
+      explicitEnvironmentId,
+    );
+  });
+
+  it("does not fall back to an unrelated environment without a thread", () => {
+    expect(resolveChatMarkdownEnvironmentId(undefined)).toBeNull();
+  });
+});
 
 describe("canUseMarkdownFileShellActions", () => {
   const environmentId = EnvironmentId.make("environment-1");
