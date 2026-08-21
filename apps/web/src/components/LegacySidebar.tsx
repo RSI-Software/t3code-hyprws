@@ -50,6 +50,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   ProjectId,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
   type SidebarProjectGroupingMode,
@@ -186,6 +187,7 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
+  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
@@ -3143,9 +3145,33 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   );
 });
 
-export default function LegacySidebar() {
-  const projects = useProjects();
-  const sidebarThreads = useThreadShells();
+export default function LegacySidebar({
+  forcedProjectRef = null,
+}: {
+  forcedProjectRef?: ScopedProjectRef | null;
+}) {
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () =>
+      allProjects.filter((project) =>
+        isProjectInSidebarScope(
+          scopeProjectRef(project.environmentId, project.id),
+          forcedProjectRef,
+        ),
+      ),
+    [allProjects, forcedProjectRef],
+  );
+  const allSidebarThreads = useThreadShells();
+  const sidebarThreads = useMemo(
+    () =>
+      allSidebarThreads.filter((thread) =>
+        isProjectInSidebarScope(
+          scopeProjectRef(thread.environmentId, thread.projectId),
+          forcedProjectRef,
+        ),
+      ),
+    [allSidebarThreads, forcedProjectRef],
+  );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -3463,7 +3489,7 @@ export default function LegacySidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
-  const isManualProjectSorting = sidebarProjectSortOrder === "manual";
+  const isManualProjectSorting = forcedProjectRef === null && sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {
