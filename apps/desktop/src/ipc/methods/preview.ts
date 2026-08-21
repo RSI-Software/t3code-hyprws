@@ -34,25 +34,42 @@ import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
+import * as PreviewWindowPolicy from "../../preview/WindowPolicy.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
+
+export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedErrorClass<PreviewIpcSenderNotAuthorizedError>()(
+  "PreviewIpcSenderNotAuthorizedError",
+  { reason: Schema.Literals(["missing-sender", "unregistered-window"]) },
+) {
+  override get message(): string {
+    return "Preview IPC sender is not an authorized desktop window.";
+  }
+}
+
+const previewForSender = Effect.fn("desktop.ipc.preview.resolveSender")(function* (
+  event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
+) {
+  return yield* PreviewWindowPolicy.resolvePreviewForSender(
+    event,
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    (reason) => new PreviewIpcSenderNotAuthorizedError({ reason }),
+  );
+});
 
 export const installPreviewEventForwarding = Effect.fn(
   "desktop.ipc.preview.installEventForwarding",
 )(function* () {
-  const electronWindow = yield* ElectronWindow.ElectronWindow;
-  const manager = yield* PreviewManager.PreviewManager;
-  yield* manager.subscribeStateChanges((tabId, state) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL, tabId, state),
-  );
-  yield* manager.subscribeRecordingFrames((frame) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL, frame),
-  );
-  yield* manager.subscribeRecordingInputs((event) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_RECORDING_INPUT_CHANNEL, event),
-  );
-  yield* manager.subscribePointerEvents((event) =>
-    electronWindow.sendAll(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, event),
+  yield* PreviewWindowPolicy.installEventForwarding(
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    {
+      stateChange: IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL,
+      recordingFrame: IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL,
+      recordingInput: IpcChannels.PREVIEW_RECORDING_INPUT_CHANNEL,
+      pointerEvent: IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL,
+    },
   );
 });
 
@@ -70,13 +87,11 @@ export const createTab = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CREATE_TAB_CHANNEL,
   payload: DesktopPreviewCreateTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.createTab")(function* ({
-    tabId,
-    zoomFactor,
-    colorScheme,
-    serverTab,
-  }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.createTab")(function* (
+    { tabId, zoomFactor, colorScheme },
+    event,
+  ) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.createTab(tabId, { zoomFactor, colorScheme, serverTab });
   }),
 });
@@ -85,8 +100,8 @@ export const closeTab = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CLOSE_TAB_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.closeTab")(function* ({ tabId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.closeTab")(function* ({ tabId }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.closeTab(tabId);
   }),
 });
@@ -95,8 +110,11 @@ export const registerWebview = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_REGISTER_WEBVIEW_CHANNEL,
   payload: DesktopPreviewRegisterWebviewInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.registerWebview")(function* ({ tabId, webContentsId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.registerWebview")(function* (
+    { tabId, webContentsId },
+    event,
+  ) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.registerWebview(tabId, webContentsId);
   }),
 });
@@ -105,8 +123,8 @@ export const navigate = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_NAVIGATE_CHANNEL,
   payload: DesktopPreviewNavigateInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.navigate")(function* ({ tabId, url }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.navigate")(function* ({ tabId, url }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.navigate(tabId, url);
   }),
 });
@@ -115,7 +133,7 @@ const tabMethod = (
   channel: string,
   name: string,
   invoke: (
-    manager: PreviewManager.PreviewManager["Service"],
+    manager: PreviewManager.PreviewWindowManager,
     tabId: string,
   ) => Effect.Effect<void, PreviewManager.PreviewManagerError>,
 ) =>
@@ -123,8 +141,8 @@ const tabMethod = (
     channel,
     payload: DesktopPreviewTabInputSchema,
     result: Schema.Void,
-    handler: Effect.fn(name)(function* ({ tabId }) {
-      const manager = yield* PreviewManager.PreviewManager;
+    handler: Effect.fn(name)(function* ({ tabId }, event) {
+      const { windowManager: manager } = yield* previewForSender(event);
       yield* invoke(manager, tabId);
     }),
   });
@@ -177,8 +195,11 @@ export const setColorScheme = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_SET_COLOR_SCHEME_CHANNEL,
   payload: DesktopPreviewSetColorSchemeInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.setColorScheme")(function* ({ tabId, colorScheme }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.setColorScheme")(function* (
+    { tabId, colorScheme },
+    event,
+  ) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.setColorScheme(tabId, colorScheme);
   }),
 });
@@ -186,8 +207,8 @@ export const setAudioMuted = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_SET_AUDIO_MUTED_CHANNEL,
   payload: DesktopPreviewSetAudioMutedInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.setAudioMuted")(function* ({ tabId, audioMuted }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.setAudioMuted")(function* ({ tabId, audioMuted }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.setAudioMuted(tabId, audioMuted);
   }),
 });
@@ -236,8 +257,11 @@ export const clearCookies = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CLEAR_COOKIES_CHANNEL,
   payload: DesktopPreviewClearDataInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.clearCookies")(function* ({ environmentId, profileId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.clearCookies")(function* (
+    { environmentId, profileId },
+    event,
+  ) {
+    const { previewManager: manager } = yield* previewForSender(event);
     yield* manager.clearCookies(yield* resolveClearPartitions(manager, environmentId, profileId));
   }),
 });
@@ -246,8 +270,11 @@ export const clearCache = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CLEAR_CACHE_CHANNEL,
   payload: DesktopPreviewClearDataInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.clearCache")(function* ({ environmentId, profileId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.clearCache")(function* (
+    { environmentId, profileId },
+    event,
+  ) {
+    const { previewManager: manager } = yield* previewForSender(event);
     yield* manager.clearCache(yield* resolveClearPartitions(manager, environmentId, profileId));
   }),
 });
@@ -304,8 +331,11 @@ export const getPreviewConfig = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_GET_CONFIG_CHANNEL,
   payload: DesktopPreviewConfigInputSchema,
   result: DesktopPreviewWebviewConfigSchema,
-  handler: Effect.fn("desktop.ipc.preview.getConfig")(function* ({ environmentId, profileId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.getConfig")(function* (
+    { environmentId, profileId },
+    event,
+  ) {
+    const { previewManager: manager } = yield* previewForSender(event);
     const { scope, persistent, namespace } = resolvePartitionScope(environmentId, profileId);
     // Creating the session first is what installs the UA rewrite and permission
     // handlers; a guest that attached to an untouched partition would run with
@@ -362,8 +392,8 @@ export const setAnnotationTheme = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_SET_ANNOTATION_THEME_CHANNEL,
   payload: DesktopPreviewAnnotationThemeInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.setAnnotationTheme")(function* ({ theme }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.setAnnotationTheme")(function* ({ theme }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.setAnnotationTheme(theme);
   }),
 });
@@ -372,8 +402,8 @@ export const pickElement = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_PICK_ELEMENT_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: Schema.NullOr(PreviewAnnotationSubmissionResultSchema),
-  handler: Effect.fn("desktop.ipc.preview.pickElement")(function* ({ tabId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.pickElement")(function* ({ tabId }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     return yield* manager.pickElement(tabId);
   }),
 });
@@ -395,8 +425,8 @@ export const captureScreenshot = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_CAPTURE_SCREENSHOT_CHANNEL,
   payload: DesktopPreviewTabInputSchema,
   result: DesktopPreviewScreenshotArtifactSchema,
-  handler: Effect.fn("desktop.ipc.preview.captureScreenshot")(function* ({ tabId }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.captureScreenshot")(function* ({ tabId }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     return yield* manager.captureScreenshot(tabId);
   }),
 });
@@ -405,8 +435,8 @@ export const revealArtifact = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_REVEAL_ARTIFACT_CHANNEL,
   payload: DesktopPreviewArtifactInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.revealArtifact")(function* ({ path }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.revealArtifact")(function* ({ path }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.revealArtifact(path);
   }),
 });
@@ -415,8 +445,8 @@ export const copyArtifactToClipboard = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_COPY_ARTIFACT_CHANNEL,
   payload: DesktopPreviewArtifactInputSchema,
   result: Schema.Void,
-  handler: Effect.fn("desktop.ipc.preview.copyArtifactToClipboard")(function* ({ path }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.copyArtifactToClipboard")(function* ({ path }, event) {
+    const { windowManager: manager } = yield* previewForSender(event);
     yield* manager.copyArtifactToClipboard(path);
   }),
 });
@@ -425,8 +455,11 @@ export const saveRecording = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_RECORDING_SAVE_CHANNEL,
   payload: DesktopPreviewRecordingSaveInputSchema,
   result: DesktopPreviewRecordingArtifactSchema,
-  handler: Effect.fn("desktop.ipc.preview.saveRecording")(function* ({ tabId, mimeType, data }) {
-    const manager = yield* PreviewManager.PreviewManager;
+  handler: Effect.fn("desktop.ipc.preview.saveRecording")(function* (
+    { tabId, mimeType, data },
+    event,
+  ) {
+    const { windowManager: manager } = yield* previewForSender(event);
     return yield* manager.saveRecording(tabId, mimeType, data);
   }),
 });

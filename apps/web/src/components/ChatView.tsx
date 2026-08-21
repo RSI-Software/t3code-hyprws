@@ -359,6 +359,7 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
 import {
   isSameSidebarThreadRef,
   useSidebarPendingFileDropStore,
@@ -1582,6 +1583,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
+  const routeFamily = useThreadRouteFamily();
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
@@ -2863,10 +2865,7 @@ export default function ChatView(props: ChatViewProps) {
           },
         );
         if (routeKind !== "draft" || draftId !== storedDraftSession.draftId) {
-          await navigate({
-            to: "/draft/$draftId",
-            params: buildDraftThreadRouteParams(storedDraftSession.draftId),
-          });
+          await navigate(routeFamily.draft(storedDraftSession.draftId));
         }
         return storedDraftSession.threadId;
       }
@@ -2898,10 +2897,7 @@ export default function ChatView(props: ChatViewProps) {
         interactionMode: DEFAULT_INTERACTION_MODE,
         ...input,
       });
-      await navigate({
-        to: "/draft/$draftId",
-        params: buildDraftThreadRouteParams(nextDraftId),
-      });
+      await navigate(routeFamily.draft(nextDraftId));
       return nextThreadId;
     },
     [
@@ -2914,6 +2910,7 @@ export default function ChatView(props: ChatViewProps) {
       projectGroupingSettings,
       routeKind,
       settings,
+      routeFamily,
       setDraftThreadContext,
       setLogicalProjectDraftThreadId,
     ],
@@ -9924,10 +9921,7 @@ export default function ChatView(props: ChatViewProps) {
                 actionProps: {
                   children: "Open",
                   onClick: () => {
-                    void navigate({
-                      to: "/$environmentId/$threadId",
-                      params: buildThreadRouteParams(backgroundThreadRef),
-                    });
+                    void navigate(routeFamily.thread(backgroundThreadRef));
                   },
                 },
               }),
@@ -10534,13 +10528,7 @@ export default function ChatView(props: ChatViewProps) {
 
     if (failure === null) {
       const navigateResult = await settlePromise(() =>
-        navigate({
-          to: "/$environmentId/$threadId",
-          params: {
-            environmentId: activeThread.environmentId,
-            threadId: nextThreadId,
-          },
-        }),
+        navigate(routeFamily.thread(scopeThreadRef(activeThread.environmentId, nextThreadId))),
       );
       failure = navigateResult._tag === "Failure" ? navigateResult : null;
     }
@@ -10588,6 +10576,7 @@ export default function ChatView(props: ChatViewProps) {
     navigate,
     resetLocalDispatch,
     defaultRuntimeMode,
+    routeFamily,
     startThreadTurn,
     environmentId,
     composerRef,
