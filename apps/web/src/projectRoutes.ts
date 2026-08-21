@@ -50,13 +50,3 @@ export function resolveProjectContentRedirect(input: {
   }
   return null;
 }
-
-export function buildProjectIndexRoute(projectRef: ScopedProjectRef) {
-  return {
-    to: "/project/$environmentId/$projectId" as const,
-    params: {
-      environmentId: projectRef.environmentId,
-      projectId: projectRef.projectId,
-    },
-  };
-}
