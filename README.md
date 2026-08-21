@@ -1,3 +1,54 @@
+# T3 Code - hyprws
+
+I hate reading agent yap output in a terminal; t3code solves this! Love it.
+
+But I am very perticular on a conceptual level about how things aught to be laid out on my workstation. I do not like having one instance to handle every project.
+
+To me this is like having one instance of VSCode at your root dir. \
+EVERY REPO in one window; all in one place. No, this is what visual workspaces are for.
+
+- Mulitple Instances (one per project/lane)
+- Use hypland workspaces (+virtual desktops for dual monitor)
+- zmux (opinioned tmux, think tmux+herdr but worse) for managing terminal stuff
+- worktrees via worktrunk
+
+```text
+┌─ Project A · Virtual Desktop 1 ─────────────────────────────────────┐
+│                                                                     │
+│  ┌─ Screen 1 · Hyprland WS 1 ─────┐  ┌─ Screen 2 · Hyprland WS 2 ─┐ │
+│  │                 │ [ VS Code ]  │  │                            │ │
+│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
+│  │                 │ [ Milkcar ]  │  │                            │ │
+│  └────────────────────────────────┘  └────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Project B · Virtual Desktop 2 ─────────────────────────────────────┐
+│                                                                     │
+│  ┌─ Screen 1 · Hyprland WS 3 ─────┐  ┌─ Screen 2 · Hyprland WS 4 ─┐ │
+│  │                 │ [ VS Code ]  │  │                            │ │
+│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
+│  │                 │ [ Milkcar ]  │  │                            │ │
+│  └────────────────────────────────┘  └────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Project C · Virtual Desktop 3 ─────────────────────────────────────┐
+│                                                                     │
+│  ┌─ Screen 1 · Hyprland WS 5 ─────┐  ┌─ Screen 2 · Hyprland WS 6 ─┐ │
+│  │                 │ [ VS Code ]  │  │                            │ │
+│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
+│  │                 │ [ Milkcar ]  │  │                            │ │
+│  └────────────────────────────────┘  └────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Fork development
+
+Here, an instance means an independently placeable project window.
+Project windows share one Electron process and the existing backend pool.
+
+Read [Fork development](docs/internals/fork-development.md) before changing the fork.
+It owns the product direction, architecture boundaries, Worktrunk lanes, and upstream rebase flow.
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
