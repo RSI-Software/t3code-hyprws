@@ -15,6 +15,7 @@ import {
   getProjectSortTimestamp,
   hasUnseenCompletion,
   isContextMenuPointerDown,
+  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -53,7 +54,7 @@ import {
   type Thread,
 } from "../types";
 
-const localEnvironmentId = EnvironmentId.make("environment-local");
+export const localEnvironmentId = EnvironmentId.make("environment-local");
 
 describe("animatePinnedLayoutChanges", () => {
   const baseArgs: Parameters<AnimateLayoutChanges>[0] = {
@@ -197,7 +198,7 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
   });
 });
 
-function makeLatestTurn(overrides?: {
+export function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
 }): OrchestrationLatestTurn {
