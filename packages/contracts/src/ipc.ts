@@ -20,7 +20,7 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, type ScopedProjectRef } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 
@@ -1208,12 +1208,20 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  /** Open or reveal the desktop window scoped to this physical project. */
+  openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   /**
    * Open a System Settings pane by identifier. Optional: older desktop builds
    * lack it, and callers no-op when it is missing.
    */
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
+  /**
+   * The project this window is scoped to, or null in the hub window. Lets the
+   * client keep shared pages (settings, usage) anchored to the project window
+   * instead of falling back to the hub route.
+   */
+  projectWindowRef?: ScopedProjectRef | null;
   /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
