@@ -100,6 +100,10 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeed(Option.none()),
+    get: () => Effect.succeed(Option.none()),
+    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    close: () => Effect.void,
+    identityFor: () => Effect.succeed(Option.none()),
     currentMainOrFirst: Effect.succeed(Option.none()),
     focusedMainOrFirst: Effect.succeed(Option.none()),
     setMain: () => Effect.void,
