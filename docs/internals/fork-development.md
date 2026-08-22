@@ -174,6 +174,7 @@ Small, coherent commits are easier to rebase, review, reorder, drop, and upstrea
 - Prefer narrow additions and upstream-native extension points over broad edits to central modules.
 - Reuse upstream terminology and abstractions unless the fork needs a genuinely new concept.
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
+- Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers, then record it in [Fork delta](./fork-delta.md).
 
 The best fork code looks unsurprising inside upstream T3 Code.
 Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
@@ -190,6 +191,10 @@ git fetch origin upstream
 expected_old=$(git rev-parse origin/project-windows)
 git rebase upstream/main
 ```
+
+Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active domain.
+It names the upstream paths that would silently invalidate a domain, including the ones that would retire it outright.
+A clean rebase is not evidence that a domain is still needed.
 
 Run focused verification after resolving conflicts.
 Then publish the rewritten branch with an explicit expected-old lease.
