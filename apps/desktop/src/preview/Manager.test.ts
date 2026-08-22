@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import type { DesktopPreviewRecordingFrame } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type DesktopPreviewRecordingFrame } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as PreviewManager from "./Manager.ts";
 
@@ -384,6 +385,69 @@ describe("PreviewManager", () => {
     createFromPath.mockClear();
     webviewSend.mockClear();
   });
+
+  effectIt.effect("namespaces equal tab ids by owning window and routes events to that owner", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const firstIdentity = projectWindowIdentity(
+          EnvironmentId.make("environment-1"),
+          ProjectId.make("project-1"),
+        );
+        const secondIdentity = projectWindowIdentity(
+          EnvironmentId.make("environment-1"),
+          ProjectId.make("project-2"),
+        );
+        const first = yield* manager.forWindow(firstIdentity);
+        const second = yield* manager.forWindow(secondIdentity);
+        const deliveries: string[] = [];
+        yield* manager.subscribeOwnedStateChanges((identity, tabId) =>
+          Effect.sync(() => {
+            deliveries.push(`${windowIdentityKey(identity)}:${tabId}`);
+          }),
+        );
+
+        const firstState = yield* first.createTab("shared-tab", { zoomFactor: 1.25 });
+        const secondState = yield* second.createTab("shared-tab", { zoomFactor: 0.8 });
+
+        expect(firstState.zoomFactor).toBe(1.25);
+        expect(secondState.zoomFactor).toBe(0.8);
+        expect(deliveries).toEqual([
+          `${windowIdentityKey(firstIdentity)}:shared-tab`,
+          `${windowIdentityKey(secondIdentity)}:shared-tab`,
+        ]);
+      }),
+    ),
+  );
+
+  effectIt.effect("explicitly rejects a tab owned only by another window", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const owner = yield* manager.forWindow(
+          projectWindowIdentity(
+            EnvironmentId.make("environment-1"),
+            ProjectId.make("project-owner"),
+          ),
+        );
+        const other = yield* manager.forWindow(
+          projectWindowIdentity(
+            EnvironmentId.make("environment-1"),
+            ProjectId.make("project-other"),
+          ),
+        );
+        yield* owner.createTab("owned-tab");
+
+        const exit = yield* Effect.exit(other.closeTab("owned-tab"));
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "PreviewTabOwnershipError",
+            tabId: "owned-tab",
+          });
+        }
+      }),
+    ),
+  );
 
   effectIt.effect("reports an unregistered webview as temporarily unavailable", () =>
     withManager((manager) =>
@@ -2008,7 +2072,7 @@ describe("PreviewManager", () => {
     ),
   );
 
-  effectIt.effect("releases frame capture when the main window closes", () =>
+  effectIt.effect("disposes preview tabs when their owning window closes", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         let closeMainWindow: (() => void) | undefined;
@@ -2026,6 +2090,13 @@ describe("PreviewManager", () => {
           id === undefined ? null : (webContentsById.get(id) ?? null),
         );
 
+        const otherWindow = yield* manager.forWindow(
+          projectWindowIdentity(
+            EnvironmentId.make("environment-1"),
+            ProjectId.make("other-project"),
+          ),
+        );
+        yield* otherWindow.navigate("tab_other_window", "https://other.example");
         yield* manager.createTab("tab_window_close_recording");
         yield* manager.createTab("tab_window_close_race");
         yield* manager.registerWebview("tab_window_close_recording", 42);
@@ -2045,12 +2116,17 @@ describe("PreviewManager", () => {
         expect(Exit.isFailure(racedStart)).toBe(true);
         if (Exit.isFailure(racedStart)) {
           expect(Option.getOrThrow(Cause.findErrorOption(racedStart.cause))).toMatchObject({
-            _tag: "PreviewMainWindowClosedError",
+            _tag: "PreviewTabNotFoundError",
             tabId: "tab_window_close_race",
           });
         }
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
+        expect(yield* otherWindow.automationStatus("tab_other_window")).toMatchObject({
+          tabId: "tab_other_window",
+          url: "https://other.example/",
+          loading: true,
+        });
 
         yield* manager.setMainWindow({
           isDestroyed: () => false,
