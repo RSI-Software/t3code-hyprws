@@ -3,15 +3,26 @@
 > Fork-only inventory for `RSI-Software/t3code-hyprws`.
 
 [Fork development](./fork-development.md) owns discipline: branch topology, rebase rules, and commit hygiene.
-This document owns the inventory: what the fork changes, which domain owns it, and what would let us delete it.
+This document owns the inventory: each change, its owning domain, and what would let us delete it.
 
 Read this first when deciding whether a change belongs in the fork at all.
+
+The commit list itself is generated, because commit hashes rot on every rebase.
+
+```bash
+vp run fork:delta           # Markdown ledger grouped by domain and tier
+vp run fork:delta --check   # exit 1 when a fork commit lacks a valid trailer
+vp run fork:delta --json    # the same ledger for tooling
+```
+
+It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
 
 ## Why the fork exists
 
 Upstream's desktop app is single-window by construction.
 `DesktopWindow` exposes only `createMain`, `ensureMain`, and `revealOrCreateMain`.
 There is no window registry and no per-window scope.
+
 Electron holds a single-instance lock.
 A second launch forwards its arguments to the first window instead of opening another.
 
@@ -24,7 +35,7 @@ Point a browser at the same backend and open one project per tab.
 Sessions, auth, and state are shared because it is the same server.
 
 That alternative is real, and it costs nothing.
-It loses the in-app browser preview, which is desktop-only.
+It loses the in-app browser preview because that preview is desktop-only.
 `apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
 
 The fork exists because of that gap and because native windows tile under Hyprland while browser tabs do not.
@@ -43,12 +54,42 @@ Every fork change carries one tier.
 A `bugfix` that upstream reproduces is an upstreaming candidate, not fork delta we want to carry.
 Send it upstream as its own pull request and drop it from the stack when it lands.
 
+## Trailers
+
+Every fork commit carries `Fork-Domain` and `Fork-Tier`.
+A `bugfix` also carries `Fork-Upstreamable`, so the ledger can tell an upstreaming candidate from a fork-only fix.
+
+```text
+feat(desktop): register windows by identity
+
+Fork-Domain: project-windows
+Fork-Tier: core
+```
+
+```text
+fix(web): stop new threads waiting on an unreachable project file
+
+Fork-Domain: project-windows
+Fork-Tier: bugfix
+Fork-Upstreamable: yes
+```
+
+| Trailer             | Values                        | Required on       |
+| ------------------- | ----------------------------- | ----------------- |
+| `Fork-Domain`       | A domain from the index below | Every fork commit |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
+
+`vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
+A rebase preserves trailers, so the log stays queryable after every sync.
+
 ## Domain index
 
 | Domain                              | Status | Tiers present     | Retires when                                  |
 | ----------------------------------- | ------ | ----------------- | --------------------------------------------- |
 | [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window. |
 | [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.          |
+| [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.   |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -61,53 +102,20 @@ One T3 Code window per project, placeable on its own Hyprland workspace.
 It sits beside that project's editor, terminals, and browser.
 The hub stays as the all-projects view; it stops being the only view.
 
-### Core
+### Shape
 
-Deleting any of these breaks project windows.
+The core is a project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
 
-| Commit      | Change                                                        |
-| ----------- | ------------------------------------------------------------- |
-| `31b434b08` | Centralize thread route navigation.                           |
-| `0f54e9214` | Add a physical project scope to the sidebar.                  |
-| `e962eba9d` | Add the `project.$environmentId.$projectId` route subtree.    |
-| `2d158e764` | Preserve project thread routes across navigation.             |
-| `b7864f2c2` | Render the scoped project shell.                              |
-| `32c0a08ef` | Wait for scoped project hydration.                            |
-| `e65a2b52e` | Register desktop windows by identity.                         |
-| `31e7b2875` | Route project window intents.                                 |
-| `c7c539c1c` | Isolate project preview and drafts per window.                |
-| `b1fa69546` | Share project pathname parsing between web and desktop.       |
-| `9255bf06e` | Open forwarded project intents from the single-instance lock. |
-| `eb054de76` | Load project scope from hash routes.                          |
-| `631b9275d` | Namespace previews by window.                                 |
-| `5f33af4f3` | Authorize and route preview IPC by window.                    |
-| `f0330ee99` | Enable previews inside project windows.                       |
-| `fe19c8d82` | Open project windows from renderer IPC.                       |
-| `6ab74a755` | Detect desktop project window support from the web client.    |
-| `8d7096b3f` | Open project windows from hub actions.                        |
+Launch intents reach the right window through the single-instance lock and hash routes.
+Previews, composer drafts, and preview IPC are namespaced per window.
 
-The web half is bridge-gated throughout.
-Without `window.desktopBridge.openProjectWindow` the palette entry, hub button, and keybinding row all disappear.
-The web client is unchanged.
+Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
+All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
-### QoL
+QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, and route test naming.
+Two bugfixes reproduce upstream and should be offered there; one is fork-only.
 
-| Commit      | Tier note                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| `a8d819bf7` | Offer retry when a scoped draft fails to start. Fork-only surface.                               |
-| `df3497f3f` | `T3CODE_DESKTOP_DEVTOOLS=0` suppresses DevTools, which dev opened once per window. Upstreamable. |
-| `c0167e637` | Rename project route tests with the `-` prefix so the TanStack Router generator stops warning.   |
-
-### Bugfixes
-
-| Commit      | Upstream reproduces | Change                                                                                         |
-| ----------- | ------------------- | ---------------------------------------------------------------------------------------------- |
-| `f311547b3` | Yes                 | Starting a thread awaited `t3.json`, which never settles while the environment is unreachable. |
-| `400dc3487` | Yes                 | Markdown actions used the global environment instead of the thread's.                          |
-| `d79f9ee6c` | No                  | Scoped chrome now mounts while the environment reconnects, instead of rendering nothing.       |
-
-The two upstream-reproducing fixes should be offered upstream.
-Each is independent of project windows and rebases cleanly on its own.
+Run `vp run fork:delta` for the commit list.
 
 ### Retirement condition
 
@@ -124,7 +132,7 @@ Enumerate them before acting on a retirement, because preview parity alone may n
 
 ### Rebase scan
 
-After every rebase onto `upstream/main`, check these before trusting a clean merge.
+After every rebase onto upstream, check these before trusting a clean merge.
 
 | Path                                                     | Why it matters                                                      |
 | -------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -144,14 +152,13 @@ After every rebase onto `upstream/main`, check these before trusting a clean mer
 ### Need
 
 The fork's own documentation and conventions.
-This domain exists so documentation commits are not mis-filed under a product domain.
+This domain exists so documentation and tooling commits are not mis-filed under a product domain.
 
-### QoL
+### Shape
 
-| Commit        | Change                                                |
-| ------------- | ----------------------------------------------------- |
-| `fa500db88`   | Fork README.                                          |
-| _(this file)_ | Fork delta. Self-referential, so no hash is recorded. |
+- The fork sections in `README.md`, `AGENTS.md`, and `docs/README.md`.
+- This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
+- `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
 
 ### Retirement condition
 
@@ -162,40 +169,50 @@ Retired with the fork.
 | Path                                       | Why it matters                                                |
 | ------------------------------------------ | ------------------------------------------------------------- |
 | `README.md`, `AGENTS.md`, `docs/README.md` | Upstream edits these often and they carry fork-only sections. |
+| `package.json` scripts block               | `fork:delta` sits between upstream aliases.                   |
+| `docs/internals/scripts.md`                | Carries the `fork:delta` entry.                               |
+| `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
 
-## Recording a change
+## distribution
 
-Tag the commit, then add its row here in the same commit or the one that follows.
+### Need
 
-```text
-feat(desktop): register windows by identity
+Upstream releases ship upstream code, so a fork user needs a fork build and a fork update feed.
+The rsi-ci runner pool also needs a runner selector that upstream's Blacksmith-only workflows do not have.
 
-Fork-Domain: project-windows
-Fork-Tier: core
-```
+### Shape
 
-`Fork-Tier` is one of `core`, `qol`, or `bugfix`.
-A `bugfix` that upstream reproduces also carries `Fork-Upstreamable: yes`.
+- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, and the desktop build on `hyprws`.
+- `.github/workflows/hyprws-release.yml` builds a Linux x64 AppImage from a `v*-hyprws.*` tag and publishes it.
 
-Every fork commit carries these trailers, including the ones that predate the convention.
-A rebase preserves them, so the log stays queryable.
+Both select a runner with `vars.RSI_CI_RUNNER` and fall back to GitHub-hosted runners.
 
-List every fork commit:
+The updater needs no code.
+`scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
+Fork builds therefore update from fork releases.
 
-```bash
-git log --oneline "$(git merge-base upstream/main project-windows)..project-windows"
-```
+Upstream workflows stay in the tree untouched and disabled.
+Editing or deleting them is a standing rebase conflict.
+[Fork sync](../operations/fork-sync.md) owns the disable step.
 
-List one domain:
+### Retirement condition
 
-```bash
-git log --format='%h %s' --grep='^Fork-Domain: project-windows$' \
-  "$(git merge-base upstream/main project-windows)..project-windows"
-```
+Retired with the fork, or when upstream publishes builds the fork can ship unchanged.
+
+### Rebase scan
+
+| Path                                          | Why it matters                                              |
+| --------------------------------------------- | ----------------------------------------------------------- |
+| `.github/workflows/ci.yml`                    | Copy new checks or setup steps into `hyprws-ci.yml`.        |
+| `.github/workflows/release.yml`               | Copy Linux build-step changes into `hyprws-release.yml`.    |
+| `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and the update feed resolution. |
+| `scripts/update-release-package-versions.ts`  | Release version alignment the fork workflow calls.          |
+| `package.json` `engines` and `packageManager` | Runner toolchain expectations.                              |
 
 ## Adding a domain
 
-A new domain needs its own section with the same six headings, and a row in the domain index.
+A new domain needs its own section with the same four headings, and a row in the domain index.
+Its name becomes the `Fork-Domain` trailer of its first commit.
 
 Answer three questions before opening one:
 
