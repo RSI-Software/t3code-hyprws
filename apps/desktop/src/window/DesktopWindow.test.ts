@@ -48,7 +48,12 @@ import { MENU_ACTION_CHANNEL, WINDOW_FULLSCREEN_STATE_CHANNEL } from "../ipc/cha
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
-import { HUB_WINDOW_IDENTITY, projectWindowIdentity, windowIdentityKey } from "./WindowIdentity.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  projectWindowIdentity,
+  windowIdentityKey,
+} from "./WindowIdentity.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -209,6 +214,8 @@ function makeTestLayer(input: {
   ) => Effect.Effect<void>;
   readonly openedExternalUrls?: unknown[];
   readonly previewZoomReapplies?: number[];
+  readonly previewMainWindowSets?: Electron.BrowserWindow[];
+  readonly previewBrowserSessionRequests?: number[];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -326,8 +333,15 @@ function makeTestLayer(input: {
         electronThemeLayer,
         electronWindowLayer,
         Layer.mock(PreviewManager.PreviewManager)({
-          getBrowserSession: () => Effect.succeed({} as Electron.Session),
-          setMainWindow: () => Effect.void,
+          getBrowserSession: () =>
+            Effect.sync(() => {
+              input.previewBrowserSessionRequests?.push(1);
+              return {} as Electron.Session;
+            }),
+          setMainWindow: (window) =>
+            Effect.sync(() => {
+              input.previewMainWindowSets?.push(window);
+            }),
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           reapplyZoom: () =>
@@ -528,11 +542,15 @@ describe("DesktopWindow", () => {
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const previewMainWindowSets: Electron.BrowserWindow[] = [];
+      const previewBrowserSessionRequests: number[] = [];
       const layer = makeTestLayer({
         window: fakeWindow.window,
         createCount,
         mainWindow,
         createdWindowOptions,
+        previewMainWindowSets,
+        previewBrowserSessionRequests,
       });
 
       yield* Effect.gen(function* () {
@@ -543,6 +561,11 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
         assert.equal(yield* Ref.get(createCount), 1);
         assert.equal(createdWindowOptions[0]?.title, "project-1");
+        assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
+          PROJECT_WINDOW_PRELOAD_ARGUMENT,
+        ]);
+        assert.deepEqual(previewMainWindowSets, []);
+        assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
           "t3code-dev://app/project/environment-1/project-1",
         ]);
