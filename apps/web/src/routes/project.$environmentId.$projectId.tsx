@@ -5,7 +5,9 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { useAllEnvironmentShellsBootstrapped, useProject } from "../state/entities";
+import { useProject } from "../state/entities";
+import { useEnvironmentQuery } from "../state/query";
+import { environmentShell } from "../state/shell";
 import { ChatRouteGlobalShortcuts } from "./_chat";
 
 function ProjectRouteLayout() {
@@ -16,11 +18,21 @@ function ProjectRouteLayout() {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const project = useProject(projectRef);
-  const bootstrapComplete = useAllEnvironmentShellsBootstrapped();
+  const shell = useEnvironmentQuery(
+    projectRef === null ? null : environmentShell.stateAtom(projectRef.environmentId),
+  );
+  const authoritativeSnapshot =
+    shell.data?.status === "live" && shell.data.snapshot._tag === "Some"
+      ? shell.data.snapshot.value
+      : null;
+  const environmentProjectPresence = authoritativeSnapshot
+    ? authoritativeSnapshot.projects.some((candidate) => candidate.id === projectRef?.projectId)
+      ? "present"
+      : "absent"
+    : "pending";
   const redirectTarget = resolveProjectAvailabilityRedirect({
     routeRef: projectRef,
-    bootstrapComplete,
-    projectExists: project !== null,
+    environmentProjectPresence,
   });
 
   useEffect(() => {
