@@ -1,65 +1,111 @@
 # T3 Code - hyprws
 
-I hate reading agent yap output in a terminal; t3code solves this! Love it.
+I hate reading agent yap in a terminal.
+T3 Code fixes that.
+Love it.
 
-But I am very perticular on a conceptual level about how things aught to be laid out on my workstation. I do not like having one instance to handle every project.
+I am also particular about how my workstation is laid out.
+I do not want every project piled into one application window.
 
-To me this is like having one instance of VSCode at your root dir. \
-EVERY REPO in one window; all in one place. No, this is what visual workspaces are for.
+That feels like opening VS Code at `/` and putting every repository in one window.
+Visual workspaces already solve that separation.
 
-- Mulitple Instances (one per project/lane)
-- Use hypland workspaces (+virtual desktops for dual monitor)
-- zmux (opinioned tmux, think tmux+herdr but worse) for managing terminal stuff
-- worktrees via worktrunk
+`hyprws` makes the T3 Code desktop app fit that model with native, project-scoped windows.
+These are not separate T3 Code instances.
+They share one Electron process, backend pool, authentication, providers, sessions, and persisted state.
+
+## The layout
+
+Each project gets an independently placeable T3 Code window alongside its editor, terminals, and browsers.
+Hyprland and virtual desktops decide where those windows live.
 
 ```text
-┌─ Project A · Virtual Desktop 1 ─────────────────────────────────────┐
-│                                                                     │
-│  ┌─ Screen 1 · Hyprland WS 1 ─────┐  ┌─ Screen 2 · Hyprland WS 2 ─┐ │
-│  │                 │ [ VS Code ]  │  │                            │ │
-│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
-│  │                 │ [ Milkcar ]  │  │                            │ │
-│  └────────────────────────────────┘  └────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─ Project B · Virtual Desktop 2 ─────────────────────────────────────┐
-│                                                                     │
-│  ┌─ Screen 1 · Hyprland WS 3 ─────┐  ┌─ Screen 2 · Hyprland WS 4 ─┐ │
-│  │                 │ [ VS Code ]  │  │                            │ │
-│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
-│  │                 │ [ Milkcar ]  │  │                            │ │
-│  └────────────────────────────────┘  └────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─ Project C · Virtual Desktop 3 ─────────────────────────────────────┐
-│                                                                     │
-│  ┌─ Screen 1 · Hyprland WS 5 ─────┐  ┌─ Screen 2 · Hyprland WS 6 ─┐ │
-│  │                 │ [ VS Code ]  │  │                            │ │
-│  │ [ t3code]       │   [ Zed ]    │  │       [ Browser(s) ]       │ │
-│  │                 │ [ Milkcar ]  │  │                            │ │
-│  └────────────────────────────────┘  └────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+┌─ Workstation / Hyprland ───────────────────────────────────────────────────┐
+│                                                                           │
+│  Virtual desktop 1 · Project A                                            │
+│  ┌─ Monitor 1 · WS 1 ─────────────────┐  ┌─ Monitor 2 · WS 2 ───────────┐ │
+│  │ ┌────────────┐  ┌────────────────┐ │  │ ┌──────────────────────────┐ │ │
+│  │ │ T3 Code    │  │ editor + zmux  │ │  │ │ browsers                 │ │ │
+│  │ │ Project A  │  │ Project A      │ │  │ │ Project A                │ │ │
+│  │ └────────────┘  └────────────────┘ │  │ └──────────────────────────┘ │ │
+│  └────────────────────────────────────┘  └──────────────────────────────┘ │
+│                                   ⇅                                       │
+│  Virtual desktop 2 · Project B                                            │
+│  ┌─ Monitor 1 · WS 3 ─────────────────┐  ┌─ Monitor 2 · WS 4 ───────────┐ │
+│  │ ┌────────────┐  ┌────────────────┐ │  │ ┌──────────────────────────┐ │ │
+│  │ │ T3 Code    │  │ editor + zmux  │ │  │ │ browsers                 │ │ │
+│  │ │ Project B  │  │ Project B      │ │  │ │ Project B                │ │ │
+│  │ └────────────┘  └────────────────┘ │  │ └──────────────────────────┘ │ │
+│  └────────────────────────────────────┘  └──────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
+
+My surrounding setup is opinionated too.
+I use Hyprland workspaces, dual-monitor virtual desktops, `zmux`, and Worktrunk.
+
+The fork does not encode that compositor policy.
+It only provides the project windows that Hyprland can place.
+
+## Why a fork?
+
+Upstream T3 Code desktop owns one main window.
+A second desktop launch forwards back to that window.
+The app has no native project-window registry or scope.
+
+Opening the same T3 server in several browser windows is a valid fork-free alternative.
+It shares the same sessions and authentication, but the web client does not yet have full desktop preview parity.
+
+If browser windows are enough for your workflow, you may not need this fork.
+
+Native windows require more than creating another `BrowserWindow`.
+Routes, sidebars, drafts, previews, IPC, launch intents, and deep links must preserve project scope.
+That project-scoped plumbing is the main reason this fork exists.
+
+## What this fork adds
+
+The fork is organized into domains so future changes do not become one untraceable patch pile.
+Every fork commit is recorded by domain and tier in the [fork delta](docs/internals/fork-delta.md).
+
+### Project windows
+
+This is the main domain.
+
+- Open a project window from hub actions, the command palette, or `Ctrl+Alt+O`.
+- Give each window its own project-scoped routes, sidebar, drafts, and previews.
+- Focus the existing window when the same project is opened again.
+- Route second launches, renderer requests, and deep links to the correct window.
+- Keep shared services shared: backend, authentication, providers, settings, sessions, and persisted state.
+
+The domain also carries small QoL changes and focused bug fixes needed around scoped windows.
+The ledger separates `core`, `qol`, and `bugfix` commits, including whether a bug fix should go upstream.
+
+### Fork maintenance and distribution
+
+- Track why each fork domain exists, what it changes, and when it can be retired.
+- Scan upstream changes against each active domain on every rebase.
+- Run fork-specific CI and publish Linux AppImage releases as `v<upstream version>-hyprws.<n>`.
+
+The project-window domain can be retired if upstream ships native multi-window support.
+Desktop-level web preview parity may also make browser windows or a small web wrapper sufficient.
+The [fork delta](docs/internals/fork-delta.md) owns the exact retirement conditions and current change list.
 
 ## Fork development
 
-Here, an instance means an independently placeable project window.
-Project windows share one Electron process and the existing backend pool.
-
-Read [Fork development](docs/internals/fork-development.md) before changing the fork.
+Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
 It owns the product direction, architecture boundaries, Worktrunk lanes, and upstream rebase flow.
 
-Read [Fork delta](docs/internals/fork-delta.md) to see what the fork actually changes and why.
-It splits every change by domain and tier, and records what upstream would have to ship for each domain to be deleted.
-
-Fork builds publish as GitHub releases tagged `v<upstream version>-hyprws.<n>`.
-[Fork sync](docs/operations/fork-sync.md) is the runbook that rebases, verifies, and ships them.
+Read [Fork delta](docs/internals/fork-delta.md) for the authoritative list of fork changes and their rationale.
+[Fork sync](docs/operations/fork-sync.md) is the runbook for rebasing, verifying, publishing, and releasing the fork.
 
 # T3 Code
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+T3 Code is an "agent harness control surface".
+It lets you control agents through mobile, web, and Electron desktop apps.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, T3 Code can control them.
+Clients: [iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) · [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code) · [web](https://app.t3.codes) · [desktop](https://t3.codes).
+
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode.
+If they're set up on your computer, T3 Code can control them.
 
 ## "Wait, what are you selling me?"
 
