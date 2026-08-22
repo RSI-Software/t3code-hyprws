@@ -91,7 +91,7 @@ import { EnvironmentId } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, type ScopedProjectRef } from "./environment.ts";
 import type { ClientSettings, QuitConfirmationMode } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type {
@@ -1114,6 +1114,8 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  /** Open or reveal the desktop window scoped to this physical project. */
+  openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
