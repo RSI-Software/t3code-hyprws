@@ -61,11 +61,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { forkDesktopEntryName, forkLinuxTargets } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
 import {
   enableVoiceInputMacEntitlementsFork,
   voiceInputMacPurposeFork,
 } from "./lib/voice-input-mac.fork.ts"; // fork-hook: voice-input/mac-build-import
-import { forkDesktopEntryName } from "./build-desktop-artifact.fork.ts"; // fork-hook: distribution/desktop-entry-name-import
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "com.t3tools.t3code";
@@ -2955,6 +2955,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           updateChannel === "nightly" ? "T3-Code-Nightly-${arch}.${ext}" : "T3-Code-${arch}.${ext}",
       };
     }
+    (buildConfig.linux as { target: string[] }).target = forkLinuxTargets(target, version); // fork-hook: distribution/linux-targets
     buildConfig.deb = {
       // FPM runs outside the staged app directory, so source paths must be absolute.
       fpm: [
