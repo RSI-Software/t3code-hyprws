@@ -51,6 +51,9 @@ export const DesktopConfig = Config.all({
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
+  // Development runs open detached DevTools per window; set this to 0/false/off
+  // when a run (automation, grounding) wants the windows without them.
+  devToolsEnabled: Config.boolean("T3CODE_DESKTOP_DEVTOOLS").pipe(Config.withDefault(true)),
   mockUpdateServerPort: Config.port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
   ),
