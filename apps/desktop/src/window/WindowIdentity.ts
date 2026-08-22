@@ -5,6 +5,11 @@ export type WindowIdentity =
   | { readonly kind: "project"; readonly ref: ScopedProjectRef };
 
 export const HUB_WINDOW_IDENTITY: WindowIdentity = { kind: "hub" };
+export const PROJECT_WINDOW_PRELOAD_ARGUMENT = "--t3code-project-window";
+
+export function isProjectWindowPreload(argv: readonly string[]): boolean {
+  return argv.includes(PROJECT_WINDOW_PRELOAD_ARGUMENT);
+}
 
 export function projectWindowIdentity(
   environmentId: EnvironmentId,
