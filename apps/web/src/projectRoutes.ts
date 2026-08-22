@@ -23,15 +23,16 @@ export function projectRefsEqual(left: ScopedProjectRef, right: ScopedProjectRef
   return left.environmentId === right.environmentId && left.projectId === right.projectId;
 }
 
+export type EnvironmentProjectPresence = "pending" | "present" | "absent";
+
 export function resolveProjectAvailabilityRedirect(input: {
   routeRef: ScopedProjectRef | null;
-  bootstrapComplete: boolean;
-  projectExists: boolean;
+  environmentProjectPresence: EnvironmentProjectPresence;
 }): ProjectRouteRedirect {
   if (input.routeRef === null) {
     return "hub";
   }
-  if (input.bootstrapComplete && !input.projectExists) {
+  if (input.environmentProjectPresence === "absent") {
     return "hub";
   }
   return null;
