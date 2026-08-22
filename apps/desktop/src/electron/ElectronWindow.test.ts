@@ -27,7 +27,12 @@ vi.mock("electron", () => ({
 }));
 
 import * as ElectronWindow from "./ElectronWindow.ts";
-import { HUB_WINDOW_IDENTITY, projectWindowIdentity } from "../window/WindowIdentity.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  isProjectWindowPreload,
+  projectWindowIdentity,
+} from "../window/WindowIdentity.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 const TestLayer = ElectronWindow.layer.pipe(
@@ -51,6 +56,11 @@ describe("ElectronWindow", () => {
     browserWindowMock.mockReset();
     getAllWindowsMock.mockReset();
     getFocusedWindowMock.mockReset();
+  });
+
+  it("identifies project-window preload arguments", () => {
+    assert.isTrue(isProjectWindowPreload(["electron", PROJECT_WINDOW_PRELOAD_ARGUMENT]));
+    assert.isFalse(isProjectWindowPreload(["electron"]));
   });
 
   it.effect("preserves schema-safe creation context and the Electron cause", () =>
