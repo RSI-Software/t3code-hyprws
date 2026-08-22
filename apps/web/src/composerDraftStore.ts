@@ -51,6 +51,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
+import { resolveProjectRefFromPathname } from "./projectRoutes";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
@@ -61,24 +62,11 @@ export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 8;
 
 export function resolveComposerDraftStorageKey(pathname: string): string {
-  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
-  if (
-    routeFamily !== "project" ||
-    encodedEnvironmentId === undefined ||
-    encodedProjectId === undefined
-  ) {
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  if (projectRef === null) {
     return COMPOSER_DRAFT_STORAGE_KEY;
   }
-  try {
-    const environmentId = decodeURIComponent(encodedEnvironmentId).trim();
-    const projectId = decodeURIComponent(encodedProjectId).trim();
-    if (environmentId.length === 0 || projectId.length === 0) {
-      return COMPOSER_DRAFT_STORAGE_KEY;
-    }
-    return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(environmentId)}:${encodeURIComponent(projectId)}`;
-  } catch {
-    return COMPOSER_DRAFT_STORAGE_KEY;
-  }
+  return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(projectRef.environmentId)}:${encodeURIComponent(projectRef.projectId)}`;
 }
 
 // Test doubles stub `window` without `location`; treat that like a server render.
