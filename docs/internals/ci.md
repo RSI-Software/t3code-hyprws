@@ -2,6 +2,9 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
+> On the `RSI-Software/t3code-hyprws` fork these workflows are disabled.
+> `hyprws-ci.yml` and `hyprws-release.yml` replace them; see [Fork sync](../operations/fork-sync.md).
+
 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs these quality gates on pull requests
 and pushes to `main`:
 

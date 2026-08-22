@@ -12,8 +12,9 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Keep the hub available and share the Electron process, backend pool, auth, providers, and persisted state.
 - Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
 - Keep local `main` identical to `upstream/main`; never add fork commits to it.
-- Maintain the fork delta on `project-windows` and create focused worktrees from that branch with Worktrunk.
-- Rebase `project-windows` onto `upstream/main`; never merge upstream into the fork branch.
+- Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
+- Rebase `hyprws` onto upstream release tags; never merge upstream into the fork branch.
+- Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
 
