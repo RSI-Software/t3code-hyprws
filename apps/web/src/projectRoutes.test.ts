@@ -22,31 +22,34 @@ describe("projectRoutes", () => {
     expect(isValidProjectRouteId(" ")).toBe(false);
   });
 
-  it("redirects invalid and unknown project refs to the hub", () => {
+  it("redirects invalid refs and authoritatively absent projects to the hub", () => {
     expect(
       resolveProjectAvailabilityRedirect({
         routeRef: null,
-        bootstrapComplete: false,
-        projectExists: false,
+        environmentProjectPresence: "pending",
       }),
     ).toBe("hub");
     expect(
       resolveProjectAvailabilityRedirect({
         routeRef: PROJECT_REF,
-        bootstrapComplete: true,
-        projectExists: false,
+        environmentProjectPresence: "absent",
       }),
     ).toBe("hub");
   });
 
-  it("waits for bootstrap before deciding that a project is unknown", () => {
-    expect(
+  it("waits through cold-load shell and project-projection population", () => {
+    const coldLoadDecisions = [
       resolveProjectAvailabilityRedirect({
         routeRef: PROJECT_REF,
-        bootstrapComplete: false,
-        projectExists: false,
+        environmentProjectPresence: "pending",
       }),
-    ).toBeNull();
+      resolveProjectAvailabilityRedirect({
+        routeRef: PROJECT_REF,
+        environmentProjectPresence: "present",
+      }),
+    ];
+
+    expect(coldLoadDecisions).toEqual([null, null]);
   });
 
   it("redirects invalid and mismatched scoped content to the project index", () => {
