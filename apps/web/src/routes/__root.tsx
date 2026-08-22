@@ -57,7 +57,12 @@ import {
   primaryServerConfigEventAtom,
   primaryServerWelcomeAtom,
 } from "../state/server";
-import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import {
+  readProject,
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+  useProjects,
+} from "../state/entities";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -218,12 +223,34 @@ function FontAppearanceSync() {
 function DocumentTitleSync() {
   const primaryServerVersion =
     useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-  const title = resolveServerBackedAppDisplayName({
-    baseName: APP_BASE_NAME,
-    fallbackDisplayName: APP_DISPLAY_NAME,
-    fallbackStageLabel: APP_STAGE_LABEL,
-    primaryServerVersion,
-  });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const projects = useProjects();
+  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
+  let projectTitle: string | null = null;
+  if (
+    routeFamily === "project" &&
+    encodedEnvironmentId !== undefined &&
+    encodedProjectId !== undefined
+  ) {
+    try {
+      const environmentId = decodeURIComponent(encodedEnvironmentId);
+      const projectId = decodeURIComponent(encodedProjectId);
+      projectTitle =
+        projects.find(
+          (project) => project.environmentId === environmentId && project.id === projectId,
+        )?.title ?? null;
+    } catch {
+      projectTitle = null;
+    }
+  }
+  const title =
+    projectTitle ??
+    resolveServerBackedAppDisplayName({
+      baseName: APP_BASE_NAME,
+      fallbackDisplayName: APP_DISPLAY_NAME,
+      fallbackStageLabel: APP_STAGE_LABEL,
+      primaryServerVersion,
+    });
 
   useEffect(() => {
     document.title = title;
