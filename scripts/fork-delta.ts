@@ -1,0 +1,279 @@
+#!/usr/bin/env node
+
+// Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
+// Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
+// script lists them by domain and, with `--check`, fails when one is missing.
+// See docs/internals/fork-delta.md for the conventions it enforces.
+
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import { Command, Flag } from "effect/unstable/cli";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+
+export const ForkTier = Schema.Literals(["core", "qol", "bugfix"]);
+export type ForkTier = typeof ForkTier.Type;
+
+const TIER_ORDER: ReadonlyArray<ForkTier> = ["core", "qol", "bugfix"];
+
+const OptionalTrailer = Schema.optionalKey(Schema.String);
+
+export const ForkCommit = Schema.Struct({
+  sha: Schema.String,
+  short: Schema.String,
+  subject: Schema.String,
+  domain: OptionalTrailer,
+  tier: OptionalTrailer,
+  upstreamable: OptionalTrailer,
+});
+export type ForkCommit = typeof ForkCommit.Type;
+
+export const ForkFinding = Schema.Struct({
+  short: Schema.String,
+  subject: Schema.String,
+  problem: Schema.String,
+});
+export type ForkFinding = typeof ForkFinding.Type;
+
+export const ForkLedger = Schema.Struct({
+  base: Schema.String,
+  head: Schema.String,
+  commits: Schema.Array(ForkCommit),
+  findings: Schema.Array(ForkFinding),
+});
+export type ForkLedger = typeof ForkLedger.Type;
+
+const encodeLedgerJson = Schema.encodeSync(fromJsonStringPretty(ForkLedger));
+
+export class ForkLogProcessError extends Schema.TaggedErrorClass<ForkLogProcessError>()(
+  "ForkLogProcessError",
+  {
+    operation: Schema.Literals(["spawn", "read-stdout", "read-stderr", "wait-for-exit"]),
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to read the fork log during process operation "${this.operation}".`;
+  }
+}
+
+export class ForkLogExitError extends Schema.TaggedErrorClass<ForkLogExitError>()(
+  "ForkLogExitError",
+  {
+    exitCode: Schema.Number,
+    stderr: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `git log exited with code ${this.exitCode}: ${this.stderr.trim()}`;
+  }
+}
+
+const RECORD_SEPARATOR = "";
+const FIELD_SEPARATOR = "";
+
+// `--reverse` keeps stack order: oldest fork commit first, closest to upstream.
+export const forkLogArguments = (base: string, head: string) =>
+  [
+    "log",
+    "--reverse",
+    `--format=%H${FIELD_SEPARATOR}%h${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%(trailers:unfold,only)${RECORD_SEPARATOR}`,
+    `${base}..${head}`,
+  ] as const;
+
+const readTrailer = (trailers: string, key: string): string | undefined => {
+  for (const line of trailers.split("\n")) {
+    const separator = line.indexOf(":");
+    if (separator === -1) continue;
+    if (line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) continue;
+    const value = line.slice(separator + 1).trim();
+    return value.length > 0 ? value : undefined;
+  }
+  return undefined;
+};
+
+export const parseForkLog = (raw: string): ReadonlyArray<ForkCommit> =>
+  raw
+    .split(RECORD_SEPARATOR)
+    .map((record) => record.replace(/^\n/, ""))
+    .filter((record) => record.trim().length > 0)
+    .map((record) => {
+      const [sha = "", short = "", subject = "", trailers = ""] = record.split(FIELD_SEPARATOR);
+      const domain = readTrailer(trailers, "Fork-Domain");
+      const tier = readTrailer(trailers, "Fork-Tier");
+      const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
+      return {
+        sha,
+        short,
+        subject,
+        ...(domain === undefined ? {} : { domain }),
+        ...(tier === undefined ? {} : { tier }),
+        ...(upstreamable === undefined ? {} : { upstreamable }),
+      };
+    });
+
+const isForkTier = (value: string | undefined): value is ForkTier =>
+  value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
+
+export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArray<ForkFinding> =>
+  commits.flatMap((commit) => {
+    const problems: Array<string> = [];
+    if (commit.domain === undefined) problems.push("missing Fork-Domain");
+    if (commit.tier === undefined) problems.push("missing Fork-Tier");
+    else if (!isForkTier(commit.tier)) {
+      problems.push(
+        `unknown Fork-Tier "${commit.tier}" (expected ${ForkTier.literals.join(", ")})`,
+      );
+    }
+    if (commit.tier === "bugfix" && commit.upstreamable === undefined) {
+      problems.push("bugfix without Fork-Upstreamable");
+    }
+    return problems.map((problem) => ({ short: commit.short, subject: commit.subject, problem }));
+  });
+
+export const buildLedger = (
+  base: string,
+  head: string,
+  commits: ReadonlyArray<ForkCommit>,
+): ForkLedger => ({ base, head, commits, findings: collectFindings(commits) });
+
+// Unknown tiers sort after the known ones so a typo is visible at the bottom.
+const tierRank = (tier: string | undefined) => {
+  const index = isForkTier(tier) ? TIER_ORDER.indexOf(tier) : -1;
+  return index === -1 ? TIER_ORDER.length : index;
+};
+
+const escapeCell = (value: string) => value.replaceAll("|", "\\|");
+
+export const renderMarkdown = (ledger: ForkLedger): string => {
+  const lines: Array<string> = [];
+  const domains = [...new Set(ledger.commits.flatMap((c) => (c.domain ? [c.domain] : [])))];
+
+  lines.push(`# Fork delta: \`${ledger.head}\` over \`${ledger.base}\``, "");
+  lines.push(
+    `${ledger.commits.length} fork commits across ${domains.length} domain${domains.length === 1 ? "" : "s"}.`,
+  );
+  lines.push("Rows keep stack order: the first row sits closest to upstream.", "");
+
+  for (const domain of domains) {
+    const rows = ledger.commits
+      .filter((c) => c.domain === domain)
+      .toSorted((left, right) => tierRank(left.tier) - tierRank(right.tier));
+    lines.push(`## ${domain}`, "");
+    lines.push("| Tier | Commit | Change | Upstreamable |");
+    lines.push("| --- | --- | --- | --- |");
+    for (const row of rows) {
+      lines.push(
+        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (ledger.findings.length > 0) {
+    lines.push("## Untagged", "");
+    lines.push("| Commit | Change | Problem |");
+    lines.push("| --- | --- | --- |");
+    for (const finding of ledger.findings) {
+      lines.push(
+        `| \`${finding.short}\` | ${escapeCell(finding.subject)} | ${escapeCell(finding.problem)} |`,
+      );
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+};
+
+const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
+  );
+
+export const readForkLog = Effect.fn("readForkLog")(function* (
+  base: string,
+  head: string,
+  cwd = process.cwd(),
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const child = yield* spawner
+    .spawn(ChildProcess.make("git", forkLogArguments(base, head), { cwd }))
+    .pipe(Effect.mapError((cause) => new ForkLogProcessError({ operation: "spawn", cause })));
+  const [stdout, stderr, exitCode] = yield* Effect.all(
+    [
+      collectStreamAsString(child.stdout).pipe(
+        Effect.mapError((cause) => new ForkLogProcessError({ operation: "read-stdout", cause })),
+      ),
+      collectStreamAsString(child.stderr).pipe(
+        Effect.mapError((cause) => new ForkLogProcessError({ operation: "read-stderr", cause })),
+      ),
+      child.exitCode.pipe(
+        Effect.map(Number),
+        Effect.mapError((cause) => new ForkLogProcessError({ operation: "wait-for-exit", cause })),
+      ),
+    ],
+    { concurrency: "unbounded" },
+  );
+  if (exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode, stderr });
+  }
+  return parseForkLog(stdout);
+});
+
+const command = Command.make(
+  "fork-delta",
+  {
+    base: Flag.string("base").pipe(
+      Flag.withDescription("Upstream ref the fork stack sits on."),
+      Flag.withDefault("upstream/main"),
+    ),
+    head: Flag.string("head").pipe(
+      Flag.withDescription("Fork ref to inventory."),
+      Flag.withDefault("HEAD"),
+    ),
+    check: Flag.boolean("check").pipe(
+      Flag.withDescription("Exit 1 when any fork commit lacks a valid Fork-Domain or Fork-Tier."),
+      Flag.withDefault(false),
+    ),
+    json: Flag.boolean("json").pipe(
+      Flag.withDescription("Print the ledger as JSON instead of Markdown."),
+      Flag.withDefault(false),
+    ),
+  },
+  ({ base, head, check, json }) =>
+    Effect.gen(function* () {
+      const ledger = buildLedger(base, head, yield* readForkLog(base, head));
+      if (check) {
+        for (const finding of ledger.findings) {
+          process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
+        }
+        if (ledger.findings.length > 0) {
+          process.stderr.write(`failed: ${ledger.findings.length} trailer problem(s)\n`);
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write(`ok: ${ledger.commits.length} fork commits tagged\n`);
+        return;
+      }
+      process.stdout.write(json ? `${encodeLedgerJson(ledger)}\n` : renderMarkdown(ledger));
+    }),
+).pipe(
+  Command.withDescription(
+    "List fork commits above upstream by Fork-Domain and Fork-Tier trailer, or verify every commit carries them.",
+  ),
+);
+
+if (import.meta.main) {
+  Command.run(command, { version: "0.0.0" }).pipe(
+    Effect.scoped,
+    Effect.provide(NodeServices.layer),
+    NodeRuntime.runMain,
+  );
+}
