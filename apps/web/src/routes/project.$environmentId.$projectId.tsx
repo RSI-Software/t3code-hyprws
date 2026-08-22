@@ -1,3 +1,4 @@
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -6,7 +7,6 @@ import { SidebarPhysicalScopeProvider } from "../components/sidebar/SidebarPhysi
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
 import { resolveThreadRouteTarget } from "../threadRoutes";
-import { useProject } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
 import { ChatRouteGlobalShortcuts } from "./_chat";
@@ -14,11 +14,6 @@ import { ChatRouteGlobalShortcuts } from "./_chat";
 function ProjectRouteLayout() {
   const navigate = useNavigate();
   const projectRef = Route.useParams({ select: resolveProjectRouteRef });
-  const threadTarget = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteTarget(params),
-  });
-  const project = useProject(projectRef);
   const shell = useEnvironmentQuery(
     projectRef === null ? null : environmentShell.stateAtom(projectRef.environmentId),
   );
@@ -42,7 +37,19 @@ function ProjectRouteLayout() {
     }
   }, [navigate, redirectTarget]);
 
-  if (projectRef === null || project === null) {
+  return <ProjectRouteContent projectRef={projectRef} />;
+}
+
+export function ProjectRouteContent({
+  projectRef,
+}: {
+  readonly projectRef: ScopedProjectRef | null;
+}) {
+  const threadTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  if (projectRef === null) {
     return null;
   }
 
