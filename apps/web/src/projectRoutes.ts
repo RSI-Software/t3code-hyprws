@@ -19,6 +19,26 @@ export function resolveProjectRouteRef(params: ProjectRouteParams): ScopedProjec
   return scopeProjectRef(params.environmentId as never, params.projectId as never);
 }
 
+export function resolveProjectRefFromPathname(pathname: string): ScopedProjectRef | null {
+  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
+  if (
+    routeFamily !== "project" ||
+    encodedEnvironmentId === undefined ||
+    encodedProjectId === undefined
+  ) {
+    return null;
+  }
+
+  try {
+    return resolveProjectRouteRef({
+      environmentId: decodeURIComponent(encodedEnvironmentId),
+      projectId: decodeURIComponent(encodedProjectId),
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function projectRefsEqual(left: ScopedProjectRef, right: ScopedProjectRef): boolean {
   return left.environmentId === right.environmentId && left.projectId === right.projectId;
 }
