@@ -1,5 +1,6 @@
 import { createClerkBridge } from "@clerk/electron";
 import { storage } from "@clerk/electron/storage";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,8 +12,11 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import { makeComponentLogger } from "./DesktopObservability.ts";
 
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
+
+const { logWarning } = makeComponentLogger("desktop-clerk");
 
 export class DesktopClerkBridgeInitializationError extends Schema.TaggedErrorClass<DesktopClerkBridgeInitializationError>()(
   "DesktopClerkBridgeInitializationError",
@@ -132,14 +136,30 @@ export const make = Effect.gen(function* () {
         return yield* Effect.interrupt;
       }
 
+      const openEventArguments = (
+        source: "second-instance" | "open-url",
+        argv: readonly string[],
+      ) =>
+        openArguments(argv).pipe(
+          Effect.catchCause((cause) =>
+            logWarning("failed to open launch arguments", {
+              source,
+              argv: [...argv],
+              error: Cause.pretty(cause),
+            }),
+          ),
+        );
+
+      // Clerk's bridge subscribes to these same Electron app events for OAuth
+      // callbacks; EventEmitter delivers them to both listeners.
       yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
-        runFork(Effect.ignore(openArguments(argv)));
+        runFork(openEventArguments("second-instance", argv));
       });
       yield* electronApp.on(
         "open-url",
         (event: { readonly preventDefault: () => void }, url: string) => {
           event.preventDefault();
-          runFork(Effect.ignore(openArguments([url])));
+          runFork(openEventArguments("open-url", [url]));
         },
       );
     }),
