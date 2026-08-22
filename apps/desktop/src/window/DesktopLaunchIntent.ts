@@ -52,16 +52,28 @@ export function resolveProjectWindowIntent(value: string): WindowIdentity | null
   }
 }
 
+function isPlainProjectIdentityPart(value: string | undefined): value is string {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 && !normalized.startsWith("-") && !normalized.includes("://");
+}
+
 export function resolveWindowIdentityFromArguments(argv: readonly string[]): WindowIdentity | null {
+  let reorderedProjectFlagIndex: number | null = null;
+
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]?.trim() ?? "";
     if (argument === PROJECT_FLAG) {
       const environmentId = argv[index + 1];
       const projectId = argv[index + 2];
-      if (environmentId !== undefined && projectId !== undefined) {
+      if (isPlainProjectIdentityPart(environmentId) && isPlainProjectIdentityPart(projectId)) {
         const identity = identityFromParts(environmentId, projectId);
         if (identity !== null) return identity;
       }
+      // Chromium can hoist a standalone switch ahead of its positional
+      // arguments when Electron forwards a Linux second-instance command.
+      // Keep scanning first so a deep link later in argv wins over this
+      // fallback, then recover the final two positional values below.
+      reorderedProjectFlagIndex ??= index;
       continue;
     }
     const candidate = argument.startsWith(PROJECT_FLAG_PREFIX)
@@ -74,5 +86,17 @@ export function resolveWindowIdentityFromArguments(argv: readonly string[]): Win
     const identity = resolveProjectWindowIntent(candidate);
     if (identity !== null) return identity;
   }
+
+  if (reorderedProjectFlagIndex !== null) {
+    const positionalArguments = argv
+      .slice(reorderedProjectFlagIndex + 1)
+      .filter(isPlainProjectIdentityPart);
+    const environmentId = positionalArguments.at(-2);
+    const projectId = positionalArguments.at(-1);
+    if (environmentId !== undefined && projectId !== undefined) {
+      return identityFromParts(environmentId, projectId);
+    }
+  }
+
   return null;
 }
