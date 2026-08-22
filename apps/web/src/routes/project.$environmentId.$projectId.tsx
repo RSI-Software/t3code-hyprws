@@ -1,9 +1,9 @@
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
-import { useProject } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
 import { ChatRouteGlobalShortcuts } from "./_chat";
@@ -11,7 +11,6 @@ import { ChatRouteGlobalShortcuts } from "./_chat";
 function ProjectRouteLayout() {
   const navigate = useNavigate();
   const projectRef = Route.useParams({ select: resolveProjectRouteRef });
-  const project = useProject(projectRef);
   const shell = useEnvironmentQuery(
     projectRef === null ? null : environmentShell.stateAtom(projectRef.environmentId),
   );
@@ -35,7 +34,15 @@ function ProjectRouteLayout() {
     }
   }, [navigate, redirectTarget]);
 
-  if (projectRef === null || project === null) {
+  return <ProjectRouteContent projectRef={projectRef} />;
+}
+
+export function ProjectRouteContent({
+  projectRef,
+}: {
+  readonly projectRef: ScopedProjectRef | null;
+}) {
+  if (projectRef === null) {
     return null;
   }
 
