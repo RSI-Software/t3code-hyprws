@@ -65,6 +65,32 @@ const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
+
+export function resolveComposerDraftStorageKey(pathname: string): string {
+  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
+  if (
+    routeFamily !== "project" ||
+    encodedEnvironmentId === undefined ||
+    encodedProjectId === undefined
+  ) {
+    return COMPOSER_DRAFT_STORAGE_KEY;
+  }
+  try {
+    const environmentId = decodeURIComponent(encodedEnvironmentId).trim();
+    const projectId = decodeURIComponent(encodedProjectId).trim();
+    if (environmentId.length === 0 || projectId.length === 0) {
+      return COMPOSER_DRAFT_STORAGE_KEY;
+    }
+    return `${COMPOSER_DRAFT_STORAGE_KEY}:project:${encodeURIComponent(environmentId)}:${encodeURIComponent(projectId)}`;
+  } catch {
+    return COMPOSER_DRAFT_STORAGE_KEY;
+  }
+}
+
+// Test doubles stub `window` without `location`; treat that like a server render.
+export const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
+  typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
+);
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -2185,7 +2211,7 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   }
   try {
     const persisted = getLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
+      activeComposerDraftStorageKey,
       PersistedComposerDraftStoreStorage,
     );
     if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
@@ -3901,7 +3927,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
       };
     },
     {
-      name: COMPOSER_DRAFT_STORAGE_KEY,
+      name: activeComposerDraftStorageKey,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       storage: createJSONStorage(() => composerDebouncedStorage),
       migrate: migratePersistedComposerDraftStoreState,
