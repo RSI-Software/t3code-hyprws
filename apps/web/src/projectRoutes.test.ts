@@ -16,10 +16,18 @@ describe("projectRoutes", () => {
     expect(resolveProjectRouteRef(PROJECT_REF)).toEqual(PROJECT_REF);
   });
 
-  it("parses encoded physical project refs from scoped pathnames", () => {
+  it("parses encoded physical project refs from browser and desktop route pathnames", () => {
+    const expectedRef = scopeProjectRef("remote:wsl" as never, "project one" as never);
+
     expect(
       resolveProjectRefFromPathname("/project/remote%3Awsl/project%20one/thread/thread-1"),
-    ).toEqual(scopeProjectRef("remote:wsl" as never, "project one" as never));
+    ).toEqual(expectedRef);
+    expect(resolveProjectRefFromPathname("#/project/remote%3Awsl/project%20one")).toEqual(
+      expectedRef,
+    );
+    expect(resolveProjectRefFromPathname("/#/project/remote%3Awsl/project%20one")).toEqual(
+      expectedRef,
+    );
   });
 
   it("rejects non-project, incomplete, empty, untrimmed, and malformed pathnames", () => {
