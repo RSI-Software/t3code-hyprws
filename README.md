@@ -49,6 +49,9 @@ Project windows share one Electron process and the existing backend pool.
 Read [Fork development](docs/internals/fork-development.md) before changing the fork.
 It owns the product direction, architecture boundaries, Worktrunk lanes, and upstream rebase flow.
 
+Read [Fork delta](docs/internals/fork-delta.md) to see what the fork actually changes and why.
+It splits every change by domain and tier, and records what upstream would have to ship for each domain to be deleted.
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
