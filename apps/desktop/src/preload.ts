@@ -8,7 +8,6 @@ import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
-import { isProjectWindowPreload } from "./window/WindowIdentity.ts";
 
 exposeClerkBridge({ passkeys: true });
 
@@ -270,9 +269,7 @@ const previewBridge = {
   },
 } satisfies DesktopBridge["preview"];
 
-contextBridge.exposeInMainWorld(
-  "desktopBridge",
-  isProjectWindowPreload(process.argv)
-    ? desktopBridgeWithoutPreview
-    : { ...desktopBridgeWithoutPreview, preview: previewBridge },
-);
+contextBridge.exposeInMainWorld("desktopBridge", {
+  ...desktopBridgeWithoutPreview,
+  preview: previewBridge,
+});
