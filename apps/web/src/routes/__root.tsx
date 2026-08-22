@@ -42,6 +42,7 @@ import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { useClientSettings } from "../hooks/useSettings";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
+import { resolveProjectRefFromPathname } from "../projectRoutes";
 import { hubThreadRouteFamily } from "../threadRoutes";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -241,24 +242,15 @@ function DocumentTitleSync() {
     useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
   const pathname = useLocation({ select: (location) => location.pathname });
   const projects = useProjects();
-  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
-  let projectTitle: string | null = null;
-  if (
-    routeFamily === "project" &&
-    encodedEnvironmentId !== undefined &&
-    encodedProjectId !== undefined
-  ) {
-    try {
-      const environmentId = decodeURIComponent(encodedEnvironmentId);
-      const projectId = decodeURIComponent(encodedProjectId);
-      projectTitle =
-        projects.find(
-          (project) => project.environmentId === environmentId && project.id === projectId,
-        )?.title ?? null;
-    } catch {
-      projectTitle = null;
-    }
-  }
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  const projectTitle =
+    projectRef === null
+      ? null
+      : (projects.find(
+          (project) =>
+            project.environmentId === projectRef.environmentId &&
+            project.id === projectRef.projectId,
+        )?.title ?? null);
   const title =
     projectTitle ??
     resolveServerBackedAppDisplayName({
