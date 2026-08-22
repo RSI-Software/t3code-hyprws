@@ -28,7 +28,11 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
-import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  type WindowIdentity,
+} from "./WindowIdentity.ts";
 import { makeQuitHoldHandler } from "./QuitHold.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -362,7 +366,9 @@ export const make = Effect.gen(function* () {
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (
     identity: WindowIdentity,
   ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
-    yield* previewManager.getBrowserSession();
+    if (identity.kind === "hub") {
+      yield* previewManager.getBrowserSession();
+    }
     const applicationUrl = getWindowApplicationUrl(environment.isDevelopment, identity);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
@@ -405,6 +411,9 @@ export const make = Effect.gen(function* () {
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
+        ...(identity.kind === "project"
+          ? { additionalArguments: [PROJECT_WINDOW_PRELOAD_ARGUMENT] }
+          : {}),
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -511,7 +520,9 @@ export const make = Effect.gen(function* () {
       flushMainWindowBounds = flushBoundsPersist;
     }
 
-    yield* previewManager.setMainWindow(window);
+    if (identity.kind === "hub") {
+      yield* previewManager.setMainWindow(window);
+    }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
