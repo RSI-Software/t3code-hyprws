@@ -93,7 +93,7 @@ git push origin v0.0.34-hyprws.1
 The tag starts `hyprws-release.yml`: checks, a Linux x64 AppImage build, then a GitHub release.
 The release is never a prerelease, because the desktop updater ignores prereleases.
 
-Watch it with `gh run watch` and verify the release lists the `.AppImage`, its `.blockmap`, and `latest-linux.yml`.
+Watch it with `gh run watch` and verify the release lists the `.AppImage` and `latest-linux.yml`.
 An installed fork build updates from that release, because the build derives its feed from the building repository.
 
 Bump `<n>` for a fork-only change on the same upstream version.
@@ -141,37 +141,26 @@ gh repo edit RSI-Software/t3code-hyprws \
   --delete-branch-on-merge
 ```
 
-### Runner selection
+### Runners
 
-Both fork workflows read `vars.RSI_CI_RUNNER` and fall back to `ubuntu-latest`.
-The build job prefers `vars.RSI_CI_RUNNER_HEAVY` when it is set.
+Both fork workflows run on `ubuntu-latest`.
+GitHub-hosted runners are free for a public repository, and pull requests from outside the org cost nothing.
 
-The rsi-ci pool only serves private repositories, and the fork is public today.
-Setting the variable while the repository is public queues every job forever.
+The rsi-ci pool was measured on 2026-08-23 and rejected.
+Five concurrent jobs on one 12-core container reached wall times at parity with hosted at best.
 
-Make the repository private first, then:
+Revisit only if the pool grows or the repository goes private.
+The runbook `docs/runbooks/ci-runners.md` in `RSI-Software/ops` owns the pool.
 
-```bash
-gh variable set RSI_CI_RUNNER --repo RSI-Software/t3code-hyprws --body homelab
-gh variable set RSI_CI_RUNNER_HEAVY --repo RSI-Software/t3code-hyprws --body homelab-heavy
-```
+Tools the workflows need beyond the hosted image:
 
-The runbook `docs/runbooks/ci-runners.md` in `RSI-Software/ops` owns the pool itself.
+| Tool             | How the workflow gets it                                          |
+| ---------------- | ----------------------------------------------------------------- |
+| Node and `vp`    | `voidzero-dev/setup-vp@v1` installs into the workspace cache.     |
+| Rust and `cargo` | `dtolnay/rust-toolchain@stable` installs under the runner's home. |
+| ImageMagick      | Present on the hosted image; `apt-get` when it is missing.        |
 
-### Runner prerequisites
-
-The rsi-ci image is minimal and has no `sudo`.
-Tools the fork workflows need beyond it:
-
-| Tool             | How the workflow gets it                                                      |
-| ---------------- | ----------------------------------------------------------------------------- |
-| Node and `vp`    | `voidzero-dev/setup-vp@v1` installs into the workspace cache.                 |
-| Rust and `cargo` | `dtolnay/rust-toolchain@stable` installs under the runner's home.             |
-| ImageMagick      | The static AppImage from the ImageMagick release, when `sudo` is unavailable. |
-| `g++`            | Not present; a native module without a prebuild needs an operator install.    |
-
-The first run on the pool is the proof.
-Treat a missing tool as a workflow or operator task, not a reason to patch the build script.
+Treat a missing tool as a workflow task, not a reason to patch the build script.
 
 ### Optional T3 Connect config
 
