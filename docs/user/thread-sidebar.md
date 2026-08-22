@@ -72,6 +72,15 @@ signal shows a generic server. To override it, open **Settings → Connections**
 for that environment; **Automatic** goes back to what the server detected. The choice is stored on
 that server, so every device that connects to it sees the same icon.
 
+## Desktop project windows
+
+In the desktop app, open the project switcher and select the open-in-new-window button beside a project.
+The legacy sidebar offers the same action in each project's context menu.
+You can also run **Open project in new window** from the command palette.
+
+Opening a project that already has a window reveals that window instead of creating a duplicate.
+Web and mobile clients do not show project-window actions.
+
 ## Environment artwork
 
 Dev and Nightly environments can identify themselves with artwork at the top of the sidebar and in

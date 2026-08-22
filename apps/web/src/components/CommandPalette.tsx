@@ -43,6 +43,7 @@ import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
   CornerLeftUpIcon,
+  ExternalLinkIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -69,6 +70,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings } from "../hooks/useSettings";
@@ -597,6 +599,10 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const { environments } = useEnvironments();
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
@@ -1737,6 +1743,21 @@ function OpenCommandPaletteDialog(props: {
       : null) ??
     projectGroups[0] ??
     null;
+  if (desktopBridge && contextualProjectRef) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-project-window",
+      searchTerms: ["open", "project", "window", "desktop", "separate"],
+      title: "Open project in new window",
+      description: contextualProjectGroup?.displayName,
+      icon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "project.openWindow",
+      run: async () => {
+        await desktopBridge.openProjectWindow(contextualProjectRef);
+      },
+    });
+  }
+
   if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",
