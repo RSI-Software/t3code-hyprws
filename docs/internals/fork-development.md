@@ -20,7 +20,7 @@ A project window opens from the hub UI and from the command line or a Hyprland k
 A project window contains only that project's threads, composer state, and project actions.
 The existing all-project experience remains available as a hub rather than disappearing.
 
-Until desktop windows land, the project-scoped web route in a browser app window is an acceptable interim project window.
+Until desktop windows land, a browser app window on the project-scoped web route is an acceptable interim.
 Serve it through portless so each window has a stable named `.localhost` origin instead of a shifting port.
 
 Hyprland owns placement across workspaces and monitors.
@@ -73,7 +73,9 @@ The additive subtree leaves hub routes untouched, which rebases better against u
 
 The renderer URL is the recoverable source of truth for scope.
 A reload or renderer crash must reconstruct the same project window without transient IPC state.
+
 Scope must survive thread selection, draft creation and promotion, missing-thread redirects, and new-thread actions.
+
 Reject project/thread mismatches instead of silently escaping scope.
 Decide explicitly whether settings and pull requests open in the hub or gain scoped routes.
 
@@ -88,18 +90,26 @@ That includes the backend pool, connection runtime, settings, authentication, pr
 ### Current reality (verified 2026-08-22)
 
 - All desktop window machinery is singleton-shaped.
-  `apps/desktop/src/electron/ElectronWindow.ts` holds one `mainWindowRef`; `DesktopWindow.ensureMain` short-circuits when any window exists; the window loads a fixed URL with no route parameter.
-- `apps/desktop/src/app/DesktopClerk.ts` ignores second-instance arguments and shares its path with Clerk/OAuth forwarding.
+  `apps/desktop/src/electron/ElectronWindow.ts` holds one `mainWindowRef`.
+  `DesktopWindow.ensureMain` short-circuits when any window exists.
+  The window loads a fixed URL with no route parameter.
+- `apps/desktop/src/app/DesktopClerk.ts` ignores second-instance arguments.
+  It shares that path with Clerk/OAuth forwarding.
   A launch-intent parser must coexist with that behavior.
-- `apps/desktop/src/preview/Manager.ts` (~4.2k lines) has a single `setMainWindow` slot with last-write-wins semantics, and preview IPC broadcasts to every window via `sendAll`.
-  A second window would silently steal preview ownership.
-  The preload also exposes preview APIs to every renderer, so project windows must explicitly report previews unsupported; skipping `setMainWindow` alone is not a gate.
-- The default sidebar (`apps/web/src/components/Sidebar.tsx`) already has a mutable project filter over a logical project group.
-  Convert that seam into a forced physical `ScopedProjectRef` scope in both supported sidebars rather than building filtering from scratch.
-- "Current project" is client state today (`activeEnvironmentIdAtom` in `apps/web/src/state/entities.ts`), set from `__root.tsx`.
-  `ChatMarkdown.tsx` consumes it for server config and editor actions and should derive the environment from `threadRef` instead, or a remote project window acts through the primary environment.
+- `apps/desktop/src/preview/Manager.ts` (~4.2k lines) has a single last-write-wins `setMainWindow` slot.
+  Preview IPC broadcasts to every window via `sendAll`, so a second window would silently steal preview ownership.
+- The preload exposes preview APIs to every renderer.
+  Project windows must explicitly report previews unsupported; skipping `setMainWindow` alone is not a gate.
+- `apps/web/src/components/Sidebar.tsx` already has a mutable project filter over a logical project group.
+  Convert that seam into a forced physical `ScopedProjectRef` scope in both supported sidebars.
+  Do not build filtering from scratch.
+- "Current project" is client state today: `activeEnvironmentIdAtom` in `apps/web/src/state/entities.ts`.
+  `__root.tsx` sets it.
+  `ChatMarkdown.tsx` consumes it for server config and editor actions.
+  Derive the environment from `threadRef` there, or a remote project window acts through the primary environment.
 - Renderer UI state is per-window; content consistency comes free from the shared backend.
-  But `composerDraftStore.ts` persists whole-store snapshots to shared `localStorage` with last-write-wins merging: concurrent windows can destroy unsent drafts that never reached the backend.
+  But `composerDraftStore.ts` persists whole-store snapshots to shared `localStorage` with last-write-wins merging.
+  Concurrent windows can destroy unsent drafts that never reached the backend.
   Resolve this before allowing concurrent windows.
 
 ### Ownership seams
@@ -140,25 +150,57 @@ The remotes have distinct authority.
 | `origin`   | `RSI-Software/t3code-hyprws` | Fork branches and published fork history |
 
 Keep local `main` as an exact mirror of `upstream/main`.
-Never put fork commits on `main`, and never merge `project-windows` back into it.
+Never put fork commits on `main`, and never merge `hyprws` back into it.
+Push `main` to `origin` only as a fast-forward, so `origin/main` stays a readable mirror.
 
-`project-windows` is the maintained fork branch.
-Its first-parent story should remain a short, readable sequence of fork decisions above `upstream/main`.
+`hyprws` is the single fork trunk and the GitHub default branch.
+It holds every fork domain as one rebased stack above `upstream/main`.
+Its first-parent story should remain a short, readable sequence of fork decisions.
+
+Domains are not branches.
+A commit declares its domain with a `Fork-Domain` trailer, and `vp run fork:delta` groups the stack by that trailer.
+One trunk means one rebase per upstream sync, one CI target, and one release line.
+
+Per-domain branches were considered and rejected.
+Each extra long-lived branch is another rebase, another conflict set, and a merge order to reason about.
+Reintroduce one only if a domain must ship on its own schedule.
+
+### Stack order
+
+Keep the stack sorted from most upstreamable to most fork-specific:
+
+1. Bugfixes tagged `Fork-Upstreamable: yes`, because they may be sent upstream and dropped.
+2. `fork-meta` documentation and tooling.
+3. Product domains, with each domain's commits kept contiguous.
+
+New commits land at the top of the stack and move down during the next upstream rebase.
+Reorder with an interactive rebase only when the stack is otherwise clean, and publish the result with a lease.
+
+### Lanes
 
 Short-lived branches isolate one concern at a time.
-Create fork work from `project-windows` and genuinely upstreamable work from `upstream/main`.
+Create fork work from `hyprws` and genuinely upstreamable work from `upstream/main`.
 
 ```bash
 # Fork-specific work
-wt switch --create <branch> --base project-windows
+wt switch --create <branch> --base hyprws
 
 # A change intended for upstream without fork dependencies
 wt switch --create <branch> --base upstream/main
 ```
 
-Choose landing authority when the change is ready.
+### Landing
+
+Land a lane onto `hyprws` by rebase, never by merge commit and never by squash.
+A merge commit breaks the linear stack; a squash erases the per-commit trailers.
+The repository only offers rebase merging for that reason.
+
 Use a GitHub pull request when one is open or expected.
-Use verified `wt merge project-windows` only for an explicit local or solo landing route.
+Use verified `wt merge hyprws` only for an explicit local or solo landing route.
+A `fork-meta` chore that needs no review may commit directly to `hyprws`.
+
+`.github/workflows/hyprws-ci.yml` is the fork's required check.
+Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync](../operations/fork-sync.md).
 
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
@@ -174,35 +216,45 @@ Small, coherent commits are easier to rebase, review, reorder, drop, and upstrea
 - Prefer narrow additions and upstream-native extension points over broad edits to central modules.
 - Reuse upstream terminology and abstractions unless the fork needs a genuinely new concept.
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
-- Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers, then record it in [Fork delta](./fork-delta.md).
+- Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
 The best fork code looks unsurprising inside upstream T3 Code.
 Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
 
 ## Syncing upstream
 
-Rebase the maintained fork branch onto upstream history.
-Do not merge `upstream/main` into `project-windows`, because repeated merge commits obscure the patch stack.
+Rebase the fork trunk onto upstream history.
+Do not merge `upstream/main` into `hyprws`, because repeated merge commits obscure the patch stack.
 
-Start from a clean `project-windows` worktree, capture the published head, and then rebase.
+Rebase onto upstream release tags, not onto the tip of `upstream/main`.
+A tag is a state upstream chose to ship; the fork release takes its version from it.
+
+Rebase onto `upstream/main` between tags only to surface conflicts early.
+
+[Fork sync](../operations/fork-sync.md) is the step-by-step runbook an agent follows.
+The rules below are the ones that runbook must not break.
+
+Start from a clean `hyprws` worktree, capture the published head, and then rebase.
 
 ```bash
-git fetch origin upstream
-expected_old=$(git rev-parse origin/project-windows)
-git rebase upstream/main
+git fetch upstream --tags
+git fetch origin
+expected_old=$(git rev-parse origin/hyprws)
+git rebase vX.Y.Z
 ```
 
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active domain.
 It names the upstream paths that would silently invalidate a domain, including the ones that would retire it outright.
+
 A clean rebase is not evidence that a domain is still needed.
 
-Run focused verification after resolving conflicts.
+Run focused verification after resolving conflicts, including `vp run fork:delta --check`.
 Then publish the rewritten branch with an explicit expected-old lease.
 
 ```bash
 git push \
-  --force-with-lease=refs/heads/project-windows:"$expected_old" \
-  origin HEAD:project-windows
+  --force-with-lease=refs/heads/hyprws:"$expected_old" \
+  origin HEAD:hyprws
 ```
 
 The explicit lease refuses to overwrite remote work that appeared after the fetch.
@@ -222,23 +274,36 @@ Review and verify every reused resolution because upstream behavior may have cha
 When upstream makes a fork patch obsolete, drop the patch.
 When upstream moves the architecture, rebuild the behavior at the new boundary instead of preserving dead structure.
 
+## Releases
+
+The fork ships its own Linux desktop build, because an upstream release carries upstream code.
+
+A fork tag is `v<upstream version>-hyprws.<n>`, for example `v0.0.34-hyprws.1`.
+`<upstream version>` is the tag the stack is rebased onto; `<n>` restarts at 1 per upstream version.
+
+`.github/workflows/hyprws-release.yml` builds the AppImage and publishes a normal GitHub release, never a prerelease.
+The desktop updater reads its feed from the building repository, so a fork build updates from fork releases.
+
+[Fork sync](../operations/fork-sync.md) owns the tagging steps and the runner setup.
+
 ## Implementation order
 
 Build phases that remain useful and reviewable on their own.
 
 1. **Upstream-safe preparation.**
-   Derive environment from `threadRef` in `ChatMarkdown.tsx` instead of the active-environment atom.
-   Extract route-family-aware thread and draft navigation helpers.
-   Convert the existing mutable project filter in both supported sidebars into a controllable physical `ScopedProjectRef` scope.
+   - Derive environment from `threadRef` in `ChatMarkdown.tsx` instead of the active-environment atom.
+   - Extract route-family-aware thread and draft navigation helpers.
+   - Convert the mutable project filter in both supported sidebars into a physical `ScopedProjectRef` scope.
 2. **Additive web scope.**
-   Add the project route subtree with scope preservation and mismatch rejection.
-   Decide hub-versus-scoped behavior for settings and pull requests.
-   This phase is immediately usable as a browser app window through portless.
+   - Add the project route subtree with scope preservation and mismatch rejection.
+   - Decide hub-versus-scoped behavior for settings and pull requests.
+   - This phase is immediately usable as a browser app window through portless.
 3. **Desktop MVP without previews.**
-   Add the desktop-boundary `WindowIdentity` registry with create, reveal, close, and destroyed-window cleanup.
-   Route first-launch and second-instance intent; define restoration policy; set per-project titles; persist bounds per identity or hub-only.
-   Explicitly disable preview capability in project windows.
-   Resolve composer-draft `localStorage` clobbering before allowing concurrent windows.
+   - Add the desktop-boundary `WindowIdentity` registry with create, reveal, close, and destroyed-window cleanup.
+   - Route first-launch and second-instance intent; define restoration policy; set per-project titles.
+   - Persist bounds per identity or hub-only.
+   - Explicitly disable preview capability in project windows.
+     Resolve composer-draft `localStorage` clobbering before allowing concurrent windows.
 4. **Optional previews.**
    Namespace preview ownership and tab ids, authorize IPC by sender, and direct events to the owning window.
 
@@ -251,8 +316,9 @@ Measure WebSocket traffic and renderer work before moving filtering across the R
 ### Residual risks
 
 - `Sidebar.tsx` remains a large upstream-conflict surface even with additive routes.
-- Restoring or launching a remote project must handle an unavailable environment without creating duplicate or unscoped windows.
-- Other persisted Zustand stores may also have last-writer-wins behavior; composer drafts are the known content-loss risk.
+- Restoring or launching a remote project must tolerate an unavailable environment.
+  It must not create duplicate or unscoped windows.
+- Other persisted Zustand stores may also be last-writer-wins; composer drafts are the known content-loss risk.
 
 ## Verification standard
 
