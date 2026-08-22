@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -47,6 +48,7 @@ import { MENU_ACTION_CHANNEL, WINDOW_FULLSCREEN_STATE_CHANNEL } from "../ipc/cha
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import { HUB_WINDOW_IDENTITY, projectWindowIdentity, windowIdentityKey } from "./WindowIdentity.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -113,6 +115,7 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    close: window.close,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -127,6 +130,7 @@ function makeFakeBrowserWindow() {
     setZoomLevel: webContents.setZoomLevel,
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
+    setTitle: window.setTitle,
     webContentsListeners,
     windowListeners,
   };
@@ -240,6 +244,14 @@ function makeTestLayer(input: {
     applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
   } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
 
+  const projectWindows = new Map<string, Electron.BrowserWindow>();
+  const getIdentityWindow = (
+    identity: Parameters<ElectronWindow.ElectronWindow["Service"]["get"]>[0],
+  ) =>
+    identity.kind === "hub"
+      ? Ref.get(input.mainWindow)
+      : Effect.sync(() => Option.fromNullishOr(projectWindows.get(windowIdentityKey(identity))));
+
   const electronWindowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
       Effect.sync(() => {
@@ -249,22 +261,39 @@ function makeTestLayer(input: {
         Effect.as(input.window),
       ),
     main: Ref.get(input.mainWindow),
-    get: () => Ref.get(input.mainWindow),
-    getOrCreate: (_identity, create) =>
-      Ref.get(input.mainWindow).pipe(
+    get: getIdentityWindow,
+    getOrCreate: (identity, create) =>
+      getIdentityWindow(identity).pipe(
         Effect.flatMap(
           Option.match({
             onNone: () =>
               create.pipe(
-                Effect.tap((window) => Ref.set(input.mainWindow, Option.some(window))),
+                Effect.tap((window) =>
+                  identity.kind === "hub"
+                    ? Ref.set(input.mainWindow, Option.some(window))
+                    : Effect.sync(() => {
+                        projectWindows.set(windowIdentityKey(identity), window);
+                      }),
+                ),
                 Effect.map((window) => ({ window, created: true as boolean })),
               ),
             onSome: (window) => Effect.succeed({ window, created: false as boolean }),
           }),
         ),
       ),
-    close: () => Ref.set(input.mainWindow, Option.none()),
-    identityFor: () => Effect.succeed(Option.none()),
+    close: (identity) =>
+      identity.kind === "hub"
+        ? Ref.set(input.mainWindow, Option.none())
+        : Effect.sync(() => {
+            projectWindows.delete(windowIdentityKey(identity));
+            input.window.close();
+          }),
+    identityFor: (window) =>
+      Ref.get(input.mainWindow).pipe(
+        Effect.map((main) =>
+          Option.contains(main, window) ? Option.some(HUB_WINDOW_IDENTITY) : Option.none(),
+        ),
+      ),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
@@ -463,6 +492,79 @@ describe("DesktopWindow", () => {
       }),
     );
   });
+
+  it("builds and guards project-scoped renderer URLs", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment:remote"),
+      ProjectId.make("project one"),
+    );
+
+    assert.equal(
+      DesktopWindow.getWindowApplicationUrl(true, identity),
+      "t3code-dev://app/project/environment%3Aremote/project%20one",
+    );
+    assert.isTrue(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/project/environment%3Aremote/project%20one/thread/thread-1",
+      ),
+    );
+    assert.isFalse(
+      DesktopWindow.isRendererUrlForWindowIdentity(
+        true,
+        identity,
+        "t3code-dev://app/project/environment%3Aremote/another-project",
+      ),
+    );
+    assert.isFalse(
+      DesktopWindow.isRendererUrlForWindowIdentity(true, identity, "t3code-dev://app/"),
+    );
+  });
+
+  it.effect("opens a pending project intent once and uses its renderer title", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.openArguments(["t3code", "--project", "environment-1", "project-1"]);
+        assert.equal(yield* Ref.get(createCount), 0);
+
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(createdWindowOptions[0]?.title, "project-1");
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
+          "t3code-dev://app/project/environment-1/project-1",
+        ]);
+        assert.isFalse(fakeWindow.windowListeners.has("resize"));
+
+        const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
+        const preventDefault = vi.fn();
+        pageTitleUpdated?.({ preventDefault }, "Project One");
+        assert.equal(preventDefault.mock.calls.length, 1);
+        assert.deepEqual(fakeWindow.setTitle.mock.calls, [["Project One"]]);
+
+        yield* desktopWindow.openArguments(["t3code-dev://app/project/environment-1/project-1"]);
+        assert.equal(yield* Ref.get(createCount), 1);
+
+        fakeWindow.webContentsListeners.get("did-navigate-in-page")?.({}, "t3code-dev://app/");
+        yield* Effect.yieldNow;
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.equal(fakeWindow.close.mock.calls.length, 1);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[1], ["t3code-dev://app/"]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
 
   it.effect("does not open a development window until the backend is ready", () =>
     Effect.gen(function* () {
