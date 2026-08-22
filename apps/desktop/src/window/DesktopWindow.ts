@@ -27,6 +27,8 @@ import * as PreviewManager from "../preview/Manager.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
+import { HUB_WINDOW_IDENTITY, type WindowIdentity } from "./WindowIdentity.ts";
 import { makeQuitHoldHandler } from "./QuitHold.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -80,6 +82,11 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly openIdentity: (
+      identity: WindowIdentity,
+    ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>;
+    readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>;
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
@@ -178,6 +185,32 @@ function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
   const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+export function getWindowApplicationUrl(isDevelopment: boolean, identity: WindowIdentity): string {
+  const baseUrl = getDesktopUrl(isDevelopment);
+  if (identity.kind === "hub") return baseUrl;
+  const environmentId = encodeURIComponent(identity.ref.environmentId);
+  const projectId = encodeURIComponent(identity.ref.projectId);
+  return new URL(`/project/${environmentId}/${projectId}`, baseUrl).href;
+}
+
+export function isRendererUrlForWindowIdentity(
+  isDevelopment: boolean,
+  identity: WindowIdentity,
+  rendererUrl: string,
+): boolean {
+  if (identity.kind === "hub") return true;
+  try {
+    const expected = new URL(getWindowApplicationUrl(isDevelopment, identity));
+    const actual = new URL(rendererUrl);
+    return (
+      actual.origin === expected.origin &&
+      (actual.pathname === expected.pathname || actual.pathname.startsWith(`${expected.pathname}/`))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isSameOriginRendererNavigation(input: {
@@ -280,6 +313,12 @@ export const make = Effect.gen(function* () {
   // createMainIfBackendReady, which gates the post-readiness window
   // open in development and the macOS "activate without windows" path.
   const backendReadyRef = yield* Ref.make(false);
+  // Deliberately restore only the hub. Project windows are reopened only from
+  // an explicit launch intent, so stale remote environments never create
+  // speculative windows during startup.
+  const pendingInitialIdentityRef = yield* Ref.make<Option.Option<WindowIdentity>>(
+    Option.some(HUB_WINDOW_IDENTITY),
+  );
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -311,20 +350,27 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const currentMainWindow = electronWindow
+    .get(HUB_WINDOW_IDENTITY)
+    .pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
-    Electron.BrowserWindow,
-    DesktopWindowError
-  > {
+  let revealOrCreateIdentity: (
+    identity: WindowIdentity,
+  ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (
+    identity: WindowIdentity,
+  ): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const applicationUrl = getWindowApplicationUrl(environment.isDevelopment, identity);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const persistedSettings = yield* desktopSettings.get;
-    const persistedBounds = persistedSettings.mainWindowBounds;
+    // Bounds remain hub-only for the MVP. This preserves the existing settings
+    // document and prevents concurrent project windows from racing one slot.
+    const persistedBounds = identity.kind === "hub" ? persistedSettings.mainWindowBounds : null;
     const displayBoundsResult = yield* Effect.sync(() => {
       try {
         return {
@@ -355,7 +401,7 @@ export const make = Effect.gen(function* () {
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
-      title: environment.displayName,
+      title: identity.kind === "hub" ? environment.displayName : identity.ref.projectId,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
@@ -377,7 +423,8 @@ export const make = Effect.gen(function* () {
     }
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
-    let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
+    let boundsPersistenceEnabled =
+      identity.kind === "hub" && (persistedBounds === null || restoredPersistedBounds);
     const readPersistableBounds = (): DesktopAppSettings.DesktopWindowBounds | null => {
       if (window.isDestroyed()) {
         return null;
@@ -460,7 +507,9 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    flushMainWindowBounds = flushBoundsPersist;
+    if (identity.kind === "hub") {
+      flushMainWindowBounds = flushBoundsPersist;
+    }
 
     yield* previewManager.setMainWindow(window);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -584,17 +633,21 @@ export const make = Effect.gen(function* () {
       }
     });
 
-    window.on("page-title-updated", (event) => {
+    window.on("page-title-updated", (event, title) => {
       event.preventDefault();
-      window.setTitle(environment.displayName);
+      window.setTitle(
+        identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
+      );
     });
-    window.on("resize", scheduleBoundsPersist);
-    window.on("move", scheduleBoundsPersist);
-    window.on("maximize", scheduleBoundsPersist);
-    window.on("unmaximize", scheduleBoundsPersist);
-    window.on("close", () => {
-      runFork(flushBoundsPersist);
-    });
+    if (identity.kind === "hub") {
+      window.on("resize", scheduleBoundsPersist);
+      window.on("move", scheduleBoundsPersist);
+      window.on("maximize", scheduleBoundsPersist);
+      window.on("unmaximize", scheduleBoundsPersist);
+      window.on("close", () => {
+        runFork(flushBoundsPersist);
+      });
+    }
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -660,7 +713,9 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
-      window.setTitle(environment.displayName);
+      if (identity.kind === "hub") {
+        window.setTitle(environment.displayName);
+      }
     });
     window.webContents.on(
       "did-fail-load",
@@ -688,6 +743,20 @@ export const make = Effect.gen(function* () {
         );
       },
     );
+    if (identity.kind === "project") {
+      const guardProjectScope = (_event: unknown, url: string) => {
+        if (isRendererUrlForWindowIdentity(environment.isDevelopment, identity, url)) return;
+        runFork(
+          revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
+            Effect.andThen(electronWindow.close(identity)),
+            Effect.asVoid,
+          ),
+        );
+      };
+      window.webContents.on("did-navigate", guardProjectScope);
+      window.webContents.on("did-navigate-in-page", guardProjectScope);
+    }
+
     window.webContents.on("render-process-gone", (_event, details) => {
       const recoverable =
         details.reason === "crashed" ||
@@ -752,39 +821,56 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
-      void runPromise(electronWindow.clearMain(Option.some(window)));
+      if (identity.kind === "hub") {
+        void runPromise(electronWindow.clearMain(Option.some(window)));
+      }
     });
 
     return window;
   });
 
-  const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
-    yield* electronWindow.setMain(window);
-    yield* logWindowInfo("main window created");
-    return window;
-  }).pipe(Effect.withSpan("desktop.window.createMain"));
-
-  const ensureMain = Effect.gen(function* () {
-    const existingWindow = yield* currentMainWindow;
-    if (Option.isSome(existingWindow)) {
-      return existingWindow.value;
+  const ensureIdentity = Effect.fn("desktop.window.ensureIdentity")(function* (
+    identity: WindowIdentity,
+  ) {
+    const result = yield* electronWindow.getOrCreate(identity, createWindow(identity));
+    if (result.created) {
+      yield* logWindowInfo(
+        identity.kind === "hub" ? "main window created" : "project window created",
+        {
+          identity: identity.kind === "hub" ? "hub" : "project",
+          ...(identity.kind === "hub"
+            ? {}
+            : { environmentId: identity.ref.environmentId, projectId: identity.ref.projectId }),
+        },
+      );
     }
-    return yield* createMain;
-  }).pipe(Effect.withSpan("desktop.window.ensureMain"));
+    return result.window;
+  });
 
-  const revealOrCreateMain = Effect.gen(function* () {
-    const window = yield* ensureMain;
+  revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
+    identity: WindowIdentity,
+  ) {
+    const window = yield* ensureIdentity(identity);
     yield* electronWindow.reveal(window);
     return window;
-  }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
+  });
+
+  const createMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.createMain"),
+  );
+  const ensureMain = ensureIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.ensureMain"),
+  );
+  const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
+    Effect.withSpan("desktop.window.revealOrCreateMain"),
+  );
 
   const createMainIfBackendReady = Effect.gen(function* () {
     const backendReady = yield* Ref.get(backendReadyRef);
     if (!backendReady) return;
     const existingWindow = yield* currentMainWindow;
     if (Option.isSome(existingWindow)) return;
-    yield* createMain;
+    yield* ensureMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
   const showConnectingSplash = Effect.gen(function* () {
@@ -837,6 +923,17 @@ export const make = Effect.gen(function* () {
     createMain,
     ensureMain,
     revealOrCreateMain,
+    openIdentity: revealOrCreateIdentity,
+    openArguments: Effect.fn("desktop.window.openArguments")(function* (argv) {
+      const identity = resolveWindowIdentityFromArguments(argv) ?? HUB_WINDOW_IDENTITY;
+      const backendReady = yield* Ref.get(backendReadyRef);
+      if (!backendReady) {
+        yield* Ref.set(pendingInitialIdentityRef, Option.some(identity));
+        return;
+      }
+      yield* revealOrCreateIdentity(identity);
+    }),
+    closeIdentity: electronWindow.close,
     activate: Effect.gen(function* () {
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
@@ -863,6 +960,11 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
+      if (Option.isSome(pendingIdentity)) {
+        yield* revealOrCreateIdentity(pendingIdentity.value);
+        return;
+      }
       yield* createMainIfBackendReady;
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
