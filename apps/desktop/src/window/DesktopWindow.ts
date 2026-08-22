@@ -196,7 +196,13 @@ export function getWindowApplicationUrl(isDevelopment: boolean, identity: Window
   if (identity.kind === "hub") return baseUrl;
   const environmentId = encodeURIComponent(identity.ref.environmentId);
   const projectId = encodeURIComponent(identity.ref.projectId);
-  return new URL(`/project/${environmentId}/${projectId}`, baseUrl).href;
+  const applicationUrl = new URL(baseUrl);
+  applicationUrl.hash = `/project/${environmentId}/${projectId}`;
+  return applicationUrl.href;
+}
+
+function getHashRoutePathname(url: URL): string {
+  return url.hash.slice(1).split(/[?#]/u, 1)[0] ?? "";
 }
 
 export function isRendererUrlForWindowIdentity(
@@ -208,9 +214,11 @@ export function isRendererUrlForWindowIdentity(
   try {
     const expected = new URL(getWindowApplicationUrl(isDevelopment, identity));
     const actual = new URL(rendererUrl);
+    const expectedPathname = getHashRoutePathname(expected);
+    const actualPathname = getHashRoutePathname(actual);
     return (
       actual.origin === expected.origin &&
-      (actual.pathname === expected.pathname || actual.pathname.startsWith(`${expected.pathname}/`))
+      (actualPathname === expectedPathname || actualPathname.startsWith(`${expectedPathname}/`))
     );
   } catch {
     return false;
