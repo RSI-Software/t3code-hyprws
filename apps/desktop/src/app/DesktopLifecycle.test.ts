@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -65,6 +66,10 @@ function makeElectronWindowLayer(destroyAll: Effect.Effect<void> = Effect.void) 
   return Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected window creation"),
     main: Effect.die("unexpected main window read"),
+    get: () => Effect.die("unexpected identity window read"),
+    getOrCreate: () => Effect.die("unexpected identity window creation"),
+    close: () => Effect.void,
+    identityFor: () => Effect.succeed(Option.none()),
     currentMainOrFirst: Effect.die("unexpected current window read"),
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
