@@ -109,6 +109,15 @@ and copying a thread reference. A copied reference uses the thread's pull reques
 link when available, otherwise its thread ID. See [keybindings](./keybindings.md)
 for custom configuration.
 
+## Desktop project windows
+
+In the desktop app, open the project switcher and select the open-in-new-window button beside a project.
+The legacy sidebar offers the same action in each project's context menu.
+You can also run **Open project in new window** from the command palette.
+
+Opening a project that already has a window reveals that window instead of creating a duplicate.
+Web and mobile clients do not show project-window actions.
+
 ## Inspect agent work
 
 On web and desktop, use **Agents** to follow work delegated to subagents.
