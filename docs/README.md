@@ -46,6 +46,7 @@ Agent rules live in [AGENTS.md](../AGENTS.md).
 ### Runbooks
 
 - [Release](./operations/release.md)
+- [Fork sync](./operations/fork-sync.md)
 - [Observability](./operations/observability.md)
 - [Relay observability](./operations/relay-observability.md)
 - [Mobile app store screenshots](./operations/mobile-app-store-screenshots.md)
