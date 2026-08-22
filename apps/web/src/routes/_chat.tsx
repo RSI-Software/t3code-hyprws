@@ -11,8 +11,9 @@ import { usePrimaryEnvironmentId } from "../state/environments";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
@@ -109,6 +110,33 @@ export function ChatRouteGlobalShortcuts({
           activeThread: activeThread ?? undefined,
           defaultProjectRef: forcedProjectRef ?? defaultProjectRef,
           handleNewThread,
+        });
+        return;
+      }
+
+      if (command === "project.openWindow") {
+        const bridge = window.desktopBridge;
+        if (!supportsDesktopProjectWindows(bridge)) return;
+        const projectRef =
+          forcedProjectRef ??
+          resolveThreadActionProjectRef({
+            activeDraftThread,
+            activeThread: activeThread ?? undefined,
+            defaultProjectRef,
+            handleNewThread,
+          });
+        if (!projectRef) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        void bridge.openProjectWindow(projectRef).catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
         });
         return;
       }
