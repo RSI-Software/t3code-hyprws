@@ -831,7 +831,7 @@ export const make = Effect.gen(function* () {
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (environment.isDevelopment && environment.devToolsEnabled) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
