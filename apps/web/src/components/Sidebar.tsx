@@ -57,6 +57,7 @@ import {
   CircleDashedIcon,
   ClockIcon,
   EyeIcon,
+  ExternalLinkIcon,
   FolderIcon,
   GitBranchIcon,
   MessageCircleQuestionIcon,
@@ -92,6 +93,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -2242,6 +2244,10 @@ export default function Sidebar() {
       );
     },
   });
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2501,6 +2507,27 @@ export default function Sidebar() {
   useEffect(() => {
     clearSelection();
   }, [clearSelection, forcedProjectRef, projectScopeKey]);
+
+  const handleOpenProjectWindow = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+      if (!desktopBridge) return;
+      void desktopBridge
+        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        });
+    },
+    [desktopBridge],
+  );
 
   const openProjectSettings = useCallback(
     (projectGroup: SidebarProjectSnapshot) => {
