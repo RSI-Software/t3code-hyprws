@@ -249,6 +249,22 @@ function makeTestLayer(input: {
         Effect.as(input.window),
       ),
     main: Ref.get(input.mainWindow),
+    get: () => Ref.get(input.mainWindow),
+    getOrCreate: (_identity, create) =>
+      Ref.get(input.mainWindow).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              create.pipe(
+                Effect.tap((window) => Ref.set(input.mainWindow, Option.some(window))),
+                Effect.map((window) => ({ window, created: true as boolean })),
+              ),
+            onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+          }),
+        ),
+      ),
+    close: () => Ref.set(input.mainWindow, Option.none()),
+    identityFor: () => Effect.succeed(Option.none()),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
@@ -354,6 +370,22 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           return outcome;
         }),
       main: Ref.get(mainWindow),
+      get: () => Ref.get(mainWindow),
+      getOrCreate: (_identity, create) =>
+        Ref.get(mainWindow).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () =>
+                create.pipe(
+                  Effect.tap((window) => Ref.set(mainWindow, Option.some(window))),
+                  Effect.map((window) => ({ window, created: true as boolean })),
+                ),
+              onSome: (window) => Effect.succeed({ window, created: false as boolean }),
+            }),
+          ),
+        ),
+      close: () => Ref.set(mainWindow, Option.none()),
+      identityFor: () => Effect.succeed(Option.none()),
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
