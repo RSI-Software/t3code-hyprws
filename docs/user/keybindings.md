@@ -60,6 +60,9 @@ shortcut; assign one in **Settings → Keybindings**.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread).
 
+`project.openWindow` opens or reveals the active project's desktop window and defaults to
+`mod+alt+o`. The project-window command and its keybinding are shown only in the desktop app.
+
 ## Reserved shortcuts
 
 In the desktop app, `mod+w` closes the focused terminal or the active right-panel
