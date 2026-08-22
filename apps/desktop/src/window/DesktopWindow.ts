@@ -528,9 +528,7 @@ export const make = Effect.gen(function* () {
       flushMainWindowBounds = flushBoundsPersist;
     }
 
-    if (identity.kind === "hub") {
-      yield* previewManager.setMainWindow(window);
-    }
+    yield* previewManager.setWindow(identity, window);
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -1026,8 +1024,12 @@ export const make = Effect.gen(function* () {
       );
       // Chromium pushes the new level down to embedded guests, which would zoom
       // the previewed page along with the app UI. The preview browser keeps its
-      // own zoom, so put each guest back where the preview left it.
-      yield* previewManager.reapplyZoom();
+      // own zoom, so put each guest owned by this window back where it was.
+      const identity = yield* electronWindow.identityFor(window.value);
+      const windowPreviewManager = Option.isSome(identity)
+        ? yield* previewManager.forWindow(identity.value)
+        : previewManager;
+      yield* windowPreviewManager.reapplyZoom();
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
