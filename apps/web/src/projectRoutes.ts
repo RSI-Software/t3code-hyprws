@@ -20,7 +20,12 @@ export function resolveProjectRouteRef(params: ProjectRouteParams): ScopedProjec
 }
 
 export function resolveProjectRefFromPathname(pathname: string): ScopedProjectRef | null {
-  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = pathname.split("/");
+  const routePathname = pathname.startsWith("/#/")
+    ? pathname.slice(2)
+    : pathname.startsWith("#/")
+      ? pathname.slice(1)
+      : pathname;
+  const [, routeFamily, encodedEnvironmentId, encodedProjectId] = routePathname.split("/");
   if (
     routeFamily !== "project" ||
     encodedEnvironmentId === undefined ||
