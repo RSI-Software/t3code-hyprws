@@ -5,6 +5,7 @@ import {
   isValidProjectRouteId,
   resolveProjectAvailabilityRedirect,
   resolveProjectContentRedirect,
+  resolveProjectRefFromPathname,
   resolveProjectRouteRef,
 } from "./projectRoutes";
 
@@ -13,6 +14,20 @@ const PROJECT_REF = scopeProjectRef("env-1" as never, "project-1" as never);
 describe("projectRoutes", () => {
   it("parses a complete physical project ref from route params", () => {
     expect(resolveProjectRouteRef(PROJECT_REF)).toEqual(PROJECT_REF);
+  });
+
+  it("parses encoded physical project refs from scoped pathnames", () => {
+    expect(
+      resolveProjectRefFromPathname("/project/remote%3Awsl/project%20one/thread/thread-1"),
+    ).toEqual(scopeProjectRef("remote:wsl" as never, "project one" as never));
+  });
+
+  it("rejects non-project, incomplete, empty, untrimmed, and malformed pathnames", () => {
+    expect(resolveProjectRefFromPathname("/")).toBeNull();
+    expect(resolveProjectRefFromPathname("/project/env-1")).toBeNull();
+    expect(resolveProjectRefFromPathname("/project//project-1")).toBeNull();
+    expect(resolveProjectRefFromPathname("/project/%20env-1/project-1")).toBeNull();
+    expect(resolveProjectRefFromPathname("/project/%E0%A4%A/project-1")).toBeNull();
   });
 
   it("rejects missing, empty, and untrimmed route ids", () => {
