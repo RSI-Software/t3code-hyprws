@@ -342,12 +342,23 @@ function makeTestLayer(input: {
             Effect.sync(() => {
               input.previewMainWindowSets?.push(window);
             }),
+          setWindow: (_identity, window) =>
+            Effect.sync(() => {
+              input.previewMainWindowSets?.push(window);
+            }),
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           reapplyZoom: () =>
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
             }),
+          forWindow: () =>
+            Effect.succeed({
+              reapplyZoom: () =>
+                Effect.sync(() => {
+                  input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
+                }),
+            } as never),
         }),
       ),
     ),
@@ -458,6 +469,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.mock(PreviewManager.PreviewManager)({
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
             setMainWindow: () => Effect.void,
+            setWindow: () => Effect.void,
             isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
             getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           }),
@@ -564,7 +576,7 @@ describe("DesktopWindow", () => {
         assert.deepEqual(createdWindowOptions[0]?.webPreferences?.additionalArguments, [
           PROJECT_WINDOW_PRELOAD_ARGUMENT,
         ]);
-        assert.deepEqual(previewMainWindowSets, []);
+        assert.deepEqual(previewMainWindowSets, [fakeWindow.window]);
         assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
           "t3code-dev://app/#/project/environment-1/project-1",
