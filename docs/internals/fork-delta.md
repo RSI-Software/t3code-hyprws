@@ -178,14 +178,14 @@ Retired with the fork.
 ### Need
 
 Upstream releases ship upstream code, so a fork user needs a fork build and a fork update feed.
-The rsi-ci runner pool also needs a runner selector that upstream's Blacksmith-only workflows do not have.
+Upstream's workflows also target Blacksmith runners the fork does not have.
 
 ### Shape
 
 - `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, and the desktop build on `hyprws`.
 - `.github/workflows/hyprws-release.yml` builds a Linux x64 AppImage from a `v*-hyprws.*` tag and publishes it.
 
-Both select a runner with `vars.RSI_CI_RUNNER` and fall back to GitHub-hosted runners.
+Both run on GitHub-hosted runners, which are free for a public repository.
 
 The updater needs no code.
 `scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
