@@ -17,6 +17,19 @@ it("resolves updater channels for upstream and fork release versions", () => {
 });
 
 it.layer(NodeServices.layer)((it) => {
+  it.effect("builds only the attached AppImage target for stable and nightly fork releases", () =>
+    Effect.gen(function* () {
+      const linuxTargets = (version: string) =>
+        createBuildConfig("linux", "AppImage", version, false, false, undefined, undefined).pipe(
+          Effect.map((config) => (config.linux as { target: string[] }).target),
+        );
+
+      assert.deepStrictEqual(yield* linuxTargets("0.1.0-hyprws.1"), ["AppImage"]);
+      assert.deepStrictEqual(yield* linuxTargets("0.1.0-hyprws-nightly.20261016.1"), ["AppImage"]);
+      assert.deepStrictEqual(yield* linuxTargets("0.1.0"), ["AppImage", "deb"]);
+    }),
+  );
+
   it.effect("names the fork in the Linux launcher and keeps the app identity", () =>
     Effect.gen(function* () {
       const linuxEntry = (version: string) =>
@@ -32,7 +45,7 @@ it.layer(NodeServices.layer)((it) => {
       assert.deepStrictEqual(stable, {
         appId: "com.t3tools.t3code",
         productName: "T3 Code (Beta)",
-        entry: { StartupWMClass: "t3code", Name: "T3 Code (hyprws)" },
+        entry: { StartupWMClass: "com.t3tools.T3Code", Name: "T3 Code (hyprws)" },
       });
 
       const nightly = yield* linuxEntry("0.0.43-hyprws-nightly.20260927.743");
