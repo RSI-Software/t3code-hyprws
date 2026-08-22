@@ -93,6 +93,10 @@ function makeElectronWindowLayer(window: ReturnType<typeof makeTestWindow>["wind
     ElectronWindow.ElectronWindow.of({
       create: () => Effect.die("unexpected BrowserWindow creation"),
       main: Effect.succeed(Option.some(window as Electron.BrowserWindow)),
+      get: () => Effect.succeed(Option.some(window as Electron.BrowserWindow)),
+      getOrCreate: () => Effect.die("unexpected identity window creation"),
+      close: () => Effect.void,
+      identityFor: () => Effect.succeed(Option.none()),
       currentMainOrFirst: Effect.succeed(Option.some(window as Electron.BrowserWindow)),
       focusedMainOrFirst: Effect.succeed(Option.some(window as Electron.BrowserWindow)),
       setMain: () => Effect.void,
