@@ -41,6 +41,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  ExternalLinkIcon,
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
@@ -74,6 +75,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { supportsDesktopProjectWindows } from "../desktopProjectWindows";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -1831,6 +1833,10 @@ export default function Sidebar({
       );
     },
   });
+  const desktopBridge =
+    typeof window !== "undefined" && supportsDesktopProjectWindows(window.desktopBridge)
+      ? window.desktopBridge
+      : null;
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2091,6 +2097,27 @@ export default function Sidebar({
   useEffect(() => {
     clearSelection();
   }, [clearSelection, forcedProjectRef, projectScopeKey]);
+
+  const handleOpenProjectWindow = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchProjectScopeMenu({ type: "open-changed", open: false });
+      if (!desktopBridge) return;
+      void desktopBridge
+        .openProjectWindow(scopeProjectRef(projectGroup.environmentId, projectGroup.id))
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to open project window",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        });
+    },
+    [desktopBridge],
+  );
 
   const handleProjectSettings = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>, projectGroup: SidebarProjectSnapshot) => {
@@ -3686,19 +3713,39 @@ export default function Sidebar({
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
                             {project ? (
-                              <Button
-                                size="icon-xs"
-                                variant="ghost-muted"
-                                aria-label={`Project settings for ${project.displayName}`}
-                                title={`Project settings for ${project.displayName}`}
-                                className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                  void handleProjectSettings(event, project);
-                                }}
-                              >
-                                <SettingsIcon className="size-3.5" />
-                              </Button>
+                              <>
+                                {desktopBridge ? (
+                                  <Button
+                                    size="icon-xs"
+                                    variant="ghost-muted"
+                                    aria-label={`Open ${project.displayName} in new window`}
+                                    title={`Open ${project.displayName} in new window`}
+                                    className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      handleOpenProjectWindow(event, project);
+                                    }}
+                                  >
+                                    <ExternalLinkIcon className="size-3.5" />
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost-muted"
+                                  aria-label={`Project settings for ${project.displayName}`}
+                                  title={`Project settings for ${project.displayName}`}
+                                  className={cn(
+                                    "size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground",
+                                    desktopBridge ? "" : "ml-auto",
+                                  )}
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    void handleProjectSettings(event, project);
+                                  }}
+                                >
+                                  <SettingsIcon className="size-3.5" />
+                                </Button>
+                              </>
                             ) : null}
                           </ComboboxItem>
                         );
