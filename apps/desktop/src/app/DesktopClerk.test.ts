@@ -153,27 +153,47 @@ describe("DesktopClerk", () => {
     });
   });
 
-  it.effect("registers the second-instance handler in the primary instance", () => {
+  it.effect("routes second-instance and open-url arguments in the primary instance", () => {
     storageMock.mockReturnValue(storageAdapter);
     createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
     const quit = vi.fn();
     const registeredEvents: string[] = [];
+    const listeners = new Map<string, (...args: readonly unknown[]) => void>();
     const electronApp = {
       quit: Effect.sync(quit),
-      on: (eventName: string) =>
+      on: (eventName: string, listener: (...args: readonly unknown[]) => void) =>
         Effect.sync(() => {
           registeredEvents.push(eventName);
+          listeners.set(eventName, listener);
         }),
     } as unknown as ElectronApp.ElectronApp["Service"];
     const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
 
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      const openedArguments: string[][] = [];
+      const exit = yield* Effect.exit(
+        Effect.scoped(
+          clerk.configure((argv) =>
+            Effect.sync(() => {
+              openedArguments.push([...argv]);
+            }),
+          ),
+        ),
+      );
+      listeners.get("second-instance")?.({}, ["t3code", "--project=env/project"]);
+      const preventDefault = vi.fn();
+      listeners.get("open-url")?.({ preventDefault }, "t3code://app/project/env/project");
+      yield* Effect.yieldNow;
 
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(quit.mock.calls.length, 0);
-      assert.deepEqual(registeredEvents, ["second-instance"]);
+      assert.deepEqual(registeredEvents, ["second-instance", "open-url"]);
+      assert.deepEqual(openedArguments, [
+        ["t3code", "--project=env/project"],
+        ["t3code://app/project/env/project"],
+      ]);
+      assert.equal(preventDefault.mock.calls.length, 1);
     }).pipe(
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
@@ -197,7 +217,7 @@ describe("DesktopClerk", () => {
 
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
-      const exit = yield* Effect.exit(Effect.scoped(clerk.configure));
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure(() => Effect.void)));
 
       assert.isTrue(Exit.hasInterrupts(exit));
       assert.equal(quit.mock.calls.length, 1);
