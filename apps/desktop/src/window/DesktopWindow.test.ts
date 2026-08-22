@@ -515,20 +515,20 @@ describe("DesktopWindow", () => {
 
     assert.equal(
       DesktopWindow.getWindowApplicationUrl(true, identity),
-      "t3code-dev://app/project/environment%3Aremote/project%20one",
+      "t3code-dev://app/#/project/environment%3Aremote/project%20one",
     );
     assert.isTrue(
       DesktopWindow.isRendererUrlForWindowIdentity(
         true,
         identity,
-        "t3code-dev://app/project/environment%3Aremote/project%20one/thread/thread-1",
+        "t3code-dev://app/#/project/environment%3Aremote/project%20one/thread/thread-1",
       ),
     );
     assert.isFalse(
       DesktopWindow.isRendererUrlForWindowIdentity(
         true,
         identity,
-        "t3code-dev://app/project/environment%3Aremote/another-project",
+        "t3code-dev://app/#/project/environment%3Aremote/another-project",
       ),
     );
     assert.isFalse(
@@ -567,7 +567,7 @@ describe("DesktopWindow", () => {
         assert.deepEqual(previewMainWindowSets, []);
         assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], [
-          "t3code-dev://app/project/environment-1/project-1",
+          "t3code-dev://app/#/project/environment-1/project-1",
         ]);
         assert.isFalse(fakeWindow.windowListeners.has("resize"));
 
