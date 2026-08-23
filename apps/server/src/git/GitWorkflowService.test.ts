@@ -1,13 +1,35 @@
 import { assert, describe, expect, it, vi } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+
+const gitHandle = {
+  kind: "git" as const,
+  repository: {
+    kind: "git" as const,
+    rootPath: "/repo",
+    metadataPath: null,
+    freshness: {
+      source: "live-local" as const,
+      observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+      expiresAt: Option.none(),
+    },
+  },
+  driver: {} as VcsDriver.VcsDriver["Service"],
+} satisfies VcsDriverRegistry.VcsDriverHandle;
+
+const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
+  Effect.succeed(gitHandle);
 
 function makeLayer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
@@ -20,6 +42,7 @@ function makeLayer(input: {
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
   );
 }
 
@@ -100,6 +123,7 @@ describe("GitWorkflowService", () => {
           status,
         }),
       ),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
     );
 
     return Effect.gen(function* () {
@@ -188,5 +212,83 @@ describe("GitWorkflowService", () => {
         }),
       ),
     );
+  });
+
+  it.effect("unbinds a worktree session before removing the worktree", () => {
+    const calls: string[] = [];
+    const removeWorktree = vi.fn(() =>
+      Effect.sync(() => {
+        calls.push("remove");
+      }),
+    );
+    const resolve = vi.fn(() =>
+      Effect.sync(() => {
+        calls.push("resolve");
+        return {
+          status: "resolved" as const,
+          target: "repo/feat-test",
+          match: "worktree" as const,
+        };
+      }),
+    );
+    const unbind = vi.fn((_dir: string) =>
+      Effect.sync(() => {
+        calls.push("unbind");
+        return { status: "unbound" as const, target: "repo/feat-test" };
+      }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: resolveGitHandle,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, unbind })),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
+
+      assert.deepStrictEqual(calls, ["resolve", "unbind", "remove"]);
+      assert.deepStrictEqual(unbind.mock.calls[0]?.[0], "/repo/wt");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("does not unbind a session resolved by a non-worktree match", () => {
+    const unbind = vi.fn((_dir: string) =>
+      Effect.succeed({ status: "unbound" as const, target: "repo/root" }),
+    );
+    const removeWorktree = vi.fn(() => Effect.void);
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: resolveGitHandle,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          resolve: () =>
+            Effect.succeed({
+              status: "resolved" as const,
+              target: "repo/root",
+              match: "workspace" as const,
+            }),
+          unbind,
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
+
+      assert.equal(unbind.mock.calls.length, 0);
+      assert.equal(removeWorktree.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
   });
 });
