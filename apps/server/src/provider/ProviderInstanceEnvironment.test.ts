@@ -50,6 +50,17 @@ describe("mergeProviderInstanceEnvironment", () => {
     ).toEqual({ ...baseEnv, CUSTOM_VALUE: "~/.custom" });
   });
 
+  it("strips inherited tmux environment without changing unrelated values", () => {
+    expect(
+      mergeProviderInstanceEnvironment(undefined, {
+        TMUX: "/tmp/tmux-1000/default,123,0",
+        TMUX_PANE: "%42",
+        TMUX_TMPDIR: "/tmp/tmux-1000",
+        PATH: "/bin",
+      }),
+    ).toEqual({ PATH: "/bin" });
+  });
+
   it("overrides inherited environment values and preserves empty strings", () => {
     expect(
       mergeProviderInstanceEnvironment(
