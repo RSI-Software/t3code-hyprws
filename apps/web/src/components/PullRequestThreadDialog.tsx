@@ -38,6 +38,7 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
+import { toastZmuxSessionNoticeFork } from "./PullRequestThreadDialog.fork"; // fork-hook: zmux-estate/pr-thread-zmux-notice-import
 import { toastManager } from "./ui/toast";
 
 interface PullRequestThreadDialogProps {
@@ -172,6 +173,7 @@ export function PullRequestThreadDialog({
       }
       return;
     }
+    toastZmuxSessionNoticeFork(result.value); // fork-hook: zmux-estate/pr-thread-zmux-notice
     await onPrepared({
       branch: result.value.branch,
       worktreePath: result.value.worktreePath,
