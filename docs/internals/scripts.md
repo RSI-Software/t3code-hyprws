@@ -63,7 +63,8 @@ authenticated.
 - `vp run lint:mobile`: Mobile native static analysis (`scripts/mobile-native-static-check.ts`).
 - `vp run fork:delta`: Lists fork commits above `upstream/main` by `Fork-Domain` and `Fork-Tier` trailer
   (`scripts/fork-delta.ts`). `--check` exits 1 when a fork commit lacks a valid trailer; `--json` emits
-  the ledger for tooling.
+  the ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in stack order for
+  `git cherry-pick` onto upstream.
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
   an isolated T3 SQLite database; writes create a private backup first.
 
