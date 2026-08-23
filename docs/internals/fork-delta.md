@@ -179,6 +179,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - The fork sections in `README.md`, `AGENTS.md`, and `docs/README.md`.
 - This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
+- The fork trailer section of `.github/pull_request_template.md`.
 
 ### Retirement condition
 
@@ -192,6 +193,7 @@ Retired with the fork.
 | `package.json` scripts block               | `fork:delta` sits between upstream aliases.                   |
 | `docs/internals/scripts.md`                | Carries the `fork:delta` entry.                               |
 | `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
+| `.github/pull_request_template.md`         | Carries the fork trailer block every squash body needs.       |
 
 ## distribution
 
