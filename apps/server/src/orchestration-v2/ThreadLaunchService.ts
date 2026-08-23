@@ -57,6 +57,7 @@ import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
+import * as ThreadLaunchFork from "./ThreadLaunchService.fork.ts"; // fork-hook: zmux-estate/launch-worktree-zmux-bind-import
 
 export type ThreadLaunchWorkspaceStrategy =
   | { readonly type: "root"; readonly branch?: string | undefined }
@@ -253,6 +254,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const eventSink = yield* EventSink.EventSinkV2;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const worktreeIntegrationsFork = yield* ThreadLaunchFork.makeThreadWorktreeIntegrationsFork; // fork-hook: zmux-estate/launch-worktree-zmux-bind-make
   // A project-folder launch that names no branch records the folder's checkout, as the composer does.
   const launchBranch = (strategy: ThreadLaunchWorkspaceStrategy, workspaceRoot: string) =>
     strategy.type === "root" && strategy.branch === undefined
@@ -651,6 +653,11 @@ const make = Effect.gen(function* () {
           ),
         }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        yield* worktreeIntegrationsFork({
+          threadId,
+          projectCwd: project.workspaceRoot,
+          worktreePath,
+        }); // fork-hook: zmux-estate/launch-worktree-zmux-bind
       }
 
       // Do not rewrite reused worktrees; that could undo the original branch rename.
