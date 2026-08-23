@@ -1225,6 +1225,7 @@ export const ServerSettings = Schema.Struct({
   worktreeSubmodules: ForwardCompatibleNullable(WorktreeSubmodules).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  zmuxSessions: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   terminalSessionMode: TerminalSessionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_SESSION_MODE)),
@@ -1520,6 +1521,7 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
+  zmuxSessions: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   terminalSessionMode: Schema.optionalKey(TerminalSessionMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
