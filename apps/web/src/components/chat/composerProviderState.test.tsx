@@ -8,15 +8,19 @@ import {
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { DraftId } from "../../composerDraftStore";
 
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
 // vary only the descriptor shape per scenario.
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
+const OPENCODE_PROVIDER: ProviderDriverKind = ProviderDriverKind.make("opencode");
 const MODEL = "test-model";
 
 function selectDescriptor(
@@ -172,7 +176,7 @@ describe("getComposerProviderState", () => {
 
   it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
     const state = getComposerProviderState({
-      provider: PROVIDER,
+      provider: OPENCODE_PROVIDER,
       model: MODEL,
       models: modelWith([
         selectDescriptor("agent", [
@@ -189,7 +193,7 @@ describe("getComposerProviderState", () => {
 
   it("drops the agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
     const state = getComposerProviderState({
-      provider: PROVIDER,
+      provider: OPENCODE_PROVIDER,
       model: MODEL,
       models: modelWith([
         selectDescriptor("agent", [{ id: "plan", label: "Plan", isDefault: true }]),
@@ -199,7 +203,7 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state).toEqual({
-      provider: PROVIDER,
+      provider: OPENCODE_PROVIDER,
       promptEffort: null,
       modelOptionsForDispatch: undefined,
     });
@@ -207,7 +211,7 @@ describe("getComposerProviderState", () => {
 
   it("falls back to a surviving agent when plan was the descriptor default and plan mode is disabled", () => {
     const state = getComposerProviderState({
-      provider: PROVIDER,
+      provider: OPENCODE_PROVIDER,
       model: MODEL,
       models: modelWith([
         selectDescriptor("agent", [
@@ -303,6 +307,30 @@ describe("provider traits render guards", () => {
       planModeEnabled: true,
     };
 
+    expect(renderProviderTraitsPicker(args)).toBeNull();
+    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+  });
+
+  it("renders an agent-only descriptor in its dedicated control", () => {
+    const models = modelWith([
+      selectDescriptor("agent", [
+        { id: "default", label: "Default", isDefault: true },
+        { id: "fable", label: "fable" },
+      ]),
+    ]);
+    const args = {
+      provider: PROVIDER,
+      draftId: DraftId.make("draft-agent"),
+      model: MODEL,
+      models,
+      modelOptions: selections(["agent", "fable"]),
+      prompt: "",
+      onPromptChange: () => {},
+      planModeEnabled: false,
+    };
+
+    expect(renderProviderAgentPicker(args)).not.toBeNull();
+    expect(renderProviderAgentMenuContent(args)).not.toBeNull();
     expect(renderProviderTraitsPicker(args)).toBeNull();
     expect(renderProviderTraitsMenuContent(args)).toBeNull();
   });
