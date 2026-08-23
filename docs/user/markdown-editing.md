@@ -7,6 +7,10 @@ Rich mode supports CommonMark and GitHub Flavored Markdown.
 This includes headings, emphasis, links, lists, task lists, tables, blockquotes, and code blocks.
 YAML frontmatter remains editable as a code-style block.
 
+Workspace file links use the same file chips and file-preview navigation as rendered Markdown.
+Task-list checkboxes remain interactive while editing.
+Fenced code uses the app theme, syntax highlighter, code font, and word-wrap setting.
+
 Edits save automatically through the same file-save flow as source editing.
 Use the code button to return to the Markdown source.
 

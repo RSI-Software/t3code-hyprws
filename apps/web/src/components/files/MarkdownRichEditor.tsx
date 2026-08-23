@@ -1,6 +1,7 @@
 import {
   defaultValueCtx,
   Editor,
+  editorViewCtx,
   editorViewOptionsCtx,
   rootCtx,
   serializerCtx,
@@ -8,23 +9,43 @@ import {
 import { Plugin } from "@milkdown/kit/prose/state";
 import { $prose } from "@milkdown/kit/utils";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
+import {
+  markdownEditorPresentation,
+  refreshMarkdownEditorPresentation,
+} from "./markdownEditorPresentation";
 import { markdownPipeline } from "./markdownPipeline";
 import "./markdown-rich-editor.css";
 
 interface MarkdownRichEditorProps {
   readonly value: string;
   readonly onChange: (markdown: string) => void;
+  readonly cwd: string;
+  readonly onOpenFile: (relativePath: string) => void;
+  readonly theme: "light" | "dark";
+  readonly wordWrap: boolean;
 }
 
-function MarkdownRichEditorInner({ value, onChange }: MarkdownRichEditorProps) {
+function MarkdownRichEditorInner({
+  value,
+  onChange,
+  cwd,
+  onOpenFile,
+  theme,
+}: MarkdownRichEditorProps) {
   const initialValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const lastMarkdownRef = useRef(value);
+  const cwdRef = useRef(cwd);
+  const onOpenFileRef = useRef(onOpenFile);
+  const themeRef = useRef(theme);
   onChangeRef.current = onChange;
+  cwdRef.current = cwd;
+  onOpenFileRef.current = onOpenFile;
+  themeRef.current = theme;
 
-  useEditor((root) => {
+  const editor = useEditor((root) => {
     const publishChanges = $prose(
       (ctx) =>
         new Plugin({
@@ -52,15 +73,25 @@ function MarkdownRichEditorInner({ value, onChange }: MarkdownRichEditorProps) {
           },
         }));
       }),
-    ).use(publishChanges);
+    )
+      .use(markdownEditorPresentation({ cwd: cwdRef, onOpenFile: onOpenFileRef, theme: themeRef }))
+      .use(publishChanges);
   }, []);
+
+  useEffect(() => {
+    if (editor.loading) return;
+    editor.get()?.action((ctx) => refreshMarkdownEditorPresentation(ctx.get(editorViewCtx), theme));
+  }, [editor, theme]);
 
   return <Milkdown />;
 }
 
 export function MarkdownRichEditor(props: MarkdownRichEditorProps) {
   return (
-    <div className="t3-markdown-editor min-h-0 flex-1 overflow-y-auto bg-background">
+    <div
+      className="t3-markdown-editor min-h-0 flex-1 overflow-y-auto bg-background"
+      data-word-wrap={props.wordWrap ? "true" : "false"}
+    >
       <MilkdownProvider>
         <MarkdownRichEditorInner {...props} />
       </MilkdownProvider>

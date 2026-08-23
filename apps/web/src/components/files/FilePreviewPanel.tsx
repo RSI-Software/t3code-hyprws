@@ -761,16 +761,16 @@ function RichMarkdownSurface({
   cwd,
   relativePath,
   contents,
+  resolvedTheme,
+  wordWrap,
+  onOpenFile,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
-  | "resolvedTheme"
-  | "composerDraftTarget"
-  | "revealLine"
-  | "revealRequestId"
-  | "wordWrap"
-  | "onPostRender"
->) {
+  "composerDraftTarget" | "revealLine" | "revealRequestId" | "onPostRender"
+> & {
+  readonly onOpenFile: (relativePath: string) => void;
+}) {
   const saveCoordinator = useFileSaveCoordinator({
     environmentId,
     cwd,
@@ -788,6 +788,10 @@ function RichMarkdownSurface({
     >
       <MarkdownRichEditor
         value={contents}
+        cwd={cwd}
+        onOpenFile={onOpenFile}
+        theme={resolvedTheme}
+        wordWrap={wordWrap}
         onChange={(nextContents) => {
           const currentContents =
             getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
@@ -1122,6 +1126,9 @@ export default function FilePreviewPanel({
                   cwd={cwd}
                   relativePath={relativePath}
                   contents={file.data.contents}
+                  resolvedTheme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
                   onPendingChange={onPendingChange}
                 />
               ) : (

@@ -88,17 +88,63 @@
 
 .t3-markdown-editor__prose li[data-item-type="task"] {
   list-style: none;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: flex-start;
+  column-gap: 0.55rem;
 }
 
-.t3-markdown-editor__prose li[data-item-type="task"] > label {
-  margin-left: -1.35rem;
-  margin-right: 0.45rem;
+.t3-markdown-editor__prose li[data-item-type="task"] > input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0.24rem 0 0 -1.55rem;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
-.t3-markdown-editor__prose a {
+.t3-markdown-editor__prose li[data-item-type="task"] > div {
+  min-width: 0;
+}
+
+.t3-markdown-editor__prose li[data-item-type="task"] > div > p {
+  margin-block: 0;
+}
+
+.t3-markdown-editor__prose a:not(.t3-markdown-editor__file-link) {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 0.15em;
+}
+
+.t3-markdown-editor__prose a.t3-markdown-editor__file-link {
+  cursor: pointer;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.t3-markdown-editor__prose a.t3-markdown-editor__file-link:hover {
+  background: var(--accent);
+}
+
+.t3-markdown-editor__file-icon {
+  display: inline-flex;
+  width: 1.17em;
+  height: 1.17em;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+
+.t3-markdown-editor__file-icon:empty {
+  display: none;
+}
+
+.t3-markdown-editor__file-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .t3-markdown-editor__prose blockquote {
@@ -125,7 +171,6 @@
   padding: 0.15em 0.35em;
 }
 
-.t3-markdown-editor__prose pre,
 .t3-markdown-editor__prose .t3-markdown-frontmatter {
   overflow-x: auto;
   padding: 0.9rem 1rem;
@@ -134,7 +179,72 @@
   background: var(--code-background);
 }
 
-.t3-markdown-editor__prose pre code {
+.t3-markdown-editor__codeblock {
+  overflow: hidden;
+  margin-block: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--code-background);
+}
+
+.t3-markdown-editor__codeblock-header {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0.45rem 0.2rem 0.75rem;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.t3-markdown-editor__codeblock-language {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+.t3-markdown-editor__codeblock-language svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+}
+
+.t3-markdown-editor__codeblock-copy {
+  border-radius: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.6875rem;
+}
+
+.t3-markdown-editor__codeblock-copy:hover,
+.t3-markdown-editor__codeblock-copy:focus-visible {
+  background: var(--accent);
+  color: var(--foreground);
+  outline: none;
+}
+
+.t3-markdown-editor__codeblock pre {
+  overflow-x: auto;
+  margin: 0;
+  padding: 0.75rem 0.9rem 0.9rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.55;
+}
+
+.t3-markdown-editor[data-word-wrap="true"] .t3-markdown-editor__codeblock pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.t3-markdown-editor__codeblock code {
+  display: block;
   padding: 0;
   background: transparent;
 }
