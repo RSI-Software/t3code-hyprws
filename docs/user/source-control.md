@@ -48,6 +48,10 @@ A turn's diff shows only that turn's own edits, commits, and conflict fixes—ex
   - GitHub, GitLab, and Azure DevOps support auto-merge; GitHub also supports approving fork workflows and opening revert PRs.
   - Azure DevOps comments must be edited on the host site; Bitbucket cannot reopen declined PRs.
 
+When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
+pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
+pull-request target, and creating a pull request still takes an explicit action.
+
 ### Review guides (beta)
 
 Turn on **Settings → Source control & issues → Review guides** to add a **Guide** tab to pull requests. Click **Write guide** to have Claude or Codex read the PR in a temporary read-only checkout and produce an ordered tour of the change (highlighting **Look closely** spots and grouping mechanical changes at the end).
