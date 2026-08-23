@@ -12,9 +12,9 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
+import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle, PenLine } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlState } from "~/assets/assetUrls";
@@ -57,7 +57,11 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import {
+  isMarkdownPreviewFile,
+  isMarkdownRichEditFile,
+  setMarkdownTaskChecked,
+} from "./filePreviewMode";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -65,6 +69,12 @@ import {
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
+
+const MarkdownRichEditor = lazy(() =>
+  import("./MarkdownRichEditor").then(({ MarkdownRichEditor }) => ({
+    default: MarkdownRichEditor,
+  })),
+);
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -755,6 +765,56 @@ function RenderedMarkdownSurface({
   );
 }
 
+function RichMarkdownSurface({
+  environmentId,
+  cwd,
+  relativePath,
+  contents,
+  resolvedTheme,
+  wordWrap,
+  onOpenFile,
+  onPendingChange,
+}: Omit<
+  EditableFileSurfaceProps,
+  "composerDraftTarget" | "revealLine" | "revealRequestId" | "onPostRender"
+> & {
+  readonly onOpenFile: (relativePath: string) => void;
+}) {
+  const saveCoordinator = useFileSaveCoordinator({
+    environmentId,
+    cwd,
+    relativePath,
+    onPendingChange,
+  });
+
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+          <LoaderCircle className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <MarkdownRichEditor
+        value={contents}
+        cwd={cwd}
+        relativePath={relativePath}
+        onOpenFile={onOpenFile}
+        theme={resolvedTheme}
+        wordWrap={wordWrap}
+        onChange={(nextContents) => {
+          const currentContents =
+            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+            contents;
+          if (nextContents === currentContents) return;
+          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+          saveCoordinator.change(nextContents);
+        }}
+      />
+    </Suspense>
+  );
+}
+
 function initialExplorerOpen(): boolean {
   try {
     return getLocalStorageItem(FILE_EXPLORER_STORAGE_KEY, Schema.Boolean) ?? true;
@@ -809,9 +869,12 @@ export default function FilePreviewPanel({
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
+  const isRichMarkdown = relativePath ? isMarkdownRichEditFile(relativePath) : false;
   // A reveal still wins over the preference: the line only exists in the source.
   const renderMarkdown =
     isMarkdown &&
+    file.data !== null &&
+    !file.data.truncated &&
     renderMarkdownPreferred &&
     (revealLine === null ||
       (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId));
@@ -938,6 +1001,7 @@ export default function FilePreviewPanel({
                   <Toggle
                     className="shrink-0"
                     pressed={renderMarkdown}
+                    disabled={file.data === null || file.data.truncated}
                     onPressedChange={(pressed) => {
                       setRenderMarkdownPreferred(pressed);
                       setHandledReveal(
@@ -946,16 +1010,34 @@ export default function FilePreviewPanel({
                           : null,
                       );
                     }}
-                    aria-label={renderMarkdown ? "Show markdown source" : "Show rendered markdown"}
+                    aria-label={
+                      renderMarkdown
+                        ? "Show Markdown source"
+                        : isRichMarkdown
+                          ? "Edit as rich Markdown"
+                          : "Show rendered Markdown"
+                    }
                     variant="ghost"
                     size="sm"
                   >
-                    {renderMarkdown ? <Code2 className="size-3.5" /> : <Eye className="size-3.5" />}
+                    {renderMarkdown ? (
+                      <Code2 className="size-3.5" />
+                    ) : isRichMarkdown ? (
+                      <PenLine className="size-3.5" />
+                    ) : (
+                      <Eye className="size-3.5" />
+                    )}
                   </Toggle>
                 }
               />
               <TooltipPopup>
-                {renderMarkdown ? "Show markdown source" : "Show rendered markdown"}
+                {file.data?.truncated
+                  ? "Rich editing is unavailable for truncated files"
+                  : renderMarkdown
+                    ? "Show Markdown source"
+                    : isRichMarkdown
+                      ? "Edit as rich Markdown"
+                      : "Show rendered Markdown"}
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -1029,16 +1111,7 @@ export default function FilePreviewPanel({
               <LoaderCircle className="size-5 animate-spin" />
             </div>
           ) : relativePath && file.data ? (
-            isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                onPendingChange={onPendingChange}
-              />
-            ) : file.data.truncated ? (
+            file.data.truncated ? (
               <Virtualizer
                 key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
                 className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
@@ -1064,6 +1137,29 @@ export default function FilePreviewPanel({
                   className="min-h-full"
                 />
               </Virtualizer>
+            ) : isMarkdown && renderMarkdown ? (
+              isRichMarkdown ? (
+                <RichMarkdownSurface
+                  key={relativePath}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  contents={file.data.contents}
+                  resolvedTheme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
+                  onPendingChange={onPendingChange}
+                />
+              ) : (
+                <RenderedMarkdownSurface
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  threadRef={threadRef}
+                  contents={file.data.contents}
+                  onPendingChange={onPendingChange}
+                />
+              )
             ) : (
               <EditableFileSurface
                 key={`${relativePath}:${resolvedTheme}`}
