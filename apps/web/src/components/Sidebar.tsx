@@ -3642,6 +3642,29 @@ export default function Sidebar({
                     </MenuRadioGroup>
                   </MenuPopup>
                 </Menu>
+                {forcedProjectRef !== null && scopedProjectGroup !== null ? (
+                  // The scope menu is disabled in a project window, so its
+                  // per-project settings row is unreachable. Surface the same
+                  // action for the window's own project.
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <SidebarMenuButton
+                          size="icon"
+                          className="shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                          type="button"
+                          aria-label={`Project settings for ${scopedProjectGroup.displayName}`}
+                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                            void handleProjectSettings(event, scopedProjectGroup);
+                          }}
+                        />
+                      }
+                    >
+                      <SettingsIcon />
+                    </TooltipTrigger>
+                    <TooltipPopup side="right">Project settings</TooltipPopup>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
