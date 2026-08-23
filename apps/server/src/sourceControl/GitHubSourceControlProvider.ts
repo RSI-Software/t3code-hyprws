@@ -11,6 +11,7 @@ import {
   type SourceControlProviderDiscoveryItem,
 } from "@t3tools/contracts";
 
+import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 
 import * as ServerSettings from "../serverSettings.ts";
@@ -39,6 +40,15 @@ const decodeLinkSubject = Schema.decodeUnknownEffect(
     Schema.Struct({ title: Schema.String, body: Schema.optional(Schema.NullOr(Schema.String)) }),
   ),
 );
+
+/** The provider's own remote as `host/owner/name`, so a second remote never wins implicitly. */
+function repositoryInputFromContext(
+  context: SourceControlProvider.SourceControlProviderContext | undefined,
+): { readonly repository?: string } {
+  if (!context) return {};
+  const repository = normalizeGitRemoteUrl(context.remoteUrl).trim();
+  return repository.length > 0 ? { repository } : {};
+}
 
 function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeRequest {
   return {
@@ -269,6 +279,7 @@ export const make = Effect.gen(function* () {
 
   const listChangeRequests: SourceControlProvider.SourceControlProvider["Service"]["listChangeRequests"] =
     (input) => {
+      const { repository } = repositoryInputFromContext(input.context);
       if (input.state === "open") {
         return github
           .listOpenPullRequests({
@@ -278,6 +289,7 @@ export const make = Effect.gen(function* () {
               ? {}
               : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),
             ...(input.limit !== undefined ? { limit: input.limit } : {}),
+            ...(repository ? { repository } : {}),
           })
           .pipe(
             Effect.map((items) => items.map(toChangeRequest)),
@@ -307,6 +319,7 @@ export const make = Effect.gen(function* () {
           ...(input.context === undefined
             ? {}
             : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),
+          ...(repository ? { repository } : {}),
         })
         .pipe(
           Effect.map((items) =>
@@ -395,6 +408,7 @@ export const make = Effect.gen(function* () {
           ...(input.context === undefined
             ? {}
             : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),
+          ...repositoryInputFromContext(input.context),
         })
         .pipe(
           Effect.map(toChangeRequest),
@@ -421,6 +435,7 @@ export const make = Effect.gen(function* () {
           headSelector: input.headSelector,
           title: input.title,
           bodyFile: input.bodyFile,
+          ...repositoryInputFromContext(input.context),
         })
         .pipe(
           Effect.mapError(
@@ -479,6 +494,7 @@ export const make = Effect.gen(function* () {
           ...(input.context === undefined
             ? {}
             : { rateLimitHost: new URL(input.context.provider.baseUrl).host }),
+          ...repositoryInputFromContext(input.context),
         })
         .pipe(
           Effect.mapError(
@@ -494,7 +510,7 @@ export const make = Effect.gen(function* () {
           ),
         ),
     checkoutChangeRequest: (input) =>
-      github.checkoutPullRequest(input).pipe(
+      github.checkoutPullRequest({ ...input, ...repositoryInputFromContext(input.context) }).pipe(
         Effect.mapError(
           (error) =>
             new SourceControlProviderError({

@@ -216,6 +216,8 @@ export class GitHubCli extends Context.Service<
       readonly headSelector: string;
       readonly limit?: number;
       readonly rateLimitHost?: string;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
     /**
@@ -230,12 +232,16 @@ export class GitHubCli extends Context.Service<
       readonly limit: number;
       /** The checkout's GitHub API host. Without it, the host comes from the git remotes. */
       readonly rateLimitHost?: string;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<ReadonlyArray<NormalizedGitHubPullRequestRecord>, GitHubCliError>;
 
     readonly getPullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
       readonly rateLimitHost?: string;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
@@ -255,17 +261,23 @@ export class GitHubCli extends Context.Service<
       readonly headSelector: string;
       readonly title: string;
       readonly bodyFile: string;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<void, GitHubCliError>;
 
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
       readonly rateLimitHost?: string;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
 
     readonly checkoutPullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
       readonly force?: boolean;
+      /** `host/owner/name` to act on instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<void, GitHubCliError>;
   }
 >()("t3/sourceControl/GitHubCli") {}
@@ -561,15 +573,22 @@ export const make = Effect.gen(function* () {
     new GitHubCliCommandError({ command: "gh", cwd, cause: new Error(detail) });
 
   /**
-   * The repository `gh` would act on in `cwd`: GH_REPO, else the remote `gh` would pick, else
-   * the remote the caller resolved the provider from, else the best-ranked GitHub remote.
+   * The repository `gh` would act on in `cwd`: the caller's explicit `repository` (as
+   * `gh --repo`), else GH_REPO, else the remote `gh` would pick, else the remote the caller
+   * resolved the provider from, else the best-ranked GitHub remote.
    */
   const resolveRepository = Effect.fn("GitHubCli.resolveRepository")(function* (input: {
     readonly cwd: string;
     readonly host?: string | undefined;
+    readonly repository?: string | undefined;
   }) {
     const envRepository = environment.GH_REPO?.trim();
     const defaultHost = (input.host ?? environment.GH_HOST ?? "github.com").toLowerCase();
+    if (input.repository) {
+      // A remote under an SSH alias names its repository on the alias; read it through the API host.
+      const locator = parseGitHubRepositorySelector(input.repository, defaultHost);
+      if (locator !== null) return { ...locator, host: apiHostForHint(locator.host) };
+    }
     if (envRepository) {
       const locator = parseGitHubRepositorySelector(envRepository, defaultHost);
       if (locator !== null) return locator;
@@ -730,9 +749,14 @@ export const make = Effect.gen(function* () {
     readonly state: PullRequestListState;
     readonly limit: number;
     readonly rateLimitHost?: string | undefined;
+    readonly repository?: string | undefined;
     readonly allowReserve: boolean;
   }) {
-    const locator = yield* resolveRepository({ cwd: input.cwd, host: input.rateLimitHost });
+    const locator = yield* resolveRepository({
+      cwd: input.cwd,
+      host: input.rateLimitHost,
+      repository: input.repository,
+    });
     const limit = Math.min(Math.max(Math.trunc(input.limit), 1), 100);
     // `owner:branch` names a fork's branch. GitHub filters on the branch name only, so the
     // owner is matched on the rows it returns.
@@ -763,6 +787,7 @@ export const make = Effect.gen(function* () {
     readonly cwd: string;
     readonly reference: string;
     readonly rateLimitHost?: string | undefined;
+    readonly repository?: string | undefined;
   }) {
     const parsed = parsePullRequestReference(input.reference);
     if (parsed.kind === "branch") {
@@ -773,6 +798,7 @@ export const make = Effect.gen(function* () {
         state: "open",
         limit: 1,
         rateLimitHost: input.rateLimitHost,
+        repository: input.repository,
         allowReserve: true,
       });
       const found =
@@ -783,6 +809,7 @@ export const make = Effect.gen(function* () {
           state: "all",
           limit: 1,
           rateLimitHost: input.rateLimitHost,
+          repository: input.repository,
           allowReserve: true,
         }))[0];
       if (found === undefined) {
@@ -797,7 +824,11 @@ export const make = Effect.gen(function* () {
     const locator =
       parsed.kind === "url"
         ? parsed.locator
-        : yield* resolveRepository({ cwd: input.cwd, host: input.rateLimitHost });
+        : yield* resolveRepository({
+            cwd: input.cwd,
+            host: input.rateLimitHost,
+            repository: input.repository,
+          });
     const decodeFailure = (cause: unknown) =>
       new GitHubPullRequestDecodeError({ command: "gh", cwd: input.cwd, cause });
     const decoded = yield* graphqlJson(
@@ -874,9 +905,15 @@ export const make = Effect.gen(function* () {
     "GitHubCli.checkoutPullRequest",
   )(function* (input) {
     const reference = parsePullRequestReference(input.reference);
-    const pullRequest = yield* readPullRequest({ cwd: input.cwd, reference: input.reference });
+    const pullRequest = yield* readPullRequest({
+      cwd: input.cwd,
+      reference: input.reference,
+      repository: input.repository,
+    });
     const base =
-      reference.kind === "url" ? reference.locator : yield* resolveRepository({ cwd: input.cwd });
+      reference.kind === "url"
+        ? reference.locator
+        : yield* resolveRepository({ cwd: input.cwd, repository: input.repository });
     const baseNameWithOwner = `${base.owner}/${base.name}`.toLowerCase();
     const headNameWithOwner = pullRequest.headRepositoryNameWithOwner ?? null;
     const isCrossRepository =
@@ -1006,6 +1043,7 @@ export const make = Effect.gen(function* () {
         state: "open",
         limit: input.limit ?? 1,
         rateLimitHost: input.rateLimitHost,
+        repository: input.repository,
         allowReserve: true,
       }).pipe(Effect.map(toSummaries)),
     getPullRequest: (input) => readPullRequest(input).pipe(Effect.map(pullRequestSummary)),
@@ -1052,7 +1090,10 @@ export const make = Effect.gen(function* () {
       }),
     createPullRequest: (input) =>
       Effect.gen(function* () {
-        const locator = yield* resolveRepository({ cwd: input.cwd });
+        const locator = yield* resolveRepository({
+          cwd: input.cwd,
+          repository: input.repository,
+        });
         const body = yield* fileSystem
           .readFileString(input.bodyFile)
           .pipe(Effect.mapError(gitFailure(input.cwd)));
@@ -1074,7 +1115,11 @@ export const make = Effect.gen(function* () {
       }),
     getDefaultBranch: (input) =>
       Effect.gen(function* () {
-        const locator = yield* resolveRepository({ cwd: input.cwd, host: input.rateLimitHost });
+        const locator = yield* resolveRepository({
+          cwd: input.cwd,
+          host: input.rateLimitHost,
+          repository: input.repository,
+        });
         const repository = yield* readRepository(input.cwd, locator);
         const branch = repository.default_branch?.trim() ?? "";
         return branch.length > 0 ? branch : null;

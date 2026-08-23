@@ -169,6 +169,7 @@ it.effect("lists change request history through the batched head lookup", () =>
       state: "all",
       limit: 10,
       rateLimitHost: "enterprise.test",
+      repository: "enterprise.test/acme/web",
     });
     assert.strictEqual(changeRequests[0]?.provider, "github");
     assert.strictEqual(changeRequests[0]?.state, "merged");
@@ -198,6 +199,11 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
+      context: {
+        provider: { kind: "github", name: "GitHub", baseUrl: "https://github.com" },
+        remoteName: "origin",
+        remoteUrl: "git@github.com:RSI-Software/t3code-hyprws.git",
+      },
     });
 
     assert.deepStrictEqual(createInput, {
@@ -206,6 +212,7 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
+      repository: "github.com/rsi-software/t3code-hyprws",
     });
   }),
 );
