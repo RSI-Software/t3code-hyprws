@@ -8,6 +8,7 @@ name: hyprws CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
       - hyprws
   push:
@@ -53,6 +54,17 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
+
+      # The squash commit takes the pull-request body as its message, so the
+      # body must already end with the trailer block. `edited` above re-runs
+      # this when the body changes.
+      - name: Fork ledger (squash body)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
+          vp run fork:delta --check --squash-body "$RUNNER_TEMP/pull-request-body.md"
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
