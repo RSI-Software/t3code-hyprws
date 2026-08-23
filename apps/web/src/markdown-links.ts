@@ -411,26 +411,56 @@ function workspaceRelativePath(path: string, workspaceRoot: string | undefined):
   return normalizedPath.slice(normalizedRoot.length + 1);
 }
 
+function normalizeDotSegments(path: string): string {
+  const slashPath = path.replaceAll("\\", "/");
+  const usesBackslashes = path.includes("\\");
+  const isUnc = slashPath.startsWith("//");
+  const isPosixAbsolute = !isUnc && slashPath.startsWith("/");
+  const hasTrailingSeparator = /[/\\]$/.test(path);
+  const parts = slashPath.split("/").filter(Boolean);
+  const rootDepth = isUnc ? Math.min(2, parts.length) : /^[A-Za-z]:$/.test(parts[0] ?? "") ? 1 : 0;
+  const normalized: string[] = [];
+
+  for (const part of parts) {
+    if (part === ".") continue;
+    if (part === "..") {
+      if (normalized.length > rootDepth && normalized.at(-1) !== "..") normalized.pop();
+      else if (!isUnc && !isPosixAbsolute && rootDepth === 0) normalized.push(part);
+      continue;
+    }
+    normalized.push(part);
+  }
+
+  const prefix = isUnc ? "//" : isPosixAbsolute ? "/" : "";
+  const normalizedPath = `${prefix}${normalized.join("/")}`;
+  const withTrailingSeparator =
+    hasTrailingSeparator && normalizedPath !== prefix ? `${normalizedPath}/` : normalizedPath;
+  return usesBackslashes ? withTrailingSeparator.replaceAll("/", "\\") : withTrailingSeparator;
+}
+
 export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,
+  workspaceRoot: string | undefined = cwd,
 ): MarkdownFileLinkMeta | null {
   const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
   if (!targetPath) return null;
-  return buildFileLinkMetaFromTarget(targetPath, cwd);
+  return buildFileLinkMetaFromTarget(targetPath, workspaceRoot);
 }
 
 function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): MarkdownFileLinkMeta {
-  const { path, line, column } = splitPathAndPosition(targetPath);
+  const { path: rawPath, line, column } = splitPathAndPosition(targetPath);
+  const path = normalizeDotSegments(rawPath);
   const parsedLine = line ? Number.parseInt(line, 10) : Number.NaN;
   const parsedColumn = column ? Number.parseInt(column, 10) : Number.NaN;
   const lineNumber = Number.isFinite(parsedLine) ? parsedLine : undefined;
   const columnNumber = Number.isFinite(parsedColumn) ? parsedColumn : undefined;
+  const normalizedTargetPath = `${path}${line ? `:${line}` : ""}${column ? `:${column}` : ""}`;
 
   return {
     filePath: path,
-    targetPath,
-    displayPath: formatWorkspaceRelativePath(targetPath, cwd),
+    targetPath: normalizedTargetPath,
+    displayPath: formatWorkspaceRelativePath(normalizedTargetPath, cwd),
     workspaceRelativePath: workspaceRelativePath(path, cwd),
     basename: basenameOfPath(path),
     ...(lineNumber !== undefined ? { line: lineNumber } : {}),
