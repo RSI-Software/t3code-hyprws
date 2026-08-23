@@ -38,10 +38,16 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
+import {
+  FolderTree,
+  Globe2,
+  LoaderCircle,
+  PenLine,
+  WrapTextIcon,
+} from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -106,6 +112,7 @@ import { projectFileCacheKey } from "./fileContentRevision";
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  isMarkdownRichEditFile,
   resolveFilePreviewPath,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
@@ -118,6 +125,12 @@ import {
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
+
+const MarkdownRichEditor = lazy(() =>
+  import("./MarkdownRichEditor").then(({ MarkdownRichEditor }) => ({
+    default: MarkdownRichEditor,
+  })),
+);
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -954,10 +967,67 @@ function RenderedMarkdownSurface({
   );
 }
 
-function renderedToggleLabel(mode: "markdown" | "html" | "table", rendered: boolean): string {
-  if (mode === "markdown") return rendered ? "Show markdown source" : "Show rendered markdown";
+function renderedToggleLabel(
+  mode: "markdown" | "html" | "table",
+  rendered: boolean,
+  isRichMarkdown = false,
+): string {
+  if (mode === "markdown") {
+    if (rendered) return "Show markdown source";
+    return isRichMarkdown ? "Edit as rich markdown" : "Show rendered markdown";
+  }
   if (mode === "table") return rendered ? "Show source" : "Show table";
   return rendered ? "Show HTML source" : "Show rendered page";
+}
+
+function RichMarkdownSurface({
+  environmentId,
+  cwd,
+  relativePath,
+  contents,
+  resolvedTheme,
+  wordWrap,
+  onOpenFile,
+  onPendingChange,
+}: Omit<
+  EditableFileSurfaceProps,
+  "composerDraftTarget" | "revealLine" | "revealRequestId" | "onPostRender"
+> & {
+  readonly onOpenFile: (relativePath: string) => void;
+}) {
+  const saveCoordinator = useFileSaveCoordinator({
+    environmentId,
+    cwd,
+    relativePath,
+    onPendingChange,
+  });
+
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+          <LoaderCircle className="size-5 animate-spin" />
+        </div>
+      }
+    >
+      <MarkdownRichEditor
+        value={contents}
+        cwd={cwd}
+        relativePath={relativePath}
+        onOpenFile={onOpenFile}
+        theme={resolvedTheme}
+        wordWrap={wordWrap}
+        onChange={(nextContents) => {
+          const currentContents =
+            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+            contents;
+          if (nextContents === currentContents) return;
+          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+          saveCoordinator.change(nextContents);
+        }}
+      />
+    </Suspense>
+  );
 }
 
 function initialExplorerOpen(): boolean {
@@ -1081,10 +1151,16 @@ export default function FilePreviewPanel({
   const isMarkdown = previewPath ? isMarkdownPreviewFile(previewPath) : false;
   const tableDelimiter =
     previewPath && attachment === undefined ? filePreviewDelimiter({ name: previewPath }) : null;
+  const isRichMarkdown = relativePath ? isMarkdownRichEditFile(relativePath) : false;
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
+  const renderMarkdown =
+    isMarkdown &&
+    file.data !== null &&
+    !file.data.truncated &&
+    renderMarkdownPreferred &&
+    revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
   const renderedMode = isMarkdown
@@ -1246,8 +1322,13 @@ export default function FilePreviewPanel({
           ) : null}
           {canToggleRendered && renderedMode ? (
             <FileSurfaceAction
-              label={renderedToggleLabel(renderedMode, rendered)}
+              label={
+                isMarkdown && file.data?.truncated
+                  ? "Rich editing is unavailable for truncated files"
+                  : renderedToggleLabel(renderedMode, rendered, isRichMarkdown)
+              }
               pressed={rendered}
+              disabled={isMarkdown && (file.data === null || file.data.truncated)}
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
@@ -1395,17 +1476,31 @@ export default function FilePreviewPanel({
             </div>
           ) : relativePath && file.data ? (
             isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                key={relativePath}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                workspaceMutationId={workspaceMutationId}
-                readOnly={isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
+              isRichMarkdown && !isHostFile ? (
+                <RichMarkdownSurface
+                  key={relativePath}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  contents={file.data.contents}
+                  resolvedTheme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
+                  onPendingChange={onPendingChange}
+                />
+              ) : (
+                <RenderedMarkdownSurface
+                  key={relativePath}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  threadRef={threadRef}
+                  contents={file.data.contents}
+                  workspaceMutationId={workspaceMutationId}
+                  readOnly={isHostFile || !canWriteFiles}
+                  onPendingChange={onPendingChange}
+                />
+              )
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}
