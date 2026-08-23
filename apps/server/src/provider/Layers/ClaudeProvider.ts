@@ -22,6 +22,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   query as claudeQuery,
+  type AgentInfo as ClaudeAgentInfo,
   type Options as ClaudeQueryOptions,
   type SlashCommand as ClaudeSlashCommand,
   type SDKUserMessage,
@@ -635,8 +636,70 @@ type ClaudeCapabilitiesProbe = {
    * the subscription/token fields are absent and auth is external AWS creds.
    */
   readonly apiProvider: string | undefined;
+  readonly agents?: ReadonlyArray<ClaudeAgentInfo>;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
+
+function parseClaudeInitializationAgents(
+  agents: ReadonlyArray<ClaudeAgentInfo> | undefined,
+): ReadonlyArray<ClaudeAgentInfo> {
+  const agentsByName = new Map<string, ClaudeAgentInfo>();
+
+  for (const agent of agents ?? []) {
+    const name = nonEmptyProbeString(agent.name);
+    const description = nonEmptyProbeString(agent.description);
+    if (!name || !description) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (agentsByName.has(key)) {
+      continue;
+    }
+    const model = agent.model ? nonEmptyProbeString(agent.model) : undefined;
+    agentsByName.set(key, {
+      name,
+      description,
+      ...(model ? { model } : {}),
+    });
+  }
+
+  return [...agentsByName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function withClaudeAgentOptions(
+  models: ReadonlyArray<ServerProviderModel>,
+  agents: ReadonlyArray<ClaudeAgentInfo>,
+): ReadonlyArray<ServerProviderModel> {
+  if (agents.length === 0) {
+    return models;
+  }
+
+  const agentDescriptor = buildSelectOptionDescriptor({
+    id: "agent",
+    label: "Agent",
+    description: "Run this thread as a Claude custom agent.",
+    options: [
+      {
+        value: "default",
+        label: "Default",
+        description: "Use Claude without a custom main-thread agent.",
+        isDefault: true,
+      },
+      ...agents.map((agent) => ({
+        value: agent.name,
+        label: agent.name,
+        description: agent.description,
+      })),
+    ],
+  });
+
+  return models.map((model) => ({
+    ...model,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), agentDescriptor],
+    }),
+  }));
+}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -764,6 +827,7 @@ const probeClaudeCapabilities = (
         subscriptionType: account?.subscriptionType,
         tokenSource: account?.tokenSource,
         apiProvider: account?.apiProvider,
+        agents: parseClaudeInitializationAgents(init.agents),
         slashCommands: parseClaudeInitializationCommands(init.commands),
       } satisfies ClaudeCapabilitiesProbe;
     });
@@ -902,7 +966,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = providerModelsFromSettings(
+  const baseModels = providerModelsFromSettings(
     getBuiltInClaudeModelsForVersion(parsedVersion),
     claudeSettings.customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
@@ -920,6 +984,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const capabilities = resolveCapabilities
     ? yield* resolveCapabilities(claudeSettings).pipe(Effect.orElseSucceed(() => undefined))
     : undefined;
+  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []);
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [
     {
