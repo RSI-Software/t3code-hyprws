@@ -301,6 +301,12 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,
   branch: TrimmedNonEmptyStringSchema,
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  zmuxSessionNotice: Schema.optionalKey(
+    Schema.Struct({
+      summary: TrimmedNonEmptyStringSchema,
+      detail: TrimmedNonEmptyStringSchema,
+    }),
+  ),
   /** False when local commits or edits prevented a reused worktree from reaching the PR head. */
   isOnPullRequestHead: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
 });
