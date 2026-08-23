@@ -2,13 +2,16 @@
 
 > Fork-only maintainer guide for `RSI-Software/t3code-hyprws`.
 
-This fork makes T3 Code feel like opening an editor on a project, not opening one global dashboard.
+This guide owns fork-wide development discipline and the `project-windows` domain's architecture.
+The [fork delta](./fork-delta.md) owns the need and retirement condition for every domain.
+
+Project windows make T3 Code feel like opening an editor on a project, not one global dashboard.
 Each project should have an obvious window that can live beside its editor, terminals, and browser.
 
 The goal is a small, durable patch stack on top of upstream T3 Code.
-This document defines the product direction and the development discipline that keeps that stack rebasing cleanly.
+This document defines the project-window direction and the discipline that keeps every domain rebasing cleanly.
 
-## Product direction
+## Project-window direction
 
 The unit of desktop organization is a physical project in an environment.
 Opening a project should reveal its existing window or create a window scoped to that project.
