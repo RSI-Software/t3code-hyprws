@@ -86,14 +86,15 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 
 ## Domain index
 
-| Domain                              | Status | Tiers present     | Retires when                                              |
-| ----------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
-| [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
-| [custom-agents](#custom-agents)     | Active | core              | Upstream main-thread custom-agent selection.              |
-| [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.                      |
-| [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.               |
-| [upstream-fixes](#upstream-fixes)   | Active | bugfix            | Each commit, when upstream ships the fix.                 |
-| [zmux-estate](#zmux-estate)         | Active | core              | Upstream terminals attach to an external session manager. |
+| Domain                                | Status | Tiers present     | Retires when                                              |
+| ------------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
+| [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
+| [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.              |
+| [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                |
+| [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                      |
+| [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.               |
+| [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                 |
+| [zmux-estate](#zmux-estate)           | Active | core              | Upstream terminals attach to an external session manager. |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -212,6 +213,41 @@ The upstream behavior must persist the selection and apply it on new and resumed
 | `apps/server/src/provider/Layers/CodexSessionRuntime.ts`          | Layers Codex agent config and instructions onto a thread. |
 | `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`  | Restarts sessions when the root agent changes.            |
 | `packages/contracts/src/model.ts`, `packages/shared/src/model.ts` | Own the generic provider-option contract.                 |
+
+## markdown-editing
+
+### Need
+
+T3 Code renders Markdown previews and edits Markdown source, but it has no rich editing mode.
+The fork needs one surface where a user can edit the rendered document and still save Markdown.
+
+### Shape
+
+The web file preview offers Rich and Source modes for `.md` files.
+Rich mode uses a lazy-loaded Milkdown editor with CommonMark, GFM, YAML frontmatter, history, and clipboard support.
+
+It reuses the existing optimistic file cache and save coordinator, so local and remote environments share one path.
+
+MDX stays on the existing rendered preview because the Markdown pipeline cannot preserve JSX safely.
+Truncated files remain read-only.
+
+Run `vp run fork:delta` for the commit list.
+
+### Retirement condition
+
+Delete this domain when upstream ships a rich Markdown editor with safe frontmatter and MDX boundaries.
+The replacement must use the existing file-save path and avoid loading its editor bundle during ordinary file browsing.
+
+### Rebase scan
+
+| Path                                                   | Why it matters                                           |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`   | Owns the Rich/Source entry point and file-save boundary. |
+| `apps/web/src/components/files/MarkdownRichEditor.tsx` | Fork-only Milkdown lifecycle and change publisher.       |
+| `apps/web/src/components/files/markdownPipeline.ts`    | Fork-only syntax and serialization chain.                |
+| `apps/web/src/components/files/filePreviewMode.ts`     | Keeps MDX outside the rich-editing boundary.             |
+| `apps/web/package.json`, `pnpm-lock.yaml`              | Milkdown and round-trip-test dependencies.               |
+| `apps/web/src/components/ChatMarkdown.tsx`             | Upstream preview changes may replace this domain.        |
 
 ## fork-meta
 
