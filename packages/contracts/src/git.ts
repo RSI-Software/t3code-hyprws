@@ -284,6 +284,12 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,
   branch: TrimmedNonEmptyStringSchema,
   worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  zmuxSessionNotice: Schema.optionalKey(
+    Schema.Struct({
+      summary: TrimmedNonEmptyStringSchema,
+      detail: TrimmedNonEmptyStringSchema,
+    }),
+  ),
   /**
    * False when the checkout could not be brought to the pull request head — a reused worktree
    * holding local commits or uncommitted changes keeps its own state, so the code being handed
