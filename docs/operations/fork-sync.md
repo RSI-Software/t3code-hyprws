@@ -30,14 +30,16 @@ If it is rejected, someone committed to `main`; stop and inspect before forcing 
 
 ## Step 2: Pick the target
 
-Rebase onto an upstream release tag, not onto the tip of `upstream/main`.
+Rebase onto an upstream tag, never onto an untagged commit.
 
 ```bash
 git tag --list 'v*' --sort=-v:refname | grep -v nightly | head -n 3
+git tag --list 'v*-nightly*' --sort=-v:refname | head -n 3
 ```
 
-Take the newest stable `vX.Y.Z`.
-Between releases, a rebase onto `upstream/main` is fine for surfacing conflicts early, but do not tag from it.
+Take the newest stable `vX.Y.Z` by default.
+Take the newest nightly when the fork needs an upstream fix that has not reached a stable release.
+Nightlies are tagged from `upstream/main` several times a day, so the tip is rarely far from one.
 
 ## Step 3: Rebase
 
@@ -83,7 +85,11 @@ Never refresh the lease without reading what it refused.
 ## Step 6: Tag and release
 
 A fork release is `v<upstream version>-hyprws.<n>`.
-`<upstream version>` is the tag from step 2 and `<n>` restarts at 1 for each upstream version.
+`<upstream version>` is the `X.Y.Z` of the tag from step 2, nightly suffix dropped.
+`<n>` counts up within that version and restarts at 1 when the version changes.
+
+A stack on `v0.0.34-nightly.20260823.1164` therefore releases as `v0.0.34-hyprws.1`.
+The workflow writes the exact upstream tag into the release body.
 
 ```bash
 git tag v0.0.34-hyprws.1
@@ -96,7 +102,7 @@ The release is never a prerelease, because the desktop updater ignores prereleas
 Watch it with `gh run watch` and verify the release lists the `.AppImage` and `latest-linux.yml`.
 An installed fork build updates from that release, because the build derives its feed from the building repository.
 
-Bump `<n>` for a fork-only change on the same upstream version.
+Bump `<n>` for a fork-only change or a newer nightly on the same upstream version.
 A new upstream version always restarts the suffix.
 
 ## Failure handling

@@ -226,10 +226,13 @@ Fork branding and local workstation preferences belong in documentation or the d
 Rebase the fork trunk onto upstream history.
 Do not merge `upstream/main` into `hyprws`, because repeated merge commits obscure the patch stack.
 
-Rebase onto upstream release tags, not onto the tip of `upstream/main`.
-A tag is a state upstream chose to ship; the fork release takes its version from it.
+Rebase onto an upstream tag, never onto an untagged commit.
+A tag is a state upstream chose to ship, and the fork release takes its version from it.
 
-Rebase onto `upstream/main` between tags only to surface conflicts early.
+The default target is the newest stable `vX.Y.Z`.
+A nightly tag is also fine when the fork needs an upstream fix before the next stable release.
+
+Upstream names nightlies for the version they lead to, so the fork version stays monotonic either way.
 
 [Fork sync](../operations/fork-sync.md) is the step-by-step runbook an agent follows.
 The rules below are the ones that runbook must not break.
@@ -279,7 +282,11 @@ When upstream moves the architecture, rebuild the behavior at the new boundary i
 The fork ships its own Linux desktop build, because an upstream release carries upstream code.
 
 A fork tag is `v<upstream version>-hyprws.<n>`, for example `v0.0.34-hyprws.1`.
-`<upstream version>` is the tag the stack is rebased onto; `<n>` restarts at 1 per upstream version.
+`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto, with any nightly suffix dropped.
+
+`<n>` counts up within one upstream version and restarts at 1 when that version changes.
+
+The release body names the exact upstream tag, so a nightly base is never ambiguous.
 
 `.github/workflows/hyprws-release.yml` builds the AppImage and publishes a normal GitHub release, never a prerelease.
 The desktop updater reads its feed from the building repository, so a fork build updates from fork releases.
