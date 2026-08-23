@@ -181,6 +181,24 @@ describe("buildTurnStartParams", () => {
     });
   });
 
+  it("keeps custom-agent instructions when applying T3 collaboration mode", () => {
+    const params = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "full-access",
+        prompt: "Implement it",
+        model: "gpt-5.6-sol",
+        effort: "high",
+        interactionMode: "default",
+        agentDeveloperInstructions: "Work from first principles.",
+      }),
+    );
+
+    const instructions = params.collaborationMode?.settings.developer_instructions;
+    NodeAssert.ok(instructions?.startsWith("Work from first principles.\n\n"));
+    NodeAssert.ok(instructions?.includes("as gpt-5.6-sol with high"));
+  });
+
   it("reports the same fallback model and effort in settings and instructions", () => {
     const params = Effect.runSync(
       buildTurnStartParams({
@@ -571,6 +589,60 @@ describe("isRecoverableThreadResumeError", () => {
 });
 
 describe("openCodexThread", () => {
+  it.effect("layers a selected Codex custom agent onto thread start", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ method: "thread/start" | "thread/resume"; payload: unknown }> = [];
+      const started = makeThreadOpenResponse("agent-thread");
+      const client = {
+        request: <M extends "thread/start" | "thread/resume">(
+          method: M,
+          payload: CodexRpc.ClientRequestParamsByMethod[M],
+        ) => {
+          calls.push({ method, payload });
+          return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
+        },
+      };
+
+      yield* openCodexThread({
+        client,
+        threadId: ThreadId.make("thread-agent"),
+        runtimeMode: "full-access",
+        cwd: "/tmp/project",
+        requestedModel: "gpt-5.6-sol",
+        serviceTier: undefined,
+        resumeThreadId: undefined,
+        agent: {
+          name: "fable",
+          description: "Shape product direction",
+          developerInstructions: "Work from first principles.",
+          config: {
+            model: "gpt-5.6-sol",
+            model_reasoning_effort: "high",
+          },
+          sourcePath: "/tmp/fable.toml",
+        },
+      });
+
+      NodeAssert.deepStrictEqual(calls, [
+        {
+          method: "thread/start",
+          payload: {
+            cwd: "/tmp/project",
+            approvalPolicy: "never",
+            sandbox: "danger-full-access",
+            approvalsReviewer: "user",
+            model: "gpt-5.6-sol",
+            developerInstructions: "Work from first principles.",
+            config: {
+              model: "gpt-5.6-sol",
+              model_reasoning_effort: "high",
+            },
+          },
+        },
+      ]);
+    }),
+  );
+
   it.effect("falls back to thread/start when resume fails recoverably", () =>
     Effect.gen(function* () {
       const calls: Array<{ method: "thread/start" | "thread/resume"; payload: unknown }> = [];

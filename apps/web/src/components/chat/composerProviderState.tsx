@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { shouldRenderTraitsControls, TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
+import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -141,4 +142,45 @@ export function renderProviderTraitsMenuContent(input: TraitsRenderInput): React
 
 export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
   return renderTraitsControl(TraitsPicker, input);
+}
+
+function renderAgentControl(
+  Component: typeof AgentMenuContent | typeof AgentPicker,
+  input: TraitsRenderInput,
+): ReactNode {
+  const { provider, instanceId, threadRef, draftId, model, models, modelOptions, planModeEnabled } =
+    input;
+  const hasTarget = threadRef !== undefined || draftId !== undefined;
+  if (
+    !hasTarget ||
+    !shouldRenderAgentControl({
+      provider,
+      models,
+      model,
+      modelOptions,
+      planModeEnabled,
+    })
+  ) {
+    return null;
+  }
+  return (
+    <Component
+      provider={provider}
+      {...(instanceId ? { instanceId } : {})}
+      models={models}
+      {...(threadRef ? { threadRef } : {})}
+      {...(draftId ? { draftId } : {})}
+      model={model}
+      modelOptions={modelOptions}
+      planModeEnabled={planModeEnabled}
+    />
+  );
+}
+
+export function renderProviderAgentMenuContent(input: TraitsRenderInput): ReactNode {
+  return renderAgentControl(AgentMenuContent, input);
+}
+
+export function renderProviderAgentPicker(input: TraitsRenderInput): ReactNode {
+  return renderAgentControl(AgentPicker, input);
 }

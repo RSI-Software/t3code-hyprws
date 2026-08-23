@@ -1,7 +1,8 @@
 # Codex
 
-This guide is for people who want to use more than one Codex account in T3 Code. For Claude, see
-[Claude](./providers-claude.md). For first-time setup, see [Install T3 Code](./install.md).
+This guide is for people who want to use more than one Codex account in T3 Code.
+For Claude, see [Claude](./providers-claude.md).
+For first-time setup, see [Install T3 Code](./install.md).
 
 Common reasons:
 
@@ -27,6 +28,28 @@ Log in with Codex normally:
 ```bash
 codex login
 ```
+
+## Choose A Codex Custom Agent
+
+T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
+The Agent picker appears beside the model when at least one valid agent is available.
+
+Each file needs `name`, `description`, and `developer_instructions`.
+Other Codex configuration keys form the selected agent's session layer.
+
+```toml
+name = "fable"
+description = "Shape product direction"
+developer_instructions = "Work from first principles."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+```
+
+Choose `Default` to start Codex without a custom main thread agent.
+An agent's `model` and `model_reasoning_effort` override the adjacent model controls for that session.
+
+Shadow homes share the main `CODEX_HOME` agent directory with their skills, plugins, and session history.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
 
 ## I Want Work And Personal Codex Accounts
 
@@ -80,15 +103,15 @@ CODEX_HOME path: ~/.codex
 Shadow home path: ~/.codex_p
 ```
 
-The important part is that both providers use the same `CODEX_HOME path`, but only the second one
-has a `Shadow home path`.
+Both providers must use the same `CODEX_HOME path`.
+Only the second provider has a `Shadow home path`.
 
 ## Which Account Am I Using?
 
 Open Settings and look at the provider row.
 
-T3 Code shows the authenticated email for providers that report one. Emails are blurred by default;
-click the blurred email to reveal it.
+T3 Code shows the authenticated email for providers that report one.
+Emails are blurred by default; click the blurred email to reveal it.
 
 Use display names and accent colors to make accounts easy to tell apart in the model picker.
 
@@ -96,9 +119,11 @@ Use display names and accent colors to make accounts easy to tell apart in the m
 
 Use the provider's Environment variables section in Settings.
 
-This is useful when a Codex-compatible setup needs account-specific variables. Add the variables to
-the provider instance that should receive them, and mark API keys or tokens as sensitive. Sensitive
-values are stored as server secrets and are not sent back to the app after saving.
+Use this section when a Codex-compatible setup needs account-specific variables.
+Add them to the provider instance that should receive them.
+Mark API keys or tokens as sensitive.
+
+Sensitive values are server secrets and are not returned to the app after saving.
 
 ## Can I Switch Accounts In An Existing Thread?
 
@@ -111,11 +136,11 @@ Codex Work      CODEX_HOME path: ~/.codex
 Codex Personal  CODEX_HOME path: ~/.codex, Shadow home path: ~/.codex_p
 ```
 
-Those two providers are considered compatible for continuation, so the locked model picker can show
-both.
+Those providers are compatible for continuation.
+The locked model picker can therefore show both.
 
-If you add a third Codex provider with a completely different `CODEX_HOME path`, T3 Code treats it
-as a different workspace. It will not be offered for existing threads created under `~/.codex`.
+A provider with a different `CODEX_HOME path` belongs to a different workspace.
+It is not offered for existing threads created under `~/.codex`.
 
 ## If Both Accounts Look The Same
 
@@ -137,5 +162,5 @@ find ~/.codex_p -mindepth 1 ! -name auth.json -exec rm -rf {} +
 
 Use a totally separate `CODEX_HOME path` only when you want a separate Codex workspace.
 
-That means separate sessions and less account switching inside old threads. Most dual-account users
-should use the shared-home plus shadow-home setup instead.
+This creates separate sessions and reduces account switching inside old threads.
+Most dual-account users should use the shared-home plus shadow-home setup instead.

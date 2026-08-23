@@ -34,6 +34,7 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
+import type { CodexAgentDefinition } from "../Drivers/CodexAgents.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 
@@ -257,6 +258,43 @@ function appendCustomCodexModels(
     });
   }
   return customEntries.length === 0 ? models : [...models, ...customEntries];
+}
+
+export function withCodexAgentOptions(
+  models: ReadonlyArray<ServerProviderModel>,
+  agents: ReadonlyArray<CodexAgentDefinition>,
+): ReadonlyArray<ServerProviderModel> {
+  if (agents.length === 0) {
+    return models;
+  }
+
+  const agentDescriptor = {
+    id: "agent",
+    label: "Agent",
+    type: "select" as const,
+    description: "Run this thread as a Codex custom agent.",
+    options: [
+      {
+        id: "default",
+        label: "Default",
+        description: "Use Codex without a custom main-thread agent.",
+        isDefault: true,
+      },
+      ...agents.map((agent) => ({
+        id: agent.name,
+        label: agent.name,
+        description: agent.description,
+      })),
+    ],
+    currentValue: "default",
+  } satisfies ProviderOptionDescriptor;
+
+  return models.map((model) => ({
+    ...model,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), agentDescriptor],
+    }),
+  }));
 }
 
 function parseCodexSkillsListResponse(

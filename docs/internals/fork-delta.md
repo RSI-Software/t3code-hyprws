@@ -89,6 +89,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | Domain                              | Status | Tiers present     | Retires when                                              |
 | ----------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
 | [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
+| [custom-agents](#custom-agents)     | Active | core              | Upstream main-thread custom-agent selection.              |
 | [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.                      |
 | [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.               |
 | [upstream-fixes](#upstream-fixes)   | Active | bugfix            | Each commit, when upstream ships the fix.                 |
@@ -119,7 +120,9 @@ QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=
 Two bugfixes reproduce upstream and should be offered there; one is fork-only.
 
 Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
-A project window is created with its project id as the window title, which Hyprland keeps as `initialTitle`.
+A project window starts with its project id as the window title.
+Hyprland keeps that value as `initialTitle`.
+
 Tooling an agent runs from inside a project window can therefore find its own window without guessing from `cwd`.
 `ProviderSessionStartInput.projectId` carries the id; the binding persists it so recovery after a restart keeps it.
 
@@ -155,6 +158,49 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/routeTree.gen.ts`                          | Generated. Regenerate rather than resolving by hand.                |
 | `apps/web/src/components/preview/previewBridge.ts`       | The retirement signal. Read it on every rebase.                     |
 | `apps/web/src/components/CommandPalette.tsx`             | Entry point, and a busy upstream file.                              |
+
+## custom-agents
+
+### Need
+
+Choose a provider-native custom agent as the main Claude or Codex thread.
+Upstream T3 Code exposes model options but has no main-thread custom-agent control.
+
+### Shape
+
+Provider model capabilities carry an `agent` select descriptor.
+The web composer renders that descriptor in its own picker beside the model and reasoning controls.
+Compact web and mobile surfaces reuse the existing provider-options menus.
+
+Claude agent inventory comes from the Agent SDK initialization result.
+The selected name becomes the SDK's `--agent` launch argument.
+
+Codex agent inventory comes from `<CODEX_HOME>/agents/*.toml`.
+
+The selected definition becomes a `thread/start` or `thread/resume` config and instruction layer.
+Project definitions can override personal Codex definitions with the same name at session start.
+
+Selections persist in `modelSelection.options` and restore with the provider binding.
+Changing the root agent restarts the provider session before the next turn.
+
+### Retirement condition
+
+Delete this domain when upstream can discover and select provider-native main-thread agents for Claude and Codex.
+The upstream behavior must persist the selection and apply it on new and resumed sessions.
+
+### Rebase scan
+
+| Path                                                              | Why it matters                                            |
+| ----------------------------------------------------------------- | --------------------------------------------------------- |
+| `apps/web/src/components/chat/ChatComposer.tsx`                   | Owns the composer control order.                          |
+| `apps/web/src/components/chat/TraitsPicker.tsx`                   | Splits root agents from model traits.                     |
+| `apps/web/src/components/chat/composerProviderState.tsx`          | Renders capability-driven composer controls.              |
+| `apps/server/src/provider/Layers/ClaudeProvider.ts`               | Discovers Claude agents.                                  |
+| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                | Applies Claude's `--agent` launch argument.               |
+| `apps/server/src/provider/Drivers/CodexAgents.ts`                 | Discovers and parses Codex agent definitions.             |
+| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`          | Layers Codex agent config and instructions onto a thread. |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`  | Restarts sessions when the root agent changes.            |
+| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts` | Own the generic provider-option contract.                 |
 
 ## fork-meta
 
@@ -284,4 +330,5 @@ Answer three questions before opening one:
 If the third answer is "many files across unrelated systems", the change is probably not a domain.
 It is probably a bugfix to send upstream, filed under `upstream-fixes`.
 
-Keep the domain's new code in its own files so `vp run fork:delta --domain <name> --shas` replays it cleanly onto upstream; see [Extracting a domain](./fork-development.md#extracting-a-domain).
+Keep the domain's new code in its own files so it replays cleanly onto upstream.
+See [Extracting a domain](./fork-development.md#extracting-a-domain).

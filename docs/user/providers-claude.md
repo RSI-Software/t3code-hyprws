@@ -1,7 +1,8 @@
 # Claude
 
-This guide is for people who want to use more than one Claude setup in T3 Code. For Codex, see
-[Codex](./providers-codex.md). For first-time setup, see [Install T3 Code](./install.md).
+This guide is for people who want to use more than one Claude setup in T3 Code.
+For Codex, see [Codex](./providers-codex.md).
+For first-time setup, see [Install T3 Code](./install.md).
 
 Common reasons:
 
@@ -30,16 +31,35 @@ CLAUDE_CONFIG_DIR path: empty
 
 An empty `CLAUDE_CONFIG_DIR path` means T3 Code uses Claude Code's normal config directory.
 
-When you set this field, T3 Code points Claude Code at that directory with the
-`CLAUDE_CONFIG_DIR` environment variable. It does not change `HOME`, so your system keychain and
-the rest of your environment stay as they are.
+When set, this field passes the directory through `CLAUDE_CONFIG_DIR`.
+It does not change `HOME`, the system keychain, or the rest of the environment.
 
 ## Where Claude Skills Are Loaded
 
-T3 Code looks for Claude skills in the Claude config directory's `skills` folder, then
-`<workspace>/.agents/skills`, then `<workspace>/.claude/skills`.
+T3 Code checks these locations for Claude skills, in order:
+
+1. The Claude config directory's `skills` folder.
+2. `<workspace>/.agents/skills`.
+3. `<workspace>/.claude/skills`.
 
 If the same skill name exists in more than one folder, the later folder wins.
+
+## Choose A Claude Custom Agent
+
+T3 Code shows an Agent picker beside the model when Claude Code reports one or more custom agents.
+Choose an agent before the first message to run it as the main thread agent.
+
+For example, choosing `fable` has the same launch behavior as this command:
+
+```bash
+claude --agent fable
+```
+
+Choose `Default` to start Claude without a custom main thread agent.
+The selection is saved with the thread and restored when T3 Code resumes the provider session.
+
+Agent discovery uses the selected provider's Claude config directory and Claude Code setting sources.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
 
 ## I Want Work And Personal Claude Accounts
 
@@ -77,8 +97,9 @@ mkdir -p ~/.claude_personal_home
 CLAUDE_CONFIG_DIR=~/.claude_personal_home claude auth login
 ```
 
-Use `CLAUDE_CONFIG_DIR`, not `HOME`. Setting `HOME` writes the login to
-`~/.claude_personal_home/.claude`, which is not where T3 Code looks.
+Use `CLAUDE_CONFIG_DIR`, not `HOME`.
+Setting `HOME` writes the login to `~/.claude_personal_home/.claude`.
+T3 Code does not look there.
 
 Then add another Claude provider in T3 Code:
 
@@ -88,27 +109,26 @@ Binary path: claude
 CLAUDE_CONFIG_DIR path: ~/.claude_personal_home
 ```
 
-Use the email shown in Settings to confirm each provider is using the intended account. Emails are
-blurred by default; click the blurred email to reveal it.
+Use the email in Settings to confirm each provider uses the intended account.
+Emails are blurred by default; click the blurred email to reveal it.
 
 ## Can I Switch Claude Accounts In An Existing Thread?
 
 Usually, no.
 
-T3 Code only offers Claude providers that use the same config directory for an existing thread. A
-different config directory is treated as a different Claude environment.
+T3 Code only offers providers from the same Claude config directory for an existing thread.
+A different config directory is a different Claude environment.
 
-This is different from the recommended Codex setup. Claude Code keeps account and local state across
-multiple files under its config directory, so T3 Code keeps separate config directories isolated
-instead of trying to share part of the state.
+This differs from the recommended Codex setup.
+Claude Code keeps account and local state across several files in its config directory.
+T3 Code therefore keeps separate Claude config directories isolated.
 
 ## I Want To Use OpenRouter
 
 Use this when you want Claude Code to talk to OpenRouter directly, without running a local router.
 This is the simplest external-provider setup.
 
-OpenRouter provides a Claude Code integration through Claude's Anthropic-compatible environment
-variables.
+OpenRouter integrates with Claude Code through Anthropic-compatible environment variables.
 
 ### Configure A Claude OpenRouter Provider
 
@@ -128,8 +148,8 @@ ANTHROPIC_AUTH_TOKEN sk-or-...                Sensitive
 ANTHROPIC_API_KEY                              Empty value
 ```
 
-Mark `ANTHROPIC_AUTH_TOKEN` as sensitive. T3 Code stores the value as a server secret and does not
-send it back to the app after saving.
+Mark `ANTHROPIC_AUTH_TOKEN` as sensitive.
+T3 Code stores it as a server secret and does not return it to the app after saving.
 
 If you want this setup isolated from your normal Claude account, create that home first:
 
@@ -137,9 +157,9 @@ If you want this setup isolated from your normal Claude account, create that hom
 mkdir -p ~/.claude_openrouter_home
 ```
 
-If you previously used the same Claude home with a normal Anthropic login, run `/logout` in a Claude
-Code session for that home before using OpenRouter. Otherwise Claude Code may keep using cached
-Anthropic credentials instead of the OpenRouter token.
+If this Claude home has an Anthropic login, run `/logout` in a session for that home.
+Do this before using OpenRouter.
+Otherwise Claude Code may use cached Anthropic credentials instead of the OpenRouter token.
 
 ### Pick OpenRouter Models
 
@@ -179,18 +199,19 @@ You can also check the OpenRouter activity dashboard for requests from your API 
 - Set `ANTHROPIC_API_KEY` to an empty string so Claude Code does not try to use an Anthropic login.
 - Put these variables on the Claude provider instance, not in global shell startup files.
 
-OpenRouter's setup can change over time. Use its upstream Claude Code guide for the current details:
+OpenRouter's setup can change over time.
+Use its upstream Claude Code guide for the current details:
 <https://openrouter.ai/docs/guides/guides/claude-code-integration>.
 
 ## I Want To Use Claude Code Router
 
-Claude Code Router is useful when you want a local routing layer with more control than a direct
-OpenRouter setup.
+Claude Code Router provides a local routing layer with more control than a direct OpenRouter setup.
 
-T3 Code does not need a special Claude Code Router provider. Treat the router as a Claude
-environment: give a Claude provider its own `CLAUDE_CONFIG_DIR path`, and put whatever variables
-the router tells you to export into that provider's Environment variables section. Mark tokens
-and API keys as sensitive.
+T3 Code does not need a special Claude Code Router provider.
+Treat the router as a Claude environment with its own `CLAUDE_CONFIG_DIR path`.
+Add the router's variables to that provider's Environment variables section.
+
+Mark tokens and API keys as sensitive.
 
 ```text
 Display name: Claude Router
@@ -198,8 +219,8 @@ Binary path: claude
 CLAUDE_CONFIG_DIR path: ~/.claude_router_home
 ```
 
-Follow the upstream project's README for the router's own install, startup, and configuration
-steps: <https://github.com/musistudio/claude-code-router>.
+Follow the upstream README for router setup:
+<https://github.com/musistudio/claude-code-router>.
 
 ## I Want Different Claude Settings, Not A Different Account
 
@@ -211,7 +232,7 @@ Examples:
 - "Claude Router"
 - "Claude Experimental"
 
-If the preset needs different Claude files, give it a different `CLAUDE_CONFIG_DIR path`. If it needs
-different API keys, base URLs, or router settings, use Environment variables.
+Give the preset a different `CLAUDE_CONFIG_DIR path` when it needs different Claude files.
+Use Environment variables for different API keys, base URLs, or router settings.
 
 Do not put environment variable assignments in `Launch arguments`.
