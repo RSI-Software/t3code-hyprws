@@ -97,6 +97,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "terminal-session-mode",
+    title: "Terminal session",
+    to: "/settings/appearance",
+  },
+  {
     id: "font-smoothing",
     title: "Font smoothing",
     to: "/settings/appearance",
