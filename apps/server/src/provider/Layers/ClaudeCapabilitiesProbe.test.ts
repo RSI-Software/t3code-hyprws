@@ -10,7 +10,34 @@ import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
   probeClaudeCapabilities,
+  withClaudeAgentOptions,
 } from "./ClaudeProvider.ts";
+
+it("adds discovered Claude agents to every model", () => {
+  const models = withClaudeAgentOptions(
+    [{ slug: "claude-test", name: "Claude Test", isCustom: false, capabilities: null }],
+    [{ name: "fable", description: "Shape product direction", model: "opus" }],
+  );
+
+  assert.deepEqual(models[0]?.capabilities?.optionDescriptors, [
+    {
+      id: "agent",
+      label: "Agent",
+      type: "select",
+      description: "Run this thread as a Claude custom agent.",
+      options: [
+        {
+          id: "default",
+          label: "Default",
+          description: "Use Claude without a custom main-thread agent.",
+          isDefault: true,
+        },
+        { id: "fable", label: "fable", description: "Shape product direction" },
+      ],
+      currentValue: "default",
+    },
+  ]);
+});
 
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
@@ -81,7 +108,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "      request_id: message.request_id,",
           "      response: {",
           '        commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
-          "        agents: [],",
+          '        agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],',
           '        output_style: "default",',
           '        available_output_styles: ["default"],',
           "        models: [],",
@@ -111,6 +138,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         apiProvider: undefined,
+        agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],
         slashCommands: [
           {
             name: "review",
