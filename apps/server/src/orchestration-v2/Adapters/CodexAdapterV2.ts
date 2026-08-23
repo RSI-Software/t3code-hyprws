@@ -101,6 +101,10 @@ import {
   resolveCodexHomeLayout,
 } from "../../provider/Drivers/CodexHomeLayout.ts";
 import {
+  codexAgentAdditionalContext,
+  resolveCodexTurnAgent,
+} from "../../provider/Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-turn-agent-import
+import {
   boundProviderEventForLogging,
   type EventNdjsonLogger,
   shouldPersistProviderEvent,
@@ -733,6 +737,7 @@ export function buildCodexTurnStartParams(input: {
   readonly omitServiceTier?: boolean;
   /** What the thread's MCP Apps want the agent to know (`ui/update-model-context`). */
   readonly appContext?: ProviderAdapterV2TurnInput["appContext"];
+  readonly agentInstructions?: string | undefined; // fork-hook: custom-agents/codex-turn-agent-instructions-input
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -799,6 +804,7 @@ export function buildCodexTurnStartParams(input: {
       threadId: input.nativeThreadId,
       input: input.codexInput,
       ...(additionalContext ? { additionalContext } : {}),
+      ...codexAgentAdditionalContext(additionalContext, input.agentInstructions), // fork-hook: custom-agents/codex-turn-agent-context
       cwd: input.runtimePolicy.cwd,
       model: input.modelSelection.model,
       // Model catalogues can default summaries to "none". Request them on every
@@ -6110,16 +6116,24 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           Effect.gen(function* () {
             const threadId = yield* getNativeThreadId(turnInput.providerThread);
             const mcpSession = McpProviderSession.readMcpProviderSession(turnInput.threadId);
+            const codexAgent = yield* resolveCodexTurnAgent({
+              modelSelection: turnInput.modelSelection,
+              settings: resolvedRuntime?.config ?? adapterOptions.settings,
+              environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+              cwd: turnInput.runtimePolicy.cwd,
+              fileSystem,
+            }); // fork-hook: custom-agents/codex-turn-agent
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
               codexInput,
               runtimePolicy: turnInput.runtimePolicy,
-              modelSelection: turnInput.modelSelection,
+              modelSelection: codexAgent.modelSelection, // fork-hook: custom-agents/codex-turn-agent-model
               hasT3Mcp: mcpSession !== undefined,
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
+              agentInstructions: codexAgent.agentInstructions, // fork-hook: custom-agents/codex-turn-agent-instructions
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);
