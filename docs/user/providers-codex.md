@@ -63,6 +63,28 @@ in the thread on web, desktop, or mobile. Some tools offer access for one reques
 the current session, or permanently. See [Permission modes](./permission-modes.md)
 for command and file approvals.
 
+## Choose a Codex custom agent
+
+T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
+The Agent picker appears beside the model when at least one valid agent is available.
+
+Each file needs `name`, `description`, and `developer_instructions`.
+Other Codex configuration keys form the selected agent's session layer.
+
+```toml
+name = "fable"
+description = "Shape product direction"
+developer_instructions = "Work from first principles."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+```
+
+Choose `Default` to start Codex without a custom main thread agent.
+An agent's `model` and `model_reasoning_effort` override the adjacent model controls for that session.
+
+Shadow homes share the main `CODEX_HOME` agent directory with their skills, plugins, and session history.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
+
 ## Send feedback to OpenAI
 
 In an existing Codex thread, send `/feedback` with an optional description, for
