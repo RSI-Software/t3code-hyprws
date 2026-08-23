@@ -4610,6 +4610,25 @@ export default function Sidebar({
                   </ComboboxPopup>
                 </Combobox>
               }
+              projectSettingsAction={
+                forcedProjectRef !== null && scopedProjectGroup !== null ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <SidebarHeaderIconButton
+                          label={`Project settings for ${scopedProjectGroup.displayName}`}
+                          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                            void handleProjectSettings(event, scopedProjectGroup);
+                          }}
+                        >
+                          <SettingsIcon />
+                        </SidebarHeaderIconButton>
+                      }
+                    />
+                    <TooltipPopup side="right">Project settings</TooltipPopup>
+                  </Tooltip>
+                ) : undefined
+              }
               onNewProject={openAddProjectCommandPalette}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
