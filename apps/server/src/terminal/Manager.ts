@@ -43,6 +43,7 @@ import {
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { isInheritedTmuxEnvKey } from "@t3tools/shared/env";
 import { mergePathEntries } from "@t3tools/shared/shell";
 
 import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-registry/server";
@@ -1252,6 +1253,9 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
+    return true;
+  }
+  if (isInheritedTmuxEnvKey(normalizedKey)) {
     return true;
   }
   return TERMINAL_ENV_BLOCKLIST.has(normalizedKey);
