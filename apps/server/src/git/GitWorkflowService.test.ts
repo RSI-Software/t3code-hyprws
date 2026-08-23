@@ -10,9 +10,30 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+
+const gitHandle = {
+  kind: "git" as const,
+  repository: {
+    kind: "git" as const,
+    rootPath: "/repo",
+    metadataPath: null,
+    freshness: {
+      source: "live-local" as const,
+      observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+      expiresAt: Option.none(),
+    },
+  },
+  driver: {} as VcsDriver.VcsDriver["Service"],
+} satisfies VcsDriverRegistry.VcsDriverHandle;
+
+const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
+  Effect.succeed(gitHandle);
 
 it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
   it.effect("finds a name among the refs of every namespace", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -50,6 +71,7 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
               Layer.provide(NodeServices.layer),
             ),
           ),
+          Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/ref-named-test-layer
           Layer.provideMerge(NodeServices.layer),
         ),
       ),
