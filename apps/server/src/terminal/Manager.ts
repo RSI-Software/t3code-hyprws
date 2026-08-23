@@ -40,6 +40,7 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
+import { isInheritedTmuxEnvKey } from "@t3tools/shared/env";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { mergePathEntries } from "@t3tools/shared/shell";
 
@@ -1245,6 +1246,9 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
+    return true;
+  }
+  if (isInheritedTmuxEnvKey(normalizedKey)) {
     return true;
   }
   return TERMINAL_ENV_BLOCKLIST.has(normalizedKey);
