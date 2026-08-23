@@ -80,6 +80,7 @@ import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
+import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -197,6 +198,10 @@ const PtyAdapterLive = NodePtyAdapter.layer;
 const ServerSettingsLayerLive = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistenceLayerLive),
+);
+const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(ServerSettingsLayerLive),
 );
 
 const NativeTelemetryLayerLive = NativeTelemetryClient.layer.pipe(
@@ -359,6 +364,7 @@ const PullRequestServiceLive = PullRequestService.layer.pipe(
 const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunner.layer.pipe(Layer.provide(ServerSettingsLayerLive))),
   Layer.provideMerge(WorktreeSetupTracker.layer),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(
@@ -373,6 +379,7 @@ const GitLayerLive = Layer.empty.pipe(
 
 const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
   Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitLayerLive),
 );
 
@@ -419,6 +426,7 @@ const TerminalLayerLive = TerminalManager.layer.pipe(
   Layer.provide(PtyAdapterLive),
   Layer.provide(PortScannerLayerLive),
   Layer.provide(NativeTelemetryLayerLive),
+  Layer.provide(ServerSettingsLayerLive),
 );
 
 const PreviewLayerLive = Layer.empty.pipe(
@@ -513,7 +521,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ReplayMarkers.layer),
   Layer.provideMerge(ProviderAuthServiceLive),
   // Core Services
-  Layer.provideMerge(ServerSettingsLayerLive),
+  Layer.provideMerge(Layer.merge(ServerSettingsLayerLive, ZmuxSessionBinderLayerLive)),
   Layer.provideMerge(CheckpointingLayerLive),
   // `GitHubCli` is the registry's own instance, exposed because the asset route fetches
   // GitHub-hosted pull request media with the repository's credential.
