@@ -14,6 +14,7 @@ import {
   type CodexSettings,
   ProviderDriverKind,
   type ProviderEvent,
+  ProviderItemId,
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
@@ -37,6 +38,7 @@ import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -47,6 +49,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
+import { truncateActivityDetail } from "../../activityDetail.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { withProviderSessionIdentity } from "../providerSessionEnvironment.ts";
 
@@ -72,6 +75,7 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
+import { discoverCodexAgents } from "../Drivers/CodexAgents.ts";
 import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
@@ -1275,8 +1279,43 @@ function mapCollabAgentEvent(
           ? (payload.item as Record<string, unknown>)
           : undefined;
       const itemTypeRaw = typeof item?.type === "string" ? item.type : undefined;
-      if (!itemTypeRaw) {
+      if (!item || !itemTypeRaw) {
         return [];
+      }
+      const lifecycle =
+        payload.lifecycle === "item.started" ||
+        payload.lifecycle === "item.updated" ||
+        payload.lifecycle === "item.completed"
+          ? payload.lifecycle
+          : undefined;
+      const itemId = typeof item.id === "string" ? item.id : undefined;
+      if (lifecycle && itemId) {
+        const canonical = toCanonicalItemType(itemTypeRaw);
+        const detail = itemDetail(canonical, item as CodexLifecycleItem);
+        const providerItemId = ProviderItemId.make(itemId);
+        const providerRefs = {
+          ...base.providerRefs,
+          providerItemId,
+        };
+        return [
+          {
+            ...base,
+            itemId: asRuntimeItemId(providerItemId),
+            providerRefs,
+            type: lifecycle,
+            payload: {
+              itemType: canonical,
+              status: lifecycle === "item.completed" ? "completed" : "inProgress",
+              ...(itemTitle(canonical, item as CodexLifecycleItem)
+                ? { title: itemTitle(canonical, item as CodexLifecycleItem) }
+                : {}),
+              ...(detail ? { detail: truncateActivityDetail(detail) } : {}),
+              data: { item },
+              agentId: agentThreadId,
+              timelineBypass: true,
+            },
+          },
+        ];
       }
       // A loose summary from the raw item: the child stream is untyped at
       // this boundary (synthetic event payload), so read best-effort fields
@@ -2248,6 +2287,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   options?: CodexAdapterLiveOptions,
 ) {
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("codex");
+  const path = yield* Path.Path;
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* Effect.service(ServerConfig);
@@ -2299,6 +2339,28 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : undefined;
         const effectiveConfig = resolved?.config ?? codexConfig;
         const effectiveEnvironment = resolved?.environment ?? options?.environment;
+        const modelSelection =
+          input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
+        const selectedAgentName = getModelSelectionStringOptionValue(modelSelection, "agent");
+        const cwd = input.cwd ?? process.cwd();
+        const selectedAgent =
+          selectedAgentName && selectedAgentName !== "default"
+            ? (yield* discoverCodexAgents({
+                homePath: effectiveConfig.homePath, // fork-hook: custom-agents/codex-agent-home
+                ...(effectiveEnvironment ? { environment: effectiveEnvironment } : {}),
+                cwd,
+              }).pipe(
+                Effect.provideService(FileSystem.FileSystem, fileSystem),
+                Effect.provideService(Path.Path, path),
+              )).find((agent) => agent.name.toLowerCase() === selectedAgentName.toLowerCase())
+            : undefined;
+        if (selectedAgentName && selectedAgentName !== "default" && !selectedAgent) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue: `Codex custom agent '${selectedAgentName}' is no longer available.`,
+          });
+        }
         const serviceTier =
           !resolved && input.modelSelection?.instanceId === boundInstanceId
             ? getCodexServiceTierOptionValue(input.modelSelection)
@@ -2308,7 +2370,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
-          cwd: input.cwd ?? process.cwd(),
+          cwd,
           ...(options?.models ? { models: options.models } : {}),
           binaryPath: effectiveConfig.binaryPath,
           launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, effectiveEnvironment),
@@ -2322,6 +2384,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { model: input.modelSelection.model }
             : {}),
           ...(serviceTier ? { serviceTier } : {}),
+          ...(selectedAgent ? { agent: selectedAgent } : {}),
           ...(mcpSession
             ? {
                 environment: {
