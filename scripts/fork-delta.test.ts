@@ -5,9 +5,11 @@ import {
   collectFindings,
   forkLogArguments,
   parseForkLog,
+  parseSquashBody,
   renderMarkdown,
   renderShas,
   selectDomain,
+  squashTrailers,
 } from "./fork-delta.ts";
 
 const RS = "";
@@ -123,4 +125,41 @@ it("renders full SHAs one per line for cherry-pick", () => {
   const selected = selectDomain(ledger, "fork-meta");
   assert.isNotNull(selected);
   assert.strictEqual(renderShas(selected), `${"ccccccccc".padEnd(40, "0")}\n`);
+});
+
+const squashBody = [
+  "Thread terminals attach into the managed session.",
+  "",
+  "Closes #17",
+  "",
+  "@donjor",
+  "",
+  "Fork-Domain: zmux-estate",
+  "Fork-Tier: core",
+  "",
+  '<!-- gh-bot:attest {"v":2,"ts":"2026-08-23T09:41:33Z"} -->',
+  "",
+].join("\n");
+
+it("reads the trailer block a squash commit inherits from a pull-request body", () => {
+  assert.strictEqual(squashTrailers(squashBody), "Fork-Domain: zmux-estate\nFork-Tier: core");
+  const commit = parseSquashBody("pull-request body", squashBody);
+  assert.deepStrictEqual(collectFindings([commit]), []);
+  assert.strictEqual(commit.domain, "zmux-estate");
+  assert.strictEqual(commit.tier, "core");
+});
+
+it("fails a pull-request body whose last paragraph is prose, not trailers", () => {
+  const body = "Provider spawns pass the complete environment.\n\nCloses #19\n\n@donjor\n";
+  assert.strictEqual(squashTrailers(body), "");
+  const findings = collectFindings([parseSquashBody("pull-request body", body)]);
+  assert.deepStrictEqual(
+    findings.map((finding) => finding.problem),
+    ["missing Fork-Domain", "missing Fork-Tier"],
+  );
+});
+
+it("ignores trailers that sit above the mention instead of ending the body", () => {
+  const body = "Fork-Domain: fork-meta\nFork-Tier: qol\n\n@donjor\n";
+  assert.strictEqual(squashTrailers(body), "");
 });
