@@ -354,6 +354,62 @@ describe("GitHubCli.listPullRequestsByHead", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("reads an explicit repository instead of the one gh would pick", () =>
+    Effect.gen(function* () {
+      const documents: Array<{ query: string; variables: Record<string, unknown> }> = [];
+      const commands: Array<ReadonlyArray<string>> = [];
+      mockRun.mockImplementation((input) =>
+        Effect.sync(() => {
+          commands.push([input.command, ...input.args]);
+          if (input.command === "git") {
+            return processOutput(
+              "origin\tgit@github.com:me/web.git (fetch)\nupstream\tgit@github.com:acme/web.git (fetch)\n",
+            );
+          }
+          if (input.args[0] === "pr") return jsonOutput([]);
+          documents.push(decodeRequest(input.stdin ?? ""));
+          return jsonOutput({
+            data: {
+              repository: { h0: { nodes: [] } },
+              rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2099-01-01T00:00:00Z" },
+            },
+          });
+        }),
+      );
+      const gh = yield* GitHubCli.GitHubCli;
+      const lookup = yield* gh
+        .listPullRequestsByHead({
+          cwd: "/repo",
+          headSelector: "feature/a",
+          state: "all",
+          limit: 100,
+          rateLimitHost: "github.com",
+          repository: "github.com/me/web",
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust("50 millis");
+      yield* Fiber.join(lookup);
+      assert.strictEqual(
+        commands.some(([command]) => command === "git"),
+        false,
+      );
+      assert.deepStrictEqual(
+        [documents[0]?.variables.owner, documents[0]?.variables.name],
+        ["me", "web"],
+      );
+
+      yield* gh.listPullRequestsByHead({
+        cwd: "/repo",
+        headSelector: "feature/a",
+        state: "all",
+        limit: 100,
+        rateLimitHost: "github.com",
+        repository: "enterprise.test/me/web",
+      });
+      assert.deepStrictEqual(commands.at(-1)?.slice(9, 11), ["--repo", "enterprise.test/me/web"]);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("fails a rate-limited document whole instead of asking head by head", () =>
     Effect.gen(function* () {
       let ghCalls = 0;
@@ -599,6 +655,7 @@ describe("GitHubCli.layer", () => {
       const result = yield* gh.getPullRequest({
         cwd: "/repo",
         reference: "#42",
+        repository: "github.com/rsi-software/t3code-hyprws",
       });
 
       assert.deepStrictEqual(result, {
@@ -623,6 +680,8 @@ describe("GitHubCli.layer", () => {
           "pr",
           "view",
           "#42",
+          "--repo",
+          "github.com/rsi-software/t3code-hyprws",
           "--json",
           "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
@@ -846,6 +905,64 @@ describe("GitHubCli.layer", () => {
         operation: "GitHubCli.execute",
         command: "gh",
         args: ["repo", "create", "octocat/codething-mvp", "--private"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("scopes PR creation and default branch lookup to an explicit repository", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("hyprws\n")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.createPullRequest({
+        cwd: "/repo",
+        baseBranch: "hyprws",
+        headSelector: "feature/origin-pr",
+        title: "Origin PR",
+        bodyFile: "/tmp/body.md",
+        repository: "github.com/rsi-software/t3code-hyprws",
+      });
+      const defaultBranch = yield* gh.getDefaultBranch({
+        cwd: "/repo",
+        repository: "github.com/rsi-software/t3code-hyprws",
+      });
+
+      assert.strictEqual(defaultBranch, "hyprws");
+      expect(mockRun).toHaveBeenNthCalledWith(1, {
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "create",
+          "--base",
+          "hyprws",
+          "--head",
+          "feature/origin-pr",
+          "--title",
+          "Origin PR",
+          "--body-file",
+          "/tmp/body.md",
+          "--repo",
+          "github.com/rsi-software/t3code-hyprws",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+      expect(mockRun).toHaveBeenNthCalledWith(2, {
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "repo",
+          "view",
+          "github.com/rsi-software/t3code-hyprws",
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
         cwd: "/repo",
         timeoutMs: 30_000,
       });

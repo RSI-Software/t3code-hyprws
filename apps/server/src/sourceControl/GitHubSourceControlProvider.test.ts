@@ -59,9 +59,11 @@ it.effect("uses the enterprise quota for a current-repository default branch rea
 
 it.effect("maps GitHub PR summaries into provider-neutral change requests", () =>
   Effect.gen(function* () {
+    let getInput: Parameters<GitHubCli.GitHubCli["Service"]["getPullRequest"]>[0] | null = null;
     const provider = yield* makeProvider({
-      getPullRequest: () =>
-        Effect.succeed({
+      getPullRequest: (input) => {
+        getInput = input;
+        return Effect.succeed({
           number: 42,
           title: "Add GitHub provider",
           url: "https://github.com/pingdotgg/t3code/pull/42",
@@ -71,12 +73,25 @@ it.effect("maps GitHub PR summaries into provider-neutral change requests", () =
           isCrossRepository: true,
           headRepositoryNameWithOwner: "fork/t3code",
           headRepositoryOwnerLogin: "fork",
-        }),
+        });
+      },
     });
 
     const changeRequest = yield* provider.getChangeRequest({
       cwd: "/repo",
       reference: "42",
+      context: {
+        provider: { kind: "github", name: "GitHub", baseUrl: "https://github.com" },
+        remoteName: "origin",
+        remoteUrl: "git@github.com:RSI-Software/t3code-hyprws.git",
+      },
+    });
+
+    assert.deepStrictEqual(getInput, {
+      cwd: "/repo",
+      reference: "42",
+      rateLimitHost: "github.com",
+      repository: "github.com/rsi-software/t3code-hyprws",
     });
 
     assert.deepStrictEqual(changeRequest, {
@@ -178,6 +193,7 @@ it.effect("lists change request history through the batched head lookup", () =>
       state: "all",
       limit: 10,
       rateLimitHost: "enterprise.test",
+      repository: "enterprise.test/acme/web",
     });
     assert.strictEqual(changeRequests[0]?.provider, "github");
     assert.strictEqual(changeRequests[0]?.state, "merged");
@@ -206,6 +222,11 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
+      context: {
+        provider: { kind: "github", name: "GitHub", baseUrl: "https://github.com" },
+        remoteName: "origin",
+        remoteUrl: "git@github.com:RSI-Software/t3code-hyprws.git",
+      },
     });
 
     assert.deepStrictEqual(createInput, {
@@ -214,6 +235,7 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
       headSelector: "owner:feature/provider",
       title: "Provider PR",
       bodyFile: "/tmp/body.md",
+      repository: "github.com/rsi-software/t3code-hyprws",
     });
   }),
 );
