@@ -136,6 +136,10 @@ import { setMarkdownTaskChecked } from "@t3tools/shared/markdownTaskList";
 import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
 import { revisionedQuery } from "~/state/revisionedQuery";
 import {
+  RichMarkdownPreviewBoundary,
+  resolveRichMarkdownPreviewMode,
+} from "./RichMarkdownPreviewBoundary"; // fork-hook: markdown-editing/rich-preview-import
+import {
   getOptimisticProjectFileQueryData,
   getProjectFileContents,
   getProjectFileQueryAtom,
@@ -1393,7 +1397,14 @@ export default function FilePreviewPanel({
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
+  const richMarkdownPreview = resolveRichMarkdownPreviewMode({
+    relativePath: previewPath,
+    fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
+    renderPreferred: renderMarkdownPreferred,
+    revealHandled,
+    readOnly: isHostFile,
+  }); // fork-hook: markdown-editing/rich-preview-mode
+  const renderMarkdown = richMarkdownPreview.rendered; // fork-hook: markdown-editing/rich-preview-rendered
   const renderMermaid = isMermaid && renderMermaidPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1624,6 +1635,7 @@ export default function FilePreviewPanel({
             <FileSurfaceAction
               label={renderedToggleLabel(renderedMode, rendered, m)}
               pressed={rendered}
+              {...richMarkdownPreview.toggleProps} /* fork-hook: markdown-editing/rich-preview-toggle-props */
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
@@ -1838,17 +1850,34 @@ export default function FilePreviewPanel({
                 <MermaidFilePreview text={file.data.contents} />
               </Suspense>
             ) : isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                key={relativePath}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
+              <>
+                {/* fork-hook: markdown-editing/rich-preview-boundary */}
+                <RichMarkdownPreviewBoundary
+                  key={relativePath}
+                  enabled={richMarkdownPreview.richEditorEnabled}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  contents={file.data.contents}
+                  theme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
+                  onPendingChange={onPendingChange}
+                >
+                  <RenderedMarkdownSurface
+                    key={relativePath}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    threadRef={threadRef}
+                    contents={file.data.contents}
+                    workspaceMutationId={workspaceMutationId}
+                    readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                    onPendingChange={onPendingChange}
+                  />
+                </RichMarkdownPreviewBoundary>
+                {/* fork-hook-end */}
+              </>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}
