@@ -10,6 +10,7 @@ import {
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  isMarkdownRichEditFile,
   resolveFilePreviewPath,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
