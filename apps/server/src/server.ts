@@ -52,6 +52,7 @@ import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
+import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -147,6 +148,10 @@ const PtyAdapterLive = Layer.unwrap(
 const ServerSettingsLayerLive = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistenceLayerLive),
+);
+const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(ServerSettingsLayerLive),
 );
 
 const NativeTelemetryLayerLive = NativeTelemetryClient.layer.pipe(
@@ -285,6 +290,7 @@ const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.lay
 
 const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunner.layer),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(TextGeneration.layer),
@@ -297,6 +303,7 @@ const GitLayerLive = Layer.empty.pipe(
 
 const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
   Layer.provideMerge(VcsDriverRegistryLayerLive),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitLayerLive),
 );
 
@@ -376,7 +383,7 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
-  Layer.provideMerge(ServerSettingsLayerLive),
+  Layer.provideMerge(Layer.merge(ServerSettingsLayerLive, ZmuxSessionBinderLayerLive)),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
