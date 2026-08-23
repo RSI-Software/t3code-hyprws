@@ -115,6 +115,11 @@ All of them gate on `window.desktopBridge.openProjectWindow`, so the web client 
 QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, and route test naming.
 Two bugfixes reproduce upstream and should be offered there; one is fork-only.
 
+Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
+A project window is created with its project id as the window title, which Hyprland keeps as `initialTitle`.
+Tooling an agent runs from inside a project window can therefore find its own window without guessing from `cwd`.
+`ProviderSessionStartInput.projectId` carries the id; the binding persists it so recovery after a restart keeps it.
+
 Run `vp run fork:delta` for the commit list.
 
 ### Retirement condition
@@ -138,6 +143,7 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | -------------------------------------------------------- | ------------------------------------------------------------------- |
 | `apps/desktop/src/window/DesktopWindow.ts`               | The window service the fork makes plural. Upstream would land here. |
 | `apps/desktop/src/window/WindowIdentity.ts`              | Fork-only. A conflict means upstream added its own identity model.  |
+| `apps/server/src/provider/providerSessionEnvironment.ts` | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
 | `apps/desktop/src/app/DesktopClerk.ts`                   | Single-instance lock and deep-link forwarding.                      |
 | `apps/desktop/src/preview/Manager.ts`                    | Preview namespacing by window.                                      |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts` | The bridge surface the web client gates on.                         |
