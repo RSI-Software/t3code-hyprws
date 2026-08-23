@@ -6,6 +6,8 @@ import {
   forkLogArguments,
   parseForkLog,
   renderMarkdown,
+  renderShas,
+  selectDomain,
 } from "./fork-delta.ts";
 
 const RS = "";
@@ -99,4 +101,26 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
       line.startsWith("| `ddddddddd` | chore: untagged | missing Fork-Domain |"),
     ),
   );
+});
+
+it("selects one domain with its findings in stack order", () => {
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture));
+  const selected = selectDomain(ledger, "project-windows");
+  assert.isNotNull(selected);
+  assert.deepStrictEqual(
+    selected.commits.map((commit) => commit.short),
+    ["aaaaaaaaa", "bbbbbbbbb", "eeeeeeeee"],
+  );
+  assert.deepStrictEqual(
+    selected.findings.map((finding) => finding.short),
+    ["eeeeeeeee"],
+  );
+  assert.isNull(selectDomain(ledger, "markdown-editor"));
+});
+
+it("renders full SHAs one per line for cherry-pick", () => {
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture));
+  const selected = selectDomain(ledger, "fork-meta");
+  assert.isNotNull(selected);
+  assert.strictEqual(renderShas(selected), `${"ccccccccc".padEnd(40, "0")}\n`);
 });
