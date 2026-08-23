@@ -30,10 +30,11 @@ import {
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
   type TerminalSummary,
+  type TerminalSessionMode,
   type TerminalWriteInput,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { isInheritedTmuxEnvKey } from "@t3tools/shared/env";
+import { isInheritedTmuxEnvKey, stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as DateTime from "effect/DateTime";
@@ -53,6 +54,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import {
   increment,
   terminalRestartsTotal,
@@ -85,6 +87,21 @@ const DEFAULT_OPEN_ROWS = 30;
 const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const MAX_TERMINAL_LABEL_LENGTH = 128;
+const ZMUX_RESOLVE_TIMEOUT = "2 seconds";
+const ZMUX_RESOLVE_MAX_OUTPUT_BYTES = 64 * 1024;
+
+const ZmuxSessionResolution = Schema.Struct({
+  workspace: Schema.String.check(Schema.isNonEmpty()),
+  session: Schema.String.check(Schema.isNonEmpty()),
+  target: Schema.String.check(Schema.isNonEmpty()),
+  tmuxName: Schema.String.check(Schema.isNonEmpty()),
+  nativeId: Schema.String.check(Schema.isNonEmpty()),
+  state: Schema.Literals(["live", "restorable", "missing"]),
+  match: Schema.Literals(["worktree", "workspace-main"]),
+});
+const decodeZmuxSessionResolution = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ZmuxSessionResolution),
+);
 
 class TerminalSubprocessCheckError extends Schema.TaggedErrorClass<TerminalSubprocessCheckError>()(
   "TerminalSubprocessCheckError",
@@ -232,6 +249,13 @@ const resizePtyProcess = (
 export interface ShellCandidate {
   shell: string;
   args?: string[];
+  cwd?: string;
+}
+
+interface ZmuxLaunchResolution {
+  readonly candidate: ShellCandidate | null;
+  readonly target: string | null;
+  readonly notice: string | null;
 }
 
 export interface TerminalStartInput extends TerminalOpenInput {
@@ -263,6 +287,7 @@ export interface TerminalSessionState {
   hasRunningSubprocess: boolean;
   /** Normalized child command name when `hasRunningSubprocess`; cleared when idle. */
   childCommandLabel: string | null;
+  managedSessionTarget: string | null;
   runtimeEnv: Record<string, string> | null;
 }
 
@@ -324,6 +349,9 @@ function normalizeChildCommandName(raw: string, platform: NodeJS.Platform): stri
 }
 
 function terminalWireLabel(session: TerminalSessionState): string {
+  if (session.managedSessionTarget) {
+    return truncateTerminalWireLabel(session.managedSessionTarget);
+  }
   if (session.hasRunningSubprocess && session.childCommandLabel) {
     const trimmed = session.childCommandLabel.trim();
     if (trimmed.length > 0) {
@@ -1131,17 +1159,23 @@ interface TerminalManagerOptions {
     readonly threadId: string;
     readonly terminalId: string;
   }) => Effect.Effect<void>;
+  terminalSessionMode?: Effect.Effect<TerminalSessionMode>;
 }
 
 export const make = Effect.fn("TerminalManager.make")(function* () {
   const { terminalLogsDir } = yield* ServerConfig.ServerConfig;
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
   const portDiscovery = yield* PortScanner.PortDiscovery;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
     ptyAdapter,
     registerTerminalProcesses: portDiscovery.registerTerminalProcesses,
     unregisterTerminal: portDiscovery.unregisterTerminal,
+    terminalSessionMode: serverSettings.getSettings.pipe(
+      Effect.map((settings) => settings.terminalSessionMode),
+      Effect.orElseSucceed(() => "shell" as const),
+    ),
   });
 });
 
@@ -1191,6 +1225,58 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     options.maxRetainedInactiveSessions ?? DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS;
   const registerTerminalProcesses = options.registerTerminalProcesses ?? (() => Effect.void);
   const unregisterTerminal = options.unregisterTerminal ?? (() => Effect.void);
+  const terminalSessionMode = options.terminalSessionMode ?? Effect.succeed("shell" as const);
+
+  const resolveZmuxSession = Effect.fn("terminal.resolveZmuxSession")(function* (
+    targetDir: string,
+    env: NodeJS.ProcessEnv,
+  ) {
+    const result = yield* Effect.result(
+      processRunner.run({
+        command: "zmux",
+        args: ["session", "resolve", "--cwd", targetDir, "--json"],
+        cwd: targetDir,
+        env: stripInheritedTmuxEnv(env),
+        timeout: ZMUX_RESOLVE_TIMEOUT,
+        maxOutputBytes: ZMUX_RESOLVE_MAX_OUTPUT_BYTES,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
+      }),
+    );
+    if (result._tag === "Failure") {
+      return {
+        candidate: null,
+        target: null,
+        notice: `zmux: command unavailable for ${targetDir} — plain shell`,
+      } satisfies ZmuxLaunchResolution;
+    }
+    if (result.success.code !== 0 || result.success.timedOut) {
+      return {
+        candidate: null,
+        target: null,
+        notice: `zmux: no managed session for ${targetDir} — plain shell`,
+      } satisfies ZmuxLaunchResolution;
+    }
+
+    const decoded = yield* Effect.result(decodeZmuxSessionResolution(result.success.stdout));
+    if (decoded._tag === "Failure" || decoded.success.state === "missing") {
+      return {
+        candidate: null,
+        target: null,
+        notice: `zmux: no managed session for ${targetDir} — plain shell`,
+      } satisfies ZmuxLaunchResolution;
+    }
+
+    return {
+      candidate: {
+        shell: "zmux",
+        args: ["open", decoded.success.workspace, decoded.success.session],
+        cwd: targetDir,
+      },
+      target: decoded.success.target,
+      notice: null,
+    } satisfies ZmuxLaunchResolution;
+  });
 
   yield* fileSystem.makeDirectory(logsDir, { recursive: true }).pipe(Effect.orDie);
 
@@ -1778,6 +1864,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     yield* evictInactiveSessionsIfNeeded();
   });
 
+  const appendSessionNotice = Effect.fn("terminal.appendSessionNotice")(function* (
+    session: TerminalSessionState,
+    notice: string,
+  ) {
+    session.history = capHistory(`${session.history}${notice}\r\n`, historyLineLimit);
+    yield* persistHistory(session.threadId, session.terminalId, session.history);
+  });
+
   const trySpawn = Effect.fn("terminal.trySpawn")(function* (
     shellCandidates: ReadonlyArray<ShellCandidate>,
     spawnEnv: NodeJS.ProcessEnv,
@@ -1785,7 +1879,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     index = 0,
     lastError: PtyAdapter.PtySpawnError | null = null,
   ): Effect.fn.Return<
-    { process: PtyAdapter.PtyProcess; shellLabel: string },
+    { process: PtyAdapter.PtyProcess; shellLabel: string; candidate: ShellCandidate },
     PtyAdapter.PtySpawnError
   > {
     if (index >= shellCandidates.length) {
@@ -1811,7 +1905,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       options.ptyAdapter.spawn({
         shell: candidate.shell,
         ...(candidate.args ? { args: candidate.args } : {}),
-        cwd: session.cwd,
+        cwd: candidate.cwd ?? session.cwd,
         cols: session.cols,
         rows: session.rows,
         env: spawnEnv,
@@ -1822,6 +1916,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return {
         process: attempt.success,
         shellLabel: formatShellCandidate(candidate),
+        candidate,
       };
     }
 
@@ -1857,6 +1952,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session.exitSignal = null;
       session.hasRunningSubprocess = false;
       session.childCommandLabel = null;
+      session.managedSessionTarget = null;
       session.pendingProcessEvents = [];
       session.pendingProcessEventIndex = 0;
       session.processEventDrainRunning = false;
@@ -1871,11 +1967,39 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
+            const plainShellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
             const terminalEnv = createTerminalSpawnEnv(baseEnv, session.runtimeEnv);
-            const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
+            const mode = yield* terminalSessionMode;
+            let shellCandidates = plainShellCandidates;
+            let spawnEnv = terminalEnv;
+            let managedTarget: string | null = null;
+            let zmuxCandidate: ShellCandidate | null = null;
+
+            if (mode === "zmux") {
+              const targetDir = session.worktreePath ?? session.cwd;
+              spawnEnv = stripInheritedTmuxEnv(terminalEnv);
+              const resolved = yield* resolveZmuxSession(targetDir, spawnEnv);
+              managedTarget = resolved.target;
+              zmuxCandidate = resolved.candidate;
+              if (resolved.candidate) {
+                shellCandidates = [resolved.candidate, ...plainShellCandidates];
+              }
+              if (resolved.notice) {
+                yield* appendSessionNotice(session, resolved.notice);
+              }
+            }
+
+            const spawnResult = yield* trySpawn(shellCandidates, spawnEnv, session);
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;
+            if (managedTarget && spawnResult.candidate === zmuxCandidate) {
+              session.managedSessionTarget = managedTarget;
+            } else if (managedTarget) {
+              yield* appendSessionNotice(
+                session,
+                `zmux: attach failed for ${managedTarget} — plain shell`,
+              );
+            }
 
             const processPid = ptyProcess.pid;
             const unsubscribeData = ptyProcess.onData((data) => {
@@ -2180,6 +2304,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         unsubscribeExit: null,
         hasRunningSubprocess: false,
         childCommandLabel: null,
+        managedSessionTarget: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
       };
 
@@ -2592,6 +2717,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             unsubscribeExit: null,
             hasRunningSubprocess: false,
             childCommandLabel: null,
+            managedSessionTarget: null,
             runtimeEnv: normalizedRuntimeEnv(input.env),
           };
           const createdSession = session;
