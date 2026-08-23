@@ -19,6 +19,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   showInteractionModeToggle: boolean;
+  agentMenuContent?: ReactNode; // fork-hook: custom-agents/compact-menu-agent-prop
   showPermissions?: boolean;
   size?: "sm" | "xs";
   /** Close the portaled popup when its trigger hides. */
@@ -51,6 +52,14 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
+        {/* fork-hook: custom-agents/compact-menu-agent-render */}
+        {props.agentMenuContent ? (
+          <>
+            {props.agentMenuContent}
+            <MenuDivider />
+          </>
+        ) : null}
+        {/* fork-hook-end */}
         {props.showInteractionModeToggle ? (
           <>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
