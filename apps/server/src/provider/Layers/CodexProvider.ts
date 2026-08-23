@@ -30,6 +30,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 import {
   AUTH_PROBE_TIMEOUT_MS,
+  buildSelectOptionDescriptor,
   buildServerProvider,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
@@ -268,26 +269,24 @@ export function withCodexAgentOptions(
     return models;
   }
 
-  const agentDescriptor = {
+  const agentDescriptor = buildSelectOptionDescriptor({
     id: "agent",
     label: "Agent",
-    type: "select" as const,
     description: "Run this thread as a Codex custom agent.",
     options: [
       {
-        id: "default",
+        value: "default",
         label: "Default",
         description: "Use Codex without a custom main-thread agent.",
         isDefault: true,
       },
       ...agents.map((agent) => ({
-        id: agent.name,
+        value: agent.name,
         label: agent.name,
         description: agent.description,
       })),
     ],
-    currentValue: "default",
-  } satisfies ProviderOptionDescriptor;
+  });
 
   return models.map((model) => ({
     ...model,

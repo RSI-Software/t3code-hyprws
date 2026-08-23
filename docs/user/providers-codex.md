@@ -1,8 +1,7 @@
 # Codex
 
-This guide is for people who want to use more than one Codex account in T3 Code.
-For Claude, see [Claude](./providers-claude.md).
-For first-time setup, see [Install T3 Code](./install.md).
+This guide is for people who want to use more than one Codex account in T3 Code. For Claude, see
+[Claude](./providers-claude.md). For first-time setup, see [Install T3 Code](./install.md).
 
 Common reasons:
 
@@ -103,15 +102,15 @@ CODEX_HOME path: ~/.codex
 Shadow home path: ~/.codex_p
 ```
 
-Both providers must use the same `CODEX_HOME path`.
-Only the second provider has a `Shadow home path`.
+The important part is that both providers use the same `CODEX_HOME path`, but only the second one
+has a `Shadow home path`.
 
 ## Which Account Am I Using?
 
 Open Settings and look at the provider row.
 
-T3 Code shows the authenticated email for providers that report one.
-Emails are blurred by default; click the blurred email to reveal it.
+T3 Code shows the authenticated email for providers that report one. Emails are blurred by default;
+click the blurred email to reveal it.
 
 Use display names and accent colors to make accounts easy to tell apart in the model picker.
 
@@ -119,11 +118,9 @@ Use display names and accent colors to make accounts easy to tell apart in the m
 
 Use the provider's Environment variables section in Settings.
 
-Use this section when a Codex-compatible setup needs account-specific variables.
-Add them to the provider instance that should receive them.
-Mark API keys or tokens as sensitive.
-
-Sensitive values are server secrets and are not returned to the app after saving.
+This is useful when a Codex-compatible setup needs account-specific variables. Add the variables to
+the provider instance that should receive them, and mark API keys or tokens as sensitive. Sensitive
+values are stored as server secrets and are not sent back to the app after saving.
 
 ## Can I Switch Accounts In An Existing Thread?
 
@@ -136,11 +133,11 @@ Codex Work      CODEX_HOME path: ~/.codex
 Codex Personal  CODEX_HOME path: ~/.codex, Shadow home path: ~/.codex_p
 ```
 
-Those providers are compatible for continuation.
-The locked model picker can therefore show both.
+Those two providers are considered compatible for continuation, so the locked model picker can show
+both.
 
-A provider with a different `CODEX_HOME path` belongs to a different workspace.
-It is not offered for existing threads created under `~/.codex`.
+If you add a third Codex provider with a completely different `CODEX_HOME path`, T3 Code treats it
+as a different workspace. It will not be offered for existing threads created under `~/.codex`.
 
 ## If Both Accounts Look The Same
 
@@ -162,5 +159,5 @@ find ~/.codex_p -mindepth 1 ! -name auth.json -exec rm -rf {} +
 
 Use a totally separate `CODEX_HOME path` only when you want a separate Codex workspace.
 
-This creates separate sessions and reduces account switching inside old threads.
-Most dual-account users should use the shared-home plus shadow-home setup instead.
+That means separate sessions and less account switching inside old threads. Most dual-account users
+should use the shared-home plus shadow-home setup instead.
