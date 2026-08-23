@@ -123,7 +123,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 .wco {
-  --workspace-topbar-height: env(titlebar-area-height, 52px);
+  /* Native overlay geometry stays fixed while renderer content zooms. Keep its
+     hit area as the floor, then let the rem-based titlebar scale with the UI. */
+  --workspace-topbar-height: max(env(titlebar-area-height, 2.5rem), 2.5rem);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
