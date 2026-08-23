@@ -1,22 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
-import * as Schema from "effect/Schema";
-import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
-import {
-  ClientSettingsSchema,
-  ClientSettingsPatch,
-  ClaudeSettings,
-  DEFAULT_SERVER_SETTINGS,
-  defaultEnabledForDriver,
-  resolveProviderInstanceEnabled,
-  ServerSettings,
-  ServerSettingsPatch,
-} from "./settings.ts";
-import {
-  decodeServerSettings,
-  decodeServerSettingsPatch,
-  decodeClientSettings,
-  decodeClientSettingsPatch,
-} from "./settings.test.ts";
+
+import { migrateLegacyZmuxSettings } from "./settings.ts";
+import { decodeServerSettings, decodeServerSettingsPatch } from "./settings.test.ts";
 
 describe("ServerSettings terminal session mode", () => {
   it("defaults to a plain shell", () => {
@@ -36,9 +21,36 @@ describe("ServerSettings terminal session mode", () => {
   });
 });
 
+describe("migrateLegacyZmuxSettings", () => {
+  it("folds an opted-in legacy flag into the zmux session mode", () => {
+    expect(migrateLegacyZmuxSettings({ zmuxSessions: true })).toEqual({
+      terminalSessionMode: "zmux",
+    });
+  });
+
+  it("keeps an explicit terminal session mode over the legacy flag", () => {
+    expect(migrateLegacyZmuxSettings({ zmuxSessions: true, terminalSessionMode: "shell" })).toEqual(
+      { terminalSessionMode: "shell" },
+    );
+  });
+
+  it("drops an opted-out legacy flag without touching the mode", () => {
+    expect(migrateLegacyZmuxSettings({ zmuxSessions: false })).toEqual({});
+  });
+
+  it("passes through settings without the legacy flag", () => {
+    const raw = { terminalSessionMode: "zmux" };
+    expect(migrateLegacyZmuxSettings(raw)).toBe(raw);
+  });
+
+  it("passes through non-object input", () => {
+    expect(migrateLegacyZmuxSettings(null)).toBe(null);
+    expect(migrateLegacyZmuxSettings("nope")).toBe("nope");
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
-  it("defaults managed zmux sessions off and accepts partial updates", () => {
-    expect(decodeServerSettings({}).zmuxSessions).toBe(false);
-    expect(decodeServerSettingsPatch({ zmuxSessions: true }).zmuxSessions).toBe(true);
+  it("defaults the terminal session mode to a plain shell", () => {
+    expect(decodeServerSettings({}).terminalSessionMode).toBe("shell");
   });
 });

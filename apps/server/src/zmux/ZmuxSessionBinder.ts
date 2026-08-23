@@ -119,7 +119,7 @@ export const make = Effect.gen(function* () {
   const env = stripInheritedTmuxEnv(hostEnvironment);
 
   const enabled = serverSettings.getSettings.pipe(
-    Effect.map((settings) => settings.zmuxSessions),
+    Effect.map((settings) => settings.terminalSessionMode === "zmux"),
     Effect.catch((error) =>
       Effect.logDebug("zmux session binding disabled because settings could not be read", {
         detail: error.message,
