@@ -23,7 +23,7 @@ import type {
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { createModelSelection } from "@t3tools/shared/model";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { useCanGoBack, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { ChevronDownIcon, CopyIcon, PlusIcon, SettingsIcon, Trash2Icon } from "lucide-react";
 import {
@@ -37,6 +37,7 @@ import {
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { isElectron } from "../../env";
+import { useLeaveFullPage } from "../../hooks/useLeaveFullPage";
 import {
   useClientSettings,
   useUpdateClientSettings,
@@ -149,30 +150,7 @@ function memberKey(member: { environmentId: string; id: string }): string {
 }
 
 export function ProjectSettingsPage({ projectKey }: { projectKey: string }) {
-  const navigate = useNavigate();
-  const canGoBack = useCanGoBack();
-  const navigateBackWithinApp = useCallback(() => {
-    if (canGoBack) {
-      window.history.back();
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [canGoBack, navigate]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement) {
-        activeElement.blur();
-      }
-      navigateBackWithinApp();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigateBackWithinApp]);
+  useLeaveFullPage();
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
