@@ -293,9 +293,12 @@ import {
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker, // fork-hook: custom-agents/composer-agent-render-import
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { agentRestingBlock } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-agent-resting-block-import
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -2998,6 +3001,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
+  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-menu-content
+  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-picker
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
@@ -5456,6 +5461,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
+    ...agentRestingBlock(providerAgentPicker, composerControlsCollapsed), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
@@ -5642,6 +5648,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
+            agentMenuContent={
+              hiddenRestingBlockIds.includes("agent") ? providerAgentMenuContent : undefined
+            } // fork-hook: custom-agents/composer-agent-compact-menu-prop
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
             }
