@@ -60,6 +60,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
 
@@ -608,6 +609,7 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
   const serverSettingsService = yield* ServerSettings.ServerSettingsService;
@@ -2156,6 +2158,14 @@ export const make = Effect.gen(function* () {
         refName: localPullRequestBranch,
         path: null,
       });
+      const bindResult = yield* zmuxSessionBinder.bind(worktree.worktree.path);
+      if (bindResult.status === "failed") {
+        yield* Effect.logWarning("pull request worktree could not bind a zmux session", {
+          threadId: input.threadId,
+          worktreePath: worktree.worktree.path,
+          detail: bindResult.notice.detail,
+        });
+      }
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
       yield* maybeRunSetupScript(worktree.worktree.path);
 
@@ -2163,6 +2173,7 @@ export const make = Effect.gen(function* () {
         pullRequest,
         branch: worktree.worktree.refName,
         worktreePath: worktree.worktree.path,
+        ...(bindResult.status === "failed" ? { zmuxSessionNotice: bindResult.notice } : {}),
         isOnPullRequestHead: true,
       };
     }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
