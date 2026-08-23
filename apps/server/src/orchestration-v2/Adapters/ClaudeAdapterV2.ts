@@ -90,6 +90,10 @@ import { resolveClaudeSdkExecutablePath } from "../../provider/Drivers/ClaudeExe
 import { planClaudeSkillDispatch } from "../../provider/Drivers/ClaudeSkillDispatch.ts";
 import { discoverClaudeSkills } from "../../provider/Drivers/ClaudeSkills.ts";
 import { compileClaudeModelSelection } from "../../claudeModelOptions.ts";
+import {
+  applyClaudeAgentLaunchArg,
+  withClaudeAgentQueryIdentity,
+} from "../../provider/Layers/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import {
@@ -839,6 +843,7 @@ export function makeClaudeQueryOptions(input: {
   if (requestThinkingSummaries && extraArgs["thinking-display"] === undefined) {
     extraArgs["thinking-display"] = "summarized";
   }
+  applyClaudeAgentLaunchArg(extraArgs, input.modelSelection); // fork-hook: custom-agents/claude-agent-launch-arg
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -6920,7 +6925,10 @@ export function makeClaudeAdapterV2(
               : { allowedTools: queryPolicy.allowedTools }),
           });
           const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
-          const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
+          const compiledSelection = withClaudeAgentQueryIdentity(
+            compileClaudeModelSelection(turnInput.modelSelection),
+            turnInput.modelSelection,
+          ); // fork-hook: custom-agents/claude-agent-query-identity
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
           // A continuation prompts nothing: it drains output the live process
