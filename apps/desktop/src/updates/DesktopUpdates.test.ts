@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { DesktopUpdateState } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type DesktopUpdateState } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -20,6 +20,12 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts";
+import {
+  HUB_WINDOW_IDENTITY,
+  projectWindowIdentity,
+  type WindowIdentity,
+} from "../window/WindowIdentity.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 
 interface UpdatesHarnessOptions {
@@ -31,6 +37,7 @@ interface UpdatesHarnessOptions {
   readonly setUpdateChannelError?: DesktopAppSettings.DesktopSettingsWriteError;
   readonly setDisableDifferentialDownload?: Effect.Effect<void>;
   readonly stopBackend?: Effect.Effect<void>;
+  readonly openWindowIdentities?: readonly WindowIdentity[];
   readonly env?: Record<string, string | undefined>;
 }
 
@@ -97,6 +104,10 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
       ).pipe(Effect.asVoid),
   } satisfies ElectronUpdater.ElectronUpdater["Service"]);
 
+  const capturedSessions: { identities: WindowIdentity[]; reason: string }[] = [];
+  const installSteps: string[] = [];
+  const openIdentities: readonly WindowIdentity[] = options.openWindowIdentities ?? [];
+
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
     main: Effect.succeed(Option.none()),
@@ -104,6 +115,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
     getOrCreate: () => Effect.die("unexpected identity window creation"),
     close: () => Effect.void,
     identityFor: () => Effect.succeed(Option.none()),
+    listIdentities: Effect.succeed(openIdentities),
     currentMainOrFirst: Effect.succeed(Option.none()),
     focusedMainOrFirst: Effect.succeed(Option.none()),
     setMain: () => Effect.void,
@@ -113,7 +125,9 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
       Effect.sync(() => {
         sentStates.push(state as DesktopUpdateState);
       }),
-    destroyAll: Effect.void,
+    destroyAll: Effect.sync(() => {
+      installSteps.push("destroyAll");
+    }),
     syncAllAppearance: () => Effect.void,
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
@@ -194,8 +208,18 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
         } satisfies DesktopAppSettings.DesktopAppSettings["Service"])
       : DesktopAppSettings.layer;
 
+  const windowSessionLayer = Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
+    capture: (identities, reason) =>
+      Effect.sync(() => {
+        capturedSessions.push({ identities: [...identities], reason });
+        installSteps.push("capture");
+      }),
+    consume: Effect.succeed([]),
+  } satisfies DesktopWindowSession.DesktopWindowSession["Service"]);
+
   const layer = DesktopUpdates.layer.pipe(
     Layer.provideMerge(updaterLayer),
+    Layer.provideMerge(windowSessionLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
@@ -214,6 +238,8 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   return {
     layer,
+    capturedSessions,
+    installSteps,
     checkCount: () => checkCount,
     feedUrls: () => feedUrls,
     fullChangelog: () => fullChangelog,
@@ -460,6 +486,34 @@ describe("DesktopUpdates", () => {
         assert.equal(state.downloadedVersion, "1.2.4");
         assert.deepEqual(state.releaseNotes, [{ version: "1.2.4", items: ["fix: queued update"] }]);
         assert.equal(state.downloadPercent, 100);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("records the open windows before the install tears them down", () => {
+    const projectIdentity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const harness = makeHarness({
+      openWindowIdentities: [HUB_WINDOW_IDENTITY, projectIdentity],
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const result = yield* updates.install;
+        assert.isTrue(result.accepted);
+
+        assert.deepEqual(harness.capturedSessions, [
+          { identities: [HUB_WINDOW_IDENTITY, projectIdentity], reason: "update" },
+        ]);
+        // The windows have to still exist when their workspaces are read.
+        assert.deepEqual(harness.installSteps, ["capture", "destroyAll"]);
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
