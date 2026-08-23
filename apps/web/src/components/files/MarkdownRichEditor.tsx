@@ -22,6 +22,7 @@ interface MarkdownRichEditorProps {
   readonly value: string;
   readonly onChange: (markdown: string) => void;
   readonly cwd: string;
+  readonly relativePath: string;
   readonly onOpenFile: (relativePath: string) => void;
   readonly theme: "light" | "dark";
   readonly wordWrap: boolean;
@@ -31,6 +32,7 @@ function MarkdownRichEditorInner({
   value,
   onChange,
   cwd,
+  relativePath,
   onOpenFile,
   theme,
 }: MarkdownRichEditorProps) {
@@ -38,10 +40,12 @@ function MarkdownRichEditorInner({
   const onChangeRef = useRef(onChange);
   const lastMarkdownRef = useRef(value);
   const cwdRef = useRef(cwd);
+  const sourcePathRef = useRef(relativePath);
   const onOpenFileRef = useRef(onOpenFile);
   const themeRef = useRef(theme);
   onChangeRef.current = onChange;
   cwdRef.current = cwd;
+  sourcePathRef.current = relativePath;
   onOpenFileRef.current = onOpenFile;
   themeRef.current = theme;
 
@@ -74,7 +78,14 @@ function MarkdownRichEditorInner({
         }));
       }),
     )
-      .use(markdownEditorPresentation({ cwd: cwdRef, onOpenFile: onOpenFileRef, theme: themeRef }))
+      .use(
+        markdownEditorPresentation({
+          cwd: cwdRef,
+          sourcePath: sourcePathRef,
+          onOpenFile: onOpenFileRef,
+          theme: themeRef,
+        }),
+      )
       .use(publishChanges);
   }, []);
 

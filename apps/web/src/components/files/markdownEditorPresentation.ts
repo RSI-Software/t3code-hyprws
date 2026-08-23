@@ -19,6 +19,7 @@ import { resolveMarkdownFileLinkMeta } from "~/markdown-links";
 
 interface MarkdownEditorPresentationOptions {
   readonly cwd: { current: string };
+  readonly sourcePath: { current: string };
   readonly onOpenFile: { current: (relativePath: string) => void };
   readonly theme: { current: "light" | "dark" };
 }
@@ -33,6 +34,16 @@ type HighlightMeta =
   | { readonly type: "refresh" };
 
 const codeHighlightKey = new PluginKey<HighlightState>("t3-markdown-code-highlight");
+
+function documentDirectory(workspaceRoot: string, sourcePath: string): string {
+  const normalizedPath = sourcePath.replaceAll("\\", "/");
+  const separatorIndex = normalizedPath.lastIndexOf("/");
+  if (separatorIndex < 0) return workspaceRoot;
+
+  const separator = workspaceRoot.includes("\\") ? "\\" : "/";
+  const directory = normalizedPath.slice(0, separatorIndex).replaceAll("/", separator);
+  return `${workspaceRoot.replace(/[/\\]+$/, "")}${separator}${directory}`;
+}
 
 function iconElement(path: string, theme: "light" | "dark"): SVGSVGElement | null {
   const icon = resolvePierreIconForEntry(path, "file");
@@ -181,7 +192,11 @@ function linkView(options: MarkdownEditorPresentationOptions) {
     const render = () => {
       const href = String(mark.attrs["href"] ?? "");
       const title = mark.attrs["title"];
-      const file = resolveMarkdownFileLinkMeta(href, options.cwd.current);
+      const file = resolveMarkdownFileLinkMeta(
+        href,
+        documentDirectory(options.cwd.current, options.sourcePath.current),
+        options.cwd.current,
+      );
       dom.setAttribute("href", href);
       if (typeof title === "string") dom.setAttribute("title", title);
       else dom.removeAttribute("title");

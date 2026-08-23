@@ -40,13 +40,14 @@ describe("markdown rich editor pipeline", () => {
         ctx.set(rootCtx, root);
         ctx.set(
           defaultValueCtx,
-          "- [ ] Ship it\n\n[README](README.md)\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
+          "- [ ] Ship it\n\n[README](../../README.md)\n\n```ts\nconst ready = true;\nconst done = false;\n```\n",
         );
       }),
     )
       .use(
         markdownEditorPresentation({
           cwd: { current: "/workspace" },
+          sourcePath: { current: "docs/user/showcase.md" },
           onOpenFile: { current: openFile },
           theme: { current: "dark" },
         }),

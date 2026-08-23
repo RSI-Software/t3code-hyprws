@@ -14,6 +14,11 @@ Fenced code uses the app theme, syntax highlighter, code font, and word-wrap set
 Edits save automatically through the same file-save flow as source editing.
 Use the code button to return to the Markdown source.
 
+## Try the showcase
+
+Open the [Rich Markdown showcase](./markdown-showcase.md) to exercise the supported syntax in one document.
+In T3 Code, search for `docs/user/markdown-showcase.md` and switch it to Rich mode.
+
 ## Limits
 
 - MDX files keep their rendered preview because rich editing cannot safely preserve JSX nodes.

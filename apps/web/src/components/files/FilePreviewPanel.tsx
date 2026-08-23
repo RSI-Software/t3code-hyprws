@@ -789,6 +789,7 @@ function RichMarkdownSurface({
       <MarkdownRichEditor
         value={contents}
         cwd={cwd}
+        relativePath={relativePath}
         onOpenFile={onOpenFile}
         theme={resolvedTheme}
         wordWrap={wordWrap}
