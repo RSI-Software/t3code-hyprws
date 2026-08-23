@@ -8,6 +8,7 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -115,6 +116,46 @@ export const parseForkLog = (raw: string): ReadonlyArray<ForkCommit> =>
         ...(upstreamable === undefined ? {} : { upstreamable }),
       };
     });
+
+// A pull request lands as one squash commit whose body is the pull-request
+// body, so the trailer block git will see is that body's last paragraph. Trailing
+// HTML comments (the landing tool's attestation) are dropped first, because the
+// landing tool strips them before composing the commit message.
+export const squashTrailers = (body: string): string => {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  while (lines.length > 0) {
+    const last = lines[lines.length - 1]?.trim() ?? "";
+    if (last.length === 0 || (last.startsWith("<!--") && last.endsWith("-->"))) {
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  const paragraph: Array<string> = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index] ?? "";
+    if (line.trim().length === 0) break;
+    paragraph.unshift(line);
+  }
+  return paragraph.every((line) => /^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(line))
+    ? paragraph.join("\n")
+    : "";
+};
+
+export const parseSquashBody = (subject: string, body: string): ForkCommit => {
+  const trailers = squashTrailers(body);
+  const domain = readTrailer(trailers, "Fork-Domain");
+  const tier = readTrailer(trailers, "Fork-Tier");
+  const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
+  return {
+    sha: "squash",
+    short: "squash",
+    subject,
+    ...(domain === undefined ? {} : { domain }),
+    ...(tier === undefined ? {} : { tier }),
+    ...(upstreamable === undefined ? {} : { upstreamable }),
+  };
+};
 
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
@@ -274,9 +315,32 @@ const command = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    squashBody: Flag.string("squash-body").pipe(
+      Flag.withDescription(
+        "With --check, verify a pull-request body file ends with the trailer block its squash commit needs.",
+      ),
+      Flag.optional,
+    ),
   },
-  ({ base, head, check, json, domain, shas }) =>
+  ({ base, head, check, json, domain, shas, squashBody }) =>
     Effect.gen(function* () {
+      if (Option.isSome(squashBody)) {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const body = yield* fileSystem.readFileString(squashBody.value);
+        const findings = collectFindings([parseSquashBody("pull-request body", body)]);
+        for (const finding of findings) {
+          process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
+        }
+        if (findings.length > 0) {
+          process.stderr.write(
+            `failed: the squash commit would land without a valid trailer block; end the body with Fork-Domain and Fork-Tier (docs/internals/fork-delta.md)\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write("ok: squash body carries its fork trailers\n");
+        return;
+      }
       const full = buildLedger(base, head, yield* readForkLog(base, head));
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
