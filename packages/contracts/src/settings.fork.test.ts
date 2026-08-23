@@ -35,3 +35,10 @@ describe("ServerSettings terminal session mode", () => {
     expect(() => decodeServerSettingsPatch({ terminalSessionMode: "tmux" })).toThrow();
   });
 });
+
+describe("ServerSettings worktree defaults", () => {
+  it("defaults managed zmux sessions off and accepts partial updates", () => {
+    expect(decodeServerSettings({}).zmuxSessions).toBe(false);
+    expect(decodeServerSettingsPatch({ zmuxSessions: true }).zmuxSessions).toBe(true);
+  });
+});
