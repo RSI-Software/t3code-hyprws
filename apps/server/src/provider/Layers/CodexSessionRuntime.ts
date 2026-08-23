@@ -45,6 +45,7 @@ import {
   buildCodexDeveloperInstructions,
   type T3CodeToolAvailability,
 } from "../CodexDeveloperInstructions.ts";
+import type { CodexAgentDefinition } from "../Drivers/CodexAgents.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
 
 const PROVIDER = ProviderDriverKind.make("codex");
@@ -66,6 +67,18 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "does not exist",
   "no rollout found",
 ];
+
+function codexAgentStringConfig(
+  agent: CodexAgentDefinition | undefined,
+  key: string,
+): string | undefined {
+  const value = agent?.config[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | undefined): boolean {
   return appServerArgs?.some((argument) => argument.includes("mcp_servers.")) === true;
@@ -187,6 +200,7 @@ export interface CodexSessionRuntimeOptions {
   readonly models?: Effect.Effect<ReadonlyArray<ServerProviderModel>>;
   /** Capabilities the session's `t3-code` MCP credential grants; drives the prompt blocks. */
   readonly mcpCapabilities?: ReadonlySet<string>;
+  readonly agent?: CodexAgentDefinition;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -553,6 +567,7 @@ function buildThreadStartParams(input: {
   readonly runtimeMode: RuntimeMode;
   readonly model: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
+  readonly agent?: CodexAgentDefinition;
 }): EffectCodexSchema.V2ThreadStartParams {
   const config = runtimeModeToThreadConfig(input.runtimeMode);
   return {
@@ -562,6 +577,12 @@ function buildThreadStartParams(input: {
     approvalsReviewer: config.approvalsReviewer,
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
+    ...(input.agent
+      ? {
+          developerInstructions: input.agent.developerInstructions,
+          ...(Object.keys(input.agent.config).length > 0 ? { config: input.agent.config } : {}),
+        }
+      : {}),
   };
 }
 
@@ -592,19 +613,27 @@ function buildCodexTurnInstructions(input: {
   readonly modelName?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  readonly agentDeveloperInstructions?: string;
 }): Pick<CodexTurnStartParamsWithCollaborationMode, "collaborationMode" | "additionalContext"> {
   if (input.interactionMode === undefined) {
     return {};
   }
   const model = normalizeCodexModelSlug(input.model) ?? DEFAULT_MODEL;
   const reasoningEffort = input.effort ?? "medium";
+  const instructionParts = [
+    input.agentDeveloperInstructions,
+    buildCodexDeveloperInstructions(input.interactionMode),
+  ]; // fork-hook: custom-agents/codex-developer-instruction-parts
+  const developerInstructions = instructionParts
+    .filter((instructions): instructions is string => Boolean(instructions))
+    .join("\n\n"); // fork-hook: custom-agents/codex-developer-instructions
   return {
     collaborationMode: {
       mode: input.interactionMode,
       settings: {
         model,
         reasoning_effort: reasoningEffort,
-        developer_instructions: buildCodexDeveloperInstructions(input.interactionMode),
+        developer_instructions: developerInstructions, // fork-hook: custom-agents/codex-developer-instructions-use
       },
     },
     additionalContext: buildCodexAdditionalContext(
@@ -634,6 +663,7 @@ export function buildTurnStartParams(input: {
   readonly interactionMode?: ProviderInteractionMode;
   /** Defaults to true so callers that predate the agent-access gate are unchanged. */
   readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  readonly agentDeveloperInstructions?: string;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -656,6 +686,9 @@ export function buildTurnStartParams(input: {
     ...(input.modelName ? { modelName: input.modelName } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     browserToolsAvailable: input.browserToolsAvailable ?? true,
+    ...(input.agentDeveloperInstructions
+      ? { agentDeveloperInstructions: input.agentDeveloperInstructions }
+      : {}),
   });
 
   return decodeCodexTurnStartParamsWithCollaborationMode({
@@ -740,6 +773,7 @@ export const openCodexThread = (input: {
   readonly requestedModel: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
   readonly resumeThreadId: string | undefined;
+  readonly agent?: CodexAgentDefinition;
 }): Effect.Effect<typeof CodexThreadResumeMetadata.Type, CodexErrors.CodexAppServerError> => {
   const resumeThreadId = input.resumeThreadId;
   const startParams = buildThreadStartParams({
@@ -747,6 +781,7 @@ export const openCodexThread = (input: {
     runtimeMode: input.runtimeMode,
     model: input.requestedModel,
     serviceTier: input.serviceTier,
+    ...(input.agent ? { agent: input.agent } : {}),
   });
 
   if (resumeThreadId === undefined) {
@@ -1093,6 +1128,18 @@ function shouldSuppressChildConversationNotification(
  */
 export type CodexChildNotificationRoute = "agent-event" | "parent" | "drop";
 
+const CHILD_ITEM_UPDATE_METHODS: ReadonlySet<string> = new Set([
+  "item/agentMessage/delta",
+  "item/reasoning/textDelta",
+  "item/reasoning/summaryTextDelta",
+  "item/reasoning/summaryPartAdded",
+  "item/commandExecution/outputDelta",
+  "item/commandExecution/terminalInteraction",
+  "item/fileChange/outputDelta",
+  "item/fileChange/patchUpdated",
+  "item/plan/delta",
+]);
+
 const CHILD_AGENT_EVENT_METHODS: ReadonlySet<string> = new Set([
   "turn/started",
   "turn/completed",
@@ -1107,14 +1154,6 @@ const CHILD_AGENT_EVENT_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 const CHILD_CHATTER_METHODS: ReadonlySet<string> = new Set([
-  "item/agentMessage/delta",
-  "item/reasoning/textDelta",
-  "item/reasoning/summaryTextDelta",
-  "item/reasoning/summaryPartAdded",
-  "item/commandExecution/outputDelta",
-  "item/fileChange/outputDelta",
-  "item/fileChange/patchUpdated",
-  "item/plan/delta",
   "turn/plan/updated",
   "turn/diff/updated",
   "thread/name/updated",
@@ -1132,7 +1171,7 @@ const CHILD_CHATTER_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 export function routeCodexChildNotification(method: string): CodexChildNotificationRoute {
-  if (CHILD_AGENT_EVENT_METHODS.has(method)) {
+  if (CHILD_AGENT_EVENT_METHODS.has(method) || CHILD_ITEM_UPDATE_METHODS.has(method)) {
     return "agent-event";
   }
   if (CHILD_CHATTER_METHODS.has(method)) {
@@ -1802,15 +1841,64 @@ export const makeCodexSessionRuntime = (
               },
             });
             return true;
+          case "item/agentMessage/delta":
+          case "item/reasoning/textDelta":
+          case "item/reasoning/summaryTextDelta":
+          case "item/reasoning/summaryPartAdded":
+          case "item/commandExecution/outputDelta":
+          case "item/commandExecution/terminalInteraction":
+          case "item/fileChange/outputDelta":
+          case "item/fileChange/patchUpdated":
+          case "item/plan/delta": {
+            const itemType = notification.method.startsWith("item/reasoning/")
+              ? "reasoning"
+              : notification.method.startsWith("item/commandExecution/")
+                ? "commandExecution"
+                : notification.method.startsWith("item/fileChange/")
+                  ? "fileChange"
+                  : notification.method === "item/plan/delta"
+                    ? "plan"
+                    : "agentMessage";
+            const detail =
+              "delta" in notification.params
+                ? notification.params.delta
+                : notification.method === "item/commandExecution/terminalInteraction"
+                  ? notification.params.stdin
+                  : notification.method === "item/fileChange/patchUpdated"
+                    ? notification.params.changes.map((change) => change.path).join(", ")
+                    : `Reasoning summary part ${notification.params.summaryIndex + 1}`;
+            yield* emitEvent({
+              kind: "notification",
+              threadId: options.threadId,
+              ...(child.spawnTurnId ? { turnId: child.spawnTurnId } : {}),
+              itemId: ProviderItemId.make(notification.params.itemId),
+              method: "collabAgent/item",
+              payload: {
+                ...childIdentity,
+                lifecycle: "item.updated",
+                item: {
+                  id: notification.params.itemId,
+                  type: itemType,
+                  ...(detail.length > 0 ? { text: detail } : {}),
+                },
+              },
+            });
+            return true;
+          }
           case "item/started":
           case "item/completed":
             yield* emitEvent({
               kind: "notification",
               threadId: options.threadId,
               ...(child.spawnTurnId ? { turnId: child.spawnTurnId } : {}),
+              ...(typeof notification.params.item.id === "string"
+                ? { itemId: ProviderItemId.make(notification.params.item.id) }
+                : {}),
               method: "collabAgent/item",
               payload: {
                 ...childIdentity,
+                lifecycle:
+                  notification.method === "item/started" ? "item.started" : "item.completed",
                 item: notification.params.item,
               },
             });
@@ -2483,7 +2571,8 @@ export const makeCodexSessionRuntime = (
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
 
-      const requestedModel = normalizeCodexModelSlug(options.model);
+      const agentModel = codexAgentStringConfig(options.agent, "model");
+      const requestedModel = normalizeCodexModelSlug(agentModel ?? options.model);
 
       const opened = yield* openCodexThread({
         client,
@@ -2493,6 +2582,7 @@ export const makeCodexSessionRuntime = (
         requestedModel,
         serviceTier: options.serviceTier,
         resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        ...(options.agent ? { agent: options.agent } : {}),
       });
 
       const providerThreadId = opened.thread.id;
@@ -2559,8 +2649,11 @@ export const makeCodexSessionRuntime = (
               ),
             );
           }
+          const agentModel = codexAgentStringConfig(options.agent, "model");
+          const agentEffort = codexAgentStringConfig(options.agent, "model_reasoning_effort");
+          const effectiveEffort = agentEffort ?? input.effort;
           const normalizedModel = normalizeCodexModelSlug(
-            input.model ?? (yield* Ref.get(sessionRef)).model,
+            agentModel ?? input.model ?? (yield* Ref.get(sessionRef)).model,
           );
           const models = options.models ? yield* options.models : [];
           const modelName = models.find((model) => model.slug === normalizedModel)?.name;
@@ -2572,8 +2665,11 @@ export const makeCodexSessionRuntime = (
             ...(normalizedModel ? { model: normalizedModel } : {}),
             ...(modelName ? { modelName } : {}),
             ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
-            ...(input.effort ? { effort: input.effort } : {}),
+            ...(effectiveEffort ? { effort: effectiveEffort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+            ...(options.agent
+              ? { agentDeveloperInstructions: options.agent.developerInstructions }
+              : {}),
             // Derived from the session's own credential rather than the
             // setting, so the prompt describes the tools this turn actually
             // has even if the setting changed after the session started.
