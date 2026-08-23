@@ -22,7 +22,6 @@ import {
   OrchestrationThreadShell,
   ProjectId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionStartInput,
@@ -2861,7 +2860,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         providerInstanceId: codexInstanceId,
         threadId: asThreadId("thread-1"),
         projectId,
-        cwd: "/tmp/project-send-turn",
+        cwd: fixtureCwd("project-send-turn"),
         runtimeMode: "full-access",
       });
       const firstStartInput = routing.codex.startSession.mock.lastCall?.[0] as
