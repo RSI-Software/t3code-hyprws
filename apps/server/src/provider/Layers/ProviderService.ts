@@ -14,6 +14,7 @@ import {
   MessageId,
   ModelSelection,
   NonNegativeInt,
+  ProjectId,
   ProviderInterruptTurnInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -229,6 +230,7 @@ function toRuntimePayloadFromSession(
   extra?: {
     readonly modelSelection?: unknown;
     readonly continueAfterServerUpdate?: TurnId;
+    readonly projectId?: ProjectId;
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
   },
@@ -242,6 +244,7 @@ function toRuntimePayloadFromSession(
       ? { continueAfterServerUpdate: extra.continueAfterServerUpdate }
       : {}),
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
+    ...(extra?.projectId !== undefined ? { projectId: extra.projectId } : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
       ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
@@ -269,6 +272,16 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedProjectId(
+  runtimePayload: ProviderSessionDirectory.ProviderRuntimeBinding["runtimePayload"],
+): ProjectId | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw = "projectId" in runtimePayload ? runtimePayload.projectId : undefined;
+  return typeof raw === "string" && raw.length > 0 ? ProjectId.make(raw) : undefined;
 }
 
 const dieOnMissingBindingInstanceId = (
@@ -842,6 +855,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     extra?: {
       readonly modelSelection?: unknown;
       readonly continueAfterServerUpdate?: TurnId;
+      readonly projectId?: ProjectId;
       readonly lastRuntimeEvent?: string;
       readonly lastRuntimeEventAt?: string;
     },
@@ -1025,11 +1039,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+      const persistedProjectId = readPersistedProjectId(input.binding.runtimePayload);
 
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
       const resumed = yield* adapter
         .startSession({
           threadId: input.binding.threadId,
+          ...(persistedProjectId ? { projectId: persistedProjectId } : {}),
           provider: input.binding.provider,
           providerInstanceId: bindingInstanceId,
           ...(persistedCwd ? { cwd: persistedCwd } : {}),
@@ -1285,6 +1301,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         });
         yield* upsertSessionBinding(sessionWithInstance, threadId, {
           modelSelection: input.modelSelection,
+          ...(input.projectId ? { projectId: input.projectId } : {}),
         });
         yield* analytics.record("provider.session.started", {
           provider: sessionWithInstance.provider,
