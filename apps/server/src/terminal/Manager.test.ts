@@ -132,6 +132,43 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
 }
 
+class FakeProcessRunner {
+  readonly inputs: ProcessRunner.ProcessRunInput[] = [];
+  private readonly result: Effect.Effect<
+    ProcessRunner.ProcessRunOutput,
+    ProcessRunner.ProcessRunError
+  >;
+
+  constructor(
+    result: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+  ) {
+    this.result = result;
+  }
+
+  readonly service = ProcessRunner.ProcessRunner.of({
+    run: (input) => {
+      this.inputs.push(input);
+      return this.result;
+    },
+  });
+}
+
+function processResult(
+  overrides: Partial<ProcessRunner.ProcessRunOutput> = {},
+): ProcessRunner.ProcessRunOutput {
+  return {
+    stdout: "",
+    stderr: "",
+    code: ChildProcessSpawner.ExitCode(0),
+    timedOut: false,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    stdoutInvalidUtf8: false,
+    stderrInvalidUtf8: false,
+    ...overrides,
+  };
+}
+
 class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
@@ -255,6 +292,7 @@ interface CreateManagerOptions {
   >[0]["resolveProviderInstanceEnvironment"];
   managedBinaryCacheDir?: string;
   managedBinaryToolsDir?: string;
+  terminalSessionMode?: "shell" | "zmux";
 }
 
 interface ManagerFixture {
@@ -312,6 +350,9 @@ const createManager = (
               managedBinaryCacheDir: options.managedBinaryCacheDir,
               managedBinaryToolsDir: options.managedBinaryToolsDir,
             }),
+        ...(options.terminalSessionMode !== undefined
+          ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
+          : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
       const unsubscribe = yield* manager.subscribe((event) =>
