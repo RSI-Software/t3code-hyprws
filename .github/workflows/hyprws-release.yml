@@ -85,7 +85,12 @@ jobs:
       - id: upstream_base
         name: Resolve upstream base
         run: |
-          base="$(git describe --tags --abbrev=0 "$(git merge-base HEAD upstream/main)")"
+          base_commit="$(git merge-base HEAD upstream/main)"
+          # Nightlies can share a commit; name the newest tag on it.
+          base="$(git tag --points-at "$base_commit" --sort=-v:refname | head -n 1)"
+          if [[ -z "$base" ]]; then
+            base="$(git describe --tags --abbrev=0 "$base_commit")"
+          fi
           echo "tag=$base" >> "$GITHUB_OUTPUT"
           echo "upstream base: $base"
 
