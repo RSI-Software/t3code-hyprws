@@ -2633,6 +2633,9 @@ it.layer(
           T3CODE_PORT: "3773",
           T3CODE_THREAD_ID: "server-thread",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
+          TMUX: "/tmp/tmux-1000/default,123,0",
+          TMUX_PANE: "%42",
+          TMUX_TMPDIR: "/tmp/tmux-1000",
           TEST_TERMINAL_KEEP: "keep-me",
           TMUX: "/tmp/tmux-1000/default,1234,0",
           TMUX_PANE: "%3",
@@ -2656,6 +2659,9 @@ it.layer(
       expect(spawnInput.env.T3CODE_THREAD_ID).toBe("thread-1");
       expect(ptyAdapter.spawnInputs[1]?.env.T3CODE_THREAD_ID).toBe("thread-1");
       expect(spawnInput.env.VITE_DEV_SERVER_URL).toBeUndefined();
+      expect(spawnInput.env.TMUX).toBeUndefined();
+      expect(spawnInput.env.TMUX_PANE).toBeUndefined();
+      expect(spawnInput.env.TMUX_TMPDIR).toBeUndefined();
       expect(spawnInput.env.TEST_TERMINAL_KEEP).toBe("keep-me");
       expect(spawnInput.env.TMUX).toBeUndefined();
       expect(spawnInput.env.TMUX_PANE).toBeUndefined();
