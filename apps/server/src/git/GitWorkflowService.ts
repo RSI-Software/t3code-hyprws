@@ -31,6 +31,7 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -138,6 +139,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
+  const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -317,7 +319,21 @@ export const make = Effect.gen(function* () {
       ),
     removeWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
+        Effect.andThen(
+          Effect.gen(function* () {
+            const resolved = yield* zmuxSessionBinder.resolve(input.path);
+            if (resolved.status === "resolved" && resolved.match === "worktree") {
+              const result = yield* zmuxSessionBinder.unbind(input.path);
+              if (result.status === "failed") {
+                yield* Effect.logWarning("worktree removal could not unbind its zmux session", {
+                  worktreePath: input.path,
+                  detail: result.notice.detail,
+                });
+              }
+            }
+            yield* git.removeWorktree(input);
+          }),
+        ),
       ),
     createRef: (input) =>
       ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
