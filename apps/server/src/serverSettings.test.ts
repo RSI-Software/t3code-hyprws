@@ -135,6 +135,35 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("folds a legacy zmuxSessions opt-in into the terminal session mode on load", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(serverConfig.settingsPath, '{"zmuxSessions":true}');
+
+      const settings = yield* serverSettings.getSettings;
+
+      assert.strictEqual(settings.terminalSessionMode, "zmux");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps an explicit terminal session mode over the legacy zmuxSessions flag", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        '{"zmuxSessions":true,"terminalSessionMode":"shell"}',
+      );
+
+      const settings = yield* serverSettings.getSettings;
+
+      assert.strictEqual(settings.terminalSessionMode, "shell");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("decodes nested settings patches", () =>
     Effect.gen(function* () {
       assert.deepEqual(
