@@ -98,6 +98,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -425,6 +426,7 @@ const makeWsRpcLayer = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -562,16 +564,16 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const appendSetupScriptActivity = (input: {
+      const appendThreadActivity = (input: {
         readonly threadId: ThreadId;
-        readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+        readonly kind: string;
         readonly summary: string;
         readonly createdAt: string;
         readonly payload: Record<string, unknown>;
         readonly tone: "info" | "error";
       }) =>
         Effect.all({
-          commandId: serverCommandId("setup-script-activity"),
+          commandId: serverCommandId("thread-activity"),
           activityId: serverEventId,
         }).pipe(
           Effect.flatMap(({ commandId, activityId }) =>
@@ -592,6 +594,31 @@ const makeWsRpcLayer = (
             }),
           ),
         );
+
+      const recordZmuxSessionBindFailure = (input: {
+        readonly threadId: ThreadId;
+        readonly worktreePath: string;
+        readonly notice: ZmuxSessionBinder.ZmuxSessionNotice;
+      }) =>
+        Effect.gen(function* () {
+          const createdAt = yield* nowIso;
+          yield* appendThreadActivity({
+            threadId: input.threadId,
+            kind: "zmux-session.failed",
+            summary: input.notice.summary,
+            createdAt,
+            payload: {
+              detail: input.notice.detail,
+              worktreePath: input.worktreePath,
+            },
+            tone: "error",
+          }).pipe(Effect.ignoreCause({ log: false }));
+          yield* Effect.logWarning("worktree failed to bind a zmux session", {
+            threadId: input.threadId,
+            worktreePath: input.worktreePath,
+            detail: input.notice.detail,
+          });
+        });
 
       const toBootstrapDispatchCommandCauseError = (cause: Cause.Cause<unknown>) => {
         const error = Cause.squash(cause);
@@ -846,7 +873,7 @@ const makeWsRpcLayer = (
             readonly worktreePath: string;
           }) => {
             const detail = projectSetupScriptCompatibilityDetail(input.error);
-            return appendSetupScriptActivity({
+            return appendThreadActivity({
               threadId: command.threadId,
               kind: "setup-script.failed",
               summary: "Setup script failed to start",
@@ -884,7 +911,7 @@ const makeWsRpcLayer = (
                 worktreePath: input.worktreePath,
               };
               yield* Effect.all([
-                appendSetupScriptActivity({
+                appendThreadActivity({
                   threadId: command.threadId,
                   kind: "setup-script.requested",
                   summary: "Starting setup script",
@@ -892,7 +919,7 @@ const makeWsRpcLayer = (
                   payload,
                   tone: "info",
                 }),
-                appendSetupScriptActivity({
+                appendThreadActivity({
                   threadId: command.threadId,
                   kind: "setup-script.started",
                   summary: "Setup script started",
@@ -1004,6 +1031,14 @@ const makeWsRpcLayer = (
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
+              const bindResult = yield* zmuxSessionBinder.bind(targetWorktreePath);
+              if (bindResult.status === "failed") {
+                yield* recordZmuxSessionBindFailure({
+                  threadId: command.threadId,
+                  worktreePath: targetWorktreePath,
+                  notice: bindResult.notice,
+                });
+              }
               yield* dispatchFromClient({
                 type: "thread.meta.update",
                 commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
@@ -2068,9 +2103,18 @@ const makeWsRpcLayer = (
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            gitWorkflow
-              .preparePullRequestThread(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            gitWorkflow.preparePullRequestThread(input).pipe(
+              Effect.tap((result) =>
+                input.threadId && result.worktreePath && result.zmuxSessionNotice
+                  ? recordZmuxSessionBindFailure({
+                      threadId: input.threadId,
+                      worktreePath: result.worktreePath,
+                      notice: result.zmuxSessionNotice,
+                    })
+                  : Effect.void,
+              ),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
