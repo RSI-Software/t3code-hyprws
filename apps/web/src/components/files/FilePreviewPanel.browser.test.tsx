@@ -78,6 +78,10 @@ vi.mock(import("~/browser/previewRuntime"), async (original) => ({
   ...(await original()),
   usePreviewAvailable: () => true,
 }));
+vi.mock(import("./RichMarkdownPreviewBoundary"), async (original) => ({
+  ...(await original()),
+  RichMarkdownPreviewBoundary: ({ children }) => children,
+})); // fork-hook: markdown-editing/file-preview-test-upstream-surface
 vi.mock(import("~/state/environments"), async (original) => ({
   ...(await original()),
   useEnvironmentHttpBaseUrl: () => "http://environment.test",
