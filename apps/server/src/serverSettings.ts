@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  migrateLegacyZmuxSettings,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -356,22 +357,32 @@ const PersistedResponseStreamingMode = Schema.Union([
     }),
   ),
 );
-const ServerSettingsJson = fromLenientJson(
-  Schema.Struct({
-    ...ServerSettings.fields,
-    responseStreamingMode: PersistedResponseStreamingMode.pipe(
-      Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
-    ),
-    projectSettingsOverrides: Schema.Record(
-      ProjectId,
-      Schema.Struct({
-        ...ProjectSettingsOverrides.fields,
-        responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
-      }),
-    ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  }),
-);
-const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
+const PersistedServerSettings = Schema.Struct({
+  ...ServerSettings.fields,
+  responseStreamingMode: PersistedResponseStreamingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
+  ),
+  projectSettingsOverrides: Schema.Record(
+    ProjectId,
+    Schema.Struct({
+      ...ProjectSettingsOverrides.fields,
+      responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
+    }),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+}); // fork-hook: zmux-estate/persisted-server-settings
+// Two-step decode: lenient JSON to unknown, legacy-key migration, then the
+// settings schema. The migration must see the raw object — a composed
+// string-to-struct schema would drop retired keys before it could fold them.
+const LenientUnknownJson = fromLenientJson(Schema.Unknown);
+const decodeLenientUnknownJsonExit = Schema.decodeUnknownExit(LenientUnknownJson);
+const decodeServerSettingsExit = Schema.decodeUnknownExit(PersistedServerSettings); // fork-hook: zmux-estate/decode-server-settings
+const decodeServerSettingsJsonExit = (raw: string) => {
+  const parsed = decodeLenientUnknownJsonExit(raw);
+  if (parsed._tag === "Failure") {
+    return parsed;
+  }
+  return decodeServerSettingsExit(migrateLegacyZmuxSettings(parsed.value));
+};
 const PersistedOptionalProviderSettings = Schema.Struct({
   providers: Schema.optionalKey(
     Schema.Struct({

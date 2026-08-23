@@ -57,6 +57,8 @@ import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
 import * as GitManager from "./GitManager.ts";
 
 const encodeCliJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -676,6 +678,7 @@ function makeManager(input?: {
     ProjectionStore.ProjectionStoreV2Error | ProjectStore.ProjectStoreV2Error,
     ProjectionStore.ProjectionStoreV2 | ProjectStore.ProjectStoreV2
   >;
+  zmuxSessionBinder?: Partial<ZmuxSessionBinder.ZmuxSessionBinder["Service"]>;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -739,6 +742,12 @@ function makeManager(input?: {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
     ),
+    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+      bind: () => Effect.succeed({ status: "disabled" as const }),
+      resolve: () => Effect.succeed({ status: "disabled" as const }),
+      unbind: () => Effect.succeed({ status: "disabled" as const }),
+      ...input?.zmuxSessionBinder,
+    }),
     vcsDriverLayer,
     serverSettingsLayer,
   ).pipe(Layer.provideMerge(sourceControlRegistryLayer), Layer.provideMerge(NodeServices.layer));
@@ -4682,6 +4691,15 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["push", "origin", "HEAD:refs/pull/77/head"]);
       yield* runGit(repoDir, ["checkout", "main"]);
 
+      const bind = vi.fn(() =>
+        Effect.succeed({
+          status: "failed" as const,
+          notice: {
+            summary: "zmux session failed to bind",
+            detail: "branch_conflict: branch is already bound",
+          },
+        }),
+      );
       const { manager } = yield* makeManager({
         ghScenario: {
           pullRequest: {
@@ -4693,6 +4711,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             state: "open",
           },
         },
+        zmuxSessionBinder: { bind },
       });
 
       const result = yield* preparePullRequestThread(manager, {
@@ -4703,6 +4722,11 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       expect(result.branch).toBe("feature/pr-worktree");
       expect(result.worktreePath).not.toBeNull();
+      expect(bind).toHaveBeenCalledWith(result.worktreePath);
+      expect(result.zmuxSessionNotice).toEqual({
+        summary: "zmux session failed to bind",
+        detail: "branch_conflict: branch is already bound",
+      });
       expect(NodeFS.existsSync(result.worktreePath as string)).toBe(true);
       const worktreeBranch = (yield* runGit(result.worktreePath as string, [
         "branch",
