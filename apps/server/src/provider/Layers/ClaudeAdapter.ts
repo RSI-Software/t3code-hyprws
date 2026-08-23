@@ -4648,11 +4648,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ) => runPromise(handleResumeDialog(request, callbackOptions));
 
       const claudeBinaryPath = claudeSdkExecutablePath;
+      const configuredExtraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const {
         "permission-mode": launchArgPermissionMode,
         "dangerously-skip-permissions": launchArgSkipPermissions,
-        ...extraArgs
-      } = parseCliArgs(claudeSettings.launchArgs).flags;
+        ...extraArgsWithHonoredRemoved
+      } = configuredExtraArgs;
+      const { agent: _configuredAgent, ...extraArgsWithoutAgent } = extraArgsWithHonoredRemoved;
       const selectedModel =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
       const modelSelection = selectedModel
@@ -4661,6 +4663,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             model: resolveClaudeModelSlug(modelCatalog, selectedModel.model),
           }
         : undefined;
+      const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
+      const extraArgs =
+        selectedAgent === undefined
+          ? extraArgsWithHonoredRemoved
+          : selectedAgent === "default"
+            ? extraArgsWithoutAgent
+            : { ...extraArgsWithoutAgent, agent: selectedAgent };
       const caps = getClaudeCatalogModelCapabilities(modelCatalog, modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection
@@ -4781,6 +4790,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.cwd": input.cwd ?? "",
         "claude.query.model": apiModelId ?? "",
         "claude.query.effort": effectiveEffort ?? "",
+        "claude.query.agent": selectedAgent === "default" ? "" : (selectedAgent ?? ""),
         "claude.query.permission_mode": permissionMode ?? "",
         "claude.query.allow_dangerously_skip_permissions": permissionMode === "bypassPermissions",
         "claude.query.resume": existingResumeSessionId ?? "",
