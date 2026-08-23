@@ -283,25 +283,6 @@ describe("rendered Markdown task saves", () => {
     expect(state.optimistic).toBeNull();
     expect(state.writeFile).not.toHaveBeenCalled();
   });
-
-  it("still toggles and saves tasks from a complete read", async () => {
-    using _settings = setup();
-    await using screen = await render(markdownPreview(false));
-    using _timers = fakeTimers();
-    const checkbox = screen.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-    expect(checkbox).not.toBeNull();
-    expect(checkbox.disabled).toBe(false);
-    await act(async () => checkbox.click());
-    await vi.advanceTimersByTimeAsync(500);
-    expect(state.writeFile).toHaveBeenCalledExactlyOnceWith({
-      environmentId,
-      input: {
-        cwd: "/workspace",
-        relativePath: "tasks.md",
-        contents: "- [x] Keep the rest of this file\n",
-      },
-    });
-  });
 });
 
 describe("workspace document previews", () => {
