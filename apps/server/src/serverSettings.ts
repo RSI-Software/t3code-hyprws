@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  migrateLegacyZmuxSettings,
   type ModelSelection,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
@@ -229,8 +230,19 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
 export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
   Layer.effect(ServerSettingsService, makeTest(overrides));
 
-const ServerSettingsJson = fromLenientJson(ServerSettings);
-const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
+// Two-step decode: lenient JSON to unknown, legacy-key migration, then the
+// settings schema. The migration must see the raw object — a composed
+// string-to-struct schema would drop retired keys before it could fold them.
+const LenientUnknownJson = fromLenientJson(Schema.Unknown);
+const decodeLenientUnknownJsonExit = Schema.decodeUnknownExit(LenientUnknownJson);
+const decodeServerSettingsExit = Schema.decodeUnknownExit(ServerSettings);
+const decodeServerSettingsJsonExit = (raw: string) => {
+  const parsed = decodeLenientUnknownJsonExit(raw);
+  if (parsed._tag === "Failure") {
+    return parsed;
+  }
+  return decodeServerSettingsExit(migrateLegacyZmuxSettings(parsed.value));
+};
 const PersistedOptionalProviderSettings = Schema.Struct({
   providers: Schema.optionalKey(
     Schema.Struct({
