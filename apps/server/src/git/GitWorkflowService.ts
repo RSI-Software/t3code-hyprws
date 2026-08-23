@@ -34,6 +34,7 @@ import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -203,6 +204,7 @@ export const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => rootPath),
       Effect.flatMap((cwd) => withWorkspaceLease(cwd, effect)),
     );
+  const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -520,7 +522,21 @@ export const make = Effect.gen(function* () {
     ),
     removeWorktree: Effect.fn("GitWorkflowService.removeWorktree")(function (input) {
       return ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
+        Effect.andThen(
+          Effect.gen(function* () {
+            const resolved = yield* zmuxSessionBinder.resolve(input.path);
+            if (resolved.status === "resolved" && resolved.match === "worktree") {
+              const result = yield* zmuxSessionBinder.unbind(input.path);
+              if (result.status === "failed") {
+                yield* Effect.logWarning("worktree removal could not unbind its zmux session", {
+                  worktreePath: input.path,
+                  detail: result.notice.detail,
+                });
+              }
+            }
+            yield* git.removeWorktree(input);
+          }),
+        ),
       );
     }),
     pruneWorktrees: Effect.fn("GitWorkflowService.pruneWorktrees")(function (input) {
@@ -551,7 +567,24 @@ export const make = Effect.gen(function* () {
     }),
     renameBranch: Effect.fn("GitWorkflowService.renameBranch")(function (input) {
       return ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
-        Effect.andThen(git.renameBranch(input)),
+        Effect.andThen(
+          Effect.gen(function* () {
+            const renamed = yield* git.renameBranch(input);
+            const resolved = yield* zmuxSessionBinder.resolve(input.cwd);
+            if (resolved.status === "resolved" && resolved.match === "worktree") {
+              const result = yield* zmuxSessionBinder.bind(input.cwd);
+              if (result.status === "failed") {
+                yield* Effect.logWarning("branch rename could not relabel its zmux session", {
+                  worktreePath: input.cwd,
+                  oldBranch: input.oldBranch,
+                  newBranch: input.newBranch,
+                  detail: result.notice.detail,
+                });
+              }
+            }
+            return renamed;
+          }),
+        ),
       );
     }),
   });
