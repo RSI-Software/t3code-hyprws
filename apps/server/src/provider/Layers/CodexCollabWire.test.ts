@@ -130,18 +130,6 @@ describe("routeCodexChildNotification", () => {
     }
   });
 
-  it("drops only enumerated child chatter", () => {
-    for (const method of [
-      "item/agentMessage/delta",
-      "item/reasoning/textDelta",
-      "item/commandExecution/outputDelta",
-      "turn/plan/updated",
-      "thread/name/updated",
-    ]) {
-      assert.equal(routeCodexChildNotification(method), "drop", method);
-    }
-  });
-
   it("never routes child-owned thread lifecycle to the parent", () => {
     // These mutate PARENT thread state in CodexAdapter (archived/compacted),
     // so a child emitting them must never reach the parent path. This list

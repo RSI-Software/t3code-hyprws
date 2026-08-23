@@ -8,8 +8,9 @@ import {
   OrchestrationReadModel,
   ProviderDriverKind,
   ProviderRuntimeEvent,
-  ProviderSession,
   ProviderInstanceId,
+  ProviderSession,
+  RuntimeItemId,
 } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
@@ -19,7 +20,6 @@ import {
   MessageId,
   type OrchestrationCommand,
   ProjectId,
-  ProviderItemId,
   RuntimeRequestId,
   type ServerSettings,
   ThreadId,
@@ -60,6 +60,7 @@ import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import {
   ProviderRuntimeIngestionLive,
+  runtimeEventToActivities,
   splitBufferedAssistantText,
 } from "./ProviderRuntimeIngestion.ts";
 import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
@@ -76,7 +77,7 @@ function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
 }
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
+const asItemId = (value: string): RuntimeItemId => RuntimeItemId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
