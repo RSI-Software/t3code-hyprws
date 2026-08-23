@@ -191,9 +191,14 @@ wt switch --create <branch> --base upstream/main
 
 ### Landing
 
-Land a lane onto `hyprws` by rebase, never by merge commit and never by squash.
-A merge commit breaks the linear stack; a squash erases the per-commit trailers.
-The repository only offers rebase merging for that reason.
+Land a lane onto `hyprws` by squash, never by merge commit.
+A merge commit breaks the linear stack, and the repository only offers squash merging for that reason.
+Upstream squashes every pull request the same way.
+
+A lane is one concern, so it squashes to one commit, and that commit must carry the trailers.
+`ghb pr merge` writes the pull-request title as the subject and the pull-request body as the squash body.
+Title the pull request as a conventional commit and end its body with the trailer block, after any mention.
+The landing tool appends `Co-authored-by` to that block, so `vp run fork:delta --check` still reads every trailer.
 
 Use a GitHub pull request when one is open or expected.
 Use verified `wt merge hyprws` only for an explicit local or solo landing route.
