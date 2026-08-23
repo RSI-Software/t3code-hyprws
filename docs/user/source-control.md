@@ -70,6 +70,10 @@ messages, review titles, and descriptions from your changes.
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the project's instructions and recent commit subjects.
 
+When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
+pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
+pull-request target, and creating a pull request still takes an explicit action.
+
 ## Review and merge
 
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
