@@ -456,6 +456,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("typography advanced prompt code terminal font family size individually")],
   },
   {
+    id: "terminal-session-mode",
+    title: "Terminal session",
+    to: "/settings/appearance",
+  },
+  {
     id: "font-smoothing",
     title: msg("Font smoothing"),
     to: "/settings/appearance",
