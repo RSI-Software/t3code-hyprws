@@ -60,6 +60,8 @@ import * as DesktopUpdates from "./updates/DesktopUpdates.ts";
 import * as BrowserSession from "./preview/BrowserSession.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as DesktopWindow from "./window/DesktopWindow.ts";
+import * as DesktopWindowSession from "./window/DesktopWindowSession.ts";
+import * as HyprlandPlacement from "./window/HyprlandPlacement.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "./wsl/DesktopWslServerTree.ts";
@@ -152,9 +154,17 @@ const desktopPreviewLayer = PreviewManager.layer.pipe(
   Layer.provideMerge(desktopFoundationLayer),
 );
 
+// Window-session restore sits under the window layer because DesktopUpdates
+// captures through it and DesktopWindow replays it.
+const desktopWindowSessionLayer = DesktopWindowSession.layer.pipe(
+  Layer.provideMerge(HyprlandPlacement.layer),
+  Layer.provideMerge(desktopFoundationLayer),
+);
+
 const desktopWindowLayer = DesktopWindow.layer.pipe(
   Layer.provideMerge(desktopServerExposureLayer),
   Layer.provideMerge(desktopPreviewLayer),
+  Layer.provideMerge(desktopWindowSessionLayer),
 );
 
 // Pool layer instantiates the backend factory once for the Windows
