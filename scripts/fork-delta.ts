@@ -8,6 +8,7 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
@@ -140,6 +141,23 @@ export const buildLedger = (
   commits: ReadonlyArray<ForkCommit>,
 ): ForkLedger => ({ base, head, commits, findings: collectFindings(commits) });
 
+// Narrows the ledger to one domain so its commits can be extracted as a unit.
+// Returns null when no fork commit carries that domain.
+export const selectDomain = (ledger: ForkLedger, domain: string): ForkLedger | null => {
+  const commits = ledger.commits.filter((commit) => commit.domain === domain);
+  if (commits.length === 0) return null;
+  const shorts = new Set(commits.map((commit) => commit.short));
+  return {
+    ...ledger,
+    commits,
+    findings: ledger.findings.filter((finding) => shorts.has(finding.short)),
+  };
+};
+
+// One full SHA per line in stack order, ready for `git cherry-pick`.
+export const renderShas = (ledger: ForkLedger): string =>
+  ledger.commits.map((commit) => `${commit.sha}\n`).join("");
+
 // Unknown tiers sort after the known ones so a typo is visible at the bottom.
 const tierRank = (tier: string | undefined) => {
   const index = isForkTier(tier) ? TIER_ORDER.indexOf(tier) : -1;
@@ -246,10 +264,31 @@ const command = Command.make(
       Flag.withDescription("Print the ledger as JSON instead of Markdown."),
       Flag.withDefault(false),
     ),
+    domain: Flag.string("domain").pipe(
+      Flag.withDescription("Limit the ledger to one Fork-Domain."),
+      Flag.optional,
+    ),
+    shas: Flag.boolean("shas").pipe(
+      Flag.withDescription(
+        "Print one full SHA per line in stack order, for `git cherry-pick` onto upstream.",
+      ),
+      Flag.withDefault(false),
+    ),
   },
-  ({ base, head, check, json }) =>
+  ({ base, head, check, json, domain, shas }) =>
     Effect.gen(function* () {
-      const ledger = buildLedger(base, head, yield* readForkLog(base, head));
+      const full = buildLedger(base, head, yield* readForkLog(base, head));
+      const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
+      if (ledger === null) {
+        const name = Option.getOrElse(domain, () => "");
+        process.stderr.write(`failed: no fork commit carries Fork-Domain "${name}"\n`);
+        process.exitCode = 1;
+        return;
+      }
+      if (shas) {
+        process.stdout.write(renderShas(ledger));
+        return;
+      }
       if (check) {
         for (const finding of ledger.findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
