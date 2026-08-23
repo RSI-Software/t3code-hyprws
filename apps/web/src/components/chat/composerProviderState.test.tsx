@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import { getComposerProviderState, getComposerReasoningStep } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
+import { DraftId } from "../../composerDraftStore";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
 const MODEL = "test-model";
