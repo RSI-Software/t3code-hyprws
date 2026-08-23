@@ -149,6 +149,11 @@ The remotes have distinct authority.
 | `upstream` | `pingdotgg/t3code`           | Canonical T3 Code history; fetch only    |
 | `origin`   | `RSI-Software/t3code-hyprws` | Fork branches and published fork history |
 
+- `origin` is the implicit collaboration remote for source-control reads, writes, and pull requests.
+- `upstream` is fetch-only unless the human explicitly authorizes an operation against `pingdotgg/t3code`.
+- An upstreamable trailer classifies a patch.
+- It never authorizes publishing a branch or opening an upstream pull request.
+
 Keep local `main` as an exact mirror of `upstream/main`.
 Never put fork commits on `main`, and never merge `hyprws` back into it.
 Push `main` to `origin` only as a fast-forward, so `origin/main` stays a readable mirror.
@@ -188,7 +193,7 @@ Three rules keep the replay clean:
 
 Keep the stack sorted from most upstreamable to most fork-specific:
 
-1. `upstream-fixes` bugfixes tagged `Fork-Upstreamable: yes`, because they may be sent upstream and dropped.
+1. `upstream-fixes` bugfixes tagged `Fork-Upstreamable: yes`, because upstream may make them removable.
 2. `fork-meta` documentation and tooling.
 3. Product domains, with each domain's commits kept contiguous.
 
@@ -200,7 +205,8 @@ Reorder with an interactive rebase only when the stack is otherwise clean, and p
 ### Lanes
 
 Short-lived branches isolate one concern at a time.
-Create fork work from `hyprws` and genuinely upstreamable work from `upstream/main`.
+Create fork work from `hyprws`.
+Use `upstream/main` only when the human explicitly asks for a possible upstream extraction lane.
 
 ```bash
 # Fork-specific work
@@ -209,6 +215,8 @@ wt switch --create <branch> --base hyprws
 # A change intended for upstream without fork dependencies
 wt switch --create <branch> --base upstream/main
 ```
+
+Starting from `upstream/main` does not authorize a push or pull request against `pingdotgg/t3code`.
 
 ### Landing
 
