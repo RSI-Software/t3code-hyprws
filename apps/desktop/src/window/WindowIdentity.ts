@@ -1,16 +1,18 @@
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type ScopedProjectRef } from "@t3tools/contracts";
+
+import { readProjectWindowPreloadParts } from "./projectWindowArgument.ts";
+
+export {
+  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  isProjectWindowPreload,
+  projectWindowPreloadArgument,
+} from "./projectWindowArgument.ts";
 
 export type WindowIdentity =
   | { readonly kind: "hub" }
   | { readonly kind: "project"; readonly ref: ScopedProjectRef };
 
 export const HUB_WINDOW_IDENTITY: WindowIdentity = { kind: "hub" };
-export const PROJECT_WINDOW_PRELOAD_ARGUMENT = "--t3code-project-window";
-
-export function isProjectWindowPreload(argv: readonly string[]): boolean {
-  return argv.includes(PROJECT_WINDOW_PRELOAD_ARGUMENT);
-}
-
 export function projectWindowIdentity(
   environmentId: EnvironmentId,
   projectId: ProjectId,
@@ -26,4 +28,14 @@ export function windowIdentityKey(identity: WindowIdentity): string {
 
 export function windowIdentityEquals(left: WindowIdentity, right: WindowIdentity): boolean {
   return windowIdentityKey(left) === windowIdentityKey(right);
+}
+
+export function readProjectWindowPreloadRef(argv: readonly string[]): ScopedProjectRef | null {
+  const parts = readProjectWindowPreloadParts(argv);
+  return parts === null
+    ? null
+    : {
+        environmentId: EnvironmentId.make(parts.environmentId),
+        projectId: ProjectId.make(parts.projectId),
+      };
 }
