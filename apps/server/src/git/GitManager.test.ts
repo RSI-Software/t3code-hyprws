@@ -72,6 +72,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import { vi } from "vite-plus/test"; // fork-hook: zmux-estate/git-manager-test-vi-import
 import * as GitManager from "./GitManager.ts";
 
 const encodeCliJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -758,6 +760,7 @@ function makeManager(input?: {
     ProjectionStore.ProjectionStoreV2Error | ProjectStore.ProjectStoreV2Error,
     ProjectionStore.ProjectionStoreV2 | ProjectStore.ProjectStoreV2
   >;
+  zmuxSessionBinder?: Partial<ZmuxSessionBinder.ZmuxSessionBinder["Service"]>;
 }) {
   const { service: fakeGitHubProvider, ghCalls } = createGitHubProviderWithFakeGh(
     input?.ghScenario,
@@ -859,6 +862,12 @@ function makeManager(input?: {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
     ),
+    Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+      bind: () => Effect.succeed({ status: "disabled" as const }),
+      resolve: () => Effect.succeed({ status: "disabled" as const }),
+      unbind: () => Effect.succeed({ status: "disabled" as const }),
+      ...input?.zmuxSessionBinder,
+    }),
     layerServerSettings,
   ).pipe(
     Layer.provideMerge(layerSourceControlRegistry),
