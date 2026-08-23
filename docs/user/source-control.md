@@ -37,6 +37,12 @@ T3 Code works with the platforms your team already uses:
   `AGENTS.md` along with recent commit subjects. Claude writers also follow `CLAUDE.md`
 - Supports GitHub Pull Requests, GitLab Merge Requests, Bitbucket Pull Requests, and Azure DevOps Pull Requests
 
+**Choose the collaboration remote**
+
+- When both `origin` and `upstream` exist, T3 Code uses `origin` for review listings and pull-request actions
+- An `upstream` remote remains available for Git fetch and rebase workflows
+- Adding `upstream` does not make it a pull-request target; creating a pull request still requires an explicit action
+
 **Stay on top of open reviews**
 
 - See if your current branch already has an open PR/MR
