@@ -289,6 +289,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerCommandReceiptStoreProvided,
       layerEventSink,
       IdAllocator.layer,
+      eventSinkProvided, // fork-hook: zmux-estate/launch-worktree-integration-notice-sink
     ).pipe(Layer.provideMerge(layerProjectService)),
   ),
 );
