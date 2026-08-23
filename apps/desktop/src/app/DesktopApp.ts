@@ -271,6 +271,9 @@ const startup = Effect.gen(function* () {
 
   yield* appIdentity.configure;
   yield* lifecycle.register;
+  // Before openArguments, so an explicit launch intent still overrides the
+  // windows an update relaunch left behind.
+  yield* desktopWindow.restoreWindowSession;
   yield* clerk.configure((argv) => desktopWindow.openArguments(argv));
   yield* desktopWindow.openArguments(process.argv);
 

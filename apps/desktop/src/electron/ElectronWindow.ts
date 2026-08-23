@@ -102,6 +102,8 @@ export class ElectronWindow extends Context.Service<
     readonly identityFor: (
       window: Electron.BrowserWindow,
     ) => Effect.Effect<Option.Option<WindowIdentity>>;
+    /** Every live registered window, in registration order. */
+    readonly listIdentities: Effect.Effect<readonly WindowIdentity[]>;
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
@@ -273,6 +275,11 @@ export const make = Effect.gen(function* () {
           existing.value.close();
         }),
       ),
+    listIdentities: Effect.sync(() =>
+      Array.from(windowsByIdentity.values())
+        .filter((entry) => !entry.window.isDestroyed())
+        .map((entry) => entry.identity),
+    ),
     identityFor: (window) =>
       Effect.sync(() => {
         for (const entry of windowsByIdentity.values()) {
