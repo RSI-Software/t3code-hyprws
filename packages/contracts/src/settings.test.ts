@@ -8,6 +8,7 @@ import {
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
   defaultEnabledForDriver,
+  migrateLegacyZmuxSettings,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
