@@ -6,8 +6,9 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { useFullPageBackOut } from "../../hooks/useLeaveFullPage";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
@@ -131,7 +132,7 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const canGoBack = useCanGoBack();
+  const backOutOfFullPage = useFullPageBackOut();
   const { isMobile, setOpenMobile } = useSidebar();
   const currentFooterPage = useLocation({
     select: (location) =>
@@ -177,12 +178,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   const handleBackClick = useCallback(() => {
     closeMobileSidebar();
-    if (canGoBack) {
-      window.history.back();
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [canGoBack, closeMobileSidebar, navigate]);
+    backOutOfFullPage();
+  }, [backOutOfFullPage, closeMobileSidebar]);
 
   return (
     <SidebarMenu className="flex-row items-center">
