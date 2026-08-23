@@ -140,6 +140,10 @@ import {
   compileClaudeModelSelection,
   type CompiledClaudeModelSelection,
 } from "../../claudeModelOptions.ts";
+import {
+  applyClaudeAgentLaunchArg,
+  withClaudeAgentQueryIdentity,
+} from "../../provider/Layers/ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-selection-import
 import * as ServerConfig from "../../config.ts";
 import * as PortScanner from "../../preview/PortScanner.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -1494,6 +1498,7 @@ export function makeClaudeQueryOptions(input: {
   if (requestThinkingSummaries && extraArgs["thinking-display"] === undefined) {
     extraArgs["thinking-display"] = "summarized";
   }
+  applyClaudeAgentLaunchArg(extraArgs, input.modelSelection); // fork-hook: custom-agents/claude-agent-launch-arg
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -9804,7 +9809,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               : { allowedTools: queryPolicy.allowedTools }),
           });
           const queryPolicyKey = claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides);
-          const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
+          const compiledSelection = withClaudeAgentQueryIdentity(
+            compileClaudeModelSelection(turnInput.modelSelection),
+            turnInput.modelSelection,
+          ); // fork-hook: custom-agents/claude-agent-query-identity
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
           // Continuations drain existing output without prompting; retain the live process regardless of selection.
