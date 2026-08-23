@@ -379,6 +379,7 @@ const TerminalLayerLive = TerminalManager.layer.pipe(
   Layer.provide(PtyAdapterLive),
   Layer.provide(PortScannerLayerLive),
   Layer.provide(NativeTelemetryLayerLive),
+  Layer.provide(ServerSettingsLayerLive),
 );
 
 const PreviewLayerLive = Layer.empty.pipe(
