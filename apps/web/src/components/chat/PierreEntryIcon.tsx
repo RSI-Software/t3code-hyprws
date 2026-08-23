@@ -59,6 +59,11 @@ const ICON_COLORS: Record<string, readonly [light: string, dark: string]> = {
   zip: ["#d47628", "#ffa359"],
 };
 
+export function resolvePierreIconColor(token: string | undefined, theme: "light" | "dark"): string {
+  const colors = ICON_COLORS[token ?? "default"] ?? ICON_COLORS.default;
+  return colors?.[theme === "light" ? 0 : 1] ?? "currentColor";
+}
+
 export const PierreEntryIcon = memo(function PierreEntryIcon(props: {
   pathValue: string;
   kind: "file" | "directory";
@@ -79,14 +84,13 @@ export const PierreEntryIcon = memo(function PierreEntryIcon(props: {
     );
   }
 
-  const colors = ICON_COLORS[icon.token ?? "default"] ?? ICON_COLORS.default;
   return (
     <svg
       aria-hidden="true"
       data-pierre-icon={icon.name}
       data-icon-token={icon.token}
       className={cn("size-4 shrink-0", props.className)}
-      style={{ color: colors?.[props.theme === "light" ? 0 : 1] }}
+      style={{ color: resolvePierreIconColor(icon.token, props.theme) }}
       viewBox="0 0 16 16"
     >
       <use href={`#${icon.name}`} />
