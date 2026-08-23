@@ -305,6 +305,7 @@ export class GitHubCli extends Context.Service<
       readonly headSelector: string;
       readonly limit?: number;
       readonly rateLimitHost?: string;
+      readonly repository?: string;
     }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
     /**
@@ -319,12 +320,15 @@ export class GitHubCli extends Context.Service<
       readonly limit: number;
       /** The checkout's GitHub host. Without it the lookup is not batched. */
       readonly rateLimitHost?: string;
+      /** `host/owner/name` to read instead of the repository gh would pick in `cwd`. */
+      readonly repository?: string;
     }) => Effect.Effect<ReadonlyArray<NormalizedGitHubPullRequestRecord>, GitHubCliError>;
 
     readonly getPullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
       readonly rateLimitHost?: string;
+      readonly repository?: string;
     }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
 
     readonly getRepositoryCloneUrls: (input: {
@@ -344,17 +348,20 @@ export class GitHubCli extends Context.Service<
       readonly headSelector: string;
       readonly title: string;
       readonly bodyFile: string;
+      readonly repository?: string;
     }) => Effect.Effect<void, GitHubCliError>;
 
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
       readonly rateLimitHost?: string;
+      readonly repository?: string;
     }) => Effect.Effect<string | null, GitHubCliError>;
 
     readonly checkoutPullRequest: (input: {
       readonly cwd: string;
       readonly reference: string;
       readonly force?: boolean;
+      readonly repository?: string;
     }) => Effect.Effect<void, GitHubCliError>;
   }
 >()("t3/sourceControl/GitHubCli") {}
@@ -451,6 +458,8 @@ class PullRequestsByHeadRead extends Request.Class<
     readonly headRefName: string;
     readonly state: PullRequestListState;
     readonly limit: number;
+    /** The caller's explicit `host/owner/name`, kept for the `gh pr list` fallback. */
+    readonly repository?: string | undefined;
   },
   ReadonlyArray<NormalizedGitHubPullRequestRecord>,
   GitHubCliError
@@ -509,6 +518,15 @@ const decodePullRequestsByHead = decodeJsonResult(
     }),
   }),
 );
+
+/** `host/owner/name` on `host` as a GraphQL owner and name; null leaves it to `gh --repo`. */
+function explicitBaseRepository(
+  repository: string,
+  host: string,
+): { readonly owner: string; readonly name: string } | null {
+  const [repositoryHost, owner, name, ...rest] = repository.toLowerCase().split("/");
+  return repositoryHost === host && owner && name && rest.length === 0 ? { owner, name } : null;
+}
 
 /**
  * The repository `gh pr list` reads in a checkout, picked the way gh picks one without a
@@ -771,6 +789,7 @@ export const make = Effect.gen(function* () {
     readonly state: PullRequestListState;
     readonly limit: number;
     readonly rateLimitHost?: string | undefined;
+    readonly repository?: string | undefined;
   }) =>
     execute({
       cwd: input.cwd,
@@ -784,6 +803,7 @@ export const make = Effect.gen(function* () {
         input.state,
         "--limit",
         String(input.limit),
+        ...(input.repository ? ["--repo", input.repository] : []),
         "--json",
         PULL_REQUEST_LIST_JSON_FIELDS,
       ],
@@ -855,6 +875,7 @@ export const make = Effect.gen(function* () {
           state: entry.request.state,
           limit: entry.request.limit,
           rateLimitHost: entry.request.host,
+          repository: entry.request.repository,
         }).pipe(
           Effect.exit,
           Effect.map((exit) => entry.completeUnsafe(exit)),
@@ -924,7 +945,9 @@ export const make = Effect.gen(function* () {
       input.headSelector.includes(":") ||
       (credential !== null && credential.host !== host)
         ? null
-        : yield* resolveBaseRepository(input.cwd, host);
+        : input.repository !== undefined
+          ? explicitBaseRepository(input.repository, host)
+          : yield* resolveBaseRepository(input.cwd, host);
     if (host === undefined || repository === null) {
       return yield* listPullRequestsWithCli(input);
     }
@@ -937,6 +960,7 @@ export const make = Effect.gen(function* () {
         headRefName: input.headSelector,
         state: input.state,
         limit: Math.min(Math.max(Math.trunc(input.limit), 1), 100),
+        repository: input.repository,
       }),
       headResolver,
     );
@@ -959,6 +983,7 @@ export const make = Effect.gen(function* () {
           "open",
           "--limit",
           String(input.limit ?? 1),
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--json",
           "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
@@ -993,6 +1018,7 @@ export const make = Effect.gen(function* () {
           "pr",
           "view",
           input.reference,
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--json",
           "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
@@ -1059,13 +1085,22 @@ export const make = Effect.gen(function* () {
           input.title,
           "--body-file",
           input.bodyFile,
+          ...(input.repository ? ["--repo", input.repository] : []),
         ],
       }).pipe(Effect.asVoid),
     getDefaultBranch: (input) =>
       execute({
         cwd: input.cwd,
         ...(input.rateLimitHost === undefined ? {} : { rateLimitHost: input.rateLimitHost }),
-        args: ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
+        args: [
+          "repo",
+          "view",
+          ...(input.repository ? [input.repository] : []),
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
       }).pipe(
         Effect.map((value) => {
           const trimmed = value.stdout.trim();
@@ -1075,7 +1110,13 @@ export const make = Effect.gen(function* () {
     checkoutPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
+        args: [
+          "pr",
+          "checkout",
+          input.reference,
+          ...(input.repository ? ["--repo", input.repository] : []),
+          ...(input.force ? ["--force"] : []),
+        ],
       }).pipe(Effect.asVoid),
   });
 });
