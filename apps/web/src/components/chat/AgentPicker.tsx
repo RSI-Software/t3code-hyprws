@@ -29,6 +29,26 @@ import {
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
+const AGENT_DESCRIPTION_MAX_LENGTH = 120;
+
+export function truncateAgentDescription(description: string): string {
+  const normalized = description.trim().replace(/\s+/g, " ");
+  const firstPeriodIndex = normalized.indexOf(".");
+  const firstSentence =
+    firstPeriodIndex === -1 ? normalized : normalized.slice(0, firstPeriodIndex + 1);
+  if (firstSentence.length <= AGENT_DESCRIPTION_MAX_LENGTH) {
+    return firstSentence;
+  }
+
+  const candidate = firstSentence.slice(0, AGENT_DESCRIPTION_MAX_LENGTH - 1).trimEnd();
+  const lastSpaceIndex = candidate.lastIndexOf(" ");
+  const truncated =
+    lastSpaceIndex >= AGENT_DESCRIPTION_MAX_LENGTH / 2
+      ? candidate.slice(0, lastSpaceIndex)
+      : candidate;
+  return `${truncated}…`;
+}
+
 export interface AgentControlProps {
   provider: ProviderDriverKind;
   instanceId?: ProviderInstanceId;
@@ -120,28 +140,33 @@ export const AgentMenuContent = memo(function AgentMenuContentImpl({
           );
         }}
       >
-        {descriptor.options.map((option) => (
-          <MenuRadioItem key={option.id} value={option.id} hideIndicator closeOnClick>
-            <span className="flex w-full min-w-0 flex-col">
-              <span className="flex w-full min-w-0 items-center justify-between gap-3">
-                <span className="min-w-0 truncate">
-                  {option.label}
-                  {option.isDefault ? (
-                    <>
-                      {" "}
-                      <DefaultBadge />
-                    </>
-                  ) : null}
+        {descriptor.options.map((option) => {
+          const description = option.description
+            ? truncateAgentDescription(option.description)
+            : null;
+          return (
+            <MenuRadioItem key={option.id} value={option.id} hideIndicator closeOnClick>
+              <span className="flex w-full min-w-0 flex-col">
+                <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                  <span className="min-w-0 truncate">
+                    {option.label}
+                    {option.isDefault ? (
+                      <>
+                        {" "}
+                        <DefaultBadge />
+                      </>
+                    ) : null}
+                  </span>
                 </span>
+                {description ? (
+                  <span className="max-w-72 break-words text-pretty text-muted-foreground/80 text-xs">
+                    {description}
+                  </span>
+                ) : null}
               </span>
-              {option.description ? (
-                <span className="max-w-72 text-pretty text-muted-foreground/80 text-xs">
-                  {option.description}
-                </span>
-              ) : null}
-            </span>
-          </MenuRadioItem>
-        ))}
+            </MenuRadioItem>
+          );
+        })}
       </MenuRadioGroup>
     </MenuGroup>
   );
