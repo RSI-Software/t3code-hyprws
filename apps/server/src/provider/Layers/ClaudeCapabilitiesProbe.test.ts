@@ -17,6 +17,7 @@ import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
   probeClaudeCapabilities,
+  withClaudeAgentOptions,
 } from "./ClaudeProvider.ts";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", { spy: true });
@@ -111,7 +112,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           '  if (message.request?.subtype === "initialize") {',
           "    reply({",
           '      commands: [{ name: "review", description: "Review changes", argumentHint: "[path]" }],',
-          "      agents: [],",
+          '      agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],',
           '      output_style: "default",',
           '      available_output_styles: ["default"],',
           "      models: [],",
@@ -150,6 +151,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         apiProvider: undefined,
+        agents: [{ name: "fable", description: "Shape product direction", model: "opus" }],
         slashCommands: [
           {
             name: "review",
