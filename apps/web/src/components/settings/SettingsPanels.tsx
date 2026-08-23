@@ -122,6 +122,11 @@ const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string>
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
 
+const TERMINAL_SESSION_MODE_LABELS: Record<TerminalSessionMode, string> = {
+  shell: "Plain shell",
+  zmux: "Managed zmux session",
+};
+
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
   "12-hour": "12-hour",
@@ -489,6 +494,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
       ? ["Composer context"]
       : []),
+    ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
+      ? ["Terminal session"]
+      : []),
     ...getChangedTypographySettingLabels(settings),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? ["Default diff file state"]
@@ -617,6 +625,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
+      terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
