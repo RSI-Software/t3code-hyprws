@@ -58,6 +58,7 @@ export function getProviderModelCapabilities(
   const slug = resolveSelectableModel(provider, model, models);
   const selectedModel = models.find((candidate) => candidate.slug === slug);
   const caps = selectedModel?.capabilities ?? EMPTY_CAPABILITIES;
+  if (provider !== "opencode") return caps; // fork-hook: custom-agents/plan-agent-opencode-only
   if (includePlanAgent) {
     return caps;
   }
