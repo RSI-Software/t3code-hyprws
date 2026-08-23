@@ -82,6 +82,7 @@ describe("GitHubCli.layer", () => {
       const result = yield* gh.getPullRequest({
         cwd: "/repo",
         reference: "#42",
+        repository: "github.com/rsi-software/t3code-hyprws",
       });
 
       assert.deepStrictEqual(result, {
@@ -102,6 +103,8 @@ describe("GitHubCli.layer", () => {
           "pr",
           "view",
           "#42",
+          "--repo",
+          "github.com/rsi-software/t3code-hyprws",
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
@@ -319,6 +322,64 @@ describe("GitHubCli.layer", () => {
         operation: "GitHubCli.execute",
         command: "gh",
         args: ["repo", "create", "octocat/codething-mvp", "--private"],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("scopes PR creation and default branch lookup to an explicit repository", () =>
+    Effect.gen(function* () {
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("")));
+      mockRun.mockReturnValueOnce(Effect.succeed(processOutput("hyprws\n")));
+
+      const gh = yield* GitHubCli.GitHubCli;
+      yield* gh.createPullRequest({
+        cwd: "/repo",
+        baseBranch: "hyprws",
+        headSelector: "feature/origin-pr",
+        title: "Origin PR",
+        bodyFile: "/tmp/body.md",
+        repository: "github.com/rsi-software/t3code-hyprws",
+      });
+      const defaultBranch = yield* gh.getDefaultBranch({
+        cwd: "/repo",
+        repository: "github.com/rsi-software/t3code-hyprws",
+      });
+
+      assert.strictEqual(defaultBranch, "hyprws");
+      expect(mockRun).toHaveBeenNthCalledWith(1, {
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "pr",
+          "create",
+          "--base",
+          "hyprws",
+          "--head",
+          "feature/origin-pr",
+          "--title",
+          "Origin PR",
+          "--body-file",
+          "/tmp/body.md",
+          "--repo",
+          "github.com/rsi-software/t3code-hyprws",
+        ],
+        cwd: "/repo",
+        timeoutMs: 30_000,
+      });
+      expect(mockRun).toHaveBeenNthCalledWith(2, {
+        operation: "GitHubCli.execute",
+        command: "gh",
+        args: [
+          "repo",
+          "view",
+          "github.com/rsi-software/t3code-hyprws",
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name",
+        ],
         cwd: "/repo",
         timeoutMs: 30_000,
       });
