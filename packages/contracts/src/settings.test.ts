@@ -315,6 +315,11 @@ describe("ServerSettings worktree defaults", () => {
       decodeServerSettingsPatch({ newWorktreesStartFromOrigin: false }).newWorktreesStartFromOrigin,
     ).toBe(false);
   });
+
+  it("defaults managed zmux sessions off and accepts partial updates", () => {
+    expect(decodeServerSettings({}).zmuxSessions).toBe(false);
+    expect(decodeServerSettingsPatch({ zmuxSessions: true }).zmuxSessions).toBe(true);
+  });
 });
 
 describe("ServerSettings.sourceControlWritingStyle", () => {
