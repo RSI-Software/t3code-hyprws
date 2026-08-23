@@ -31,3 +31,20 @@ we may close it without merging it, or never review it.
 - [ ] I explained what changed and why
 - [ ] I included before/after screenshots for any UI changes
 - [ ] I included a video for animation/interaction changes
+
+## Fork trailers
+
+<!-- RSI-Software/t3code-hyprws only. Delete this section on an upstream PR.
+
+     This body becomes the squash commit's message, so hyprws CI fails a pull
+     request whose body does not END with the trailer block. Keep it last:
+     git only reads trailers from the final paragraph.
+
+     Fork-Domain       a domain from docs/internals/fork-delta.md
+     Fork-Tier         core, qol, or bugfix
+     Fork-Upstreamable yes or no, required when Fork-Tier is bugfix
+
+     Replace the placeholders below. CI rejects them unedited. -->
+
+Fork-Domain: DOMAIN
+Fork-Tier: TIER
