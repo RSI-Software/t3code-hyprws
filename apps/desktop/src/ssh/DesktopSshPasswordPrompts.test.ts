@@ -97,6 +97,7 @@ function makeElectronWindowLayer(window: ReturnType<typeof makeTestWindow>["wind
       getOrCreate: () => Effect.die("unexpected identity window creation"),
       close: () => Effect.void,
       identityFor: () => Effect.succeed(Option.none()),
+      listIdentities: Effect.succeed([]),
       currentMainOrFirst: Effect.succeed(Option.some(window as Electron.BrowserWindow)),
       focusedMainOrFirst: Effect.succeed(Option.some(window as Electron.BrowserWindow)),
       setMain: () => Effect.void,
