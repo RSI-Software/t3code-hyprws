@@ -7,6 +7,7 @@ import {
 } from "./fileCommentAnnotations";
 import {
   isMarkdownPreviewFile,
+  isMarkdownRichEditFile,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
@@ -103,6 +104,15 @@ describe("shouldShowFileExplorer", () => {
         attachmentOpen: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("isMarkdownRichEditFile", () => {
+  it("limits rich editing to Markdown files", () => {
+    expect(isMarkdownRichEditFile("README.md")).toBe(true);
+    expect(isMarkdownRichEditFile("docs/guide.MD")).toBe(true);
+    expect(isMarkdownRichEditFile("docs/guide.mdx")).toBe(false);
+    expect(isMarkdownRichEditFile("docs/guide.txt")).toBe(false);
   });
 });
 
