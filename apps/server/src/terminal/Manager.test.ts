@@ -96,6 +96,43 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
 }
 
+class FakeProcessRunner {
+  readonly inputs: ProcessRunner.ProcessRunInput[] = [];
+  private readonly result: Effect.Effect<
+    ProcessRunner.ProcessRunOutput,
+    ProcessRunner.ProcessRunError
+  >;
+
+  constructor(
+    result: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+  ) {
+    this.result = result;
+  }
+
+  readonly service = ProcessRunner.ProcessRunner.of({
+    run: (input) => {
+      this.inputs.push(input);
+      return this.result;
+    },
+  });
+}
+
+function processResult(
+  overrides: Partial<ProcessRunner.ProcessRunOutput> = {},
+): ProcessRunner.ProcessRunOutput {
+  return {
+    stdout: "",
+    stderr: "",
+    code: ChildProcessSpawner.ExitCode(0),
+    timedOut: false,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    stdoutInvalidUtf8: false,
+    stderrInvalidUtf8: false,
+    ...overrides,
+  };
+}
+
 class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
@@ -214,6 +251,7 @@ interface CreateManagerOptions {
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
   ptyAdapter?: FakePtyAdapter;
+  terminalSessionMode?: "shell" | "zmux";
 }
 
 interface ManagerFixture {
@@ -255,6 +293,9 @@ const createManager = (
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
           : {}),
+        ...(options.terminalSessionMode !== undefined
+          ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
+          : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
       const unsubscribe = yield* manager.subscribe((event) =>
@@ -294,6 +335,115 @@ it.layer(
       assert.equal(second.threadId, "thread-1");
       assert.equal(third.threadId, "thread-1");
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
+    }),
+  );
+
+  it.effect("keeps shell mode unchanged", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "shell",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      yield* manager.open(openInput());
+
+      expect(processRunner.inputs).toEqual([]);
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "/bin/bash",
+        cwd: process.cwd(),
+      });
+    }),
+  );
+
+  it.effect("resolves and attaches zmux mode without inherited tmux context", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.succeed(
+          processResult({
+            stdout:
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+          }),
+        ),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        env: {
+          PATH: "/usr/bin",
+          SHELL: "/bin/bash",
+          TMUX: "/tmp/tmux-1000/default,1,0",
+          TMUX_PANE: "%7",
+        },
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+
+      expect(processRunner.inputs).toEqual([
+        expect.objectContaining({
+          command: "zmux",
+          args: ["session", "resolve", "--cwd", process.cwd(), "--json"],
+          cwd: process.cwd(),
+          env: expect.not.objectContaining({
+            TMUX: expect.anything(),
+            TMUX_PANE: expect.anything(),
+          }),
+        }),
+      ]);
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "zmux",
+        args: ["open", "zmux", "main"],
+        cwd: process.cwd(),
+        env: expect.not.objectContaining({ TMUX: expect.anything(), TMUX_PANE: expect.anything() }),
+      });
+      expect(snapshot.label).toBe("zmux/main");
+      expect(snapshot.history).toBe("");
+    }),
+  );
+
+  it.effect("falls back visibly when zmux cannot resolve a managed session", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.succeed(
+          processResult({
+            code: ChildProcessSpawner.ExitCode(1),
+            stderr: "no managed session",
+          }),
+        ),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
+      expect(snapshot.history).toContain(`zmux: no managed session for ${process.cwd()}`);
+      expect(snapshot.history).toContain("plain shell");
+    }),
+  );
+
+  it.effect("falls back visibly when the zmux binary is missing", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.fail(
+          new ProcessRunner.ProcessSpawnError({
+            command: "zmux",
+            argumentCount: 6,
+            cause: new Error("ENOENT"),
+          }),
+        ),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
+      expect(snapshot.history).toContain("zmux: command unavailable");
+      expect(snapshot.history).toContain("plain shell");
     }),
   );
 
