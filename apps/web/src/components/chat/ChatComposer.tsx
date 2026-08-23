@@ -196,6 +196,8 @@ import {
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
@@ -2271,6 +2273,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
+  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput);
+  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput);
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
     controlsRef: restingComposerControlsRef,
@@ -4087,6 +4091,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
+    ...(providerAgentPicker
+      ? [
+          {
+            id: "agent",
+            content: (
+              <>
+                <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
+                {providerAgentPicker}
+              </>
+            ),
+          },
+        ]
+      : []),
     ...(providerTraitsPicker
       ? [
           {
@@ -4196,6 +4213,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           interactionMode={interactionMode}
           runtimeMode={runtimeMode}
           showInteractionModeToggle={planModeUiEnabled}
+          agentMenuContent={providerAgentMenuContent}
           traitsMenuContent={providerTraitsMenuContent}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
@@ -4239,6 +4257,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
                 showInteractionModeToggle={
                   planModeUiEnabled && hiddenRestingBlockIds.includes("mode")
+                }
+                agentMenuContent={
+                  hiddenRestingBlockIds.includes("agent") ? providerAgentMenuContent : undefined
                 }
                 traitsMenuContent={
                   hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined

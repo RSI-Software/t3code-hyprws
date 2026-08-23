@@ -71,6 +71,27 @@ When Codex stops on a usage limit, the thread names the window that ran out and
 when it resets, when Codex reports them. Send the message again after the reset. On a workspace plan the
 message also says whether your workspace owner needs to add credits or raise the
 spend limit to continue sooner.
+## Choose a Codex custom agent
+
+T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
+The Agent picker appears beside the model when at least one valid agent is available.
+
+Each file needs `name`, `description`, and `developer_instructions`.
+Other Codex configuration keys form the selected agent's session layer.
+
+```toml
+name = "fable"
+description = "Shape product direction"
+developer_instructions = "Work from first principles."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+```
+
+Choose `Default` to start Codex without a custom main thread agent.
+An agent's `model` and `model_reasoning_effort` override the adjacent model controls for that session.
+
+Shadow homes share the main `CODEX_HOME` agent directory with their skills, plugins, and session history.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
 
 ## Send feedback to OpenAI
 
