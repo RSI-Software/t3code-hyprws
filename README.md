@@ -48,18 +48,20 @@ It only provides the project windows that Hyprland can place.
 
 ## Why a fork?
 
-Upstream T3 Code desktop owns one main window.
-A second desktop launch forwards back to that window.
-The app has no native project-window registry or scope.
+`hyprws` now carries several independent domains.
+Each one exists because upstream T3 Code does not currently provide the behavior.
+Each one also has its own retirement condition.
 
-Opening the same T3 server in several browser windows is a valid fork-free alternative.
-It shares the same sessions and authentication, but the web client does not yet have full desktop preview parity.
+Project-scoped windows were the first domain, but they are not necessarily permanent fork machinery.
+A browser pointed at a self-hosted T3 backend already shares sessions, authentication, providers, and state.
+Browser mode still trails Electron for terminal workflows and nested in-app browser windows.
 
-If browser windows are enough for your workflow, you may not need this fork.
+If browser mode reaches practical parity, the project-window domain is superseded.
+The same layout could use normal browser windows or a small PWA-style Electron shell around the web client.
+Upstream-native project windows would supersede it too.
 
-Native windows require more than creating another `BrowserWindow`.
-Routes, sidebars, drafts, previews, IPC, launch intents, and deep links must preserve project scope.
-That project-scoped plumbing is the main reason this fork exists.
+That would retire one domain, not necessarily the fork.
+Custom agents, rich Markdown editing, `zmux` integration, distribution, and future domains stand on their own needs.
 
 ## What this fork adds
 
@@ -68,16 +70,32 @@ Every fork commit is recorded by domain and tier in the [fork delta](docs/intern
 
 ### Project windows
 
-This is the main domain.
-
 - Open a project window from hub actions, the command palette, or `Ctrl+Alt+O`.
 - Give each window its own project-scoped routes, sidebar, drafts, and previews.
 - Focus the existing window when the same project is opened again.
 - Route second launches, renderer requests, and deep links to the correct window.
 - Keep shared services shared: backend, authentication, providers, settings, sessions, and persisted state.
 
-The domain also carries small QoL changes and focused bug fixes needed around scoped windows.
-The ledger separates `core`, `qol`, and `bugfix` commits, including whether a bug fix should go upstream.
+This domain can retire when the web client reaches practical Electron parity for this workflow.
+Upstream-native project-window support would also replace it.
+
+### Managed `zmux` estate
+
+- Attach thread terminals to the checkout's managed `zmux` session.
+- Bind new thread worktrees into the same session lifecycle.
+- Keep terminal work visible from both T3 Code and the operator's CLI.
+
+### Custom agents
+
+- Discover provider-native Claude and Codex agents.
+- Select a custom agent for the main thread from the composer.
+- Persist the selection across new and resumed sessions.
+
+### Rich Markdown editing
+
+- Switch Markdown files between Rich and Source modes.
+- Preserve CommonMark, GFM, and YAML frontmatter through the existing save path.
+- Keep MDX in read-only preview where rich round-tripping would be unsafe.
 
 ### Fork maintenance and distribution
 
@@ -85,14 +103,19 @@ The ledger separates `core`, `qol`, and `bugfix` commits, including whether a bu
 - Scan upstream changes against each active domain on every rebase.
 - Run fork-specific CI and publish Linux AppImage releases as `v<upstream version>-hyprws.<n>`.
 
-The project-window domain can be retired if upstream ships native multi-window support.
-Desktop-level web preview parity may also make browser windows or a small web wrapper sufficient.
-The [fork delta](docs/internals/fork-delta.md) owns the exact retirement conditions and current change list.
+### Upstream fixes
+
+The fork also carries focused fixes that are valid upstream but have not landed there yet.
+Each stays isolated so it can be offered upstream and dropped from the fork independently.
+
+The ledger separates `core`, `qol`, and `bugfix` commits.
+It also records whether each bug fix should go upstream.
+The [fork delta](docs/internals/fork-delta.md) owns the exact domain boundaries and current change list.
 
 ## Fork development
 
 Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
-It owns the product direction, architecture boundaries, Worktrunk lanes, and upstream rebase flow.
+It owns the project-window architecture, Worktrunk lanes, and upstream rebase flow.
 
 Read [Fork delta](docs/internals/fork-delta.md) for the authoritative list of fork changes and their rationale.
 [Fork sync](docs/operations/fork-sync.md) is the runbook for rebasing, verifying, publishing, and releasing the fork.
