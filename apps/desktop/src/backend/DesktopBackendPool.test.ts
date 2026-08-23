@@ -88,6 +88,7 @@ function makePoolLayer(
           revealOrCreateMain: Effect.die("unexpected window reveal"),
           openIdentity: () => Effect.die("unexpected identity window open"),
           openArguments: () => Effect.void,
+          restoreWindowSession: Effect.void,
           closeIdentity: () => Effect.void,
           activate: Effect.die("unexpected window activate"),
           createMainIfBackendReady: Effect.die("unexpected window create"),
