@@ -139,12 +139,16 @@ done
 
 ### Merge settings
 
-Landing onto `hyprws` is rebase-only, so the stack stays linear and keeps its trailers.
+Landing onto `hyprws` is squash-only, so the stack stays linear.
+The squash subject and body come from the pull-request title and body, so the body ends with the trailer block; see the fork guide's landing section.
 
 ```bash
 gh repo edit RSI-Software/t3code-hyprws \
-  --enable-rebase-merge --enable-squash-merge=false --enable-merge-commit=false \
+  --enable-squash-merge --enable-rebase-merge=false --enable-merge-commit=false \
   --delete-branch-on-merge
+gh api -X PATCH repos/RSI-Software/t3code-hyprws \
+  -f squash_merge_commit_title=COMMIT_OR_PR_TITLE \
+  -f squash_merge_commit_message=COMMIT_MESSAGES
 ```
 
 ### Runners
