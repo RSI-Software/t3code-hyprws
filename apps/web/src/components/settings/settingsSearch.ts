@@ -127,6 +127,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["typography family size monospace output"],
   },
   {
+    id: "terminal-session-mode",
+    title: "Terminal session",
+    to: "/settings/appearance",
+  },
+  {
     id: "font-smoothing",
     title: "Font smoothing",
     to: "/settings/appearance",
