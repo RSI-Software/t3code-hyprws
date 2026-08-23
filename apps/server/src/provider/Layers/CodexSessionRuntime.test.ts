@@ -181,9 +181,9 @@ describe("buildTurnStartParams", () => {
     });
   });
 
-  it("keeps custom-agent instructions when applying T3 collaboration mode", () => {
-    const params = Effect.runSync(
-      buildTurnStartParams({
+  it.effect("keeps custom-agent instructions when applying T3 collaboration mode", () =>
+    Effect.gen(function* () {
+      const params = yield* buildTurnStartParams({
         threadId: "provider-thread-1",
         runtimeMode: "full-access",
         prompt: "Implement it",
@@ -191,13 +191,13 @@ describe("buildTurnStartParams", () => {
         effort: "high",
         interactionMode: "default",
         agentDeveloperInstructions: "Work from first principles.",
-      }),
-    );
+      });
 
-    const instructions = params.collaborationMode?.settings.developer_instructions;
-    NodeAssert.ok(instructions?.startsWith("Work from first principles.\n\n"));
-    NodeAssert.ok(instructions?.includes("as gpt-5.6-sol with high"));
-  });
+      const instructions = params.collaborationMode?.settings.developer_instructions;
+      NodeAssert.ok(instructions?.startsWith("Work from first principles.\n\n"));
+      NodeAssert.ok(instructions?.includes("as gpt-5.6-sol with high"));
+    }),
+  );
 
   it("reports the same fallback model and effort in settings and instructions", () => {
     const params = Effect.runSync(

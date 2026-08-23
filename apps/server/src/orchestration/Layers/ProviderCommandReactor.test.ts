@@ -1552,43 +1552,45 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("restarts a Codex session when the main-thread agent changes", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
-    const dispatchTurn = (suffix: string, agent: string) =>
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`cmd-turn-start-agent-${suffix}`),
-        threadId: ThreadId.make("thread-1"),
-        message: {
-          messageId: asMessageId(`user-message-agent-${suffix}`),
-          role: "user",
-          text: `agent ${suffix}`,
-          attachments: [],
-        },
+  effectIt.effect("restarts a Codex session when the main-thread agent changes", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      const dispatchTurn = (suffix: string, agent: string) =>
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-agent-${suffix}`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-agent-${suffix}`),
+            role: "user",
+            text: `agent ${suffix}`,
+            attachments: [],
+          },
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
+            { id: "agent", value: agent },
+          ]),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+      yield* dispatchTurn("default", "default");
+      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+
+      yield* dispatchTurn("fable", "fable");
+      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 2));
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 2));
+
+      expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
         modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
-          { id: "agent", value: agent },
+          { id: "agent", value: "fable" },
         ]),
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
+        resumeCursor: { opaque: "resume-1" },
       });
-
-    await Effect.runPromise(dispatchTurn("default", "default"));
-    await waitFor(() => harness.startSession.mock.calls.length === 1);
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-
-    await Effect.runPromise(dispatchTurn("fable", "fable"));
-    await waitFor(() => harness.startSession.mock.calls.length === 2);
-    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
-
-    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
-        { id: "agent", value: "fable" },
-      ]),
-      resumeCursor: { opaque: "resume-1" },
-    });
-  });
+    }),
+  );
 
   it("forwards claude effort options through session start and turn send", async () => {
     const harness = await createHarness({
