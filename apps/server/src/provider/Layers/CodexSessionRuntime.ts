@@ -40,6 +40,7 @@ import { buildCodexInitializeParams } from "./CodexProvider.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { buildCodexDeveloperInstructions } from "../CodexDeveloperInstructions.ts";
+import type { CodexAgentDefinition } from "../Drivers/CodexAgents.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
 
 const PROVIDER = ProviderDriverKind.make("codex");
@@ -61,6 +62,18 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "does not exist",
   "no rollout found",
 ];
+
+function codexAgentStringConfig(
+  agent: CodexAgentDefinition | undefined,
+  key: string,
+): string | undefined {
+  const value = agent?.config[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | undefined): boolean {
   return appServerArgs?.some((argument) => argument.includes("mcp_servers.")) === true;
@@ -160,6 +173,7 @@ export interface CodexSessionRuntimeOptions {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
   readonly appServerArgs?: ReadonlyArray<string>;
+  readonly agent?: CodexAgentDefinition;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -525,6 +539,7 @@ function buildThreadStartParams(input: {
   readonly runtimeMode: RuntimeMode;
   readonly model: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
+  readonly agent?: CodexAgentDefinition;
 }): EffectCodexSchema.V2ThreadStartParams {
   const config = runtimeModeToThreadConfig(input.runtimeMode);
   return {
@@ -534,6 +549,12 @@ function buildThreadStartParams(input: {
     approvalsReviewer: config.approvalsReviewer,
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
+    ...(input.agent
+      ? {
+          developerInstructions: input.agent.developerInstructions,
+          ...(Object.keys(input.agent.config).length > 0 ? { config: input.agent.config } : {}),
+        }
+      : {}),
   };
 }
 
@@ -563,6 +584,7 @@ function buildCodexCollaborationMode(input: {
   readonly model?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly browserToolsAvailable?: boolean;
+  readonly agentDeveloperInstructions?: string;
 }): EffectCodexSchema.V2TurnStartParams__CollaborationMode | undefined {
   if (input.interactionMode === undefined) {
     return undefined;
@@ -574,11 +596,16 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: reasoningEffort,
-      developer_instructions: buildCodexDeveloperInstructions(
-        input.interactionMode,
-        { model, reasoningEffort },
-        input.browserToolsAvailable ?? true,
-      ),
+      developer_instructions: [
+        input.agentDeveloperInstructions,
+        buildCodexDeveloperInstructions(
+          input.interactionMode,
+          { model, reasoningEffort },
+          input.browserToolsAvailable ?? true,
+        ),
+      ]
+        .filter((instructions): instructions is string => Boolean(instructions))
+        .join("\n\n"),
     },
   };
 }
@@ -597,6 +624,7 @@ export function buildTurnStartParams(input: {
   readonly interactionMode?: ProviderInteractionMode;
   /** Defaults to true so callers that predate the agent-access gate are unchanged. */
   readonly browserToolsAvailable?: boolean;
+  readonly agentDeveloperInstructions?: string;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
@@ -618,6 +646,9 @@ export function buildTurnStartParams(input: {
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     browserToolsAvailable: input.browserToolsAvailable ?? true,
+    ...(input.agentDeveloperInstructions
+      ? { agentDeveloperInstructions: input.agentDeveloperInstructions }
+      : {}),
   });
 
   return decodeCodexTurnStartParamsWithCollaborationMode({
@@ -690,6 +721,7 @@ export const openCodexThread = (input: {
   readonly requestedModel: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
   readonly resumeThreadId: string | undefined;
+  readonly agent?: CodexAgentDefinition;
 }): Effect.Effect<CodexThreadOpenResponse, CodexErrors.CodexAppServerError> => {
   const resumeThreadId = input.resumeThreadId;
   const startParams = buildThreadStartParams({
@@ -697,6 +729,7 @@ export const openCodexThread = (input: {
     runtimeMode: input.runtimeMode,
     model: input.requestedModel,
     serviceTier: input.serviceTier,
+    ...(input.agent ? { agent: input.agent } : {}),
   });
 
   if (resumeThreadId === undefined) {
@@ -2030,7 +2063,8 @@ export const makeCodexSessionRuntime = (
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
 
-      const requestedModel = normalizeCodexModelSlug(options.model);
+      const agentModel = codexAgentStringConfig(options.agent, "model");
+      const requestedModel = normalizeCodexModelSlug(agentModel ?? options.model);
 
       const opened = yield* openCodexThread({
         client,
@@ -2040,6 +2074,7 @@ export const makeCodexSessionRuntime = (
         requestedModel,
         serviceTier: options.serviceTier,
         resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        ...(options.agent ? { agent: options.agent } : {}),
       });
 
       const providerThreadId = opened.thread.id;
@@ -2102,8 +2137,11 @@ export const makeCodexSessionRuntime = (
               ),
             );
           }
+          const agentModel = codexAgentStringConfig(options.agent, "model");
+          const agentEffort = codexAgentStringConfig(options.agent, "model_reasoning_effort");
+          const effectiveEffort = agentEffort ?? input.effort;
           const normalizedModel = normalizeCodexModelSlug(
-            input.model ?? (yield* Ref.get(sessionRef)).model,
+            agentModel ?? input.model ?? (yield* Ref.get(sessionRef)).model,
           );
           const params = yield* buildTurnStartParams({
             threadId: providerThreadId,
@@ -2112,8 +2150,11 @@ export const makeCodexSessionRuntime = (
             ...(input.attachments ? { attachments: input.attachments } : {}),
             ...(normalizedModel ? { model: normalizedModel } : {}),
             ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
-            ...(input.effort ? { effort: input.effort } : {}),
+            ...(effectiveEffort ? { effort: effectiveEffort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+            ...(options.agent
+              ? { agentDeveloperInstructions: options.agent.developerInstructions }
+              : {}),
             // Derived from the session's own MCP configuration rather than the
             // setting, so the prompt describes the tools this turn actually
             // has even if the setting changed after the session started.
