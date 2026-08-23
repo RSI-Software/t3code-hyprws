@@ -1127,6 +1127,12 @@ export interface DesktopBridge {
   /** Open or reveal the desktop window scoped to this physical project. */
   openProjectWindow?: (projectRef: ScopedProjectRef) => Promise<void>;
   /**
+   * The project this window is scoped to, or null in the hub window. Lets the
+   * client keep shared pages (settings, usage) anchored to the project window
+   * instead of falling back to the hub route.
+   */
+  projectWindowRef?: ScopedProjectRef | null;
+  /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
    * builds lack it; callers fall back to VS Code only.
