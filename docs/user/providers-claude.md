@@ -60,6 +60,23 @@ Claude Code runs one skill per message; when a message names several, the last o
 Claude starts the others through its Skill tool, which refuses skills marked
 `disable-model-invocation`.
 
+## Choose A Claude Custom Agent
+
+T3 Code shows an Agent picker beside the model when Claude Code reports one or more custom agents.
+Choose an agent before the first message to run it as the main thread agent.
+
+For example, choosing `fable` has the same launch behavior as this command:
+
+```bash
+claude --agent fable
+```
+
+Choose `Default` to start Claude without a custom main thread agent.
+The selection is saved with the thread and restored when T3 Code resumes the provider session.
+
+Agent discovery uses the selected provider's Claude config directory and Claude Code setting sources.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
+
 ## I Want Work And Personal Claude Accounts
 
 Use a different Claude config directory for each account.

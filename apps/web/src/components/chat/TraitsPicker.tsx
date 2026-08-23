@@ -78,7 +78,7 @@ export function buildUnavailableModelOptionDescriptors(
   );
 }
 
-type TraitsPersistence =
+export type TraitsPersistence =
   | {
       threadRef?: ScopedThreadRef;
       draftId?: DraftId;
@@ -91,7 +91,7 @@ type TraitsPersistence =
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
-function DefaultBadge() {
+export function DefaultBadge() {
   return (
     <Badge
       variant="outline"
@@ -102,7 +102,7 @@ function DefaultBadge() {
   );
 }
 
-function replaceDescriptorCurrentValue(
+export function replaceDescriptorCurrentValue(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
   descriptorId: string,
   currentValue: string | boolean | undefined,
@@ -157,7 +157,7 @@ function getSelectedTraits(
       });
   const selectDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
-      descriptor.type === "select",
+      descriptor.type === "select" && descriptor.id !== "agent",
   );
   const booleanDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "boolean" }> =>
@@ -166,7 +166,11 @@ function getSelectedTraits(
   const primarySelectDescriptor = selectDescriptors[0] ?? null;
   const contextWindowDescriptor =
     selectDescriptors.find((descriptor) => descriptor.id === "contextWindow") ?? null;
-  const agentDescriptor = selectDescriptors.find((descriptor) => descriptor.id === "agent") ?? null;
+  const agentDescriptor =
+    descriptors.find(
+      (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
+        descriptor.type === "select" && descriptor.id === "agent",
+    ) ?? null;
   const fastModeDescriptor =
     booleanDescriptors.find((descriptor) => descriptor.id === "fastMode") ?? null;
   const thinkingDescriptor =
@@ -237,7 +241,6 @@ function getTraitsSectionVisibility(input: {
   const showThinking = selected.thinkingDescriptor !== null;
   const showFastMode = selected.fastModeDescriptor !== null;
   const showContextWindow = selected.contextWindowDescriptor !== null;
-  const showAgent = selected.agentDescriptor !== null;
 
   return {
     ...selected,
@@ -245,14 +248,13 @@ function getTraitsSectionVisibility(input: {
     showThinking,
     showFastMode,
     showContextWindow,
-    showAgent,
     hasAnyControls:
       showEffort ||
       showThinking ||
       showFastMode ||
       showContextWindow ||
-      showAgent ||
-      (selected.modelIsUnavailable && selected.descriptors.length > 0),
+      (selected.modelIsUnavailable &&
+        selected.descriptors.some((descriptor) => descriptor.id !== "agent")),
   };
 }
 
@@ -364,21 +366,23 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   if (modelIsUnavailable) {
     return (
       <>
-        {descriptors.map((descriptor, index) => {
-          const value = getProviderOptionCurrentLabel(descriptor);
-          if (!value) return null;
-          return (
-            <div key={descriptor.id}>
-              {index > 0 ? <MenuDivider /> : null}
-              <MenuGroup>
-                <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-                  {descriptor.label}
-                </div>
-                <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">{value}</div>
-              </MenuGroup>
-            </div>
-          );
-        })}
+        {descriptors
+          .filter((descriptor) => descriptor.id !== "agent")
+          .map((descriptor, index) => {
+            const value = getProviderOptionCurrentLabel(descriptor);
+            if (!value) return null;
+            return (
+              <div key={descriptor.id}>
+                {index > 0 ? <MenuDivider /> : null}
+                <MenuGroup>
+                  <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
+                    {descriptor.label}
+                  </div>
+                  <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">{value}</div>
+                </MenuGroup>
+              </div>
+            );
+          })}
       </>
     );
   }
@@ -581,7 +585,7 @@ export const TraitsPicker = memo(function TraitsPicker({
 
   const { label: triggerLabel, showFastModeIcon } = buildTraitsTriggerDisplay({
     provider,
-    descriptors,
+    descriptors: descriptors.filter((descriptor) => descriptor.id !== "agent"),
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
   });
