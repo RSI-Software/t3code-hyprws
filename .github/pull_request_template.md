@@ -40,9 +40,20 @@ we may close it without merging it, or never review it.
      request whose body does not END with the trailer block. Keep it last:
      git only reads trailers from the final paragraph.
 
-     Fork-Domain       a domain from docs/internals/fork-delta.md
-     Fork-Tier         core, qol, or bugfix
-     Fork-Upstreamable yes or no, required when Fork-Tier is bugfix
+     Valid Fork-Domain values (copy one exactly; never invent a value):
+       project-windows
+       custom-agents
+       markdown-editing
+       fork-meta
+       distribution
+       upstream-fixes
+       zmux-estate
+
+     Valid Fork-Tier values: core, qol, bugfix.
+     Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
+
+     Do not copy Base branch or Head branch prompt context into the PR body.
+     Do not add prose, metadata, mentions, or headings after the trailers.
 
      Replace the placeholders below. CI rejects them unedited. -->
 

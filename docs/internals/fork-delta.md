@@ -19,27 +19,31 @@ It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to invento
 
 ## Why the fork exists
 
-Upstream's desktop app is single-window by construction.
-`DesktopWindow` exposes only `createMain`, `ensureMain`, and `revealOrCreateMain`.
-There is no window registry and no per-window scope.
+The fork carries a small set of independent domains that upstream T3 Code does not currently provide.
+Each domain has its own need, patch boundary, and retirement condition.
 
-Electron holds a single-instance lock.
-A second launch forwards its arguments to the first window instead of opening another.
+Project-scoped windows were the first domain.
+Upstream's desktop app is single-window by construction, with no window registry or per-window scope.
+Electron also forwards a second launch to the first window instead of opening another.
 
-That is one global dashboard for every project.
-The fork's premise is that a project window is the unit of desktop organization, one per Hyprland workspace.
+For this domain, the premise is that a project window is the unit of desktop organization.
+Each window can live on its own Hyprland workspace.
 
 ### The upstream-supported alternative
 
-Point a browser at the same backend and open one project per tab.
-Sessions, auth, and state are shared because it is the same server.
+Point a browser at a self-hosted T3 backend and open one project per window.
+Sessions, authentication, providers, and state are shared because it is the same server.
 
-That alternative is real, and it costs nothing.
-It loses the in-app browser preview because that preview is desktop-only.
+That alternative is real and needs no project-window fork machinery.
+Browser mode still trails Electron for terminal workflows and nested in-app browser windows.
+The in-app browser preview is desktop-only today.
 `apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
 
-The fork exists because of that gap and because native windows tile under Hyprland while browser tabs do not.
-Close the gap upstream and the fork's core reason to exist closes with it.
+When browser mode reaches practical parity, normal browser windows become sufficient.
+A small PWA-style Electron shell around the web client would also be enough.
+
+That would retire the `project-windows` domain, not necessarily the fork.
+The other domains in this ledger keep their own reasons to exist.
 
 ## Tiers
 
@@ -141,14 +145,12 @@ Run `vp run fork:delta` for the commit list.
 
 Delete this domain when either holds:
 
-- The web client gains in-app browser preview, making a browser window or PWA shell per project acceptable.
+- Browser mode reaches practical Electron parity for this workflow, including terminals and nested browser windows.
 - Upstream ships its own multi-window or project-scoped window support.
 
 The first is the likely one.
-`previewBridge.ts` returning something other than `null` on web is the signal to re-open this question.
-
-Other desktop-only gaps may exist and are not yet enumerated.
-Enumerate them before acting on a retirement, because preview parity alone may not be sufficient.
+`previewBridge.ts` returning something other than `null` on web is one signal to re-open this question.
+Verify the complete browser/Electron gap before retiring the domain.
 
 ### Rebase scan
 
