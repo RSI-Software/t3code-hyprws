@@ -40,6 +40,28 @@ When a Codex tool needs access to an app such as Safari, T3 Code shows the app n
 approval. You can approve, decline, or cancel the request from the desktop app, web app, or mobile
 app. Some tools also offer approval for the current session or permanent approval.
 
+## Choose A Codex Custom Agent
+
+T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
+The Agent picker appears beside the model when at least one valid agent is available.
+
+Each file needs `name`, `description`, and `developer_instructions`.
+Other Codex configuration keys form the selected agent's session layer.
+
+```toml
+name = "fable"
+description = "Shape product direction"
+developer_instructions = "Work from first principles."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+```
+
+Choose `Default` to start Codex without a custom main thread agent.
+An agent's `model` and `model_reasoning_effort` override the adjacent model controls for that session.
+
+Shadow homes share the main `CODEX_HOME` agent directory with their skills, plugins, and session history.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
+
 ## I Want Work And Personal Codex Accounts
 
 Use one real Codex home and one shadow home.
