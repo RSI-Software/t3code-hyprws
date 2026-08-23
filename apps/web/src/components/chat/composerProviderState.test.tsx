@@ -12,10 +12,13 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   getComposerReasoningStep,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
+import { DraftId } from "../../composerDraftStore";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
 const MODEL = "test-model";
@@ -175,41 +178,6 @@ describe("getComposerProviderState", () => {
 
     expect(state.promptEffort).toBe("high");
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
-  });
-
-  it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
-    const state = getComposerProviderState({
-      provider: PROVIDER,
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [
-          { id: "build", label: "Build", isDefault: true },
-          { id: "plan", label: "Plan" },
-        ]),
-      ]),
-      modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
-    });
-
-    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
-  });
-
-  it("drops the agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
-    const state = getComposerProviderState({
-      provider: PROVIDER,
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("agent", [{ id: "plan", label: "Plan", isDefault: true }]),
-      ]),
-      modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
-    });
-
-    expect(state).toEqual({
-      provider: PROVIDER,
-      promptEffort: null,
-      modelOptionsForDispatch: undefined,
-    });
   });
 
   it("falls back to a surviving agent when plan was the descriptor default and plan mode is disabled", () => {
