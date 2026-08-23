@@ -118,6 +118,7 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
 import * as ProcessRunner from "./processRunner.ts";
+import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -300,6 +301,10 @@ const layerServerSettings = ServerSettings.layer.pipe(
   Layer.provideMerge(ManagedPolicy.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
+const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(layerServerSettings),
+);
 
 const layerNativeTelemetry = NativeTelemetryClient.layer.pipe(
   Layer.provide(ResourceMonitorBinary.layer),
@@ -479,6 +484,7 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provide(layerPullRequestService.pipe(Layer.provide(RuntimeLayer.layerProjectService))),
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
   Layer.provideMerge(WorktreeSetupTracker.layer),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
@@ -491,6 +497,7 @@ const layerGit = Layer.empty.pipe(
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provideMerge(layerVcsDriverRegistry),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(layerGit),
 );
 
@@ -551,6 +558,7 @@ const layerTerminal = TerminalManager.layer(
   Layer.provide(layerPtyAdapter),
   Layer.provide(layerPortScanner),
   Layer.provide(layerNativeTelemetry),
+  Layer.provide(layerServerSettings),
 );
 
 const layerPreview = Layer.empty.pipe(
