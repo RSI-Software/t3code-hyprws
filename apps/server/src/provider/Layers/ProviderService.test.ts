@@ -15,6 +15,7 @@ import type {
 import {
   ApprovalRequestId,
   EventId,
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionStartInput,
@@ -1407,6 +1408,41 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, initial.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("recovers stale sessions for sendTurn using the persisted project id", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const projectId = ProjectId.make("project-send-turn");
+
+      const initial = yield* provider.startSession(asThreadId("thread-1"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-1"),
+        projectId,
+        cwd: "/tmp/project-send-turn",
+        runtimeMode: "full-access",
+      });
+      const firstStartInput = routing.codex.startSession.mock.lastCall?.[0] as
+        | { projectId?: string }
+        | undefined;
+      assert.equal(firstStartInput?.projectId, projectId);
+
+      yield* routing.codex.stopAll();
+      routing.codex.startSession.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "resume",
+        attachments: [],
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      const resumedStartInput = routing.codex.startSession.mock.calls[0]?.[0] as
+        | { projectId?: string }
+        | undefined;
+      assert.equal(resumedStartInput?.projectId, projectId);
     }),
   );
 
