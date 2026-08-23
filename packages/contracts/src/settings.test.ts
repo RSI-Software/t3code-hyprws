@@ -15,8 +15,8 @@ import {
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
-const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
-const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
+export const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
+export const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
