@@ -90,6 +90,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window. |
 | [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.          |
 | [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.   |
+| [upstream-fixes](#upstream-fixes)   | Active | bugfix            | Each commit, when upstream ships the fix.     |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -215,6 +216,30 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | `scripts/update-release-package-versions.ts`  | Release version alignment the fork workflow calls.          |
 | `package.json` `engines` and `packageManager` | Runner toolchain expectations.                              |
 
+## upstream-fixes
+
+### Need
+
+Fixes the fork needs now that belong to no fork domain and would be correct in upstream T3 Code as they stand.
+They sit at the bottom of the stack so each one can be offered upstream and dropped without touching a product domain.
+
+### Shape
+
+- One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes`.
+- A lane created from `upstream/main`, so the fix carries no fork dependency.
+- No shared helpers across fixes; each must drop alone.
+
+### Retirement condition
+
+Per commit: upstream ships the fix, and the next rebase drops the commit.
+The domain retires when it is empty.
+
+### Rebase scan
+
+| Path                   | Why it matters                                                     |
+| ---------------------- | ------------------------------------------------------------------ |
+| Each commit's own diff | A conflict usually means upstream fixed it differently; drop ours. |
+
 ## Adding a domain
 
 A new domain needs its own section with the same four headings, and a row in the domain index.
@@ -227,4 +252,6 @@ Answer three questions before opening one:
 3. Which upstream paths does it touch, so a rebase scan can find collisions?
 
 If the third answer is "many files across unrelated systems", the change is probably not a domain.
-It is probably a bugfix to send upstream.
+It is probably a bugfix to send upstream, filed under `upstream-fixes`.
+
+Keep the domain's new code in its own files so `vp run fork:delta --domain <name> --shas` replays it cleanly onto upstream; see [Extracting a domain](./fork-development.md#extracting-a-domain).

@@ -163,15 +163,36 @@ One trunk means one rebase per upstream sync, one CI target, and one release lin
 
 Per-domain branches were considered and rejected.
 Each extra long-lived branch is another rebase, another conflict set, and a merge order to reason about.
-Reintroduce one only if a domain must ship on its own schedule.
+Reintroduce one only if a domain must ship or be extracted on its own schedule.
+
+### Extracting a domain
+
+One trunk stays honest only while any single domain can leave it.
+Someone may want project windows without the rest, or upstream may want one domain offered as a series.
+
+```bash
+git switch -c extract/project-windows upstream/main
+git cherry-pick $(vp run fork:delta --domain project-windows --shas)
+```
+
+The SHAs come out in stack order, so the cherry-pick replays the domain exactly as it landed.
+A conflict during that replay means the domain shares code with another one; resolve it in the extract and record the seam in the domain's rebase scan.
+
+Three rules keep the replay clean:
+
+- One domain per commit; a commit that serves two domains is two lanes.
+- New domain code lives in its own files, and every shared upstream file it edits appears in its rebase scan.
+- Each domain's commits stay contiguous after every upstream rebase, so the replay never interleaves with another domain.
 
 ### Stack order
 
 Keep the stack sorted from most upstreamable to most fork-specific:
 
-1. Bugfixes tagged `Fork-Upstreamable: yes`, because they may be sent upstream and dropped.
+1. `upstream-fixes` bugfixes tagged `Fork-Upstreamable: yes`, because they may be sent upstream and dropped.
 2. `fork-meta` documentation and tooling.
 3. Product domains, with each domain's commits kept contiguous.
+
+A generic fix that belongs to no product domain is an `upstream-fixes` commit; a product domain's own bugfix stays in that domain.
 
 New commits land at the top of the stack and move down during the next upstream rebase.
 Reorder with an interactive rebase only when the stack is otherwise clean, and publish the result with a lease.
