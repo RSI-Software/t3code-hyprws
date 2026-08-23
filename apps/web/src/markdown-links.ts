@@ -96,6 +96,33 @@ export function resolveInlineCodeFileLinkMeta(
   return resolveMarkdownFileLinkMeta(candidate, cwd, baseDir);
 }
 
+function normalizeDotSegments(path: string): string {
+  const slashPath = path.replaceAll("\\", "/");
+  const usesBackslashes = path.includes("\\");
+  const isUnc = slashPath.startsWith("//");
+  const isPosixAbsolute = !isUnc && slashPath.startsWith("/");
+  const hasTrailingSeparator = /[/\\]$/.test(path);
+  const parts = slashPath.split("/").filter(Boolean);
+  const rootDepth = isUnc ? Math.min(2, parts.length) : /^[A-Za-z]:$/.test(parts[0] ?? "") ? 1 : 0;
+  const normalized: string[] = [];
+
+  for (const part of parts) {
+    if (part === ".") continue;
+    if (part === "..") {
+      if (normalized.length > rootDepth && normalized.at(-1) !== "..") normalized.pop();
+      else if (!isUnc && !isPosixAbsolute && rootDepth === 0) normalized.push(part);
+      continue;
+    }
+    normalized.push(part);
+  }
+
+  const prefix = isUnc ? "//" : isPosixAbsolute ? "/" : "";
+  const normalizedPath = `${prefix}${normalized.join("/")}`;
+  const withTrailingSeparator =
+    hasTrailingSeparator && normalizedPath !== prefix ? `${normalizedPath}/` : normalizedPath;
+  return usesBackslashes ? withTrailingSeparator.replaceAll("/", "\\") : withTrailingSeparator;
+}
+
 export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,
@@ -107,11 +134,13 @@ export function resolveMarkdownFileLinkMeta(
 }
 
 function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): MarkdownFileLinkMeta {
-  const { path, line, column } = splitFilePathPosition(targetPath);
+  const { path: rawPath, line, column } = splitFilePathPosition(targetPath);
+  const path = normalizeDotSegments(rawPath);
+  const normalizedTargetPath = formatFilePathPosition({ path, line, column });
   return {
     filePath: path,
-    targetPath,
-    displayPath: formatWorkspaceRelativePath(targetPath, cwd),
+    targetPath: normalizedTargetPath,
+    displayPath: formatWorkspaceRelativePath(normalizedTargetPath, cwd),
     workspaceRelativePath: workspaceRelativeFilePath(path, cwd),
     basename: fileBasename(path),
     ...(line !== undefined ? { line } : {}),
