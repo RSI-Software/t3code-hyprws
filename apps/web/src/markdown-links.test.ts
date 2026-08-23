@@ -234,6 +234,18 @@ describe("resolveMarkdownFileLinkTarget", () => {
     },
   );
 
+  it("resolves document-relative paths against a separate workspace root", () => {
+    expect(
+      resolveMarkdownFileLinkMeta("../../README.md", "/workspace", "/workspace/docs/user"),
+    ).toMatchObject({
+      filePath: "/workspace/README.md",
+      targetPath: "/workspace/README.md",
+      displayPath: "workspace/README.md",
+      workspaceRelativePath: "README.md",
+      basename: "README.md",
+    });
+  });
+
   it("formats tooltip display paths relative to the cwd for slash-prefixed windows paths", () => {
     expect(
       resolveMarkdownFileLinkMeta(
