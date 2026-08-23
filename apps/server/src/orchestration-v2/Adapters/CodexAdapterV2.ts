@@ -117,6 +117,10 @@ import {
   resolveCodexHomeLayout,
 } from "../../provider/Drivers/CodexHomeLayout.ts";
 import {
+  codexAgentAdditionalContext,
+  resolveCodexTurnAgent,
+} from "../../provider/Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-turn-agent-import
+import {
   boundProviderEventForLogging,
   shouldPersistProviderEvent,
 } from "../../provider/EventNdjsonLogger.ts";
@@ -784,6 +788,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
     /** The user's `model_reasoning_summary` from the Codex config, when set. */
     readonly configuredReasoningSummary?: CodexSchema.V2TurnStartParams__ReasoningSummary;
+    readonly agentInstructions?: string | undefined; // fork-hook: custom-agents/codex-turn-agent-instructions-input
   }) {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
     const approvalPolicy =
@@ -828,6 +833,7 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       threadId: input.nativeThreadId,
       input: input.codexInput,
       ...(additionalContext ? { additionalContext } : {}),
+      ...codexAgentAdditionalContext(additionalContext, input.agentInstructions), // fork-hook: custom-agents/codex-turn-agent-context
       cwd: input.runtimePolicy.cwd,
       model: input.modelSelection.model,
       // Catalogues can default summaries to "none", and turn/start overrides the user's config,
@@ -7248,17 +7254,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   Effect.logDebug("Codex config read failed.").pipe(Effect.as(undefined)),
                 ),
               );
+            const codexAgent = yield* resolveCodexTurnAgent({
+              modelSelection: turnInput.modelSelection,
+              settings: resolvedRuntime?.config ?? adapterOptions.settings,
+              environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+              cwd: turnInput.runtimePolicy.cwd,
+              fileSystem,
+            }); // fork-hook: custom-agents/codex-turn-agent
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
               codexInput,
               runtimePolicy: turnInput.runtimePolicy,
-              modelSelection: turnInput.modelSelection,
+              modelSelection: codexAgent.modelSelection, // fork-hook: custom-agents/codex-turn-agent-model
               hasT3Mcp: mcpSession !== undefined,
               browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
               ...(configuredReasoningSummary === undefined ? {} : { configuredReasoningSummary }),
+              agentInstructions: codexAgent.agentInstructions, // fork-hook: custom-agents/codex-turn-agent-instructions
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);
