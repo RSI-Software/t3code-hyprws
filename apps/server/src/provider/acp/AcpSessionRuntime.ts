@@ -26,6 +26,7 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
+import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
@@ -1516,9 +1517,16 @@ export const make = (
         ),
       );
 
+    // Compose the complete child environment here so the launcher's tmux
+    // variables never leak in, while preserving upstream's explicit opt-out
+    // from host-environment inheritance.
+    const spawnEnv = {
+      ...(options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env)),
+      ...options.spawn.env,
+    };
     const spawnCommand = yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
-      ...(options.spawn.env ? { env: options.spawn.env } : {}),
-      extendEnv: options.spawn.extendEnv ?? true,
+      env: spawnEnv,
+      extendEnv: false,
     });
     const linuxCgroupLease =
       options.ownDescendantProcessGroups === true && options.processGroupPlatform === "linux"
@@ -1579,8 +1587,8 @@ export const make = (
       .spawn(
         ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
           ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
-          ...(spawnEnvironment ? { env: spawnEnvironment } : {}),
-          extendEnv: options.spawn.extendEnv ?? true,
+          env: spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment }, // fork-hook: upstream-fixes/acp-spawn-environment
+          extendEnv: false,
           ...(options.ownDetachedProcessGroup === undefined
             ? {}
             : { detached: options.ownDetachedProcessGroup }),
