@@ -441,6 +441,8 @@ export const ItemLifecyclePayload = Schema.Struct({
   data: Schema.optional(Schema.Unknown),
   agentId: Schema.optional(TrimmedNonEmptyStringSchema),
   parentToolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Attributed child work belongs in the Agents surface, not the parent timeline. */
+  timelineBypass: Schema.optional(Schema.Boolean),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
 
