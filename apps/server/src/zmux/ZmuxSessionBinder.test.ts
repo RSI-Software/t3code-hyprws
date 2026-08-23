@@ -41,7 +41,7 @@ const resolveJson = JSON.stringify({
 function makeLayer(
   run: ProcessRunner.ProcessRunner["Service"]["run"],
   settings: Parameters<typeof ServerSettings.ServerSettingsService.layerTest>[0] = {
-    zmuxSessions: true,
+    terminalSessionMode: "zmux",
   },
 ) {
   return ZmuxSessionBinder.layer.pipe(
@@ -168,6 +168,6 @@ describe("ZmuxSessionBinder", () => {
 
       assert.deepStrictEqual(result, { status: "disabled" });
       assert.equal(run.mock.calls.length, 0);
-    }).pipe(Effect.provide(makeLayer(run, { zmuxSessions: false })));
+    }).pipe(Effect.provide(makeLayer(run, { terminalSessionMode: "shell" })));
   });
 });
