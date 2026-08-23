@@ -47,6 +47,28 @@ To switch accounts mid-thread, pick another compatible Codex instance sharing th
 - **Usage limits**: Limit stops display the exhausted window, reset time, and (on workspace plans) whether credits or spend limits need adjustment.
 - **Feedback to OpenAI**: Send `/feedback <description>` in an existing Codex thread to upload conversation and Codex logs to OpenAI.
 
+## Choose a Codex custom agent
+
+T3 Code reads personal Codex agents from `<CODEX_HOME>/agents/*.toml`.
+The Agent picker appears beside the model when at least one valid agent is available.
+
+Each file needs `name`, `description`, and `developer_instructions`.
+Other Codex configuration keys form the selected agent's session layer.
+
+```toml
+name = "fable"
+description = "Shape product direction"
+developer_instructions = "Work from first principles."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+```
+
+Choose `Default` to start Codex without a custom main thread agent.
+An agent's `model` and `model_reasoning_effort` override the adjacent model controls for that session.
+
+Shadow homes share the main `CODEX_HOME` agent directory with their skills, plugins, and session history.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
+
 ## OpenAI Chrome extension
 
 Using your signed-in Chrome profile via [OpenAI's Chrome extension](https://learn.chatgpt.com/docs/chrome-extension) requires a browser connection for the Codex thread. For remote environments, forward the remote page's port or use a reachable URL—T3 Code's built-in preview browser uses its own separate session.
