@@ -27,6 +27,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopWindowSession from "../window/DesktopWindowSession.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
 import { resolveDefaultDesktopUpdateChannel } from "./updateChannels.ts";
 import {
@@ -255,6 +256,7 @@ export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
@@ -497,6 +499,10 @@ export const make = Effect.gen(function* () {
         (instance) => instance.stop({ timeout: Duration.seconds(5) }),
         { concurrency: "unbounded" },
       );
+      // Upstream relaunches into a bare app because it only ever has one
+      // window. The fork can be holding a window per project, each on its own
+      // workspace, so record that layout while the windows are still alive.
+      yield* windowSession.capture(yield* electronWindow.listIdentities, "update");
       yield* electronWindow.destroyAll;
       yield* electronUpdater.quitAndInstall({
         isSilent: true,

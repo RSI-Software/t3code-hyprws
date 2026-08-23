@@ -1,6 +1,7 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -28,9 +29,12 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
+import * as DesktopWindowSession from "./DesktopWindowSession.ts";
+import { HyprlandPlacement } from "./HyprlandPlacement.ts";
 import {
   HUB_WINDOW_IDENTITY,
   projectWindowPreloadArgument,
+  windowIdentityKey,
   type WindowIdentity,
 } from "./WindowIdentity.ts";
 import { makeQuitHoldHandler } from "./QuitHold.ts";
@@ -72,6 +76,8 @@ type DesktopWindowRuntimeServices =
   | ElectronShell.ElectronShell
   | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow
+  | HyprlandPlacement
+  | DesktopWindowSession.DesktopWindowSession
   | PreviewManager.PreviewManager;
 
 export type DesktopWindowError =
@@ -90,6 +96,12 @@ export class DesktopWindow extends Context.Service<
       identity: WindowIdentity,
     ) => Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly openArguments: (argv: readonly string[]) => Effect.Effect<void, DesktopWindowError>;
+    /**
+     * Loads the windows an update relaunch left behind, queued until the
+     * backend is ready. Must run before openArguments so an explicit launch
+     * intent still wins over a restore.
+     */
+    readonly restoreWindowSession: Effect.Effect<void>;
     readonly closeIdentity: (identity: WindowIdentity) => Effect.Effect<void>;
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
@@ -339,6 +351,8 @@ export const make = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
+  const hyprlandPlacement = yield* HyprlandPlacement;
+  const windowSession = yield* DesktopWindowSession.DesktopWindowSession;
   // Window-side latch for the primary backend's readiness. Set by
   // handleBackendReady (driven by the pool's onReady callback), cleared
   // by handleBackendNotReady (driven by onShutdown). Only consumed by
@@ -351,6 +365,9 @@ export const make = Effect.gen(function* () {
   const pendingInitialIdentityRef = yield* Ref.make<Option.Option<WindowIdentity>>(
     Option.some(HUB_WINDOW_IDENTITY),
   );
+  // Windows carried across an update relaunch. Empty on every other launch, so
+  // the hub-only default above still describes a normal cold start.
+  const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -855,6 +872,10 @@ export const make = Effect.gen(function* () {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      // The compositor maps the window a beat after it is shown, so bind it to
+      // its Hyprland client now while the title is still the one it mapped
+      // with. Only used to remember the workspace across an update relaunch.
+      void runPromise(hyprlandPlacement.claim(windowIdentityKey(identity), window.getTitle()));
     });
 
     loadApplication();
@@ -865,6 +886,7 @@ export const make = Effect.gen(function* () {
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
+      void runPromise(hyprlandPlacement.forget(windowIdentityKey(identity)));
       if (identity.kind === "hub") {
         void runPromise(electronWindow.clearMain(Option.some(window)));
       }
@@ -908,6 +930,36 @@ export const make = Effect.gen(function* () {
   const revealOrCreateMain = revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
     Effect.withSpan("desktop.window.revealOrCreateMain"),
   );
+
+  /**
+   * Reopens the windows an update relaunch recorded, then puts each one back on
+   * the workspace it came from. One window failing is logged and skipped: a
+   * project that has since gone away must not strand the whole restore.
+   */
+  const drainPendingRestore = Effect.gen(function* () {
+    const entries = yield* Ref.getAndSet(pendingRestoreRef, []);
+    if (entries.length === 0) return false;
+    for (const entry of entries) {
+      const key = windowIdentityKey(entry.identity);
+      const opened = yield* Effect.exit(ensureIdentity(entry.identity));
+      if (Exit.isFailure(opened)) {
+        yield* logWindowWarning("failed to restore window", { identity: key });
+        continue;
+      }
+      const workspace = entry.workspace;
+      if (workspace === null) continue;
+      // Fire and forget: claim polls for the compositor client, and the next
+      // window should not wait behind it.
+      runFork(
+        Effect.andThen(
+          hyprlandPlacement.claim(key, opened.value.getTitle()),
+          hyprlandPlacement.moveToWorkspace(key, workspace),
+        ),
+      );
+    }
+    yield* logWindowInfo("window session reopened", { windows: entries.length });
+    return true;
+  }).pipe(Effect.withSpan("desktop.window.drainPendingRestore"));
 
   const createMainIfBackendReady = Effect.gen(function* () {
     const backendReady = yield* Ref.get(backendReadyRef);
@@ -968,14 +1020,29 @@ export const make = Effect.gen(function* () {
     ensureMain,
     revealOrCreateMain,
     openIdentity: revealOrCreateIdentity,
+    restoreWindowSession: Effect.gen(function* () {
+      const entries = yield* windowSession.consume;
+      if (entries.length === 0) return;
+      yield* Ref.set(pendingRestoreRef, entries);
+    }).pipe(Effect.withSpan("desktop.window.restoreWindowSession")),
     openArguments: Effect.fn("desktop.window.openArguments")(function* (argv) {
-      const identity = resolveWindowIdentityFromArguments(argv) ?? HUB_WINDOW_IDENTITY;
+      const explicitIdentity = resolveWindowIdentityFromArguments(argv);
       const backendReady = yield* Ref.get(backendReadyRef);
       if (!backendReady) {
-        yield* Ref.set(pendingInitialIdentityRef, Option.some(identity));
+        // A launch with no intent must not overwrite a pending restore with the
+        // hub default, or an update relaunch loses every project window.
+        const hasPendingRestore = (yield* Ref.get(pendingRestoreRef)).length > 0;
+        yield* Ref.set(
+          pendingInitialIdentityRef,
+          explicitIdentity === null
+            ? hasPendingRestore
+              ? Option.none()
+              : Option.some(HUB_WINDOW_IDENTITY)
+            : Option.some(explicitIdentity),
+        );
         return;
       }
-      yield* revealOrCreateIdentity(identity);
+      yield* revealOrCreateIdentity(explicitIdentity ?? HUB_WINDOW_IDENTITY);
     }),
     closeIdentity: electronWindow.close,
     activate: Effect.gen(function* () {
@@ -1004,11 +1071,13 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      const restored = yield* drainPendingRestore;
       const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
       if (Option.isSome(pendingIdentity)) {
         yield* revealOrCreateIdentity(pendingIdentity.value);
         return;
       }
+      if (restored) return;
       yield* createMainIfBackendReady;
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
