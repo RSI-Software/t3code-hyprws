@@ -32,6 +32,8 @@ import {
   PROJECT_WINDOW_PRELOAD_ARGUMENT,
   isProjectWindowPreload,
   projectWindowIdentity,
+  projectWindowPreloadArgument,
+  readProjectWindowPreloadRef,
 } from "../window/WindowIdentity.ts";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
@@ -61,6 +63,19 @@ describe("ElectronWindow", () => {
   it("identifies project-window preload arguments", () => {
     assert.isTrue(isProjectWindowPreload(["electron", PROJECT_WINDOW_PRELOAD_ARGUMENT]));
     assert.isFalse(isProjectWindowPreload(["electron"]));
+  });
+
+  it("round-trips the scoped project through the preload argument", () => {
+    const projectRef = {
+      environmentId: EnvironmentId.make("environment:remote"),
+      projectId: ProjectId.make("project one"),
+    };
+    const argument = projectWindowPreloadArgument(projectRef);
+
+    assert.isTrue(isProjectWindowPreload(["electron", argument]));
+    assert.deepEqual(readProjectWindowPreloadRef(["electron", argument]), projectRef);
+    assert.isNull(readProjectWindowPreloadRef(["electron"]));
+    assert.isNull(readProjectWindowPreloadRef(["electron", PROJECT_WINDOW_PRELOAD_ARGUMENT]));
   });
 
   it.effect("preserves schema-safe creation context and the Electron cause", () =>
