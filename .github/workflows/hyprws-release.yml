@@ -30,6 +30,7 @@ jobs:
       version: ${{ steps.release_meta.outputs.version }}
       tag: ${{ steps.release_meta.outputs.tag }}
       release_name: ${{ steps.release_meta.outputs.name }}
+      upstream_base: ${{ steps.upstream_base.outputs.tag }}
       ref: ${{ github.sha }}
     steps:
       - name: Checkout
@@ -76,8 +77,17 @@ jobs:
       - name: Fork ledger
         run: |
           git remote add upstream https://github.com/pingdotgg/t3code.git
-          git fetch --no-tags upstream main
+          git fetch --tags upstream main
           vp run fork:delta --check
+
+      # The fork stack sits on an upstream tag, stable or nightly. Name it in
+      # the release so a nightly base is never ambiguous.
+      - id: upstream_base
+        name: Resolve upstream base
+        run: |
+          base="$(git describe --tags --abbrev=0 "$(git merge-base HEAD upstream/main)")"
+          echo "tag=$base" >> "$GITHUB_OUTPUT"
+          echo "upstream base: $base"
 
       - name: Check
         run: vp check
@@ -196,6 +206,8 @@ jobs:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
           name: ${{ needs.preflight.outputs.release_name }}
+          body: |
+            Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
           generate_release_notes: true
           prerelease: false
           make_latest: true
