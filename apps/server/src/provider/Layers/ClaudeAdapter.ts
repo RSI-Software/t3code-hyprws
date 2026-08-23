@@ -87,6 +87,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { truncateActivityDetail } from "../../activityDetail.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
@@ -380,6 +381,11 @@ interface ClaudeTaskAgentState {
   effort: string | undefined;
 }
 
+interface PendingClaudeAssistantSnapshot {
+  readonly itemId: string;
+  readonly detail: string;
+}
+
 /**
  * How many racing snapshot models to buffer per session. A snapshot whose
  * task_started never arrives would otherwise pin its entry for the session's
@@ -400,6 +406,20 @@ function rememberPendingTaskModel(
   model: string,
 ): void {
   pending.set(parentToolUseId, model);
+  if (pending.size > PENDING_TASK_MODEL_CAP) {
+    const oldest = pending.keys().next();
+    if (!oldest.done) {
+      pending.delete(oldest.value);
+    }
+  }
+}
+
+function rememberPendingAssistantSnapshot(
+  pending: Map<string, PendingClaudeAssistantSnapshot>,
+  parentToolUseId: string,
+  snapshot: PendingClaudeAssistantSnapshot,
+): void {
+  pending.set(parentToolUseId, snapshot);
   if (pending.size > PENDING_TASK_MODEL_CAP) {
     const oldest = pending.keys().next();
     if (!oldest.done) {
@@ -438,6 +458,8 @@ interface ClaudeSessionContext {
    * Written through `rememberPendingTaskModel`, consumed by task_started.
    */
   readonly pendingTaskModels: Map<string, string>;
+  /** Completed child text that arrived before task_started resolved task_id. */
+  readonly pendingAssistantSnapshots: Map<string, PendingClaudeAssistantSnapshot>;
   /**
    * Last emitted workflow-member fingerprint per member slot. A coordinator
    * task_progress repeats the FULL member array every tick; without a
@@ -3134,7 +3156,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          ...(tool.agentId ? { agentId: tool.agentId } : {}),
+          ...(tool.agentId ? { agentId: tool.agentId, timelineBypass: true } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: {
             toolName: tool.toolName,
@@ -3210,7 +3232,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: toolResult.isError ? "failed" : "inProgress",
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          ...(tool.agentId ? { agentId: tool.agentId } : {}),
+          ...(tool.agentId ? { agentId: tool.agentId, timelineBypass: true } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: toolData,
         },
@@ -3264,7 +3286,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: itemStatus,
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          ...(tool.agentId ? { agentId: tool.agentId } : {}),
+          ...(tool.agentId ? { agentId: tool.agentId, timelineBypass: true } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: toolData,
         },
@@ -3330,6 +3352,47 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
   });
 
+  const emitChildAssistantSnapshot = Effect.fn("emitChildAssistantSnapshot")(function* (
+    context: ClaudeSessionContext,
+    input: {
+      readonly taskId: string;
+      readonly parentToolUseId: string;
+      readonly snapshot: PendingClaudeAssistantSnapshot;
+    },
+  ) {
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "item.completed",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+      itemId: asRuntimeItemId(input.snapshot.itemId),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Agent message",
+        detail: input.snapshot.detail,
+        agentId: input.taskId,
+        parentToolUseId: input.parentToolUseId,
+        timelineBypass: true,
+      },
+      providerRefs: nativeProviderRefs(context, {
+        providerItemId: input.snapshot.itemId,
+      }),
+      raw: {
+        source: "claude.sdk.message",
+        method: "claude/assistant/child",
+        payload: {
+          taskId: input.taskId,
+          parentToolUseId: input.parentToolUseId,
+          itemId: input.snapshot.itemId,
+        },
+      },
+    });
+  });
+
   const handleAssistantMessage = Effect.fn("handleAssistantMessage")(function* (
     context: ClaudeSessionContext,
     message: SDKMessage,
@@ -3350,6 +3413,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const owningTaskId = agentIdForParentToolUse(context.taskAgents, assistantParentToolUseId);
       const snapshotModel = trimmedString(message.message.model);
       const owningAgent = owningTaskId ? context.taskAgents.get(owningTaskId) : undefined;
+      const assistantText = extractAssistantTextBlocks(message).join("\n\n").trim();
+      const snapshot = assistantText
+        ? {
+            itemId: sdkNativeItemId(message) ?? message.uuid,
+            detail: truncateActivityDetail(assistantText),
+          }
+        : undefined;
       if (snapshotModel) {
         if (owningAgent) {
           owningAgent.model = snapshotModel;
@@ -3360,6 +3430,21 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             context.pendingTaskModels,
             assistantParentToolUseId,
             snapshotModel,
+          );
+        }
+      }
+      if (snapshot) {
+        if (owningTaskId) {
+          yield* emitChildAssistantSnapshot(context, {
+            taskId: owningTaskId,
+            parentToolUseId: assistantParentToolUseId,
+            snapshot,
+          });
+        } else {
+          rememberPendingAssistantSnapshot(
+            context.pendingAssistantSnapshots,
+            assistantParentToolUseId,
+            snapshot,
           );
         }
       }
@@ -3775,6 +3860,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.workflow_name ? { workflowName: message.workflow_name } : {}),
           },
         });
+        const pendingAssistantSnapshot = toolUseId
+          ? context.pendingAssistantSnapshots.get(toolUseId)
+          : undefined;
+        if (toolUseId) {
+          context.pendingAssistantSnapshots.delete(toolUseId);
+        }
+        if (toolUseId && pendingAssistantSnapshot) {
+          yield* emitChildAssistantSnapshot(context, {
+            taskId: message.task_id,
+            parentToolUseId: toolUseId,
+            snapshot: pendingAssistantSnapshot,
+          });
+        }
         return;
       }
       case "task_progress": {
@@ -4439,6 +4537,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const pendingTaskModels = new Map<string, string>();
+      const pendingAssistantSnapshots = new Map<string, PendingClaudeAssistantSnapshot>();
       const workflowMemberFingerprints = new Map<string, string>();
       const liveTaskIds = new Set<string>();
 
@@ -4829,11 +4928,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ) => runPromise(handleResumeDialog(request, callbackOptions));
 
       const claudeBinaryPath = claudeSdkExecutablePath;
+      const configuredExtraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const {
         "permission-mode": launchArgPermissionMode,
         "dangerously-skip-permissions": launchArgSkipPermissions,
-        ...extraArgs
-      } = parseCliArgs(claudeSettings.launchArgs).flags;
+        ...extraArgsWithHonoredRemoved
+      } = configuredExtraArgs;
+      const { agent: _configuredAgent, ...extraArgsWithoutAgent } = extraArgsWithHonoredRemoved;
       const selectedModel =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
       const modelSelection = selectedModel
@@ -4842,6 +4943,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             model: resolveClaudeModelSlug(modelCatalog, selectedModel.model),
           }
         : undefined;
+      const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
+      const extraArgs =
+        selectedAgent === undefined
+          ? extraArgsWithHonoredRemoved
+          : selectedAgent === "default"
+            ? extraArgsWithoutAgent
+            : { ...extraArgsWithoutAgent, agent: selectedAgent };
       const caps = getClaudeCatalogModelCapabilities(modelCatalog, modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection
@@ -4979,6 +5087,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.cwd": input.cwd ?? "",
         "claude.query.model": apiModelId ?? "",
         "claude.query.effort": effectiveEffort ?? "",
+        "claude.query.agent": selectedAgent === "default" ? "" : (selectedAgent ?? ""),
         "claude.query.permission_mode": permissionMode ?? "",
         "claude.query.allow_dangerously_skip_permissions": permissionMode === "bypassPermissions",
         "claude.query.resume": existingResumeSessionId ?? "",
@@ -5049,6 +5158,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         claudeTasks,
         taskAgents,
         pendingTaskModels,
+        pendingAssistantSnapshots,
         workflowMemberFingerprints,
         liveTaskIds,
         turnState: undefined,
