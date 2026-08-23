@@ -23,6 +23,7 @@ const KNOWN_SHARED_DIRECTORIES = [
   "shell_snapshots",
   "worktrees",
   "skills",
+  "agents",
   "plugins",
   "cache",
   "logs",
