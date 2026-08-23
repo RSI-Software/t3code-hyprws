@@ -56,6 +56,7 @@ import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
+import { truncateActivityDetail as truncateDetail } from "../../activityDetail.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 // Suffixed, not prefixed: `clearTurnStateForSession` sweeps by thread prefix.
@@ -184,8 +185,33 @@ function maxCheckpointTurnCount(
   return maxTurnCount;
 }
 
-function truncateDetail(value: string, limit = 180): string {
-  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+function isPersistableItemLifecycle(event: ProviderRuntimeEvent): boolean {
+  if (
+    event.type !== "item.started" &&
+    event.type !== "item.updated" &&
+    event.type !== "item.completed"
+  ) {
+    return false;
+  }
+  return (
+    isToolLifecycleItemType(event.payload.itemType) ||
+    (event.payload.agentId !== undefined && event.payload.timelineBypass === true)
+  );
+}
+
+function persistedItemLifecycleData(
+  event: Extract<
+    ProviderRuntimeEvent,
+    { readonly type: "item.started" | "item.updated" | "item.completed" }
+  >,
+): { readonly data?: unknown } {
+  if (
+    event.payload.data === undefined ||
+    (event.payload.agentId !== undefined && event.payload.timelineBypass === true)
+  ) {
+    return {};
+  }
+  return { data: event.payload.data };
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -931,7 +957,7 @@ export function runtimeEventToActivities(
     }
 
     case "item.updated": {
-      if (!isToolLifecycleItemType(event.payload.itemType)) {
+      if (!isPersistableItemLifecycle(event)) {
         return [];
       }
       // A streaming update's `data` carries the full tool output accumulated
@@ -957,8 +983,11 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...persistedItemLifecycleData(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
+            ...(event.payload.timelineBypass !== undefined
+              ? { timelineBypass: event.payload.timelineBypass }
+              : {}),
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
@@ -970,7 +999,7 @@ export function runtimeEventToActivities(
     }
 
     case "item.completed": {
-      if (!isToolLifecycleItemType(event.payload.itemType)) {
+      if (!isPersistableItemLifecycle(event)) {
         return [];
       }
       return [
@@ -989,8 +1018,11 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...persistedItemLifecycleData(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
+            ...(event.payload.timelineBypass !== undefined
+              ? { timelineBypass: event.payload.timelineBypass }
+              : {}),
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
@@ -1002,7 +1034,7 @@ export function runtimeEventToActivities(
     }
 
     case "item.started": {
-      if (!isToolLifecycleItemType(event.payload.itemType)) {
+      if (!isPersistableItemLifecycle(event)) {
         return [];
       }
       return [
@@ -1021,8 +1053,11 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...persistedItemLifecycleData(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
+            ...(event.payload.timelineBypass !== undefined
+              ? { timelineBypass: event.payload.timelineBypass }
+              : {}),
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
