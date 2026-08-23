@@ -18,6 +18,24 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("ServerSettings terminal session mode", () => {
+  it("defaults to a plain shell", () => {
+    expect(decodeServerSettings({}).terminalSessionMode).toBe("shell");
+  });
+
+  it("accepts zmux mode in full settings and patches", () => {
+    expect(decodeServerSettings({ terminalSessionMode: "zmux" }).terminalSessionMode).toBe("zmux");
+    expect(decodeServerSettingsPatch({ terminalSessionMode: "zmux" }).terminalSessionMode).toBe(
+      "zmux",
+    );
+  });
+
+  it("rejects unsupported terminal session modes", () => {
+    expect(() => decodeServerSettings({ terminalSessionMode: "tmux" })).toThrow();
+    expect(() => decodeServerSettingsPatch({ terminalSessionMode: "tmux" })).toThrow();
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);
