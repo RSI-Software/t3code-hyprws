@@ -33,6 +33,7 @@ import {
   type TerminalWriteInput,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
+import { isInheritedTmuxEnvKey } from "@t3tools/shared/env";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as DateTime from "effect/DateTime";
@@ -1020,6 +1021,9 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
+    return true;
+  }
+  if (isInheritedTmuxEnvKey(normalizedKey)) {
     return true;
   }
   return TERMINAL_ENV_BLOCKLIST.has(normalizedKey);
