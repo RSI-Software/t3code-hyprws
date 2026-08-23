@@ -85,12 +85,13 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 
 ## Domain index
 
-| Domain                              | Status | Tiers present     | Retires when                                  |
-| ----------------------------------- | ------ | ----------------- | --------------------------------------------- |
-| [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window. |
-| [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.          |
-| [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.   |
-| [upstream-fixes](#upstream-fixes)   | Active | bugfix            | Each commit, when upstream ships the fix.     |
+| Domain                              | Status | Tiers present     | Retires when                                              |
+| ----------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
+| [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
+| [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.                      |
+| [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.               |
+| [upstream-fixes](#upstream-fixes)   | Active | bugfix            | Each commit, when upstream ships the fix.                 |
+| [zmux-estate](#zmux-estate)         | Active | core              | Upstream terminals attach to an external session manager. |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -239,6 +240,34 @@ The domain retires when it is empty.
 | Path                   | Why it matters                                                     |
 | ---------------------- | ------------------------------------------------------------------ |
 | Each commit's own diff | A conflict usually means upstream fixed it differently; drop ours. |
+
+## zmux-estate
+
+### Need
+
+A thread's terminal and worktree live in the same managed zmux estate the operator drives from the CLI.
+Upstream spawns a plain shell per terminal and owns no session manager, so a thread's work is invisible outside the app.
+
+### Shape
+
+- `terminalSessionMode` chooses whether a new thread terminal opens a plain shell or attaches through `zmux open` to the session `zmux session resolve` names for the checkout.
+- `zmuxSessions` binds a new thread worktree through `zmux wt --adopt` and kills that session when the worktree is removed.
+- Every fallback to a plain shell prints its reason into the terminal buffer, and a missing `zmux` binary degrades silently to upstream behaviour.
+- `apps/server/src/zmux/` holds the binder; the terminal manager and the worktree workflow call it through `ProcessRunner` with the inherited tmux variables stripped.
+
+### Retirement condition
+
+Upstream terminals can attach to an operator-chosen external session manager, and worktree lifecycle exposes hooks a session manager can bind to.
+
+### Rebase scan
+
+| Path                                                  | Why it matters                                                        |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `apps/server/src/terminal/Manager.ts`                 | Shell candidate resolution and spawn env; the attach path hooks here. |
+| `apps/server/src/git/GitWorkflowService.ts`           | Worktree create and remove; the bind and unbind calls hook here.      |
+| `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.      |
+| `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and `zmuxSessions` sit between upstream keys.   |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for both switches; a busy upstream file.                  |
 
 ## Adding a domain
 
