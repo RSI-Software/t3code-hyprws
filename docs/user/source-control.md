@@ -190,6 +190,10 @@ Choose how commit messages and pull request titles and descriptions are written 
 project's instructions and recent commit subjects. **Custom instructions** applies your own
 instructions to commits and pull requests.
 
+When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
+pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
+pull-request target, and creating a pull request still takes an explicit action.
+
 ## Review and merge
 
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
