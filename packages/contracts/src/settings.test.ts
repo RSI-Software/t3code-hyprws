@@ -13,10 +13,10 @@ import {
   ServerSettingsPatch,
 } from "./settings.ts";
 
-const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
-const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
-const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
-const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
+export const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+export const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
+export const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
+export const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
