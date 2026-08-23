@@ -31,7 +31,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import { resolveWindowIdentityFromArguments } from "./DesktopLaunchIntent.ts";
 import {
   HUB_WINDOW_IDENTITY,
-  PROJECT_WINDOW_PRELOAD_ARGUMENT,
+  projectWindowPreloadArgument,
   type WindowIdentity,
 } from "./WindowIdentity.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
@@ -217,6 +217,24 @@ function getHashRoutePathname(url: URL): string {
   return url.hash.slice(1).split(/[?#]/u, 1)[0] ?? "";
 }
 
+// Routes a project window may show besides its own project subtree. These are
+// whole-app pages that replace the view and navigate back out again, so
+// bouncing them to the hub would close the project window mid-task.
+const PROJECT_WINDOW_SHARED_ROUTE_PREFIXES = [
+  "/settings",
+  "/projects",
+  "/usage",
+  "/pull-requests",
+  "/connect",
+  "/pair",
+] as const;
+
+function isSharedProjectWindowRoute(pathname: string): boolean {
+  return PROJECT_WINDOW_SHARED_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 export function isRendererUrlForWindowIdentity(
   isDevelopment: boolean,
   identity: WindowIdentity,
@@ -230,7 +248,9 @@ export function isRendererUrlForWindowIdentity(
     const actualPathname = getHashRoutePathname(actual);
     return (
       actual.origin === expected.origin &&
-      (actualPathname === expectedPathname || actualPathname.startsWith(`${expectedPathname}/`))
+      (actualPathname === expectedPathname ||
+        actualPathname.startsWith(`${expectedPathname}/`) ||
+        isSharedProjectWindowRoute(actualPathname))
     );
   } catch {
     return false;
@@ -448,7 +468,7 @@ export const make = Effect.gen(function* () {
       webPreferences: {
         preload: environment.preloadPath,
         ...(identity.kind === "project"
-          ? { additionalArguments: [PROJECT_WINDOW_PRELOAD_ARGUMENT] }
+          ? { additionalArguments: [projectWindowPreloadArgument(identity.ref)] }
           : {}),
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
@@ -822,6 +842,13 @@ export const make = Effect.gen(function* () {
     if (identity.kind === "project") {
       const guardProjectScope = (_event: unknown, url: string) => {
         if (isRendererUrlForWindowIdentity(environment.isDevelopment, identity, url)) return;
+        runFork(
+          logWindowWarning("project window left its scope", {
+            url,
+            environmentId: identity.ref.environmentId,
+            projectId: identity.ref.projectId,
+          }),
+        );
         runFork(
           revealOrCreateIdentity(HUB_WINDOW_IDENTITY).pipe(
             Effect.andThen(electronWindow.close(identity)),
