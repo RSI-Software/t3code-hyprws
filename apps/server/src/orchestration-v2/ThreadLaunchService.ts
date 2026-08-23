@@ -48,6 +48,7 @@ import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import * as ThreadManagement from "./ThreadManagementService.ts";
+import * as ThreadLaunchFork from "./ThreadLaunchService.fork.ts"; // fork-hook: zmux-estate/launch-worktree-zmux-bind-import
 
 export type ThreadLaunchWorkspaceStrategy =
   | { readonly type: "root"; readonly branch?: string | undefined }
@@ -185,6 +186,7 @@ const make = Effect.gen(function* () {
   const ids = yield* IdAllocator.IdAllocatorV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const worktreeIntegrationsFork = yield* ThreadLaunchFork.makeThreadWorktreeIntegrationsFork; // fork-hook: zmux-estate/launch-worktree-zmux-bind-make
   const preparationScope = yield* Scope.make("sequential");
   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
   yield* Effect.addFinalizer(() => Scope.close(preparationScope, Exit.void));
@@ -407,6 +409,11 @@ const make = Effect.gen(function* () {
         createdWorktreePath = worktreePath;
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        yield* worktreeIntegrationsFork({
+          threadId,
+          projectCwd: project.workspaceRoot,
+          worktreePath,
+        }); // fork-hook: zmux-estate/launch-worktree-zmux-bind
       }
 
       // A reused worktree is already recorded, and rewriting it could undo
