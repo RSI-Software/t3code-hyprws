@@ -30,6 +30,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 import {
   AUTH_PROBE_TIMEOUT_MS,
+  buildSelectOptionDescriptor,
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
   type ServerProviderDraft,
@@ -42,6 +43,7 @@ import {
   type CodexRateLimitSnapshot,
   type CodexResetCreditsSummary,
 } from "./codexUsageLimits.ts";
+import type { CodexAgentDefinition } from "../Drivers/CodexAgents.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
@@ -270,6 +272,41 @@ function appendCustomCodexModels(
     });
   }
   return customEntries.length === 0 ? models : [...models, ...customEntries];
+}
+
+export function withCodexAgentOptions(
+  models: ReadonlyArray<ServerProviderModel>,
+  agents: ReadonlyArray<CodexAgentDefinition>,
+): ReadonlyArray<ServerProviderModel> {
+  if (agents.length === 0) {
+    return models;
+  }
+
+  const agentDescriptor = buildSelectOptionDescriptor({
+    id: "agent",
+    label: "Agent",
+    description: "Run this thread as a Codex custom agent.",
+    options: [
+      {
+        value: "default",
+        label: "Default",
+        description: "Use Codex without a custom main-thread agent.",
+        isDefault: true,
+      },
+      ...agents.map((agent) => ({
+        value: agent.name,
+        label: agent.name,
+        description: agent.description,
+      })),
+    ],
+  });
+
+  return models.map((model) => ({
+    ...model,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), agentDescriptor],
+    }),
+  }));
 }
 
 function parseCodexSkillsListResponse(
