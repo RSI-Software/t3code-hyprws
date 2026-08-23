@@ -81,6 +81,7 @@ Fork-Upstreamable: yes
 | `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
 
 `vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
+On a pull request, fork CI also runs `vp run fork:delta --check --squash-body <file>` against the pull-request body, because that body becomes the squash commit's message; a body that does not end with the trailer block fails the required check before it can land untagged.
 A rebase preserves trailers, so the log stays queryable after every sync.
 
 ## Domain index
