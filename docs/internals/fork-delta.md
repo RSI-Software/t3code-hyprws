@@ -116,7 +116,15 @@ Entry points are the hub project actions, the command palette, a keybinding, and
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
 QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, and route test naming.
-Two bugfixes reproduce upstream and should be offered there; one is fork-only.
+Two bugfixes reproduce upstream and should be offered there; the rest are fork-only.
+
+An auto-update relaunch is one of those fork-only defects.
+`quitAndInstall` destroys every window and comes back with no arguments, which is correct upstream because there is one window to come back to.
+Here it collapses a workspace-per-project layout into a single hub window.
+`apps/desktop/src/window/DesktopWindowSession.ts` writes a one-shot manifest of the open windows just before the install tears them down, and the next launch consumes it before `openArguments` so an explicit launch intent still wins.
+`apps/desktop/src/window/hyprland.ts` reads each window's workspace over the compositor socket and moves the restored window back silently.
+Neither decides where a window belongs; they only put back an arrangement the user already made, so `AGENTS.md`'s rule against encoding compositor policy holds.
+Off Hyprland every operation is a no-op and the windows simply reopen.
 
 Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
 A project window is created with its project id as the window title, which Hyprland keeps as `initialTitle`.
@@ -146,6 +154,9 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | -------------------------------------------------------- | ------------------------------------------------------------------- |
 | `apps/desktop/src/window/DesktopWindow.ts`               | The window service the fork makes plural. Upstream would land here. |
 | `apps/desktop/src/window/WindowIdentity.ts`              | Fork-only. A conflict means upstream added its own identity model.  |
+| `apps/desktop/src/window/DesktopWindowSession.ts`        | Fork-only. The manifest that carries windows across an update.      |
+| `apps/desktop/src/window/hyprland.ts`                    | Fork-only. The only place that speaks to the compositor.            |
+| `apps/desktop/src/updates/DesktopUpdates.ts`             | Captures the session before `destroyAll`. Upstream edits this file. |
 | `apps/server/src/provider/providerSessionEnvironment.ts` | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
 | `apps/desktop/src/app/DesktopClerk.ts`                   | Single-instance lock and deep-link forwarding.                      |
 | `apps/desktop/src/preview/Manager.ts`                    | Preview namespacing by window.                                      |
