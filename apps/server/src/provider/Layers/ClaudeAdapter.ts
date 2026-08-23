@@ -4243,9 +4243,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ) => runPromise(handleResumeDialog(request, callbackOptions));
 
       const claudeBinaryPath = claudeSdkExecutablePath;
-      const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const modelSelection =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
+      const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
+      const configuredExtraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
+      const { agent: _configuredAgent, ...extraArgsWithoutAgent } = configuredExtraArgs;
+      const extraArgs =
+        selectedAgent === undefined
+          ? configuredExtraArgs
+          : selectedAgent === "default"
+            ? extraArgsWithoutAgent
+            : { ...extraArgsWithoutAgent, agent: selectedAgent };
       const caps = getClaudeModelCapabilities(modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
@@ -4344,6 +4352,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.cwd": input.cwd ?? "",
         "claude.query.model": apiModelId ?? "",
         "claude.query.effort": effectiveEffort ?? "",
+        "claude.query.agent": selectedAgent === "default" ? "" : (selectedAgent ?? ""),
         "claude.query.permission_mode": permissionMode ?? "",
         "claude.query.allow_dangerously_skip_permissions": permissionMode === "bypassPermissions",
         "claude.query.resume": existingResumeSessionId ?? "",
