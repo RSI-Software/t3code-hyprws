@@ -153,6 +153,10 @@ export const TerminalFontSize = Schema.Int.check(
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
+export const TerminalSessionMode = Schema.Literals(["shell", "zmux"]);
+export type TerminalSessionMode = typeof TerminalSessionMode.Type;
+export const DEFAULT_TERMINAL_SESSION_MODE: TerminalSessionMode = "shell";
+
 // "artwork" follows the running channel and shows nothing on Latest. The fixed artwork
 // modes let any channel opt into a specific channel's art.
 export const EnvironmentIdentificationMode = Schema.Literals([
@@ -1216,6 +1220,13 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // The single zmux switch: "zmux" attaches thread terminals to the
+  // checkout's managed session AND binds new worktrees to one. The retired
+  // `zmuxSessions` boolean folds into this key via
+  // `migrateLegacyZmuxSettings` before decode.
+  terminalSessionMode: TerminalSessionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_SESSION_MODE)),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1280,6 +1291,20 @@ export const ServerSettings = Schema.Struct({
 export type ServerSettings = typeof ServerSettings.Type;
 
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = Schema.decodeSync(ServerSettings)({});
+
+export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
+  // Fold the retired `zmuxSessions` boolean into `terminalSessionMode`: `true` keeps managed
+  // sessions unless a mode is pinned; other shapes just lose the key. Runs on raw JSON before
+  // decode, so the file converges on the next write.
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw) || !("zmuxSessions" in raw)) {
+    return raw;
+  }
+  const { zmuxSessions, ...rest } = raw as Record<string, unknown>;
+  if (zmuxSessions === true && rest.terminalSessionMode === undefined) {
+    return { ...rest, terminalSessionMode: "zmux" satisfies TerminalSessionMode };
+  }
+  return rest;
+}; // fork-hook: zmux-estate/legacy-zmux-settings-migration
 
 export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | undefined => {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
@@ -1541,6 +1566,7 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
+  terminalSessionMode: Schema.optionalKey(TerminalSessionMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

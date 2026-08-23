@@ -84,6 +84,7 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
 import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
 import * as ProcessRunner from "./processRunner.ts";
+import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -243,6 +244,10 @@ const layerServerSettings = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(SqlitePersistence.layerConfig),
 );
+const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(layerServerSettings),
+);
 
 const layerNativeTelemetry = NativeTelemetryClient.layer.pipe(
   Layer.provide(ResourceMonitorBinary.layer),
@@ -376,6 +381,7 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
   Layer.provideMerge(WorktreeSetupTracker.layer),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
@@ -388,6 +394,7 @@ const layerGit = Layer.empty.pipe(
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provideMerge(layerVcsDriverRegistry),
+  Layer.provideMerge(ZmuxSessionBinderLayerLive),
   Layer.provideMerge(layerGit),
 );
 
@@ -441,6 +448,7 @@ const layerTerminal = TerminalManager.layer.pipe(
   Layer.provide(layerPtyAdapter),
   Layer.provide(layerPortScanner),
   Layer.provide(layerNativeTelemetry),
+  Layer.provide(layerServerSettings),
 );
 
 const layerPreview = Layer.empty.pipe(
@@ -623,7 +631,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
-  Layer.provideMerge(layerServerSettings),
+  Layer.provideMerge(Layer.merge(layerServerSettings, ZmuxSessionBinderLayerLive)), // fork-hook: zmux-estate/session-binder-layer
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(layerGit),
   Layer.provideMerge(layerVcs),
