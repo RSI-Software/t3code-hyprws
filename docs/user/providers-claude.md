@@ -68,6 +68,23 @@ can still be started by you. Invoke those one per message: Claude directly runs
 only the last named skill and may try to start earlier ones through its Skill
 tool, which refuses skills reserved for manual invocation.
 
+## Choose a Claude custom agent
+
+T3 Code shows an Agent picker beside the model when Claude Code reports one or more custom agents.
+Choose an agent before the first message to run it as the main thread agent.
+
+For example, choosing `fable` has the same launch behavior as this command:
+
+```bash
+claude --agent fable
+```
+
+Choose `Default` to start Claude without a custom main thread agent.
+The selection is saved with the thread and restored when T3 Code resumes the provider session.
+
+Agent discovery uses the selected provider's Claude config directory and Claude Code setting sources.
+Refresh the provider status in Settings after syncing a new agent if it does not appear immediately.
+
 ## OpenRouter
 
 Create a Claude instance with its own config directory, such as
