@@ -50,6 +50,7 @@ import { AgentScope } from "@t3tools/shared/AgentScope";
 import { stripAppImageRuntimeEnv } from "@t3tools/shared/appImageRuntimeEnv";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution, mergePathEntries } from "@t3tools/shared/shell";
+import { isInheritedTmuxEnvKey } from "@t3tools/shared/env";
 
 import { acpRegistryManagedBinaryDirectories } from "@t3tools/provider-acp-registry/server";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
@@ -1724,6 +1725,9 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
+    return true;
+  }
+  if (isInheritedTmuxEnvKey(normalizedKey)) {
     return true;
   }
   return TERMINAL_ENV_BLOCKLIST.has(normalizedKey);
