@@ -20,6 +20,7 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
+  type TerminalSessionMode,
   MAX_APPEARANCE_CONTRAST,
   MAX_CODE_FONT_SIZE,
   MAX_GLASS_OPACITY,
@@ -151,6 +152,11 @@ const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, s
   artwork: "Artwork",
   pill: "Version pill",
   none: "None",
+};
+
+const TERMINAL_SESSION_MODE_LABELS: Record<TerminalSessionMode, string> = {
+  shell: "Plain shell",
+  zmux: "Managed zmux session",
 };
 
 const TIMESTAMP_FORMAT_LABELS = {
@@ -503,6 +509,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Auto-settle merged threads"]
         : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+      ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
+        ? ["Terminal session"]
+        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -578,6 +587,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
+      settings.terminalSessionMode,
       settings.wordWrap,
       followSystem,
       theme,
@@ -651,6 +661,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+      terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
@@ -1163,6 +1174,7 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <TypographySection />
+      <TerminalSessionSection />
     </SettingsPageContainer>
   );
 }
@@ -1483,6 +1495,56 @@ function TypographySection() {
     >
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
+    </SettingsSection>
+  );
+}
+
+function TerminalSessionSection() {
+  const settings = usePrimarySettings();
+  const updateSettings = useUpdatePrimarySettings();
+
+  return (
+    <SettingsSection title="Terminal">
+      <SettingsRow
+        {...searchableSetting("terminal-session-mode")}
+        description="Choose whether new thread terminals open a plain shell or attach to the checkout's managed zmux session."
+        resetAction={
+          settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode ? (
+            <SettingResetButton
+              label="terminal session"
+              onClick={() =>
+                updateSettings({
+                  terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <Select
+            value={settings.terminalSessionMode}
+            onValueChange={(value) => {
+              if (value === "shell" || value === "zmux") {
+                updateSettings({ terminalSessionMode: value });
+              }
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-52" aria-label="Terminal session">
+              <SelectValue>
+                {TERMINAL_SESSION_MODE_LABELS[settings.terminalSessionMode]}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              <SelectItem hideIndicator value="shell">
+                Plain shell
+              </SelectItem>
+              <SelectItem hideIndicator value="zmux">
+                Managed zmux session
+              </SelectItem>
+            </SelectPopup>
+          </Select>
+        }
+      />
     </SettingsSection>
   );
 }
