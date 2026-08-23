@@ -310,8 +310,8 @@ Upstream spawns a plain shell per terminal and owns no session manager, so a thr
 
 ### Shape
 
-- `terminalSessionMode` chooses whether a new thread terminal opens a plain shell or attaches through `zmux open` to the session `zmux session resolve` names for the checkout.
-- `zmuxSessions` binds a new thread worktree through `zmux wt --adopt` and kills that session when the worktree is removed.
+- `terminalSessionMode` is the single zmux switch: `"zmux"` attaches new thread terminals through `zmux open` to the session `zmux session resolve` names for the checkout, binds a new thread worktree through `zmux wt --adopt`, and kills that session when the worktree is removed.
+- The retired `zmuxSessions` boolean folds into `terminalSessionMode` on load (`migrateLegacyZmuxSettings`); an old opt-in without an explicit mode becomes `"zmux"`.
 - Every fallback to a plain shell prints its reason into the terminal buffer, and a missing `zmux` binary degrades silently to upstream behaviour.
 - `apps/server/src/zmux/` holds the binder; the terminal manager and the worktree workflow call it through `ProcessRunner` with the inherited tmux variables stripped.
 
@@ -321,13 +321,13 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 
 ### Rebase scan
 
-| Path                                                  | Why it matters                                                        |
-| ----------------------------------------------------- | --------------------------------------------------------------------- |
-| `apps/server/src/terminal/Manager.ts`                 | Shell candidate resolution and spawn env; the attach path hooks here. |
-| `apps/server/src/git/GitWorkflowService.ts`           | Worktree create and remove; the bind and unbind calls hook here.      |
-| `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.      |
-| `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and `zmuxSessions` sit between upstream keys.   |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for both switches; a busy upstream file.                  |
+| Path                                                  | Why it matters                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `apps/server/src/terminal/Manager.ts`                 | Shell candidate resolution and spawn env; the attach path hooks here.     |
+| `apps/server/src/git/GitWorkflowService.ts`           | Worktree create and remove; the bind and unbind calls hook here.          |
+| `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.          |
+| `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and its legacy migration sit between upstream keys. |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for the switch; a busy upstream file.                         |
 
 ## Adding a domain
 

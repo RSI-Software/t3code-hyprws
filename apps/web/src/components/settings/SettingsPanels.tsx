@@ -1512,7 +1512,7 @@ function TerminalSessionSection() {
     <SettingsSection title="Terminal">
       <SettingsRow
         {...searchableSetting("terminal-session-mode")}
-        description="Choose whether new thread terminals open a plain shell or attach to the checkout's managed zmux session."
+        description="Choose whether threads use plain shells or managed zmux sessions: terminals attach to the checkout's session, and new worktrees get a session of their own."
         resetAction={
           settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode ? (
             <SettingResetButton
