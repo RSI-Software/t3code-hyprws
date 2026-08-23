@@ -3,11 +3,13 @@ import type {
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
+  ScopedProjectRef,
 } from "@t3tools/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
+import { readProjectWindowPreloadParts } from "./window/projectWindowArgument.ts";
 
 exposeClerkBridge({ passkeys: true });
 
@@ -117,6 +119,9 @@ const desktopBridgeWithoutPreview = {
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
   openProjectWindow: (projectRef) =>
     ipcRenderer.invoke(IpcChannels.OPEN_PROJECT_WINDOW_CHANNEL, projectRef),
+  // Branded ids are plain strings at runtime; the preload cannot import the
+  // contracts package without breaking its sandboxed bundle.
+  projectWindowRef: readProjectWindowPreloadParts(process.argv) as ScopedProjectRef | null,
   probeRemoteEditors: () => ipcRenderer.invoke(IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL, undefined),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
