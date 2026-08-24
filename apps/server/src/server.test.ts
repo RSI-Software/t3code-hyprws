@@ -567,12 +567,21 @@ const buildAppUnderTest = (options?: {
       Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
     );
+    const serverSettingsLayer = Layer.mock(ServerSettings.ServerSettingsService)({
+      start: Effect.void,
+      ready: Effect.void,
+      getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      streamChanges: Stream.empty,
+      ...options?.layers?.serverSettings,
+    });
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
       WorkspacePaths.layer,
       workspaceEntriesLayer,
       WorkspaceFileSystem.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
         Layer.provide(workspaceEntriesLayer),
+        Layer.provide(serverSettingsLayer),
       ),
       ProjectFaviconResolver.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
@@ -651,16 +660,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.providerRegistry,
         }),
       ),
-      Layer.provide(
-        Layer.mock(ServerSettings.ServerSettingsService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          streamChanges: Stream.empty,
-          ...options?.layers?.serverSettings,
-        }),
-      ),
+      Layer.provide(serverSettingsLayer),
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(ExternalLauncher.ExternalLauncher)({
@@ -4958,6 +4958,50 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(browseError.failure, "read_directory_failed");
       assert.equal(browseError.parentPath, missingBrowseParent);
       assert.isDefined(browseError.cause);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("reads external workspace symlinks when the global setting is enabled", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-workspace-external-link-",
+      });
+      const sharedDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-workspace-external-link-target-",
+      });
+      yield* fs.makeDirectory(path.join(sharedDir, "plans"), { recursive: true });
+      yield* fs.writeFileString(path.join(sharedDir, "plans", "spec.md"), "# Shared plan\n");
+      yield* fs.symlink(sharedDir, path.join(workspaceDir, ".dump"));
+
+      yield* buildAppUnderTest({
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              followExternalWorkspaceSymlinks: true,
+            }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsReadFile]({
+            cwd: workspaceDir,
+            relativePath: ".dump/plans/spec.md",
+          }),
+        ),
+      );
+
+      assert.deepEqual(response, {
+        relativePath: ".dump/plans/spec.md",
+        contents: "# Shared plan\n",
+        byteLength: 14,
+        truncated: false,
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
