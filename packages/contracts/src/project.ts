@@ -285,6 +285,7 @@ export type ProjectSearchContentsResult = typeof ProjectSearchContentsResult.Typ
 export const ProjectListEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   directoryPath: Schema.optional(TrimmedString),
+  includeIgnored: Schema.optional(Schema.Boolean), // fork-hook: workspace-files/project-list-entries-input
 });
 export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
 
