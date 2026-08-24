@@ -25,6 +25,7 @@ New to T3 Code? Start with the **[User Guide & Index](./user/README.md)** for ho
 - [Background service](./user/background-service.md) · [Updating T3 Code](./user/updating.md) · [Usage and limits](./user/usage.md) · [Maintenance & diagnostics](./user/diagnostics.md)
 - [CLI reference (`t3`)](./user/cli.md) · [Product usage data](./user/telemetry.md) · [Managed policy](./user/managed-policy.md) · [Triage an issue](./user/triage.md) · [V1 migration](./user/thread-migration.md) · [Portable handoffs](./user/portable-handoffs.md) · [Question attachments](./user/question-attachments.md) · [Open source licenses](./user/open-source-licenses.md)
 
+- [Workspace files](./user/workspace-files.md)
 - [Edit Markdown visually](./user/markdown-editing.md)
 - [Rich Markdown showcase](./user/markdown-showcase.md)
 
