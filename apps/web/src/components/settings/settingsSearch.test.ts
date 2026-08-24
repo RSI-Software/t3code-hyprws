@@ -60,6 +60,9 @@ describe("searchSettings", () => {
     } finally {
       localeLowerCase.mockRestore();
     }
+    expect(searchSettings("external workspace symlinks").map((item) => item.id)).toEqual([
+      "external-workspace-symlinks",
+    ]);
     expect(searchSettings("xyzzy")).toEqual([]);
   });
 
@@ -215,6 +218,10 @@ describe("searchSettings", () => {
       id: "browser-link-target",
       to: "/settings/integrations",
     });
-    expect(searchSettings("external links")[0]).toMatchObject({ id: "browser-link-target" });
+    expect(
+      searchSettings("external links").find(({ id }) => id === "browser-link-target"),
+    ).toMatchObject({
+      id: "browser-link-target",
+    });
   });
 });
