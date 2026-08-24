@@ -160,7 +160,7 @@ export const make = Effect.gen(function* () {
       .write({
         threadId: input.threadId,
         terminalId,
-        data: `${script.command}\r`,
+        data: `${script.command} && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r`,
       })
       .pipe(
         Effect.mapError(
