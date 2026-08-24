@@ -4,7 +4,7 @@ export interface FileTreeNode {
   readonly path: string;
   readonly name: string;
   readonly kind: ProjectEntry["kind"];
-  readonly ignored?: boolean;
+  readonly ignored: boolean;
   readonly children: ReadonlyArray<FileTreeNode>;
 }
 
@@ -17,7 +17,7 @@ interface MutableFileTreeNode {
   path: string;
   name: string;
   kind: ProjectEntry["kind"];
-  ignored?: boolean;
+  ignored: boolean;
   children: Map<string, MutableFileTreeNode>;
 }
 
@@ -25,11 +25,13 @@ function createMutableNode(
   path: string,
   name: string,
   kind: ProjectEntry["kind"],
+  ignored = false,
 ): MutableFileTreeNode {
   return {
     path,
     name,
     kind,
+    ignored,
     children: new Map(),
   };
 }
@@ -39,7 +41,7 @@ function freezeNode(node: MutableFileTreeNode): FileTreeNode {
     path: node.path,
     name: node.name,
     kind: node.kind,
-    ...(node.ignored ? { ignored: true } : {}),
+    ignored: node.ignored,
     children: [...node.children.values()].sort(compareNodes).map(freezeNode),
   };
 }
@@ -77,12 +79,12 @@ export function buildFileTree(entries: ReadonlyArray<ProjectEntry>): ReadonlyArr
       const kind = isLeaf ? entry.kind : "directory";
       let child = current.children.get(part);
       if (!child) {
-        child = createMutableNode(path, part, kind);
+        child = createMutableNode(path, part, kind, entry.ignored === true);
         current.children.set(part, child);
       } else if (isLeaf) {
         child.kind = entry.kind;
+        child.ignored = entry.ignored === true;
       }
-      if (isLeaf && entry.ignored) child.ignored = true;
       current = child;
     }
   }
