@@ -2,8 +2,10 @@ import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 import { defineConfig, normalizePath } from "vite-plus";
 import "vite-plus/test/config";
+import { forkMobileReactTests } from "./vite.fork"; // fork-hook: workspace-files/mobile-test-import
 
 const reactTests = [
+  ...forkMobileReactTests, // fork-hook: workspace-files/mobile-test-includes
   "src/features/threads/git/GitBranchesSheet.occupancy.test.tsx",
   "src/features/files/useFileTreeEntries.test.tsx",
   "src/features/projects/AddProjectScreen.test.ts",
