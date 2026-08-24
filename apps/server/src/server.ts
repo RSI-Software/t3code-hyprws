@@ -427,7 +427,10 @@ const layerDevice = DeviceService.layer.pipe(
   Layer.provide(NetService.layer),
 );
 
-const layerWorkspaceEntries = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const layerWorkspaceEntries = WorkspaceEntries.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(layerVcsDriverRegistry),
+); // fork-hook: workspace-files/server-workspace-entries-registry
 
 const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
