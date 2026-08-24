@@ -13,6 +13,7 @@ import { vi } from "vite-plus/test";
 import * as ServerConfig from "../config.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts"; // fork-hook: workspace-files/workspace-entries-test-registry-import
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -23,6 +24,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+  Layer.provideMerge(VcsDriverRegistry.layer), // fork-hook: workspace-files/workspace-entries-test-registry-layer
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provide(
