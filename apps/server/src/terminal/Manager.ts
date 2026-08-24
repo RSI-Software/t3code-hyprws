@@ -1266,6 +1266,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         notice: `zmux: no managed session for ${targetDir} — plain shell`,
       } satisfies ZmuxLaunchResolution;
     }
+    if (decoded.success.match !== "worktree") {
+      return {
+        candidate: null,
+        target: null,
+        notice: `zmux: ${targetDir} resolves the workspace main session, not a worktree — plain shell`,
+      } satisfies ZmuxLaunchResolution;
+    }
 
     return {
       candidate: {
