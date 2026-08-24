@@ -95,6 +95,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
 | [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.              |
 | [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                |
+| [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.   |
 | [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                      |
 | [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.               |
 | [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                 |
@@ -314,6 +315,38 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and the update feed resolution. |
 | `scripts/update-release-package-versions.ts`  | Release version alignment the fork workflow calls.          |
 | `package.json` `engines` and `packageManager` | Runner toolchain expectations.                              |
+
+## workspace-files
+
+### Need
+
+Agent review artifacts often live in ignored scratch directories or in scratch shared across
+worktrees. The workspace file surface must keep those paths hidden by default while letting the
+operator reveal and read artifacts they deliberately created.
+
+### Shape
+
+- A client-local preference includes gitignored paths in workspace file listings on demand.
+- The file-tree toolbar and General settings expose the same persisted preference.
+- Listing ignored paths never changes repository ignore rules or weakens file-read containment.
+
+### Retirement condition
+
+Delete this domain when upstream can reveal ignored workspace paths on demand and safely read
+explicitly trusted artifact links shared across worktrees.
+
+### Rebase scan
+
+| Path                                                  | Why it matters                                      |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| `apps/server/src/workspace/WorkspaceEntries.ts`       | Combines the normal index with ignored VCS paths.   |
+| `apps/server/src/vcs/GitVcsDriver.ts`                 | Lists ignored paths through Git's native rules.     |
+| `packages/contracts/src/project.ts`                   | Carries the optional listing request.               |
+| `packages/contracts/src/settings.ts`                  | Persists the client-local preference.               |
+| `apps/web/src/components/files/FileBrowserPanel.tsx`  | Owns the file-tree toolbar toggle.                  |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | Owns the web/desktop settings entry point.          |
+| `apps/mobile/src/features/files/**`                   | Applies the mobile device-local preference.         |
+| `apps/server/src/workspace/WorkspaceFileSystem.ts`    | Retains containment and trusted-link read behavior. |
 
 ## upstream-fixes
 
