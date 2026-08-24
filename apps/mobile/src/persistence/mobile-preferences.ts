@@ -73,6 +73,7 @@ export interface Preferences {
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
+  readonly showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-field
   readonly planModeEnabled?: boolean;
   readonly workingShelfEnabled?: boolean;
   readonly modelFavorites?: ReadonlyArray<{
@@ -145,6 +146,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     microphones?: ReadonlyArray<MicrophoneEntry>;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
+    showIgnoredFiles?: boolean; // fork-hook: workspace-files/mobile-preferences-sanitize-type
     planModeEnabled?: boolean;
     workingShelfEnabled?: boolean;
     modelFavorites?: Preferences["modelFavorites"];
@@ -245,6 +247,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     parsed.projectGroupingMode === "separate"
   ) {
     preferences.projectGroupingMode = parsed.projectGroupingMode;
+  }
+  // fork-hook: workspace-files/mobile-preferences-sanitize-body
+  if (typeof parsed.showIgnoredFiles === "boolean") {
+    preferences.showIgnoredFiles = parsed.showIgnoredFiles;
   }
   if (typeof parsed.planModeEnabled === "boolean") {
     preferences.planModeEnabled = parsed.planModeEnabled;
