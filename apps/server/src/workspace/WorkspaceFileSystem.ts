@@ -22,6 +22,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -131,6 +132,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   const readFile: WorkspaceFileSystem["Service"]["readFile"] = Effect.fn(
     "WorkspaceFileSystem.readFile",
@@ -165,11 +167,19 @@ export const make = Effect.gen(function* () {
         }),
     });
     const relativeRealPath = path.relative(realWorkspaceRoot, realTargetPath);
-    if (
+    const resolvesOutsideWorkspace =
       relativeRealPath.startsWith(`..${path.sep}`) ||
       relativeRealPath === ".." ||
-      path.isAbsolute(relativeRealPath)
-    ) {
+      path.isAbsolute(relativeRealPath);
+    const followsExternalSymlinks = resolvesOutsideWorkspace
+      ? yield* serverSettings.getSettings.pipe(
+          Effect.map((settings) => settings.followExternalWorkspaceSymlinks),
+          Effect.catchTag("ServerSettingsError", (error) =>
+            Effect.logWarning(error).pipe(Effect.as(false)),
+          ),
+        )
+      : false;
+    if (resolvesOutsideWorkspace && !followsExternalSymlinks) {
       return yield* new WorkspaceFilePathEscapeError({
         workspaceRoot: input.cwd,
         relativePath: input.relativePath,
