@@ -25,6 +25,7 @@ import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useDirectoryEntries } from "./useDirectoryEntries";
+import { ShowIgnoredFilesButton, useIgnoredFilesPreference } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 import { useProjectPathSearch } from "~/state/queries";
 
 interface FileBrowserPanelProps {
@@ -105,6 +106,7 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
+  const { showIgnoredFiles, updateClientSettings } = useIgnoredFilesPreference(); // fork-hook: workspace-files/file-browser-ignored-listing
   const {
     entries: directoryEntries,
     load,
@@ -112,7 +114,7 @@ export default function FileBrowserPanel({
     ready,
     error,
     isPending,
-  } = useDirectoryEntries(environmentId, cwd);
+  } = useDirectoryEntries(environmentId, cwd, { includeIgnored: showIgnoredFiles });
   const [query, setQuery] = useState("");
   const [expandAll, setExpandAll] = useState(false);
   const pathSearch = useProjectPathSearch({ environmentId, cwd, query: query.slice(0, 256) }, 200);
@@ -468,6 +470,12 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+        {/* fork-hook: workspace-files/file-browser-ignored-toggle */}
+        <ShowIgnoredFilesButton
+          shown={showIgnoredFiles}
+          onToggle={() => updateClientSettings({ showIgnoredFiles: !showIgnoredFiles })}
+        />
+        {/* fork-hook-end */}
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
