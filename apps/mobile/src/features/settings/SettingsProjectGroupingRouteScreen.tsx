@@ -10,6 +10,7 @@ import {
   resolveMobileProjectGroupingSettings,
 } from "../../state/project-grouping";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { ShowIgnoredFilesSettingFork } from "./ShowIgnoredFilesSetting.fork"; // fork-hook: workspace-files/mobile-settings-toggle
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { NewThreadSettingsSection, WorkingSectionSettings } from "./ThreadSettingsSections";
@@ -67,6 +68,7 @@ export function SettingsProjectGroupingRouteScreen() {
             />
           ))}
         </SettingsSection>
+        <ShowIgnoredFilesSettingFork /* fork-hook: workspace-files/mobile-settings-toggle */ />
         <WorkingSectionSettings />
         <NewThreadSettingsSection />
       </ScrollView>
