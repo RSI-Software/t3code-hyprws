@@ -257,6 +257,89 @@ describe("GitWorkflowService", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("rebinds a worktree session after renaming its branch", () => {
+    const calls: string[] = [];
+    const renameBranch = vi.fn(() =>
+      Effect.sync(() => {
+        calls.push("rename");
+        return { branch: "t3code/new-name" };
+      }),
+    );
+    const resolve = vi.fn(() =>
+      Effect.sync(() => {
+        calls.push("resolve");
+        return {
+          status: "resolved" as const,
+          target: "repo/t3code-old-name",
+          match: "worktree" as const,
+        };
+      }),
+    );
+    const bind = vi.fn((_dir: string) =>
+      Effect.sync(() => {
+        calls.push("bind");
+        return { status: "bound" as const, target: "repo/t3code-new-name" };
+      }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: resolveGitHandle,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ renameBranch })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, bind })),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const renamed = yield* workflow.renameBranch({
+        cwd: "/repo/wt",
+        oldBranch: "t3code/old-name",
+        newBranch: "t3code/new-name",
+      });
+
+      assert.equal(renamed.branch, "t3code/new-name");
+      assert.deepStrictEqual(calls, ["rename", "resolve", "bind"]);
+      assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/repo/wt");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("does not rebind after a rename outside a bound worktree", () => {
+    const renameBranch = vi.fn(() => Effect.succeed({ branch: "feat/renamed" }));
+    const bind = vi.fn((_dir: string) =>
+      Effect.succeed({ status: "bound" as const, target: "repo/main" }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: resolveGitHandle,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ renameBranch })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          resolve: () => Effect.succeed({ status: "not-found" as const }),
+          bind,
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.renameBranch({
+        cwd: "/repo",
+        oldBranch: "feat/old",
+        newBranch: "feat/renamed",
+      });
+
+      assert.equal(bind.mock.calls.length, 0);
+      assert.equal(renameBranch.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("does not unbind a session resolved by a non-worktree match", () => {
     const unbind = vi.fn((_dir: string) =>
       Effect.succeed({ status: "unbound" as const, target: "repo/root" }),
