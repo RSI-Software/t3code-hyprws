@@ -519,19 +519,16 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     };
   });
 
-  const listWorkspaceFiles: VcsDriver.VcsDriver["Service"]["listWorkspaceFiles"] = (cwd) =>
+  const listWorkspacePaths = (
+    cwd: string,
+    operation: "GitVcsDriver.listWorkspaceFiles" | "GitVcsDriver.listIgnoredWorkspaceFiles",
+    args: ReadonlyArray<string>,
+  ) =>
     gitCommand(
       vcsProcess,
-      "GitVcsDriver.listWorkspaceFiles",
+      operation,
       cwd,
-      [
-        ...WORKSPACE_GIT_HARDENED_CONFIG_ARGS,
-        "ls-files",
-        "--cached",
-        "--others",
-        "--exclude-standard",
-        "-z",
-      ],
+      [...WORKSPACE_GIT_HARDENED_CONFIG_ARGS, "ls-files", ...args, "-z"],
       {
         allowNonZeroExit: true,
         timeoutMs: 20_000,
@@ -551,7 +548,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
             })
           : Effect.fail(
               new VcsProcessExitError({
-                operation: "GitVcsDriver.listWorkspaceFiles",
+                operation,
                 command: "git ls-files",
                 cwd,
                 exitCode: result.exitCode,
@@ -560,6 +557,22 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
             ),
       ),
     );
+
+  const listWorkspaceFiles: VcsDriver.VcsDriver["Service"]["listWorkspaceFiles"] = (cwd) =>
+    listWorkspacePaths(cwd, "GitVcsDriver.listWorkspaceFiles", [
+      "--cached",
+      "--others",
+      "--exclude-standard",
+    ]);
+
+  const listIgnoredWorkspaceFiles: NonNullable<
+    VcsDriver.VcsDriver["Service"]["listIgnoredWorkspaceFiles"]
+  > = (cwd) =>
+    listWorkspacePaths(cwd, "GitVcsDriver.listIgnoredWorkspaceFiles", [
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+    ]);
 
   const listRemotes: VcsDriver.VcsDriver["Service"]["listRemotes"] = Effect.fn("listRemotes")(
     function* (cwd) {
@@ -923,6 +936,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     checkpoints,
     detectRepository,
     isInsideWorkTree,
+    listIgnoredWorkspaceFiles,
     listWorkspaceFiles,
     listRemotes,
     filterIgnoredPaths,

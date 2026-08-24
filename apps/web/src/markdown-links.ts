@@ -136,7 +136,11 @@ export function resolveMarkdownFileLinkMeta(
 function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): MarkdownFileLinkMeta {
   const { path: rawPath, line, column } = splitFilePathPosition(targetPath);
   const path = normalizeDotSegments(rawPath);
-  const normalizedTargetPath = formatFilePathPosition({ path, line, column });
+  const normalizedTargetPath = formatFilePathPosition({
+    path,
+    ...(line !== undefined ? { line } : {}),
+    ...(column !== undefined ? { column } : {}),
+  });
   return {
     filePath: path,
     targetPath: normalizedTargetPath,
