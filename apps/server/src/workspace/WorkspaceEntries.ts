@@ -29,6 +29,8 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
+import * as WorkspaceEntriesFork from "./WorkspaceEntries.fork.ts"; // fork-hook: workspace-files/workspace-entries-ignored-listing-import
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts"; // fork-hook: workspace-files/workspace-entries-ignored-registry-import
 
 export class WorkspaceEntriesWindowsPathUnsupportedError extends Schema.TaggedError<WorkspaceEntriesWindowsPathUnsupportedError>()(
   "WorkspaceEntriesWindowsPathUnsupportedError",
@@ -154,6 +156,7 @@ export const make = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
   const vcsProcess = yield* VcsProcess.VcsProcess;
+  const vcsDrivers = yield* VcsDriverRegistry.VcsDriverRegistry; // fork-hook: workspace-files/workspace-entries-ignored-registry
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
@@ -438,7 +441,7 @@ export const make = Effect.gen(function* () {
           truncated: false,
         };
       }
-      return yield* Effect.gen(function* () {
+      const result = yield* Effect.gen(function* () {
         const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
         return yield* searchIndex.list();
       }).pipe(
@@ -448,6 +451,12 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
+      return yield* WorkspaceEntriesFork.withIgnoredWorkspaceFiles({
+        vcsDrivers,
+        cwd: normalizedCwd,
+        includeIgnored: input.includeIgnored === true,
+        result,
+      }); // fork-hook: workspace-files/workspace-entries-list-ignored
     },
   );
 
