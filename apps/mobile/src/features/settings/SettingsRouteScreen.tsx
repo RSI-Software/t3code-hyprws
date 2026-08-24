@@ -1,16 +1,20 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useAuth, useUser } from "@clerk/expo";
 import { useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import {
   AndroidSettingsEnvironmentFilter,
@@ -129,6 +133,10 @@ function LocalSettingsRouteScreen() {
 
 function SettingsIndexSections() {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferencesResult) && preferencesResult.value.showIgnoredFiles === true;
   const noServerTargets = selectedTargets.length === 0;
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const scopedProjectMembers =
@@ -165,6 +173,12 @@ function SettingsIndexSections() {
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
+        <SettingsSwitchRow
+          icon="eye"
+          label="Show ignored files"
+          value={showIgnoredFiles}
+          onValueChange={(value) => savePreferences({ showIgnoredFiles: value })}
+        />
       </SettingsSection>
 
       <SettingsSection title="Server settings">
