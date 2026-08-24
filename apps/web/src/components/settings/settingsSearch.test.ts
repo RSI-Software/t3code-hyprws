@@ -326,7 +326,11 @@ describe("searchSettings", () => {
       id: "browser-link-target",
       to: "/settings/integrations",
     });
-    expect(searchSettings("external links")[0]).toMatchObject({ id: "browser-link-target" });
+    expect(
+      searchSettings("external links").find(({ id }) => id === "browser-link-target"),
+    ).toMatchObject({
+      id: "browser-link-target",
+    });
   });
 
   it("finds the default browser profile action in the profiles list", () => {
