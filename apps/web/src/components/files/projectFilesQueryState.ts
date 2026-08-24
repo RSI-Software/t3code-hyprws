@@ -40,10 +40,15 @@ function getProjectEntriesQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
   directoryPath?: string,
+  includeIgnored = false,
 ) {
   return projectEnvironment.listEntries({
     environmentId,
-    input: { cwd, ...(directoryPath !== undefined ? { directoryPath } : {}) },
+    input: {
+      cwd,
+      ...(directoryPath !== undefined ? { directoryPath } : {}),
+      ...(includeIgnored ? { includeIgnored: true } : {}),
+    },
   });
 }
 
@@ -144,8 +149,9 @@ export function useProjectEntriesQuery(
   environmentId: EnvironmentId,
   cwd: string,
   directoryPath?: string,
+  includeIgnored = false,
 ): ProjectQueryState<ProjectListEntriesResult> {
-  const atom = getProjectEntriesQueryAtom(environmentId, cwd, directoryPath);
+  const atom = getProjectEntriesQueryAtom(environmentId, cwd, directoryPath, includeIgnored);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
