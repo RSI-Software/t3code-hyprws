@@ -327,6 +327,14 @@ describe("ServerSettings worktree defaults", () => {
   it("defaults the terminal session mode to a plain shell", () => {
     expect(decodeServerSettings({}).terminalSessionMode).toBe("shell");
   });
+
+  it("blocks external workspace symlinks by default and accepts a global opt-in", () => {
+    expect(decodeServerSettings({}).followExternalWorkspaceSymlinks).toBe(false);
+    expect(
+      decodeServerSettingsPatch({ followExternalWorkspaceSymlinks: true })
+        .followExternalWorkspaceSymlinks,
+    ).toBe(true);
+  });
 });
 
 describe("migrateLegacyZmuxSettings", () => {
