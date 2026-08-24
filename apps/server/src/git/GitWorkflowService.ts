@@ -345,7 +345,24 @@ export const make = Effect.gen(function* () {
       ),
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
-        Effect.andThen(git.renameBranch(input)),
+        Effect.andThen(
+          Effect.gen(function* () {
+            const renamed = yield* git.renameBranch(input);
+            const resolved = yield* zmuxSessionBinder.resolve(input.cwd);
+            if (resolved.status === "resolved" && resolved.match === "worktree") {
+              const result = yield* zmuxSessionBinder.bind(input.cwd);
+              if (result.status === "failed") {
+                yield* Effect.logWarning("branch rename could not relabel its zmux session", {
+                  worktreePath: input.cwd,
+                  oldBranch: input.oldBranch,
+                  newBranch: input.newBranch,
+                  detail: result.notice.detail,
+                });
+              }
+            }
+            return renamed;
+          }),
+        ),
       ),
   });
 });
