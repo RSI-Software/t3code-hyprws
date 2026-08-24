@@ -32,6 +32,7 @@ export interface Preferences {
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly autoSettleOnMerge?: boolean;
+  readonly showIgnoredFiles?: boolean;
   /**
    * Device-local mirror of the web `legacySidebarEnabled` setting. Mobile has
    * no client-settings sync, so the legacy grouped thread list is opted into
@@ -98,6 +99,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     autoSettleOnMerge?: boolean;
+    showIgnoredFiles?: boolean;
     legacyThreadListEnabled?: boolean;
     planModeEnabled?: boolean;
   } = {};
@@ -163,6 +165,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.autoSettleOnMerge === "boolean") {
     preferences.autoSettleOnMerge = parsed.autoSettleOnMerge;
+  }
+  if (typeof parsed.showIgnoredFiles === "boolean") {
+    preferences.showIgnoredFiles = parsed.showIgnoredFiles;
   }
   if (typeof parsed.legacyThreadListEnabled === "boolean") {
     preferences.legacyThreadListEnabled = parsed.legacyThreadListEnabled;
