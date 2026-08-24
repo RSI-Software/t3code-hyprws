@@ -38,6 +38,7 @@ import {
 } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import { makeListIgnoredWorkspaceFiles } from "./GitVcsDriver.fork.ts"; // fork-hook: workspace-files/git-driver-ignored-import
 
 export interface ExecuteGitInput {
   readonly operation: string;
@@ -601,6 +602,8 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
             ),
       ),
     );
+
+  const listIgnoredWorkspaceFiles = makeListIgnoredWorkspaceFiles({ vcsProcess, nowFreshness }); // fork-hook: workspace-files/git-driver-ignored-listing
 
   const listRemotes: VcsDriver.VcsDriver["Service"]["listRemotes"] = Effect.fn("listRemotes")(
     function* (cwd) {
@@ -1203,6 +1206,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     checkpoints,
     detectRepository,
     isInsideWorkTree,
+    listIgnoredWorkspaceFiles,
     listWorkspaceFiles,
     listRemotes,
     filterIgnoredPaths,
