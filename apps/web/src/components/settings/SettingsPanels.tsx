@@ -522,6 +522,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles
         ? ["Show ignored files"]
         : []),
+      ...(settings.followExternalWorkspaceSymlinks !==
+      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks
+        ? ["External workspace symlinks"]
+        : []),
       ...(settings.enableLegacyTokenStreaming !==
       DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
         ? ["Stream token by token"]
@@ -572,6 +576,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
+      settings.followExternalWorkspaceSymlinks,
       settings.environmentIdentificationMode,
       settings.fontFamilyCode,
       settings.fontFamilyComposer,
@@ -669,6 +674,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles,
+      followExternalWorkspaceSymlinks: DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -2192,6 +2198,34 @@ export function GeneralSettingsPanel() {
               checked={settings.showIgnoredFiles}
               onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
               aria-label="Show ignored files in workspace file trees"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("external-workspace-symlinks")}
+          description="Allow file previews to follow symlinks whose targets are outside the project. Applies to every project on this server."
+          resetAction={
+            settings.followExternalWorkspaceSymlinks !==
+            DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks ? (
+              <SettingResetButton
+                label="external workspace symlinks"
+                onClick={() =>
+                  updateSettings({
+                    followExternalWorkspaceSymlinks:
+                      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.followExternalWorkspaceSymlinks}
+              onCheckedChange={(checked) =>
+                updateSettings({ followExternalWorkspaceSymlinks: Boolean(checked) })
+              }
+              aria-label="Follow external workspace symlinks"
             />
           }
         />
