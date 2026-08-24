@@ -12,14 +12,20 @@ export function useFileTreeEntries(input: {
   readonly cwd: string | null;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  readonly includeIgnored?: boolean; // fork-hook: workspace-files/mobile-tree-ignored-input
 }) {
-  const { cwd, environmentId } = input;
+  const { cwd, environmentId, includeIgnored } = input;
   const searching = input.searchQuery.trim().length > 0;
   const query = input.searchQuery.trim().slice(0, 256);
   const debouncedQuery = useDebouncedValue(query, 200);
   const root = useEnvironmentQuery(
     cwd !== null && environmentId !== null
-      ? projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } })
+      ? projectEnvironment.listEntries({
+          environmentId,
+          // fork-hook: workspace-files/mobile-tree-ignored-root — always an explicit
+          // boolean: the server hides ignored children only on an explicit false.
+          input: { cwd, directoryPath: "", includeIgnored: includeIgnored === true },
+        }) // fork-hook: workspace-files/mobile-tree-ignored-root
       : null,
   );
   const search = useEnvironmentQuery(
@@ -51,6 +57,22 @@ export function useFileTreeEntries(input: {
     },
     [directories],
   );
+  // fork-hook: workspace-files/mobile-tree-ignored-refresh — a preference flip
+  // invalidates cached children so already-expanded folders refetch with the new
+  // visibility instead of serving the previous listing, and aborts in-flight
+  // requests so a stale response cannot repopulate the cleared caches.
+  const loadedPreference = useRef(includeIgnored);
+  useEffect(() => {
+    if (loadedPreference.current === includeIgnored) return;
+    loadedPreference.current = includeIgnored;
+    refreshVersion.current++;
+    for (const controller of directories.pending.values()) controller.abort();
+    directories.pending.clear();
+    directories.entries.clear();
+    directories.requested.clear();
+    directories.errors.clear();
+    render();
+  }, [directories, includeIgnored]);
   const loadDirectory = useCallback(
     (directoryPath: string, refresh = false) => {
       if (
@@ -66,7 +88,10 @@ export function useFileTreeEntries(input: {
       directories.pending.set(directoryPath, controller);
       directories.errors.delete(directoryPath);
       render();
-      const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+      const atom = projectEnvironment.listEntries({
+        environmentId,
+        input: { cwd, directoryPath, includeIgnored: includeIgnored === true },
+      }); // fork-hook: workspace-files/mobile-tree-ignored-directory
       appAtomRegistry.refresh(atom);
       return executeAtomQuery(appAtomRegistry, atom, {
         signal: controller.signal,
@@ -93,7 +118,7 @@ export function useFileTreeEntries(input: {
         render();
       });
     },
-    [cwd, directories, environmentId],
+    [cwd, directories, environmentId, includeIgnored], // fork-hook: workspace-files/mobile-tree-ignored-deps
   );
   const { refresh: refreshRoot, data: rootData } = root;
   const { refresh: refreshSearch, data: searchData } = search;
