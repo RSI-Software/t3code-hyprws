@@ -1,8 +1,10 @@
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { SymbolView } from "../../components/AppSymbol";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, View, type NativeSyntheticEvent } from "react-native";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   Screen,
   ScreenStack,
@@ -15,6 +17,7 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import { MaterialFilesHeader } from "./MaterialFilesHeader";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
@@ -31,6 +34,9 @@ export function ThreadFileNavigatorPane(props: {
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const theme = useUniwindTheme();
   const foregroundColor = theme["--color-foreground"];
@@ -40,6 +46,7 @@ export function ThreadFileNavigatorPane(props: {
     environmentId: props.environmentId,
     cwd: props.cwd,
     searchQuery,
+    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-tree-ignored-pane
   });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
