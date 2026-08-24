@@ -40,6 +40,10 @@ vi.mock("~/hooks/useWorkspaceMutationRefresh", () => ({ useWorkspaceMutationRefr
 vi.mock("~/composerHandleContext", () => ({ useComposerHandleContext: () => null }));
 vi.mock("~/fileContextMenu", () => ({ useFileContextMenu: () => ({}) }));
 vi.mock("~/localApi", () => ({ readLocalApi: () => undefined }));
+vi.mock("~/hooks/useSettings", () => ({
+  useClientSettings: () => false,
+  updateClientSettings: vi.fn(),
+})); // fork-hook: workspace-files/file-browser-ignored-listing-test
 vi.mock("~/components/ui/toast", () => ({ toastManager: { add: vi.fn() } }));
 vi.mock("~/components/MorphIcon", () => ({ MorphIcon: () => null }));
 vi.mock("~/components/ui/tooltip", () => ({
