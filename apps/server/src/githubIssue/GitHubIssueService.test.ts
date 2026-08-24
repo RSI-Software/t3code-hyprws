@@ -18,7 +18,7 @@ function project(input: {
 }): OrchestrationProjectShell {
   const host = input.host ?? "github.com";
   const repository = input.repository ?? "acme/web";
-  const [owner, name] = repository.split("/");
+  const [owner = "acme", name = "web"] = repository.split("/");
   return {
     id: input.id as ProjectId,
     title: input.title,
