@@ -519,6 +519,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
         ? ["Show skills in slash menu"]
         : []),
+      ...(settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles
+        ? ["Show ignored files"]
+        : []),
       ...(settings.enableLegacyTokenStreaming !==
       DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
         ? ["Stream token by token"]
@@ -586,6 +589,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
+      settings.showIgnoredFiles,
       settings.timestampFormat,
       settings.terminalSessionMode,
       settings.wordWrap,
@@ -664,6 +668,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
+      showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -2165,6 +2170,28 @@ export function GeneralSettingsPanel() {
                 updateSettings({ showSkillsInSlashMenu: Boolean(checked) })
               }
               aria-label="Show skills in slash menu"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("show-ignored-files")}
+          description="Include gitignored paths in workspace file trees. They remain hidden by default."
+          resetAction={
+            settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
+              <SettingResetButton
+                label="ignored files"
+                onClick={() =>
+                  updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showIgnoredFiles}
+              onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
+              aria-label="Show ignored files in workspace file trees"
             />
           }
         />
