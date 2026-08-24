@@ -10,6 +10,10 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { useDebouncedValue } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
+import {
+  ignoredFileTreeVisibilityFork,
+  useIgnoredFileTreeCacheFork,
+} from "./ignoredFileTreeCache.fork"; // fork-hook: workspace-files/mobile-tree-ignored-import
 
 function createDirectories() {
   return {
@@ -103,14 +107,19 @@ export function useFileTreeEntries(input: {
   readonly cwd: string | null;
   readonly environmentId: EnvironmentId | null;
   readonly searchQuery: string;
+  readonly includeIgnored?: boolean; // fork-hook: workspace-files/mobile-tree-ignored-input
 }) {
   const { cwd, environmentId } = input;
+  const ignoredVisibilityFork = ignoredFileTreeVisibilityFork(input.includeIgnored); // fork-hook: workspace-files/mobile-tree-ignored-refresh
   const searching = input.searchQuery.trim().length > 0;
   const query = input.searchQuery.trim().slice(0, 256);
   const debouncedQuery = useDebouncedValue(query, 200);
   const root = useEnvironmentQuery(
     cwd !== null && environmentId !== null
-      ? projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } })
+      ? projectEnvironment.listEntries({
+          environmentId,
+          input: { cwd, directoryPath: "", ...ignoredVisibilityFork },
+        }) // fork-hook: workspace-files/mobile-tree-ignored-root
       : null,
   );
   const { refresh: refreshRoot } = root;
@@ -195,6 +204,7 @@ export function useFileTreeEntries(input: {
   const updateDirectories = (
     update: (current: ReturnType<typeof createDirectories>) => ReturnType<typeof createDirectories>,
   ) => setDirectories((current) => (current.target === target ? update(current) : current));
+  useIgnoredFileTreeCacheFork(input.includeIgnored, setCache, createDirectories); // fork-hook: workspace-files/mobile-tree-ignored-refresh
   const loadDirectory = (directoryPath: string, refresh = false) => {
     const requests = getRequests(requestsByTarget.current, target);
     if (
@@ -214,7 +224,10 @@ export function useFileTreeEntries(input: {
       errors.delete(directoryPath);
       return { ...current, errors, loading: new Set(current.loading).add(directoryPath) };
     });
-    const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+    const atom = projectEnvironment.listEntries({
+      environmentId,
+      input: { cwd, directoryPath, ...ignoredVisibilityFork },
+    }); // fork-hook: workspace-files/mobile-tree-ignored-directory
     appAtomRegistry.refresh(atom);
     return executeAtomQuery(appAtomRegistry, atom, {
       signal: controller.signal,
@@ -475,7 +488,10 @@ export function useFileTreeEntries(input: {
     const queries =
       cwd !== null && environmentId !== null
         ? [
-            projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } }),
+            projectEnvironment.listEntries({
+              environmentId,
+              input: { cwd, directoryPath: "", ...ignoredVisibilityFork },
+            }), // fork-hook: workspace-files/mobile-tree-ignored-root
             ...(searching && !missingRoot
               ? [
                   projectEnvironment.searchEntries({
