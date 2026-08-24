@@ -46,6 +46,7 @@ import {
 import { buildFileTreePathUpdates, shouldRebuildFileTree } from "./fileTreePathReconciliation";
 import { loadFileAncestors } from "./loadFileAncestors";
 import { useDirectoryEntries } from "./useDirectoryEntries";
+import { ShowIgnoredFilesButton, useIgnoredFilesPreference } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 import { useProjectPathSearch } from "~/state/queries";
 import { isMacPlatform } from "~/lib/utils";
 import { type PreviewAction, subscribePreviewAction } from "../preview/previewActionBus";
@@ -184,6 +185,7 @@ export default function FileBrowserPanel({
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
   const fileContextMenu = useFileContextMenu(environmentId);
+  const { showIgnoredFiles, updateClientSettings } = useIgnoredFilesPreference(); // fork-hook: workspace-files/file-browser-ignored-listing
   const {
     entries: directoryEntries,
     load,
@@ -609,6 +611,12 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+        {/* fork-hook: workspace-files/file-browser-ignored-toggle */}
+        <ShowIgnoredFilesButton
+          shown={showIgnoredFiles}
+          onToggle={() => updateClientSettings({ showIgnoredFiles: !showIgnoredFiles })}
+        />
+        {/* fork-hook-end */}
         <FileSearchField
           ref={searchInputRef}
           name="project-files-search"
