@@ -13,6 +13,7 @@ import { vi } from "vite-plus/test";
 import * as ServerConfig from "../config.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -22,7 +23,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 const TestLayer = Layer.empty.pipe(
-  Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+  Layer.provideMerge(
+    WorkspaceEntries.layer.pipe(
+      Layer.provide(WorkspacePaths.layer),
+      Layer.provide(VcsDriverRegistry.layer),
+    ),
+  ),
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provide(
@@ -119,6 +125,31 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         );
         expect(result.entries.some((entry) => entry.path.startsWith("node_modules"))).toBe(false);
         expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("includes gitignored files only when requested", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        yield* writeTextFile(cwd, ".gitignore", ".dump/\nignored.txt\n");
+        yield* writeTextFile(cwd, "src/index.ts", "export {};\n");
+        yield* writeTextFile(cwd, ".dump/review/report.md", "# Review\n");
+        yield* writeTextFile(cwd, "ignored.txt", "ignored\n");
+
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const hidden = yield* workspaceEntries.list({ cwd });
+        const shown = yield* workspaceEntries.list({ cwd, includeIgnored: true });
+
+        expect(hidden.entries.map((entry) => entry.path)).not.toContain(".dump/review/report.md");
+        expect(shown.entries).toEqual(
+          expect.arrayContaining([
+            { path: ".dump", kind: "directory", ignored: true },
+            { path: ".dump/review", kind: "directory", ignored: true },
+            { path: ".dump/review/report.md", kind: "file", ignored: true },
+            { path: "ignored.txt", kind: "file", ignored: true },
+            { path: "src/index.ts", kind: "file" },
+          ]),
+        );
       }),
     );
   });
