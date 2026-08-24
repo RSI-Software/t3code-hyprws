@@ -37,6 +37,7 @@ const clientSettings: ClientSettings = {
   glassOpacity: 80,
   planModeEnabled: false,
   providerModelPreferences: {},
+  showIgnoredFiles: false,
   sidebarAutoSettleAfterDays: 3,
   sidebarAutoSettleOnMerge: true,
   sidebarProjectGroupingMode: "repository_path",

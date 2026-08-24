@@ -1,7 +1,9 @@
 import type { EnvironmentId, ProjectListEntriesResult } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, View, type NativeSyntheticEvent } from "react-native";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   Screen,
   ScreenStack,
@@ -14,6 +16,7 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { projectEnvironment } from "../../state/projects";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
@@ -28,6 +31,9 @@ export function ThreadFileNavigatorPane(props: {
   readonly onSelectFile: (path: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const iconColor = String(useThemeColor("--color-icon-muted"));
   const foregroundColor = String(useThemeColor("--color-foreground"));
@@ -36,7 +42,7 @@ export function ThreadFileNavigatorPane(props: {
   const entriesQuery = useEnvironmentQuery(
     projectEnvironment.listEntries({
       environmentId: props.environmentId,
-      input: { cwd: props.cwd },
+      input: showIgnoredFiles ? { cwd: props.cwd, includeIgnored: true } : { cwd: props.cwd },
     }),
   );
   const entriesData = entriesQuery.data as ProjectListEntriesResult | null;

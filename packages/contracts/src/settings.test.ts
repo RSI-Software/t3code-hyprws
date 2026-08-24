@@ -54,6 +54,13 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings ignored files", () => {
+  it("hides ignored files by default and accepts client patches", () => {
+    expect(decodeClientSettings({}).showIgnoredFiles).toBe(false);
+    expect(decodeClientSettingsPatch({ showIgnoredFiles: true }).showIgnoredFiles).toBe(true);
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);
