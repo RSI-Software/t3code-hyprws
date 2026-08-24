@@ -5,8 +5,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
+import { useShowIgnoredFiles } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
+  // fork-hook: workspace-files/file-browser-ignored-listing — the show-ignored preference rides the entries input
+  const includeIgnored = useShowIgnoredFiles(); // fork-hook: workspace-files/file-browser-ignored-listing
   const [directories, setDirectories] = useState(new Map<string, readonly ProjectEntry[]>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [pending, setPending] = useState(1);
@@ -19,11 +22,18 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   const active = useRef(true);
   const running = useRef(0);
   const waiting = useRef<Array<() => void>>([]);
+  const generation = useRef(0); // fork-hook: workspace-files/file-browser-ignored-fence
 
   const startRequest = (directoryPath: string, refresh: boolean): Promise<void> => {
     loaded.current.add(directoryPath);
     requested.current.add(directoryPath);
-    const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+    const atom = projectEnvironment.listEntries({
+      environmentId,
+      // fork-hook: workspace-files/file-browser-ignored-listing — always an explicit
+      // boolean: the server hides ignored children only on an explicit false.
+      input: { cwd, directoryPath, includeIgnored },
+    });
+    const requestGeneration = generation.current; // fork-hook: workspace-files/file-browser-ignored-fence
     const request = (async () => {
       if (running.current >= 4) await new Promise<void>((resolve) => waiting.current.push(resolve));
       else running.current++;
@@ -41,6 +51,9 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
     })()
       .then((result) => {
         if (!active.current || !result) return;
+        // fork-hook: workspace-files/file-browser-ignored-fence — a response from
+        // before a preference flip must not repopulate the cleared caches.
+        if (requestGeneration !== generation.current) return;
         if (result._tag === "Success") {
           setDirectories((previous) =>
             new Map(previous).set(
@@ -99,6 +112,23 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       active.current = false;
     };
   }, [startRequest]);
+
+  // fork-hook: workspace-files/file-browser-ignored-listing — a preference flip invalidates the
+  // per-directory caches so every visited folder refetches with (or without) ignored entries.
+  const loadedPreference = useRef(includeIgnored);
+  useEffect(() => {
+    if (loadedPreference.current === includeIgnored) return;
+    loadedPreference.current = includeIgnored;
+    generation.current++; // fork-hook: workspace-files/file-browser-ignored-fence
+    loaded.current.clear();
+    requested.current.clear();
+    for (const promise of requests.current.values()) promise.catch(() => undefined);
+    requests.current.clear();
+    setDirectories(new Map());
+    setErrors(new Map());
+    active.current = true;
+    void load("");
+  }, [includeIgnored, load]);
 
   const entries: ProjectEntry[] = [];
   const visit = (path: string) => {

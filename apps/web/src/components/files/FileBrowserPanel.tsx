@@ -33,6 +33,7 @@ import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTree
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { loadFileAncestors } from "./loadFileAncestors";
 import { useDirectoryEntries } from "./useDirectoryEntries";
+import { ShowIgnoredFilesButton, useIgnoredFilesPreference } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 import { useProjectPathSearch } from "~/state/queries";
 
 interface FileBrowserPanelProps {
@@ -148,6 +149,7 @@ export default function FileBrowserPanel({
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
   const fileContextMenu = useFileContextMenu(environmentId);
+  const { showIgnoredFiles, updateClientSettings } = useIgnoredFilesPreference(); // fork-hook: workspace-files/file-browser-ignored-listing
   const {
     entries: directoryEntries,
     load,
@@ -499,6 +501,12 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+        {/* fork-hook: workspace-files/file-browser-ignored-toggle */}
+        <ShowIgnoredFilesButton
+          shown={showIgnoredFiles}
+          onToggle={() => updateClientSettings({ showIgnoredFiles: !showIgnoredFiles })}
+        />
+        {/* fork-hook-end */}
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
