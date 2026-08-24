@@ -34,6 +34,16 @@ describe("mobile file tree helpers", () => {
     expect(firstFilePath(tree)).toBe("src/components/App.tsx");
   });
 
+  it("preserves ignored state for dimmed file-tree rows", () => {
+    const tree = buildFileTree([
+      { kind: "directory", path: ".dump", ignored: true },
+      { kind: "file", path: ".dump/report.md", ignored: true },
+    ]);
+
+    expect(tree[0]).toMatchObject({ path: ".dump", ignored: true });
+    expect(tree[0]?.children[0]).toMatchObject({ path: ".dump/report.md", ignored: true });
+  });
+
   it("flattens expanded directories and hides collapsed descendants", () => {
     const tree = buildFileTree(entries);
 
