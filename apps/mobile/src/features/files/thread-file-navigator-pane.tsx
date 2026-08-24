@@ -17,6 +17,7 @@ import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-inspector-ignored-listing-import
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
@@ -36,10 +37,12 @@ export function ThreadFileNavigatorPane(props: {
   const foregroundColor = theme["--color-foreground"];
   const sheetColor = theme["--color-sheet"];
   const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd); // fork-hook: workspace-files/mobile-inspector-ignored-listing-call
   const entriesQuery = useFileTreeEntries({
     environmentId: props.environmentId,
     cwd: props.cwd,
     searchQuery,
+    includeIgnored: workspaceFileListing.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-pane
   });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
