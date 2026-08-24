@@ -67,6 +67,9 @@ export class VcsDriver extends Context.Service<
     readonly listWorkspaceFiles: (
       cwd: string,
     ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
+    readonly listIgnoredWorkspaceFiles?: (
+      cwd: string,
+    ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
     readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, VcsError>;
     readonly filterIgnoredPaths: (
       cwd: string,
