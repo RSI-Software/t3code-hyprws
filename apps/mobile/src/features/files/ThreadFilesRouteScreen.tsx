@@ -43,6 +43,7 @@ import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
@@ -435,6 +436,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     props.route.params,
   );
   const hasFileInspector = fileInspector.supported && threadId !== null;
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
   const fileAccessSession = useEnvironmentQuery(
     environmentId !== null ? environmentSession.sessionStateAtom(environmentId) : null,
   );
@@ -450,6 +452,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     environmentId,
     cwd: canReadFiles && !hasFileInspector ? cwd : null,
     searchQuery,
+    includeIgnored: workspaceFileListing?.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-screen
   });
   const handleReturnToThread = () => {
     if (navigation.canGoBack()) {
