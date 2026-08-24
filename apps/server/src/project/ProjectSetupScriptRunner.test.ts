@@ -147,7 +147,7 @@ describe("ProjectSetupScriptRunner", () => {
         expect(write).toHaveBeenCalledWith({
           threadId: "thread-1",
           terminalId: "setup-setup",
-          data: "bun install\r",
+          data: "bun install && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r",
         });
       }).pipe(Effect.provide(testLayer(project, { open, write })));
     },
