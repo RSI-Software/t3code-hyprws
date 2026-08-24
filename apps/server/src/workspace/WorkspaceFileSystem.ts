@@ -25,6 +25,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import * as WorkspaceFileSystemFork from "./WorkspaceFileSystem.fork.ts"; // fork-hook: upstream-fixes/wfs-fork-import
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -138,6 +139,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+  const externalSymlinksFork = WorkspaceFileSystemFork.makeExternalSymlinksFork(); // fork-hook: upstream-fixes/wfs-external-symlinks-policy
 
   /**
    * Resolves the file a read targets. Workspace-relative paths must stay inside the
@@ -194,11 +196,12 @@ export const make = Effect.gen(function* () {
         }),
     });
     const relativeRealPath = path.relative(realWorkspaceRoot, realTargetPath);
-    if (
+    const resolvesOutsideWorkspace =
       relativeRealPath.startsWith(`..${path.sep}`) ||
       relativeRealPath === ".." ||
-      path.isAbsolute(relativeRealPath)
-    ) {
+      path.isAbsolute(relativeRealPath);
+    const followsExternalSymlinks = yield* externalSymlinksFork.follows(resolvesOutsideWorkspace); // fork-hook: upstream-fixes/wfs-external-symlinks-follow
+    if (resolvesOutsideWorkspace && !followsExternalSymlinks) {
       return yield* new WorkspaceFilePathEscapeError({
         workspaceRoot: input.cwd,
         relativePath: input.relativePath,
