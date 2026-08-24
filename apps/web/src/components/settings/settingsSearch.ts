@@ -857,6 +857,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "show-ignored-files",
+    title: "Show ignored files",
+    to: "/settings/general",
+  },
+  {
     id: "provider-update-checks",
     title: msg("Provider update checks"),
     to: "/settings/maintenance",
