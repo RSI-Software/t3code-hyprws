@@ -1,3 +1,4 @@
+import "./threadFileNavigatorPreferences.fixture.fork"; // fork-hook: workspace-files/mobile-inspector-preferences-fixture
 import { EnvironmentId } from "@t3tools/contracts";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
