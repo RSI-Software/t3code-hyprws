@@ -5,13 +5,20 @@ import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import { msg } from "gt-react";
 import { useEffect, useRef, useState } from "react";
+import {
+  ignoredListingEnvironmentFork,
+  useIgnoredListingInvalidationFork,
+} from "./ignoredListingInvalidation.fork"; // fork-hook: workspace-files/file-browser-ignored-listing-import
 
 import { environmentCatalog } from "~/connection/catalog";
 import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
+import { useShowIgnoredFiles } from "./ignoredFilesPreference.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
+  const includeIgnored = useShowIgnoredFiles(); // fork-hook: workspace-files/file-browser-ignored-listing
+  const listingEnvironmentFork = ignoredListingEnvironmentFork(projectEnvironment, includeIgnored); // fork-hook: workspace-files/file-browser-ignored-listing
   const [directories, setDirectories] = useState(new Map<string, readonly ProjectEntry[]>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [pending, setPending] = useState(1);
@@ -30,13 +37,16 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   const active = useRef(true);
   const running = useRef(0);
   const waiting = useRef<Array<() => void>>([]);
+  const generation = useRef(0); // fork-hook: workspace-files/file-browser-ignored-fence
 
   const startRequest = (directoryPath: string, refresh: boolean): Promise<void> => {
+    const projectEnvironment = listingEnvironmentFork(); // fork-hook: workspace-files/file-browser-ignored-listing
     loaded.current.add(directoryPath);
     requested.current.add(directoryPath);
     stale.current.delete(directoryPath);
     const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
     const detached = detachedRequests.current.get(directoryPath);
+    const requestGeneration = generation.current; // fork-hook: workspace-files/file-browser-ignored-fence
     const request = (async () => {
       // A shared query still waiting would join the removed folder's read.
       if (detached) await detached;
@@ -57,6 +67,9 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       .then((result) => {
         // A request is dropped from `requests` when its folder disappears, so its read is stale.
         if (!active.current || !result || requests.current.get(directoryPath) !== request) return;
+        // fork-hook: workspace-files/file-browser-ignored-fence — a response from
+        // before a preference flip must not repopulate the cleared caches.
+        if (requestGeneration !== generation.current) return;
         if (result._tag === "Success") {
           const children = result.value.entries.filter(
             (entry) =>
@@ -180,6 +193,20 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
   useAtomSubscribe(sessionGeneration, () => {
     for (const path of errors.keys()) void load(path);
   });
+  useIgnoredListingInvalidationFork(includeIgnored, () => {
+    generation.current++; // fork-hook: workspace-files/file-browser-ignored-fence
+    loaded.current.clear();
+    requested.current.clear();
+    for (const promise of requests.current.values()) promise.catch(() => undefined);
+    requests.current.clear();
+    listings.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
+    detachedRequests.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
+    followUpRefreshes.current.clear(); // fork-hook: workspace-files/file-browser-ignored-listing
+    setDirectories(new Map());
+    setErrors(new Map());
+    active.current = true;
+    void load("");
+  }); // fork-hook: workspace-files/file-browser-ignored-listing
 
   const entries: ProjectEntry[] = [];
   const visit = (path: string) => {
