@@ -2,6 +2,7 @@ import * as NodeModule from "node:module";
 import * as NodeURL from "node:url";
 import { defineConfig, normalizePath } from "vite-plus";
 import "vite-plus/test/config";
+import { forkMobileReactTests } from "./vite.fork"; // fork-hook: workspace-files/mobile-test-import
 
 const reactTests = [
   "src/features/browser/LocalPreviewRouteScreen.test.tsx",
@@ -16,6 +17,7 @@ const reactTests = [
   "src/features/threads/NewTaskRouteScreen.test.tsx",
   "src/features/layout/workspace/workspace-tabs-state.test.ts",
   "src/state/use-thread-pr.demand.test.tsx",
+  ...forkMobileReactTests, // fork-hook: workspace-files/mobile-test-includes
   "src/features/threads/git/GitBranchesSheet.occupancy.test.tsx",
   "src/features/threads/git/GitBranchesSheet.pagination.test.tsx",
   "src/features/files/useFileTreeEntries.test.tsx",
