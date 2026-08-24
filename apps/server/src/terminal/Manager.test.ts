@@ -362,7 +362,7 @@ it.layer(
         Effect.succeed(
           processResult({
             stdout:
-              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
           }),
         ),
       );
@@ -397,6 +397,29 @@ it.layer(
       });
       expect(snapshot.label).toBe("zmux/main");
       expect(snapshot.history).toBe("");
+    }),
+  );
+
+  it.effect("falls back visibly when zmux resolves the workspace main session", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.succeed(
+          processResult({
+            stdout:
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+          }),
+        ),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
+      expect(snapshot.history).toContain("resolves the workspace main session, not a worktree");
+      expect(snapshot.history).toContain("plain shell");
     }),
   );
 
