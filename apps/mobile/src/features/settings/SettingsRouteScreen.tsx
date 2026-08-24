@@ -595,6 +595,11 @@ function ConfiguredSettingsRouteScreen() {
 }
 
 function GeneralSettingsSection() {
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferencesResult) && preferencesResult.value.showIgnoredFiles === true;
+
   return (
     <SettingsSection title="General">
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
@@ -602,6 +607,12 @@ function GeneralSettingsSection() {
         <SettingsRow icon="keyboard" label="Keyboard" target="SettingsKeyboard" />
       ) : null}
       <AutoSettleSettingsRows />
+      <SettingsSwitchRow
+        icon="eye"
+        label="Show ignored files"
+        value={showIgnoredFiles}
+        onValueChange={(value) => savePreferences({ showIgnoredFiles: value })}
+      />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>
   );

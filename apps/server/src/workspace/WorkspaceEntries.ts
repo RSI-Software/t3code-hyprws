@@ -24,9 +24,9 @@ import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/p
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
 import { expandHomePathWith } from "../pathExpansion.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 export class WorkspaceEntriesWindowsPathUnsupportedError extends Schema.TaggedError<WorkspaceEntriesWindowsPathUnsupportedError>()(
   "WorkspaceEntriesWindowsPathUnsupportedError",
@@ -76,7 +76,6 @@ export const WorkspaceEntriesBrowseError = Schema.Union([
 export type WorkspaceEntriesBrowseError = typeof WorkspaceEntriesBrowseError.Type;
 
 export const WorkspaceEntriesError = Schema.Union([
-  WorkspaceEntriesReadDirectoryError,
   WorkspacePaths.WorkspaceRootNotExistsError,
   WorkspacePaths.WorkspaceRootCreateFailedError,
   WorkspacePaths.WorkspaceRootStatFailedError,
@@ -131,12 +130,45 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
   return path.resolve(expandHomePathWith(input.cwd, path), input.partialPath);
 });
 
+function includeIgnoredPaths(
+  result: ProjectListEntriesResult,
+  ignoredPaths: ReadonlyArray<string>,
+  ignoredPathsTruncated: boolean,
+): ProjectListEntriesResult {
+  const entriesByPath = new Map(result.entries.map((entry) => [entry.path, entry]));
+  for (const rawPath of ignoredPaths) {
+    const ignoredPath = rawPath.replaceAll("\\", "/").replace(/\/$/, "");
+    if (!ignoredPath) continue;
+
+    const segments = ignoredPath.split("/");
+    let parentPath = "";
+    for (const segment of segments.slice(0, -1)) {
+      parentPath = parentPath ? `${parentPath}/${segment}` : segment;
+      if (!entriesByPath.has(parentPath)) {
+        entriesByPath.set(parentPath, { path: parentPath, kind: "directory", ignored: true });
+      }
+    }
+    if (!entriesByPath.has(ignoredPath)) {
+      entriesByPath.set(ignoredPath, { path: ignoredPath, kind: "file", ignored: true });
+    }
+  }
+
+  const sortedEntries: ProjectEntry[] = [...entriesByPath.values()].toSorted((left, right) =>
+    left.path.localeCompare(right.path),
+  );
+  const entries = sortedEntries.slice(0, WorkspaceSearchIndex.WORKSPACE_INDEX_MAX_ENTRIES);
+  return {
+    entries,
+    truncated: result.truncated || ignoredPathsTruncated || entries.length < sortedEntries.length,
+  };
+}
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
-  const vcsProcess = yield* VcsProcess.VcsProcess;
+  const vcsDrivers = yield* VcsDriverRegistry.VcsDriverRegistry;
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
@@ -270,79 +302,7 @@ export const make = Effect.gen(function* () {
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
-      if (input.directoryPath !== undefined) {
-        const directoryPath = input.directoryPath;
-        const toError = (cause: unknown) =>
-          new WorkspaceEntriesReadDirectoryError({
-            cwd: normalizedCwd,
-            partialPath: directoryPath,
-            parentPath: path.resolve(normalizedCwd, directoryPath),
-            cause,
-          });
-        const target =
-          directoryPath === ""
-            ? { absolutePath: normalizedCwd, relativePath: "" }
-            : yield* workspacePaths
-                .resolveRelativePathWithinRoot({
-                  workspaceRoot: normalizedCwd,
-                  relativePath: directoryPath,
-                })
-                .pipe(Effect.mapError(toError));
-        const entries = yield* Effect.tryPromise({
-          try: async () => {
-            const root = await NodeFSP.realpath(normalizedCwd);
-            const directory = await NodeFSP.realpath(target.absolutePath);
-            const relative = path.relative(root, directory);
-            if (
-              relative === ".." ||
-              relative.startsWith(`..${path.sep}`) ||
-              path.isAbsolute(relative) ||
-              relative.split(path.sep).includes(".git") ||
-              target.relativePath.split("/").includes(".git")
-            ) {
-              throw new Error("Directory must be inside the workspace and outside .git.");
-            }
-            const children = await NodeFSP.readdir(directory, { withFileTypes: true });
-            return children.flatMap((child): ProjectEntry[] => {
-              if (child.name === ".git" || (!child.isDirectory() && !child.isFile())) return [];
-              return [
-                {
-                  path: target.relativePath ? `${target.relativePath}/${child.name}` : child.name,
-                  kind: child.isDirectory() ? "directory" : "file",
-                },
-              ];
-            });
-          },
-          catch: toError,
-        });
-        // Use stdin so large directories cannot exceed the command-line argument limit.
-        // Ignore classification is optional in non-git workspaces or when git is unavailable.
-        const ignored = new Set<string>();
-        for (let offset = 0; offset < entries.length; offset += 1000) {
-          const chunk = entries.slice(offset, offset + 1000);
-          const result = yield* vcsProcess
-            .run({
-              operation: "WorkspaceEntries.list",
-              command: "git",
-              args: ["-c", "core.fsmonitor=false", "check-ignore", "-z", "--stdin"],
-              cwd: normalizedCwd,
-              stdin: `${chunk.map((entry) => entry.path).join("\0")}\0`,
-              allowNonZeroExit: true,
-              timeoutMs: 10_000,
-              maxOutputBytes: 16 * 1024 * 1024,
-            })
-            .pipe(Effect.orElseSucceed(() => undefined));
-          if (!result || (result.exitCode !== 0 && result.exitCode !== 1)) break;
-          for (const ignoredPath of result.stdout.split("\0")) ignored.add(ignoredPath);
-        }
-        return {
-          entries: entries.map((entry) =>
-            ignored.has(entry.path) ? { ...entry, ignored: true } : entry,
-          ),
-          truncated: false,
-        };
-      }
-      return yield* Effect.gen(function* () {
+      const result = yield* Effect.gen(function* () {
         const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
         return yield* searchIndex.list();
       }).pipe(
@@ -352,6 +312,30 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
+      if (!input.includeIgnored) return result;
+
+      const detected = yield* vcsDrivers.detect({ cwd: normalizedCwd }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to detect VCS while listing ignored workspace files", {
+            cwd: normalizedCwd,
+            cause,
+          }).pipe(Effect.as(null)),
+        ),
+      );
+      const listIgnoredWorkspaceFiles = detected?.driver.listIgnoredWorkspaceFiles;
+      if (!listIgnoredWorkspaceFiles) return result;
+
+      const ignoredResult = yield* listIgnoredWorkspaceFiles(normalizedCwd).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to list ignored workspace files", {
+            cwd: normalizedCwd,
+            cause,
+          }).pipe(Effect.as(null)),
+        ),
+      );
+      return ignoredResult
+        ? includeIgnoredPaths(result, ignoredResult.paths, ignoredResult.truncated)
+        : result;
     },
   );
 
@@ -360,5 +344,4 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(
   Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
-  Layer.provide(VcsProcess.layer),
 );

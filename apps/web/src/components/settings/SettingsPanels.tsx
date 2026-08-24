@@ -770,6 +770,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
+      showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
@@ -2752,6 +2753,28 @@ export function GeneralSettingsPanel() {
                 </Toggle>
               ))}
             </ToggleGroup>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("show-ignored-files")}
+          description="Include gitignored paths in workspace file trees. They remain hidden by default."
+          resetAction={
+            settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles ? (
+              <SettingResetButton
+                label="ignored files"
+                onClick={() =>
+                  updateSettings({ showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showIgnoredFiles}
+              onCheckedChange={(checked) => updateSettings({ showIgnoredFiles: Boolean(checked) })}
+              aria-label="Show ignored files in workspace file trees"
+            />
           }
         />
 

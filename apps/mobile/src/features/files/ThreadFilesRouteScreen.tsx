@@ -1,11 +1,18 @@
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type ProjectListEntriesResult,
+  type ProjectReadFileResult,
+  ThreadId,
+} from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   isWorkspaceBrowserPreviewPath,
@@ -34,6 +41,7 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { useEnvironmentQuery } from "../../state/query";
 import { projectEnvironment } from "../../state/projects";
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import {
   useAdaptiveWorkspaceLayout,
   useAdaptiveWorkspacePaneRole,
@@ -48,7 +56,6 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -330,6 +337,9 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const isAndroid = Platform.OS === "android";
   const { themeAppearance: highlightTheme, materialYouStyleLayoutActive } =
     useAppearancePreferences();
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const theme = useUniwindTheme();
   const screenColor = theme["--color-screen"];
   const sheetSurfaceColor = theme["--color-sheet-solid"];
@@ -337,11 +347,15 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     props.route.params,
   );
   const revealedInspectorRef = useRef(false);
-  const entriesQuery = useFileTreeEntries({
-    environmentId,
-    cwd: fileInspector.supported ? null : cwd,
-    searchQuery,
-  });
+  const entriesQuery = useEnvironmentQuery(
+    environmentId !== null && cwd !== null && !fileInspector.supported
+      ? projectEnvironment.listEntries({
+          environmentId,
+          input: showIgnoredFiles ? { cwd, includeIgnored: true } : { cwd },
+        })
+      : null,
+  );
+  const entriesData = entriesQuery.data as ProjectListEntriesResult | null;
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -549,14 +563,10 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
         </>
       )}
       <FileTreeBrowser
-        key={JSON.stringify([environmentId, cwd])}
-        entries={entriesQuery.entries}
-        loadedDirectories={entriesQuery.loadedDirectories}
-        onLoadDirectory={entriesQuery.loadDirectory}
+        entries={entriesData?.entries ?? []}
         error={entriesQuery.error}
         isPending={entriesQuery.isPending}
         searchQuery={searchQuery}
-        searchTruncated={entriesQuery.searchTruncated}
         selectedPath={null}
         onPreviewFile={handlePreviewFile}
         onRefresh={entriesQuery.refresh}
