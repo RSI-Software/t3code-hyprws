@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   ProjectReadFileError,
+  ProjectListEntriesInput,
   ProjectSearchContentsError,
   ProjectSearchContentsInput,
   ProjectSearchEntriesError,
@@ -12,8 +13,16 @@ import {
 
 const decodeSearchEntriesInput = Schema.decodeUnknownSync(ProjectSearchEntriesInput);
 const decodeSearchContentsInput = Schema.decodeUnknownSync(ProjectSearchContentsInput);
+const decodeListEntriesInput = Schema.decodeUnknownSync(ProjectListEntriesInput);
 
 describe("project search inputs", () => {
+  it("accepts an optional ignored-file listing request", () => {
+    expect(decodeListEntriesInput({ cwd: "/workspace" }).includeIgnored).toBeUndefined();
+    expect(decodeListEntriesInput({ cwd: "/workspace", includeIgnored: true }).includeIgnored).toBe(
+      true,
+    );
+  });
+
   it("allows an empty entries query for bounded frecency browsing", () => {
     const decoded = decodeSearchEntriesInput({
       cwd: "/workspace",
