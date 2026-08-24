@@ -76,6 +76,7 @@ export const ProjectListEntriesInput = Schema.Struct({
   // Present for immediate filesystem children, including ignored entries; empty means root.
   // Omitted preserves the indexed recursive listing used by older clients.
   directoryPath: Schema.optional(TrimmedString),
+  includeIgnored: Schema.optional(Schema.Boolean), // fork-hook: workspace-files/project-list-entries-input
 });
 export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
 

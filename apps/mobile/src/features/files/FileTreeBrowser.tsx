@@ -83,7 +83,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       ) : (
         <View className="w-3" />
       )}
-      <PierreEntryIcon path={node.path} kind={node.kind} size={17} />
+      <View className={cn(node.ignored && "opacity-50")}>
+        <PierreEntryIcon path={node.path} kind={node.kind} size={17} />
+      </View>
       <Text
         className={cn(
           "min-w-0 flex-1 text-sm leading-normal",
