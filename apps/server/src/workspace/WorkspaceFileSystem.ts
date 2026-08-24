@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
+import * as WorkspaceFileSystemFork from "./WorkspaceFileSystem.fork.ts"; // fork-hook: upstream-fixes/wfs-fork-import
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
@@ -149,6 +150,7 @@ export const make = Effect.gen(function* () {
     toWslDrivePath(requestedPath).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
+  const externalSymlinksFork = WorkspaceFileSystemFork.makeExternalSymlinksFork(); // fork-hook: upstream-fixes/wfs-external-symlinks-policy
 
   const metadataForPath = Effect.fnUntraced(function* (requestedPath: string) {
     const expandedPath = expandHomePath(
@@ -334,7 +336,9 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     });
-    if (!isInsideRealRoot(realWorkspaceRoot, resolved.realTargetPath)) {
+    const resolvesOutsideWorkspace = !isInsideRealRoot(realWorkspaceRoot, resolved.realTargetPath); // fork-hook: upstream-fixes/wfs-external-symlinks-follow
+    const followsExternalSymlinks = yield* externalSymlinksFork.follows(resolvesOutsideWorkspace); // fork-hook: upstream-fixes/wfs-external-symlinks-follow
+    if (resolvesOutsideWorkspace && !followsExternalSymlinks) {
       return yield* new WorkspaceFilePathEscapeError({
         workspaceRoot: input.cwd,
         relativePath: input.relativePath,
