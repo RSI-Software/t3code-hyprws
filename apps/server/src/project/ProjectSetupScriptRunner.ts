@@ -359,7 +359,7 @@ export const make = Effect.gen(function* () {
             completionShell,
             completionSentinel(completionToken),
           )
-        : script.command;
+        : `${script.command} && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'`;
 
     yield* terminalManager
       .open({
