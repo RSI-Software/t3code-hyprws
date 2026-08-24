@@ -435,6 +435,7 @@ const layerWorkspaceEntries = WorkspaceEntries.layer.pipe(
 const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(layerWorkspaceEntries),
+  Layer.provide(layerServerSettings), // fork-hook: upstream-fixes/wfs-server-settings-layer
 );
 
 const layerWorkspace = Layer.mergeAll(
