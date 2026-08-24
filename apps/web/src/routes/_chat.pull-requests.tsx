@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { pullRequestHostOf, ThreadId } from "@t3tools/contracts";
 import type {
@@ -9,6 +10,7 @@ import type {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestListState,
+  ScopedProjectRef,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -67,6 +69,7 @@ import {
 import { PullRequestListEmptyState } from "../components/pullRequest/PullRequestListEmptyState";
 import { PullRequestListGhost } from "../components/pullRequest/PullRequestGhosts";
 import { PullRequestRow } from "../components/pullRequest/PullRequestRow";
+import { WindowProjectScopeToggle } from "../components/WindowProjectScopeToggle";
 import {
   validatePullRequestsSearch,
   type PullRequestsSearch,
@@ -96,7 +99,7 @@ import {
   type PullRequestSurface,
 } from "../rightPanelStore";
 import { useDebouncedValue } from "../state/queries";
-import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
+import { useProjects } from "../state/entities";
 import { useEnvironments } from "../state/environments";
 import {
   pullRequestEnvironment,
@@ -104,9 +107,14 @@ import {
   usePullRequestListStats,
   type EnvironmentQueryTarget,
 } from "../state/pullRequests";
+import {
+  allEnvironmentShellsBootstrappedAtom,
+  environmentShellBootstrappedAtom,
+} from "../state/shell";
 import { useAtomCommand } from "../state/use-atom-command";
 import { cn } from "~/lib/utils";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
+import { useWindowProjectListScope } from "../windowProjectScope";
 
 // The state filters wear the same glyphs the rows do, so the two read as one vocabulary.
 const INVOLVEMENT_TABS = [
@@ -152,6 +160,10 @@ const EMPTY_PREVIEW_DESKTOP_STATE = {};
 const EMPTY_TERMINAL_LABELS = new Map<string, string>();
 const EMPTY_PENDING_SURFACES = new Set<string>();
 
+export type PullRequestsSearchUpdater = (
+  update: (previous: PullRequestsSearch) => PullRequestsSearch,
+) => void;
+
 export const Route = createFileRoute("/_chat/pull-requests")({
   validateSearch: validatePullRequestsSearch,
   component: PullRequestsRouteView,
@@ -160,6 +172,24 @@ export const Route = createFileRoute("/_chat/pull-requests")({
 function PullRequestsRouteView() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  return (
+    <PullRequestsPage
+      forcedProjectRef={null}
+      search={search}
+      onNavigate={(update) => void navigate({ search: update, replace: true })}
+    />
+  );
+}
+
+export function PullRequestsPage({
+  forcedProjectRef,
+  search,
+  onNavigate,
+}: {
+  readonly forcedProjectRef: ScopedProjectRef | null;
+  readonly search: PullRequestsSearch;
+  readonly onNavigate: PullRequestsSearchUpdater;
+}) {
   const { environments } = useEnvironments();
   // Every connected environment that has said it can list pull requests. Sorted, so the query
   // keys, the scope key and the stored snapshot all read the same whichever order the
@@ -173,10 +203,15 @@ function PullRequestsRouteView() {
         .toSorted((left, right) => left.environmentId.localeCompare(right.environmentId)),
     [environments],
   );
+  const { listScope, onScopeChange } = useWindowProjectListScope(forcedProjectRef, search.scope);
+  const forcedProjectScope = listScope.kind === "project" ? listScope.projectRef : null;
+
   // The server the URL asks for, kept only while it is one the page could read: a link naming a
-  // server this workspace no longer has falls back to all of them rather than to nothing.
+  // server this workspace no longer has falls back to all of them rather than to nothing. Project
+  // scope always names its owning environment, including while the project projection bootstraps.
+  const requestedEnvironmentId = forcedProjectScope?.environmentId ?? search.environmentId;
   const scopedEnvironmentId =
-    capableEnvironments.find((environment) => environment.environmentId === search.environmentId)
+    capableEnvironments.find((environment) => environment.environmentId === requestedEnvironmentId)
       ?.environmentId ?? null;
   // Every server this workspace has ever heard of, connecting or not — wider than
   // `capableEnvironments`, which only holds the ones ready to answer.
@@ -187,12 +222,13 @@ function PullRequestsRouteView() {
   const environmentIds = useMemo(
     () =>
       capableEnvironments
-        .filter(
-          (environment) =>
-            scopedEnvironmentId === null || environment.environmentId === scopedEnvironmentId,
+        .filter((environment) =>
+          forcedProjectScope !== null
+            ? environment.environmentId === forcedProjectScope.environmentId
+            : scopedEnvironmentId === null || environment.environmentId === scopedEnvironmentId,
         )
         .map((environment) => environment.environmentId),
-    [capableEnvironments, scopedEnvironmentId],
+    [capableEnvironments, forcedProjectScope, scopedEnvironmentId],
   );
   const environmentKey = useMemo(
     () => pullRequestEnvironmentSetKey(environmentIds),
@@ -201,13 +237,24 @@ function PullRequestsRouteView() {
   // An environment may still be connecting, or may predate this feature. Until at least one has
   // reported, an empty set means "not known yet" rather than "no environment can", and the page
   // waits rather than telling a reader to upgrade a server that has not spoken.
-  const capabilityKnown = environments.some((environment) => environment.serverConfig !== null);
+  const capabilityKnown =
+    forcedProjectScope === null
+      ? environments.some((environment) => environment.serverConfig !== null)
+      : environments.some(
+          (environment) =>
+            environment.environmentId === forcedProjectScope.environmentId &&
+            environment.serverConfig !== null,
+        );
   const pullRequestsSupported = environmentIds.length > 0;
   const allProjects = useProjects();
   // Whether the workspace has said what it holds yet. Until it has, an empty project list is
   // "not loaded" rather than "none", and telling a reader to add a project they already have is
   // the one wrong answer the empty state can give.
-  const projectsKnown = useAllEnvironmentShellsBootstrapped();
+  const projectsKnown = useAtomValue(
+    forcedProjectScope === null
+      ? allEnvironmentShellsBootstrappedAtom
+      : environmentShellBootstrappedAtom(forcedProjectScope.environmentId),
+  );
   // Only the projects the page can actually read: one on an environment that cannot list pull
   // requests could neither be listed nor acted on.
   const projects = useMemo(
@@ -240,14 +287,24 @@ function PullRequestsRouteView() {
       }))
       .toSorted((left, right) => left.title.localeCompare(right.title));
   }, [environmentLabels, projects]);
-  // The scope the URL asks for, once the environments have had their say about whether it exists.
+  // A project route gets its scope only from its route parameters. Hub-style `projectId` search
+  // state cannot override that identity; all-project mode deliberately drops it.
   const scopedProjectId = useMemo(
-    () => resolveProjectScope(search.projectId, projects, projectsKnown),
-    [projects, projectsKnown, search.projectId],
+    () =>
+      forcedProjectScope?.projectId ??
+      (forcedProjectRef === null
+        ? resolveProjectScope(search.projectId, projects, projectsKnown)
+        : undefined),
+    [forcedProjectRef, forcedProjectScope, projects, projectsKnown, search.projectId],
   );
   const scopedProject = useMemo(
-    () => findScopedProject(projects, scopedEnvironmentId, scopedProjectId),
-    [projects, scopedEnvironmentId, scopedProjectId],
+    () =>
+      findScopedProject(
+        projects,
+        forcedProjectScope?.environmentId ?? scopedEnvironmentId,
+        scopedProjectId,
+      ),
+    [forcedProjectScope, projects, scopedEnvironmentId, scopedProjectId],
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
@@ -345,32 +402,30 @@ function PullRequestsRouteView() {
     (patch: {
       [Key in keyof PullRequestsSearch]?: PullRequestsSearch[Key] | undefined;
     }) =>
-      void navigate({
-        // Rebuilt rather than spread so a cleared field leaves the URL instead of
-        // lingering as an explicit `undefined`.
-        search: (previous: PullRequestsSearch): PullRequestsSearch => {
-          const next = { ...previous, ...patch };
-          return {
-            involvement: next.involvement ?? previous.involvement,
-            state: next.state ?? previous.state,
-            ...(next.repository ? { repository: next.repository } : {}),
-            ...(next.number ? { number: next.number } : {}),
-            ...(next.projectId ? { projectId: next.projectId } : {}),
-            ...(next.environmentId ? { environmentId: next.environmentId } : {}),
-            ...(next.host ? { host: next.host } : {}),
-            ...(next.selectedProjectId ? { selectedProjectId: next.selectedProjectId } : {}),
-            ...(next.selectedEnvironmentId
-              ? { selectedEnvironmentId: next.selectedEnvironmentId }
-              : {}),
-            ...(next.q ? { q: next.q } : {}),
-            ...(next.draft ? { draft: next.draft } : {}),
-            ...(next.review ? { review: next.review } : {}),
-            ...(next.checks ? { checks: next.checks } : {}),
-          };
-        },
-        replace: true,
+      onNavigate((previous) => {
+        const next = { ...previous, ...patch };
+        return {
+          involvement: next.involvement ?? previous.involvement,
+          state: next.state ?? previous.state,
+          ...(next.repository ? { repository: next.repository } : {}),
+          ...(next.number ? { number: next.number } : {}),
+          // A project route's identity is already in its route params. Never retain a hub-style
+          // project picker value there, even when some unrelated filter changes.
+          ...(forcedProjectRef === null && next.projectId ? { projectId: next.projectId } : {}),
+          ...(next.environmentId ? { environmentId: next.environmentId } : {}),
+          ...(next.host ? { host: next.host } : {}),
+          ...(next.selectedProjectId ? { selectedProjectId: next.selectedProjectId } : {}),
+          ...(next.selectedEnvironmentId
+            ? { selectedEnvironmentId: next.selectedEnvironmentId }
+            : {}),
+          ...(next.q ? { q: next.q } : {}),
+          ...(next.draft ? { draft: next.draft } : {}),
+          ...(next.review ? { review: next.review } : {}),
+          ...(next.checks ? { checks: next.checks } : {}),
+          ...(next.scope === "all" ? { scope: next.scope } : {}),
+        };
       }),
-    [navigate],
+    [forcedProjectRef, onNavigate],
   );
 
   // Changing what the list contains must not leave a selection from the previous view open.
@@ -1386,6 +1441,17 @@ function PullRequestsRouteView() {
       Icon: environment.displayUrl === null ? MonitorIcon : ServerIcon,
     })),
   ];
+  const projectScopeToggle = (
+    <WindowProjectScopeToggle
+      forcedProjectRef={forcedProjectRef}
+      listScope={listScope}
+      onNavigate={(urlScope) =>
+        onScopeChange(urlScope, (scopePatch) =>
+          updateListScope({ ...scopePatch, environmentId: undefined }),
+        )
+      }
+    />
+  );
   const filtersMenu = (
     <PullRequestFiltersMenu
       state={search.state}
@@ -1402,13 +1468,13 @@ function PullRequestsRouteView() {
       hostOptions={hostMenuOptions}
       onHost={(host) => updateListScope({ host })}
       server={scopedEnvironmentId ?? undefined}
-      serverOptions={serverMenuOptions}
+      serverOptions={forcedProjectRef === null ? serverMenuOptions : []}
       // Narrowing to one server drops a project scope belonging to another, which would
       // otherwise narrow the list to nothing with no visible filter to explain it.
       onServer={(server) => updateListScope({ environmentId: server, projectId: undefined })}
-      projects={scopedProjects}
-      projectId={scopedProjectId}
-      projectEnvironmentId={scopedProject?.environmentId}
+      projects={forcedProjectRef === null ? scopedProjects : null}
+      projectId={forcedProjectRef === null ? scopedProjectId : undefined}
+      projectEnvironmentId={forcedProjectRef === null ? scopedProject?.environmentId : undefined}
       unavailable={unavailableProjects}
       // The environment comes along with the project it belongs to, so a duplicate id on
       // another server never gets narrowed to by mistake; picking "All projects" leaves the
@@ -1431,6 +1497,7 @@ function PullRequestsRouteView() {
     onHost: (host: string | undefined) => updateListScope({ host }),
     searchInput,
     filtersMenu,
+    projectScopeToggle,
     rightPanelControl:
       // Footprint reserve while the panel is closed: the toggle itself stays
       // mounted at the fixed titlebar inset in both states so it cannot move
@@ -1695,6 +1762,7 @@ function PullRequestsColumn({
   onHost,
   searchInput,
   filtersMenu,
+  projectScopeToggle,
   rightPanelControl,
   rightPanelOpen,
   listBody,
@@ -1711,6 +1779,7 @@ function PullRequestsColumn({
   onHost: (host: string | undefined) => void;
   searchInput: ReactNode;
   filtersMenu: ReactNode;
+  projectScopeToggle: ReactNode;
   rightPanelControl: ReactNode;
   rightPanelOpen: boolean;
   listBody: ReactNode;
@@ -1845,7 +1914,8 @@ function PullRequestsColumn({
             content actually passing under the chrome fades. */}
         <WorkspacePageContainer className="gap-4">
           <div className="flex flex-col gap-3">
-            <div ref={inFlowSearchRef} className="flex items-center gap-2">
+            <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
+              {projectScopeToggle}
               {searchInput}
               {filtersMenu}
               {!condensed ? (
