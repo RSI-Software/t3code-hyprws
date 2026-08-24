@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   ProjectReadFileError,
+  ProjectListEntriesInput,
   ProjectSearchContentsError,
   ProjectSearchContentsInput,
   ProjectSearchEntriesError,
@@ -12,6 +13,7 @@ import {
 
 const decodeSearchEntriesInput = Schema.decodeUnknownSync(ProjectSearchEntriesInput);
 const decodeSearchContentsInput = Schema.decodeUnknownSync(ProjectSearchContentsInput);
+const decodeListEntriesInput = Schema.decodeUnknownSync(ProjectListEntriesInput);
 
 describe("project search inputs", () => {
   it("allows an empty entries query for bounded frecency browsing", () => {
