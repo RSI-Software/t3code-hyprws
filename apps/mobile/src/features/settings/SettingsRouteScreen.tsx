@@ -533,6 +533,8 @@ function GeneralSettingsSection() {
   const autoSettleOnMerge =
     !AsyncResult.isSuccess(preferencesResult) ||
     preferencesResult.value.autoSettleOnMerge !== false;
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferencesResult) && preferencesResult.value.showIgnoredFiles === true;
 
   return (
     <SettingsSection title="General">
@@ -542,6 +544,12 @@ function GeneralSettingsSection() {
         label="Auto-settle merged threads"
         value={autoSettleOnMerge}
         onValueChange={(value) => savePreferences({ autoSettleOnMerge: value })}
+      />
+      <SettingsSwitchRow
+        icon="eye"
+        label="Show ignored files"
+        value={showIgnoredFiles}
+        onValueChange={(value) => savePreferences({ showIgnoredFiles: value })}
       />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>

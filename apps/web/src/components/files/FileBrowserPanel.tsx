@@ -1,11 +1,12 @@
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
+  GitStatusEntry,
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { RotateCw } from "lucide-react";
+import { Eye, EyeOff, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -15,6 +16,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTheme } from "~/hooks/useTheme";
+import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
@@ -71,6 +73,30 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
   );
 }
 
+function ShowIgnoredFilesButton(props: { shown: boolean; onToggle: () => void }) {
+  const action = props.shown ? "Hide ignored files" : "Show ignored files";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={action}
+            aria-pressed={props.shown}
+            data-pressed={props.shown || undefined}
+            onClick={props.onToggle}
+          />
+        }
+      >
+        {props.shown ? <Eye /> : <EyeOff />}
+      </TooltipTrigger>
+      <TooltipPopup>{action}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function FileSearchField(props: {
   ariaLabel: string;
   name: string;
@@ -110,7 +136,9 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
+  const showIgnoredFiles = useClientSettings((settings) => settings.showIgnoredFiles);
+  const updateClientSettings = useUpdateClientSettings();
+  const entriesQuery = useProjectEntriesQuery(environmentId, cwd, showIgnoredFiles);
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
@@ -118,6 +146,13 @@ export default function FileBrowserPanel({
   );
   const entryKindsRef = useRef<ReadonlyMap<string, ProjectEntry["kind"]>>(entryKinds);
   const treePaths = useMemo(() => entries.map(treePath), [entries]);
+  const ignoredGitStatus = useMemo<ReadonlyArray<GitStatusEntry>>(
+    () =>
+      entries.flatMap((entry) =>
+        entry.ignored ? [{ path: treePath(entry), status: "ignored" as const }] : [],
+      ),
+    [entries],
+  );
   const previousTreePathsRef = useRef<readonly string[]>([]);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
@@ -269,6 +304,10 @@ export default function FileBrowserPanel({
   }, [entryKinds, model, treePaths]);
 
   useEffect(() => {
+    model.setGitStatus(ignoredGitStatus);
+  }, [ignoredGitStatus, model]);
+
+  useEffect(() => {
     if (!selectedPath) {
       handledRevealRef.current = null;
       return;
@@ -361,6 +400,10 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
+        <ShowIgnoredFilesButton
+          shown={showIgnoredFiles}
+          onToggle={() => updateClientSettings({ showIgnoredFiles: !showIgnoredFiles })}
+        />
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
