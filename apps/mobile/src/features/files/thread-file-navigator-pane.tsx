@@ -10,6 +10,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-inspector-ignored-listing-import
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 
@@ -26,6 +27,7 @@ export function ThreadFileNavigatorPane(props: {
   const searchQuery = search.workspaceKey === workspaceKey ? search.query : "";
   const setSearchQuery = (query: string) => setSearch({ workspaceKey, query });
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd); // fork-hook: workspace-files/mobile-inspector-ignored-listing-call
   const fileAccessSession = useEnvironmentQuery(
     environmentSession.sessionStateAtom(props.environmentId),
   );
@@ -41,6 +43,7 @@ export function ThreadFileNavigatorPane(props: {
     environmentId: props.environmentId,
     cwd: canReadFiles ? props.cwd : null,
     searchQuery,
+    includeIgnored: workspaceFileListing.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-pane
   });
   const handlePreviewFile = (relativePath: string) => {
     preloadWorkspaceFileContents({
