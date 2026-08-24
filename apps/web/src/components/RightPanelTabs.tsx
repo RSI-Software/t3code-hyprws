@@ -2,6 +2,7 @@ import type { ContextMenuItem, PreviewSessionSnapshot, PullRequestState } from "
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
   Bot,
+  CircleDot,
   FileDiff,
   Files,
   GitPullRequest,
@@ -506,6 +507,8 @@ function surfaceTitle(
       );
     case "pull-request":
       return `#${surface.number}`;
+    case "github-issue":
+      return `Issue #${surface.number}`;
     case "agents":
       return "Agents";
     case "preview": {
@@ -591,6 +594,10 @@ function SurfaceIcon({
                 : "text-muted-foreground";
       return <GitPullRequest className={cn("size-3 shrink-0", toneClassName)} />;
     }
+    case "github-issue":
+      // The tab carries no issue state, and a closed issue reads as muted everywhere else it is
+      // drawn. Stays neutral until a tab status feeds this the way pull requests do.
+      return <CircleDot className="size-3 shrink-0 text-muted-foreground" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
   }
