@@ -353,6 +353,7 @@ const WorkspaceEntriesLayerLive = WorkspaceEntries.layer.pipe(
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(WorkspaceEntriesLayerLive),
+  Layer.provide(ServerSettingsLayerLive),
 );
 
 const WorkspaceLayerLive = Layer.mergeAll(
