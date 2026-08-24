@@ -59,6 +59,9 @@ describe("searchSettings", () => {
     } finally {
       localeLowerCase.mockRestore();
     }
+    expect(searchSettings("external workspace symlinks").map((item) => item.id)).toEqual([
+      "external-workspace-symlinks",
+    ]);
     expect(searchSettings("xyzzy")).toEqual([]);
   });
 
