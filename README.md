@@ -97,6 +97,12 @@ Upstream-native project-window support would also replace it.
 - Preserve CommonMark, GFM, and YAML frontmatter through the existing save path.
 - Keep MDX in read-only preview where rich round-tripping would be unsafe.
 
+### Workspace files
+
+- Reveal gitignored agent artifacts in workspace file trees on demand.
+- Keep ignored paths hidden by default and preserve the choice on the current device.
+- Retain workspace containment unless a path is explicitly trusted.
+
 ### Fork maintenance and distribution
 
 - Track why each fork domain exists, what it changes, and when it can be retired.

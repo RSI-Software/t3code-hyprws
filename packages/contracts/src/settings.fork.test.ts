@@ -37,6 +37,13 @@ describe("ServerSettings terminal session mode", () => {
   });
 });
 
+describe("ClientSettings ignored files", () => {
+  it("hides ignored files by default and accepts client patches", () => {
+    expect(decodeClientSettings({}).showIgnoredFiles).toBe(false);
+    expect(decodeClientSettingsPatch({ showIgnoredFiles: true }).showIgnoredFiles).toBe(true);
+  });
+});
+
 describe("migrateLegacyZmuxSettings", () => {
   it("folds an opted-in legacy flag into the zmux session mode", () => {
     expect(migrateLegacyZmuxSettings({ zmuxSessions: true })).toEqual({
