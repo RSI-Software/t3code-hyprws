@@ -2475,7 +2475,7 @@ function ChatMarkdown({
                   openMarkdownMedia(href);
                   return;
                 }
-                // A link to a change request in a workspace project opens beside the
+                // A link to a pull request or issue in a workspace project opens beside the
                 // conversation instead of in a browser: it is the thing being talked about, and
                 // the panel it opens offers the browser as one of its actions.
                 if (!href || openChangeRequestLink(event, href)) return;
