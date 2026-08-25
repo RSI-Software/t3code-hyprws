@@ -8,6 +8,7 @@ import {
   createEnvironmentSnapshotAtom,
   createShellEnvironmentAtoms,
 } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -22,14 +23,10 @@ export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
   shellStateValueAtom: environmentShell.stateValueAtom,
 });
 
-export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
-  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
-  if (Option.isNone(catalog)) {
-    return false;
-  }
-  for (const environmentId of catalog.value.entries.keys()) {
+export const environmentShellBootstrappedAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get) => {
     if (Option.isSome(get(environmentShell.stateValueAtom(environmentId)).snapshot)) {
-      continue;
+      return true;
     }
     const connection = Option.getOrElse(
       AsyncResult.value(get(environmentCatalog.stateAtom(environmentId))),
@@ -39,10 +36,18 @@ export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
       return false;
     }
     // A retrying environment is only transiently disconnected; give it its
-    // first retries before letting the landing settle without its snapshot.
-    if (connection.phase === "backoff" && connection.desired && connection.attempt <= 2) {
-      return false;
-    }
+    // first retries before treating the missing snapshot as settled.
+    return !(connection.phase === "backoff" && connection.desired && connection.attempt <= 2);
+  }).pipe(Atom.withLabel(`web-environment-shell-bootstrapped:${environmentId}`)),
+);
+
+export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
+  const catalog = AsyncResult.value(get(environmentCatalog.catalogAtom));
+  if (Option.isNone(catalog)) {
+    return false;
+  }
+  for (const environmentId of catalog.value.entries.keys()) {
+    if (!get(environmentShellBootstrappedAtom(environmentId))) return false;
   }
   return true;
 }).pipe(Atom.withLabel("web-all-environment-shells-bootstrapped"));
