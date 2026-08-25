@@ -4,9 +4,11 @@ import {
   changeRequestRepositoryUrl,
   findProjectForChangeRequest,
   findProjectOnChangeRequestHost,
+  findProjectForGitHubIssue,
   gitHubPullRequestBrowserUrl,
   matchesLinkedPullRequestUrl,
   parseChangeRequestUrl,
+  parseGitHubIssueUrl,
   pullRequestCandidateUrlFromReferenceAutolink,
 } from "./openPullRequestLink";
 import { ProjectId, type RepositoryIdentity } from "@t3tools/contracts";
