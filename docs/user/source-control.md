@@ -86,6 +86,24 @@ supports approving waiting fork workflows and opening a revert pull request for 
 For Azure DevOps, use the host website to view diffs or change comments. Bitbucket does not support
 reopening a declined pull request.
 
+## Browse GitHub issues
+
+Open **GitHub Issues** to read issues from GitHub-backed projects across your connected
+environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In
+a project window the list starts with that project, and the **This project / All projects** toggle
+widens it without leaving the window.
+
+Opening an issue shows its description, labels, assignees, and newest 100 comments. A GitHub issue
+link for a project in your workspace opens in T3 Code; unmatched links and modified clicks go to
+your browser.
+
+**Work on this issue** opens an empty draft in the issue's project with a short issue reference and
+instruction placed in the composer, unsent. Draft work you already have is never overwritten.
+
+Issues are read-only here: commenting, closing, labeling, and assigning stay on GitHub. Each server
+holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or
+`gh auth login --hostname <host>` for GitHub Enterprise.
+
 ## Troubleshooting
 
 - **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
