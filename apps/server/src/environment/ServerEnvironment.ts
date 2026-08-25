@@ -221,6 +221,7 @@ export const make = Effect.gen(function* () {
       questionAttachments: true,
       fileAttachments: { maxUploadBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES },
       pullRequests: true,
+      githubIssues: true, // fork-hook: github-issues/server-environment-capability
       inlineMessageContext: true,
       threadSettlement: true,
       threadAutoSettlement: true,
