@@ -138,6 +138,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.pullRequestsSubscribeRefreshes]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsReviewerCandidates]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsLabelCandidates]: AuthOrchestrationReadScope,
+  [WS_METHODS.githubIssuesList]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-list
+  [WS_METHODS.githubIssuesDetail]: AuthOrchestrationReadScope, // fork-hook: github-issues/rpc-auth-detail
   [WS_METHODS.sourceControlLookupRepository]: AuthOrchestrationReadScope,
   [WS_METHODS.sourceControlAppAccess]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeProjectClones]: AuthOrchestrationReadScope,
