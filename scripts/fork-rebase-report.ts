@@ -5,8 +5,8 @@
 // The report is derived only from Git refs and commit metadata: unchanged refs
 // produce byte-identical Markdown and JSON.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 export const DEFAULT_JSON_PATH = "docs/internals/generated/fork-rebase-report.json";
@@ -166,7 +166,7 @@ class SystemGit implements GitReader {
   }
 
   run(args: ReadonlyArray<string>): string {
-    return execFileSync("git", [...args], {
+    return NodeChildProcess.execFileSync("git", [...args], {
       cwd: this.cwd,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
@@ -581,10 +581,10 @@ const resolveOutput = (root: string, output: string): string => {
 };
 
 const writeAtomically = (path: string, contents: string): void => {
-  mkdirSync(NodePath.dirname(path), { recursive: true });
+  NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
   const temporary = `${path}.tmp-${process.pid}`;
-  writeFileSync(temporary, contents, "utf8");
-  renameSync(temporary, path);
+  NodeFS.writeFileSync(temporary, contents, "utf8");
+  NodeFS.renameSync(temporary, path);
 };
 
 const fetchRef = (git: GitReader, ref: string): void => {
@@ -630,7 +630,8 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     if (options.check) {
       const stale = outputs.filter(
         (output) =>
-          !existsSync(output.path) || readFileSync(output.path, "utf8") !== output.contents,
+          !NodeFS.existsSync(output.path) ||
+          NodeFS.readFileSync(output.path, "utf8") !== output.contents,
       );
       if (stale.length > 0) {
         for (const output of stale) process.stderr.write(`stale: ${output.relative}\n`);
