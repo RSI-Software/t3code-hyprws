@@ -24,6 +24,15 @@ change-type totals. They contain no wall-clock timestamp, so unchanged refs repr
 The `hyprws rebase report` workflow runs on a schedule and on manual dispatch. It uploads a current
 pair as a workflow artifact without committing generated churn to `hyprws`.
 
+Download and validate the latest successful artifact before using it as rebase input:
+
+```bash
+vp run fork:rebase-report:artifact
+```
+
+The command keeps each immutable run under `.dump/runs/fork-rebase-report/<run-id>/`. Use
+`--run <id>` to inspect a particular manual or scheduled run.
+
 ## Preconditions
 
 - `upstream` points at `pingdotgg/t3code` and `origin` at `RSI-Software/t3code-hyprws`.

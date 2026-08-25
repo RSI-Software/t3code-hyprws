@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 
 import {
+  canonicalRepository,
   classifyChangeType,
   encodeReportJson,
   parseArgs,
@@ -11,6 +12,17 @@ import {
   type ForkRebaseReport,
   type ReportCommit,
 } from "./fork-rebase-report.ts";
+
+it("normalizes HTTPS and SCP-style GitHub remotes", () => {
+  assert.deepStrictEqual(canonicalRepository("https://github.com/pingdotgg/t3code.git"), {
+    slug: "pingdotgg/t3code",
+    webUrl: "https://github.com/pingdotgg/t3code",
+  });
+  assert.deepStrictEqual(canonicalRepository("git@github.com:RSI-Software/t3code-hyprws.git"), {
+    slug: "RSI-Software/t3code-hyprws",
+    webUrl: "https://github.com/RSI-Software/t3code-hyprws",
+  });
+});
 
 const commit = (letter: string, subject: string): ReportCommit => {
   const sha = letter.repeat(40);
