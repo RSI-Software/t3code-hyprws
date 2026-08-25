@@ -28,6 +28,16 @@ function findValueChange(
   return undefined;
 }
 
+function textContent(node: ReactNode): string {
+  return Children.toArray(node)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") return String(child);
+      if (!isValidElement(child)) return "";
+      return textContent((child.props as { readonly children?: ReactNode }).children);
+    })
+    .join(" ");
+}
+
 /** The nested radio-group component element carrying this label, invoked so its group shows. */
 function findLabeledGroup(node: ReactNode, label: string): ReactNode {
   for (const child of Children.toArray(node)) {
@@ -107,6 +117,11 @@ describe("pull request filters menu", () => {
 
     group?.props.onValueChange("all");
     expect(onFilters).toHaveBeenCalledWith({ checks: "failing" });
+  });
+
+  it("omits the project group when its picker is disabled", () => {
+    expect(textContent(menu({ projects: null }))).not.toContain("All projects");
+    expect(textContent(menu({ projects: [] }))).toContain("All projects");
   });
 
   it("does not emit a change when the selected project is chosen again", () => {
