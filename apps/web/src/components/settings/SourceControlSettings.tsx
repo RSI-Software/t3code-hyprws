@@ -58,6 +58,7 @@ import {
 } from "../Icons";
 import { BitbucketCredentialsSettings } from "./BitbucketCredentialsSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   PolicyTooltip,
@@ -617,6 +618,9 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
+      {/* Their rows are serverScoped: without a primary they render inert with
+          an explanation, which beats disappearing. */}
+      <GitHubIssueSettingsSection />
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );

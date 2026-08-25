@@ -27,6 +27,7 @@ export * from "./vcs.ts";
 export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
+export * from "./githubIssue.ts"; // fork-hook: github-issues/contracts-reexport
 export * from "./orchestration.ts";
 export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
