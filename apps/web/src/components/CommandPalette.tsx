@@ -52,6 +52,7 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -173,10 +174,8 @@ import {
   isWindowsPlatform,
   newProjectId,
 } from "../lib/utils";
-import {
-  buildThreadRouteParams,
-  resolveThreadRouteFamily,
-} from "../threadRoutes";
+import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes"; // fork-hook: project-windows/palette-pr-route-import
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
@@ -408,10 +407,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
+  const routeFamily = useThreadRouteFamily();
   const { openChildSearch, setOpen } = props;
   // Keyed by palette session: the intent and restored search only seed this
   // mount, and closing must not change what the closing palette shows.
@@ -1674,6 +1670,12 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+  const githubIssuesActionItem = buildGitHubIssuesActionItemFork({
+    pathname,
+    environments,
+    navigate,
+  }); // fork-hook: github-issues/command-palette-entry
+  if (githubIssuesActionItem) actionItems.push(githubIssuesActionItem); // fork-hook: github-issues/command-palette-entry-push
 
   actionItems.push({
     kind: "action",
