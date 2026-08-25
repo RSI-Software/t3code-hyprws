@@ -52,6 +52,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CircleDot,
   FileDiff,
   Files,
   Globe2,
@@ -633,6 +634,8 @@ function surfaceTitle(
     case "issue":
       // A git host numbers its issues; a tracker with keys of its own, such as Linear, names them.
       return /^\d+$/.test(surface.key) ? `#${surface.key}` : surface.key;
+    case "github-issue":
+      return `Issue #${surface.number}`;
     case "device":
       return surface.title ?? surface.target?.name ?? resolve(msg("Device"));
     case "thread":
@@ -737,6 +740,10 @@ function SurfaceIcon({
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "linked-thread":
       return <MessagesSquare className="size-3 shrink-0" />;
+    case "github-issue":
+      // The tab carries no issue state, and a closed issue reads as muted everywhere else it is
+      // drawn. Stays neutral until a tab status feeds this the way pull requests do.
+      return <CircleDot className="size-3 shrink-0 text-muted-foreground" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
