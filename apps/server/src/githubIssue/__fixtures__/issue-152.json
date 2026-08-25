@@ -1,0 +1,48 @@
+{
+  "assignees": [],
+  "author": { "is_bot": true, "login": "app/donjor-agent" },
+  "body": "> 🤖 claude/anthropic claude-fable-5 (high)\n\nzmux vendors the Artifact Kit projection at 2.1.0, without the Bun-less trust verdict, repo-scoped hooks, the installer refusal, or the rerun-idempotency fix → zmux vendors the audited 2.5.0 projection, and the repin lands only after the audit gate clears every open kit report.\n\nFleet rollout tracker: RSI-Software/skills#159.\n\n## Close condition\n\n- [x] The vendored `.agents/` projection is repinned to the released, audited Artifact Kit 2.5.0.\n- [x] Back-to-back squash pull requests land green on `master` after the repin.\n\n<!-- gh-bot:edit-attest {\"v\":2,\"repo\":\"RSI-Software/zmux\",\"ref\":\"main@63ff56f\",\"agents\":[{\"role\":\"host\",\"iface\":\"claude\",\"provider\":\"anthropic\",\"model\":\"claude-fable-5\",\"effort\":\"high\",\"harness\":\"claude-code@2.1.233\",\"session\":\"8ef7037e77d6\"}],\"ts\":\"2026-08-17T21:17:15Z\"} -->\n<!-- gh-bot:attest {\"v\":2,\"repo\":\"RSI-Software/zmux\",\"ref\":\"main@e89489d\",\"task\":{\"kind\":\"deliberate\"},\"agents\":[{\"role\":\"host\",\"iface\":\"claude\",\"provider\":\"anthropic\",\"model\":\"claude-fable-5\",\"effort\":\"high\",\"harness\":\"claude-code@2.1.233\",\"session\":\"8ef7037e77d6\"}],\"ts\":\"2026-08-17T05:34:08Z\"} -->\n",
+  "closedAt": "2026-08-17T21:17:46Z",
+  "comments": [
+    {
+      "id": "IC_kwDOR2R_p88AAAABPP9J-Q",
+      "author": { "login": "donjor-agent" },
+      "authorAssociation": "NONE",
+      "body": "> 🤖 claude/anthropic claude-fable-5 (high)\n\nBody updated 2.4.0 → 2.5.0: the release audit under RSI-Software/skills#179 disposed every open report and the cut went straight to Artifact Kit 2.5.0, so the fleet skips 2.4.0. Repin condition ticked off merged PR #174 (squash f58ecee8f). Remaining condition needs post-repin landing traffic.\n\n<!-- gh-bot:attest {\"v\":2,\"repo\":\"RSI-Software/zmux\",\"ref\":\"main@63ff56f\",\"agents\":[{\"role\":\"host\",\"iface\":\"claude\",\"provider\":\"anthropic\",\"model\":\"claude-fable-5\",\"effort\":\"high\",\"harness\":\"claude-code@2.1.233\",\"session\":\"8ef7037e77d6\"}],\"ts\":\"2026-08-17T17:48:32Z\"} -->\n",
+      "createdAt": "2026-08-17T17:48:35Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/RSI-Software/zmux/issues/152#issuecomment-5318330873",
+      "viewerDidAuthor": false
+    },
+    {
+      "id": "IC_kwDOR2R_p88AAAABPR4mwQ",
+      "author": { "login": "donjor-agent" },
+      "authorAssociation": "NONE",
+      "body": "> 🤖 claude/anthropic claude-fable-5 (high)\n\nBack-to-back proof: #176 (→ 77c215e2) then #175 (→ 4314fe7e) squash-landed on `master`; `Documentation` green on 4314fe7e. #175 landed through ghb's clean-head resume (head cleaned to 5a90366, merge re-run with the cleaned SHA) — landing machinery, not a kit fault. Closing.\n\n<!-- gh-bot:attest {\"v\":2,\"repo\":\"RSI-Software/zmux\",\"ref\":\"main@63ff56f\",\"agents\":[{\"role\":\"host\",\"iface\":\"claude\",\"provider\":\"anthropic\",\"model\":\"claude-fable-5\",\"effort\":\"high\",\"harness\":\"claude-code@2.1.233\",\"session\":\"8ef7037e77d6\"}],\"ts\":\"2026-08-17T21:17:42Z\"} -->\n",
+      "createdAt": "2026-08-17T21:17:43Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/RSI-Software/zmux/issues/152#issuecomment-5320353473",
+      "viewerDidAuthor": false
+    }
+  ],
+  "createdAt": "2026-08-17T05:34:12Z",
+  "labels": [
+    {
+      "id": "LA_kwDOR2R_p88AAAACdkkJUA",
+      "name": "docs",
+      "description": "prose documentation",
+      "color": "0075ca"
+    }
+  ],
+  "number": 152,
+  "state": "CLOSED",
+  "title": "[📡#159] Repin the vendored Artifact Kit projection to the audited 2.5.0",
+  "updatedAt": "2026-08-17T21:17:46Z",
+  "url": "https://github.com/RSI-Software/zmux/issues/152"
+}
