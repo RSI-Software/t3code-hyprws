@@ -1,0 +1,46 @@
+name: hyprws rebase report
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hyprws-rebase-report
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Generate report
+        run: node scripts/fork-rebase-report.ts --fetch
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-rebase-report
+          path: |
+            docs/internals/generated/fork-rebase-report.json
+            docs/internals/generated/fork-rebase-report.md
+          if-no-files-found: error
+          retention-days: 30

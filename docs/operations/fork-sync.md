@@ -8,6 +8,22 @@ This is the agent-driven loop that keeps the fork trunk `hyprws` current and shi
 Run it from the `hyprws` worktree, never from the `main` checkout.
 Every step is scriptable; the only human inputs are conflict decisions and a refused lease.
 
+## Step 0: Orient the rebase
+
+Refresh the tracked repository-state report before choosing or applying a target:
+
+```bash
+vp run fork:rebase-report --fetch
+```
+
+The generated [Markdown report](../internals/generated/fork-rebase-report.md) is the human and agent
+orientation. Its adjacent JSON file is the same versioned data for later automation. Both record the
+resolved source, live upstream target, shared base, every intervening release tag, commit groups, and
+change-type totals. They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
+
+The `hyprws rebase report` workflow runs on a schedule and on manual dispatch. It uploads a current
+pair as a workflow artifact without committing generated churn to `hyprws`.
+
 ## Preconditions
 
 - `upstream` points at `pingdotgg/t3code` and `origin` at `RSI-Software/t3code-hyprws`.
