@@ -457,7 +457,7 @@ export function PullRequestFiltersMenu({
     readonly workspaceRoot: string;
     readonly faviconPath?: string | null;
     readonly projectIcon?: ProjectIconOverride | null;
-  }>;
+  }> | null;
   projectId: ProjectId | undefined;
   /**
    * The server the selected project belongs to. A project id is only unique within its own
@@ -500,29 +500,32 @@ export function PullRequestFiltersMenu({
     projectId === undefined || projectEnvironmentId === undefined
       ? ALL_PROJECTS_VALUE
       : pullRequestProjectKey({ id: projectId, environmentId: projectEnvironmentId });
-  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
-    { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
-    ...projects
-      .toSorted(
-        (left, right) =>
-          Number(unavailable.has(pullRequestProjectKey(left))) -
-          Number(unavailable.has(pullRequestProjectKey(right))),
-      )
-      .map((project) => ({
-        value: pullRequestProjectKey(project),
-        label: project.title,
-        Icon: FolderGit2Icon,
-        favicon: {
-          environmentId: project.environmentId,
-          cwd: project.workspaceRoot,
-          faviconPath: project.faviconPath ?? null,
-          projectIcon: project.projectIcon ?? null,
-        },
-        ...(unavailable.has(pullRequestProjectKey(project))
-          ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
-          : {}),
-      })),
-  ];
+  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> =
+    projects === null
+      ? []
+      : [
+          { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
+          ...projects
+            .toSorted(
+              (left, right) =>
+                Number(unavailable.has(pullRequestProjectKey(left))) -
+                Number(unavailable.has(pullRequestProjectKey(right))),
+            )
+            .map((project) => ({
+              value: pullRequestProjectKey(project),
+              label: project.title,
+              Icon: FolderGit2Icon,
+              favicon: {
+                environmentId: project.environmentId,
+                cwd: project.workspaceRoot,
+                faviconPath: project.faviconPath ?? null,
+                projectIcon: project.projectIcon ?? null,
+              },
+              ...(unavailable.has(pullRequestProjectKey(project))
+                ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
+                : {}),
+            })),
+        ];
   return (
     <Menu onOpenChange={onOpenChange}>
       <MenuTrigger
@@ -611,17 +614,23 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
-        <MenuSeparator />
-        <PullRequestFilterRadioSubmenu
-          label="Project"
-          value={projectValue}
-          options={projectOptions}
-          onChange={(next) => {
-            const project = projects.find((candidate) => pullRequestProjectKey(candidate) === next);
-            if (project) onProject(project.id, project.environmentId);
-            else if (projectId !== undefined) onProject(undefined, undefined);
-          }}
-        />
+        {projects === null ? null : (
+          <>
+            <MenuSeparator />
+            <PullRequestFilterRadioSubmenu
+              label="Project"
+              value={projectValue}
+              options={projectOptions}
+              onChange={(next) => {
+                const project = projects.find(
+                  (candidate) => pullRequestProjectKey(candidate) === next,
+                );
+                if (project) onProject(project.id, project.environmentId);
+                else if (projectId !== undefined) onProject(undefined, undefined);
+              }}
+            />
+          </>
+        )}
       </MenuPopup>
     </Menu>
   );
