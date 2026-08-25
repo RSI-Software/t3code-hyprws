@@ -3,12 +3,14 @@ import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  githubIssueSurface,
   migratePersistedRightPanelState,
   pullRequestSurfaceId,
   selectActiveRightPanel,
   selectActiveRightPanelSurface,
   selectSelectedRightPanelSurface,
   selectThreadRightPanelState,
+  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
 
@@ -144,6 +146,84 @@ describe("rightPanelStore", () => {
           ],
         },
       },
+    });
+  });
+
+  it("normalizes persisted GitHub issue surfaces to their reference-keyed tab", () => {
+    const id = githubIssueSurface({
+      environmentId: "env-1",
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 42,
+    }).id;
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "github-issue",
+            surfaces: [
+              {
+                id: "github-issue",
+                kind: "github-issue",
+                environmentId: "env-1",
+                projectId: "project-a",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: id,
+          surfaces: [
+            {
+              id,
+              kind: "github-issue",
+              environmentId: "env-1",
+              projectId: "project-a",
+              repository: "pingdotgg/t3code",
+              number: 42,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("drops malformed or environment-less persisted GitHub issue surfaces", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "github-issue",
+            surfaces: [
+              {
+                id: "github-issue",
+                kind: "github-issue",
+                projectId: "project-a",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+              {
+                id: "github-issue:malformed",
+                kind: "github-issue",
+                environmentId: "env-1",
+                projectId: "",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: { "env-1:thread-A": { isOpen: false, activeSurfaceId: null, surfaces: [] } },
     });
   });
 
@@ -555,6 +635,82 @@ describe("rightPanelStore", () => {
         refAfterServerADisconnects,
       ).surfaces,
     ).toEqual([]);
+  });
+
+  describe("updatePullRequestTabStatus", () => {
+    const status = (isDraft: boolean) => ({
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 4909,
+      state: "open" as const,
+      isDraft,
+    });
+
+    // Regression for the tab wearing no state: this failed when the status was written under a
+    // key rebuilt from the pull request while the tab strip reads it under the surface's own id.
+    it("keys a status under the same id a surface opened from an environment carries", () => {
+      const target = {
+        environmentId: "remote",
+        projectId: "project-a",
+        repository: "pingdotgg/t3code",
+        number: 4909,
+      };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("keys a status under the same id a thread surface with no environment carries", () => {
+      const target = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4909 };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("returns the identical map when the tab's state and draft flag are unchanged", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(false));
+      expect(second).toBe(first);
+    });
+
+    it("replaces the entry when the draft flag changes", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(true));
+      expect(second).not.toBe(first);
+      expect(second["pull-request:1"]).toEqual(status(true));
+    });
+  });
+
+  it("tracks one surface per GitHub issue", () => {
+    const first = {
+      environmentId: "env-1",
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 7966,
+    };
+    const second = { ...first, number: 7967 };
+    useRightPanelStore.getState().openGitHubIssue(refA, first);
+    useRightPanelStore.getState().openGitHubIssue(refA, second);
+    useRightPanelStore.getState().openGitHubIssue(refA, first);
+
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual([
+      githubIssueSurface(first).id,
+      githubIssueSurface(second).id,
+    ]);
+    expect(state.activeSurfaceId).toBe(githubIssueSurface(first).id);
   });
 
   it("tracks one surface per terminal session", () => {

@@ -93,6 +93,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | Domain                                | Status | Tiers present     | Retires when                                              |
 | ------------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
 | [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
+| [github-issues](#github-issues)       | Active | core              | Upstream multi-environment Issues on web and desktop.     |
 | [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.              |
 | [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                |
 | [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.   |
@@ -178,6 +179,43 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
 | `apps/web/src/components/preview/previewBridge.ts`                        | The retirement signal. Read it on every rebase.                     |
 | `apps/web/src/components/CommandPalette.tsx`                              | Entry point, and a busy upstream file.                              |
+
+## github-issues
+
+### Need
+
+Browse GitHub issues and hand one to an agent on web and desktop, with project-window scope.
+
+### Shape
+
+The contracts and server expose read-only issue list and detail requests through the existing GitHub CLI integration. Lists degrade per project, merge capable environments, and keep environment identity on every client-side reference.
+
+The web renderer provides hub and project-window routes with search, state and project filters, project/all-project scope, issue descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer. The palette intentionally has a “Go to Issues” command but no matching “Go to Pull Requests” command.
+
+### Retirement condition
+
+Delete the service and UI when upstream ships a stable GitHub Issues list, detail, and agent hand-off across web and desktop with multi-environment scoping. If upstream ships only the core service, retire this domain's service and UI while keeping the project-window scope adapter under `project-windows`.
+
+### Rebase scan
+
+| Path                                                                               | Why it matters                                                    |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `packages/contracts/src/githubIssue.ts`                                            | Wire issue shapes and tagged failures.                            |
+| `packages/contracts/src/rpc.ts`, `packages/contracts/src/environment.ts`           | RPC registration and optional capability.                         |
+| `apps/server/src/githubIssue/**`                                                   | GitHub CLI normalization, discovery, list, and detail service.    |
+| `apps/server/src/sourceControl/GitHubCli.ts`                                       | Shared process boundary; excluded upstream CLI changes land here. |
+| `apps/server/src/ws.ts`, `apps/server/src/server.ts`                               | Handler and server-lifetime service wiring.                       |
+| `apps/server/src/auth/RpcAuthorization.ts`                                         | Read-only authorization scopes.                                   |
+| `apps/server/src/environment/ServerEnvironment.ts`                                 | Static capability advertisement.                                  |
+| `packages/client-runtime/src/state/githubIssues.ts`                                | Client-neutral atoms and multi-environment identity.              |
+| `apps/web/src/routes/_chat.issues.tsx`                                             | Hub list and shared page implementation.                          |
+| `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                                     |
+| `apps/web/src/components/githubIssue/githubIssueRouteSearch.ts`                    | Shared route search contract.                                     |
+| `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                |
+| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.                           |
+| `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                                     |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                | Scoped sidebar entry point.                                       |
+| `apps/web/src/components/CommandPalette.tsx`                                       | Scoped command-palette entry point.                               |
 
 ## custom-agents
 

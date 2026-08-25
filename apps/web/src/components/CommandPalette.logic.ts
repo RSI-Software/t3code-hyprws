@@ -1,6 +1,7 @@
 import {
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type ScopedProjectRef,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -18,6 +19,16 @@ export { normalizeSearchText } from "../lib/utils";
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
+
+export function buildIssuesNavigationCommand(projectRef: ScopedProjectRef | null) {
+  return {
+    value: "action:issues",
+    title: "Go to Issues",
+    searchTerms: ["issues", "github", "bugs", "go to"],
+    target:
+      projectRef === null ? ({ kind: "hub" } as const) : ({ kind: "project", projectRef } as const),
+  };
+}
 
 export function browseInputEndPaddingClass(input: {
   readonly willCreateProjectPath: boolean;
