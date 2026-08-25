@@ -70,6 +70,9 @@ authenticated.
   `origin/hyprws` to live `upstream/main` (`scripts/fork-rebase-report.ts`). Pass `--fetch` for a
   manual refresh. `--check` performs a byte-for-byte freshness check without writing. The scheduled
   `hyprws-rebase-report.yml` run uploads a fresh pair without modifying the fork trunk.
+- `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
+  artifact under `.dump/runs/fork-rebase-report/<run-id>/`. Pass `--run <id>` to inspect a specific
+  run. An existing run directory is reused because workflow artifacts are immutable.
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
   an isolated T3 SQLite database; writes create a private backup first.
 
