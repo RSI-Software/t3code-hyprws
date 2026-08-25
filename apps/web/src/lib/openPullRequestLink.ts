@@ -3,6 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent } from "react";
 
+import { pullRequestHostOf } from "@t3tools/contracts"; // fork-hook: github-issues/issue-host-import
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { parseChangeRequestUrl, type ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
@@ -17,6 +18,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readProjects, useProjects } from "../state/entities";
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
 
 export {
   parseChangeRequestUrl,
@@ -27,6 +29,45 @@ export {
   changeRequestRepositoryUrl,
 } from "@t3tools/shared/changeRequestUrl";
 
+export interface GitHubIssueLink {
+  readonly host: string;
+  readonly repository: string;
+  readonly number: number;
+}
+
+function repositoryIdentityOf(project: EnvironmentProject): string | null {
+  const identity = project.repositoryIdentity;
+  if (!identity) return null;
+  return (
+    identity.displayName ??
+    (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null)
+  );
+}
+
+export function parseGitHubIssueUrl(targetUrl: string): GitHubIssueLink | null {
+  let url: URL;
+  try {
+    url = new URL(targetUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  // GitHub Enterprise hosts are arbitrary. The workspace project match in the click handler is
+  // the safety gate that keeps an ordinary link from being claimed by the issue surface.
+  const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(url.pathname);
+  return claim(host, match);
+} // fork-hook: github-issues/parse-issue-url
+
+function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | null {
+  const repository = match?.[1];
+  const number = Number(match?.[2]);
+  return repository && Number.isSafeInteger(number) && number > 0
+    ? { host, repository: repository.toLowerCase(), number }
+    : null;
+}
+
+
 export function findProjectForChangeRequest(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
@@ -36,6 +77,23 @@ export function findProjectForChangeRequest(
     return (
       identity?.provider !== undefined &&
       sourceControlClients.get(identity.provider).isChangeRequestInRepository(identity, link)
+    );
+  });
+}
+
+export function findProjectForGitHubIssue(
+  projects: ReadonlyArray<EnvironmentProject>,
+  link: GitHubIssueLink,
+): EnvironmentProject | undefined {
+  return projects.find((project) => {
+    const identity = project.repositoryIdentity;
+    if (!identity || identity.provider !== "github") return false;
+    const repository = repositoryIdentityOf(project);
+    const host = pullRequestHostOf(identity, "github");
+    return (
+      repository !== null &&
+      repository.toLowerCase() === link.repository.toLowerCase() &&
+      (host === "github" ? "github.com" : host) === link.host.toLowerCase()
     );
   });
 }
@@ -127,6 +185,58 @@ export function useOpenChangeRequestLink(
     const allProjects = readProjects();
     const resolvedThreadRef = targetThreadRef ?? threadRef;
     const resolvedPanelRef = panelRef ?? resolvedThreadRef;
+    const parsedIssue = parseGitHubIssueUrl(targetUrl);
+    if (parsedIssue !== null) {
+      const readsIssues = (environmentId: EnvironmentId) =>
+        serverConfigs.get(environmentId)?.environment.capabilities.githubIssues === true;
+      const projects = resolvedThreadRef
+        ? allProjects.filter(
+            (project) => project.environmentId === resolvedThreadRef.environmentId,
+          )
+        : allProjects
+            .filter((project) => readsIssues(project.environmentId))
+            .toSorted(
+              (left, right) =>
+                Number(right.environmentId === primaryEnvironmentId) -
+                Number(left.environmentId === primaryEnvironmentId),
+            );
+      const issueProject = findProjectForGitHubIssue(projects, parsedIssue);
+      if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      const repository = issueProject.repositoryIdentity?.displayName ?? parsedIssue.repository;
+      if (resolvedThreadRef) {
+        useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
+          environmentId: issueProject.environmentId,
+          projectId: issueProject.id,
+          repository,
+          number: parsedIssue.number,
+        });
+        return true;
+      }
+      const search = {
+        state: "all" as const,
+        selectedEnvironmentId: issueProject.environmentId,
+        selectedProjectId: issueProject.id,
+        repository,
+        number: parsedIssue.number,
+      };
+      const windowProjectRef = resolveProjectRefFromPathname(
+        typeof window === "undefined" ? "/" : window.location.pathname,
+      );
+      void navigate({
+        ...listRouteTarget("issues", windowProjectRef),
+        search: {
+          ...search,
+          ...(windowProjectRef !== null &&
+          (windowProjectRef.environmentId !== issueProject.environmentId ||
+            windowProjectRef.projectId !== issueProject.id)
+            ? { scope: "all" as const }
+            : {}),
+        },
+      });
+      return true;
+    }
     const parsed = parseChangeRequestUrl(targetUrl);
     if (parsed === null) return false;
     const reads = (environmentId: string) =>
@@ -199,8 +309,11 @@ export function useOpenChangeRequestLink(
       }
       return true;
     }
+    const windowProjectRef = resolveProjectRefFromPathname(
+      typeof window === "undefined" ? "/" : window.location.pathname,
+    );
     void navigate({
-      to: "/pull-requests",
+      ...listRouteTarget("pull-requests", windowProjectRef),
       search: {
         involvement: "all",
         state: "all",
@@ -209,6 +322,11 @@ export function useOpenChangeRequestLink(
         selectedHost: parsed.authority ?? parsed.host,
         selectedProjectId: project.id,
         selectedEnvironmentId: project.environmentId,
+        ...(windowProjectRef !== null &&
+        (windowProjectRef.environmentId !== project.environmentId ||
+          windowProjectRef.projectId !== project.id)
+          ? { scope: "all" as const }
+          : {}),
       },
     });
     return true;
