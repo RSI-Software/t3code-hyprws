@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, CircleDotIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -146,12 +146,17 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         : pathname === "/pull-requests" ||
             (projectRef !== null && pathname.endsWith("/pull-requests"))
           ? "pull-requests"
-          : null;
+          : pathname === "/issues" || (projectRef !== null && pathname.endsWith("/issues"))
+            ? "github-issues"
+            : null;
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
+  );
+  const githubIssuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
   );
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
@@ -164,6 +169,18 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       ...listRouteTarget("pull-requests", projectRef),
       search: readPullRequestListPreferences(),
     });
+  }, [closeMobileSidebar, navigate, projectRef]);
+  const handleIssuesClick = useCallback(() => {
+    closeMobileSidebar();
+    if (projectRef !== null) {
+      void navigate({
+        to: "/project/$environmentId/$projectId/issues",
+        params: projectRef,
+        search: { state: "open" },
+      });
+      return;
+    }
+    void navigate({ to: "/issues", search: { state: "open" } });
   }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
@@ -203,6 +220,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               icon={<PullRequestGlyph.pullRequest />}
               label="Pull Requests"
               onClick={handlePullRequestsClick}
+            />
+          ) : null}
+          {githubIssuesSupported ? (
+            <SidebarUtilityItem
+              icon={<CircleDotIcon />}
+              label="GitHub Issues"
+              onClick={handleIssuesClick}
             />
           ) : null}
           <SidebarUtilityItem
