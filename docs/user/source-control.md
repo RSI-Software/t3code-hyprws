@@ -55,6 +55,16 @@ T3 Code works with the platforms your team already uses:
 - Command-click (Control-click on Windows and Linux) a pull request number in the sidebar to open it in your browser instead of in T3 Code
 - Check out a teammate's branch to review code locally
 
+### Browse and Hand Off GitHub Issues
+
+The **GitHub Issues** page lists issues from GitHub-backed projects across connected environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In a project window, the list starts with that project and the **This project / All projects** toggle widens it without leaving the window.
+
+Open an issue to read its description, labels, assignees, and newest 100 comments. GitHub issue links for workspace projects open in T3 Code; unmatched links and modified clicks stay in the browser.
+
+Choose **Work on this issue** to open an empty draft in the issue's project. T3 Code puts a short issue reference and instruction in the composer but does not send it. Existing draft work is never overwritten.
+
+Issues are read-only in T3 Code: commenting, closing, labeling, and assigning remain on GitHub. The GitHub CLI must be installed and authenticated on each server that holds a project. Run `gh auth login` for GitHub.com or `gh auth login --hostname <host>` for GitHub Enterprise.
+
 **Fix what you wrote, in place**
 
 - Rewrite a pull request's title and description from the review itself, in Markdown, with a
