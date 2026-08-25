@@ -89,6 +89,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Side chats: hidden `lineage.sideChat` forks. Older servers ignore the fork flag. */
   sideChats: Schema.optionalKey(Schema.Boolean),
   vcsBranchStatus: Schema.optionalKey(Schema.Boolean),
+  githubIssues: Schema.optionalKey(Schema.Boolean),
   /** Every protocol-2 server sends this; older mobile builds still read it. */
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),
   requiredWorktreeBootstrap: Schema.optionalKey(Schema.Boolean),
