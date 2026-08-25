@@ -214,16 +214,8 @@ const readCommits = (
   );
 };
 
-const canonicalRepository = (remoteUrl: string): ReportRepository => {
+export const canonicalRepository = (remoteUrl: string): ReportRepository => {
   const trimmed = remoteUrl.trim().replace(/\.git$/, "");
-  const scp = /^(?:[^@]+@)?(?<host>[^:]+):(?<path>.+)$/.exec(trimmed);
-  if (scp?.groups?.host && scp.groups.path) {
-    const webUrl = `https://${scp.groups.host}/${scp.groups.path}`;
-    return {
-      slug: scp.groups.host === "github.com" ? scp.groups.path : null,
-      webUrl,
-    };
-  }
   try {
     const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -233,6 +225,14 @@ const canonicalRepository = (remoteUrl: string): ReportRepository => {
     const webUrl = `${url.protocol}//${url.host}/${path}`;
     return { slug: url.host === "github.com" ? path : null, webUrl };
   } catch {
+    const scp = /^(?:[^@/\s]+@)?(?<host>[^:/\s]+):(?<path>[^/].+)$/.exec(trimmed);
+    if (scp?.groups?.host && scp.groups.path) {
+      const webUrl = `https://${scp.groups.host}/${scp.groups.path}`;
+      return {
+        slug: scp.groups.host === "github.com" ? scp.groups.path : null,
+        webUrl,
+      };
+    }
     return { slug: null, webUrl: null };
   }
 };
