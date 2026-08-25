@@ -6,6 +6,47 @@ export type ProjectRouteParams = Partial<
 >;
 
 export type ProjectRouteRedirect = "hub" | "project-index" | null;
+export type ProjectListRouteKind = "pull-requests" | "issues";
+
+type ProjectListRouteTarget =
+  | { readonly to: "/pull-requests" }
+  | {
+      readonly to: "/project/$environmentId/$projectId/pull-requests";
+      readonly params: ScopedProjectRef;
+    }
+  | { readonly to: "/issues" }
+  | { readonly to: "/project/$environmentId/$projectId/issues"; readonly params: ScopedProjectRef };
+
+type PullRequestListRouteTarget = Extract<
+  ProjectListRouteTarget,
+  { readonly to: "/pull-requests" | "/project/$environmentId/$projectId/pull-requests" }
+>;
+type IssueListRouteTarget = Exclude<ProjectListRouteTarget, PullRequestListRouteTarget>;
+
+export function listRouteTarget(
+  kind: "pull-requests",
+  windowProjectRef: ScopedProjectRef | null,
+): PullRequestListRouteTarget;
+export function listRouteTarget(
+  kind: "issues",
+  windowProjectRef: ScopedProjectRef | null,
+): IssueListRouteTarget;
+export function listRouteTarget(
+  kind: ProjectListRouteKind,
+  windowProjectRef: ScopedProjectRef | null,
+): ProjectListRouteTarget {
+  if (kind === "pull-requests") {
+    return windowProjectRef === null
+      ? { to: "/pull-requests" as const }
+      : {
+          to: "/project/$environmentId/$projectId/pull-requests" as const,
+          params: windowProjectRef,
+        };
+  }
+  return windowProjectRef === null
+    ? { to: "/issues" as const }
+    : { to: "/project/$environmentId/$projectId/issues" as const, params: windowProjectRef };
+}
 
 export function isValidProjectRouteId(value: string | undefined): value is string {
   return value !== undefined && value.length > 0 && value.trim() === value;
