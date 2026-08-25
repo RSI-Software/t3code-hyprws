@@ -110,6 +110,11 @@ describe("pull request filters menu", () => {
     expect(onFilters).toHaveBeenCalledWith({ checks: "failing" });
   });
 
+  it("omits the project group when its picker is disabled", () => {
+    expect(findLabeledGroup(menu({ projects: null }), "Project")).toBeUndefined();
+    expect(findLabeledGroup(menu({ projects: [] }), "Project")).toBeDefined();
+  });
+
   it("does not emit a change when the selected project is chosen again", () => {
     const projectId = "project-1" as ProjectId;
     const environmentId = "env-1" as EnvironmentId;
