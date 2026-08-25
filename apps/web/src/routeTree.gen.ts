@@ -34,6 +34,7 @@ import { Route as ProjectEnvironmentIdProjectIdRouteImport } from './routes/proj
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 import { Route as ProjectEnvironmentIdProjectIdIndexRouteImport } from './routes/project.$environmentId.$projectId.index'
+import { Route as ProjectEnvironmentIdProjectIdPullRequestsRouteImport } from './routes/project.$environmentId.$projectId.pull-requests'
 import { Route as ProjectEnvironmentIdProjectIdThreadThreadIdRouteImport } from './routes/project.$environmentId.$projectId.thread.$threadId'
 import { Route as ProjectEnvironmentIdProjectIdDraftDraftIdRouteImport } from './routes/project.$environmentId.$projectId.draft.$draftId'
 
@@ -165,6 +166,12 @@ const ProjectEnvironmentIdProjectIdIndexRoute =
     path: '/',
     getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
   } as any)
+const ProjectEnvironmentIdProjectIdPullRequestsRoute =
+  ProjectEnvironmentIdProjectIdPullRequestsRouteImport.update({
+    id: '/pull-requests',
+    path: '/pull-requests',
+    getParentRoute: () => ProjectEnvironmentIdProjectIdRoute,
+  } as any)
 const ProjectEnvironmentIdProjectIdThreadThreadIdRoute =
   ProjectEnvironmentIdProjectIdThreadThreadIdRouteImport.update({
     id: '/thread/$threadId',
@@ -202,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdRouteWithChildren
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
   '/project/$environmentId/$projectId/': typeof ProjectEnvironmentIdProjectIdIndexRoute
   '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
   '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
@@ -229,6 +237,7 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
   '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdIndexRoute
   '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
   '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
@@ -259,6 +268,7 @@ export interface FileRoutesById {
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$environmentId/$projectId': typeof ProjectEnvironmentIdProjectIdRouteWithChildren
+  '/project/$environmentId/$projectId/pull-requests': typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
   '/project/$environmentId/$projectId/': typeof ProjectEnvironmentIdProjectIdIndexRoute
   '/project/$environmentId/$projectId/draft/$draftId': typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
   '/project/$environmentId/$projectId/thread/$threadId': typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/project/$environmentId/$projectId'
+    | '/project/$environmentId/$projectId/pull-requests'
     | '/project/$environmentId/$projectId/'
     | '/project/$environmentId/$projectId/draft/$draftId'
     | '/project/$environmentId/$projectId/thread/$threadId'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/project/$environmentId/$projectId/pull-requests'
     | '/project/$environmentId/$projectId'
     | '/project/$environmentId/$projectId/draft/$draftId'
     | '/project/$environmentId/$projectId/thread/$threadId'
@@ -345,6 +357,7 @@ export interface FileRouteTypes {
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/project/$environmentId/$projectId'
+    | '/project/$environmentId/$projectId/pull-requests'
     | '/project/$environmentId/$projectId/'
     | '/project/$environmentId/$projectId/draft/$draftId'
     | '/project/$environmentId/$projectId/thread/$threadId'
@@ -538,6 +551,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectEnvironmentIdProjectIdIndexRouteImport
       parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
     }
+    '/project/$environmentId/$projectId/pull-requests': {
+      id: '/project/$environmentId/$projectId/pull-requests'
+      path: '/pull-requests'
+      fullPath: '/project/$environmentId/$projectId/pull-requests'
+      preLoaderRoute: typeof ProjectEnvironmentIdProjectIdPullRequestsRouteImport
+      parentRoute: typeof ProjectEnvironmentIdProjectIdRoute
+    }
     '/project/$environmentId/$projectId/thread/$threadId': {
       id: '/project/$environmentId/$projectId/thread/$threadId'
       path: '/thread/$threadId'
@@ -606,6 +626,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 )
 
 interface ProjectEnvironmentIdProjectIdRouteChildren {
+  ProjectEnvironmentIdProjectIdPullRequestsRoute: typeof ProjectEnvironmentIdProjectIdPullRequestsRoute
   ProjectEnvironmentIdProjectIdIndexRoute: typeof ProjectEnvironmentIdProjectIdIndexRoute
   ProjectEnvironmentIdProjectIdDraftDraftIdRoute: typeof ProjectEnvironmentIdProjectIdDraftDraftIdRoute
   ProjectEnvironmentIdProjectIdThreadThreadIdRoute: typeof ProjectEnvironmentIdProjectIdThreadThreadIdRoute
@@ -613,6 +634,8 @@ interface ProjectEnvironmentIdProjectIdRouteChildren {
 
 const ProjectEnvironmentIdProjectIdRouteChildren: ProjectEnvironmentIdProjectIdRouteChildren =
   {
+    ProjectEnvironmentIdProjectIdPullRequestsRoute:
+      ProjectEnvironmentIdProjectIdPullRequestsRoute,
     ProjectEnvironmentIdProjectIdIndexRoute:
       ProjectEnvironmentIdProjectIdIndexRoute,
     ProjectEnvironmentIdProjectIdDraftDraftIdRoute:
