@@ -41,6 +41,7 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  CircleDotIcon,
   CornerLeftUpIcon,
   ExternalLinkIcon,
   FileSearchIcon,
@@ -88,6 +89,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments"
 import { useProjects, useServerConfigs, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
@@ -128,6 +130,7 @@ import {
   ADDON_ICON_CLASS,
   browseInputEndPaddingClass,
   buildBrowseGroups,
+  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
@@ -581,6 +584,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const windowProjectRef = resolveProjectRefFromPathname(pathname);
   const routeFamily = useParams({
     strict: false,
     select: (params) => resolveThreadRouteFamily(params),
@@ -1743,6 +1747,29 @@ function OpenCommandPaletteDialog(props: {
       });
     },
   });
+
+  const githubIssuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
+  );
+  if (githubIssuesSupported) {
+    const issuesCommand = buildIssuesNavigationCommand(windowProjectRef);
+    actionItems.push({
+      kind: "action",
+      value: issuesCommand.value,
+      searchTerms: issuesCommand.searchTerms,
+      title: issuesCommand.title,
+      icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          ...listRouteTarget(
+            "issues",
+            issuesCommand.target.kind === "project" ? issuesCommand.target.projectRef : null,
+          ),
+          search: { state: "open" },
+        });
+      },
+    });
+  }
 
   actionItems.push({
     kind: "action",
