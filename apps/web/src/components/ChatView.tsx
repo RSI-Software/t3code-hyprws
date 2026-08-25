@@ -157,6 +157,9 @@ import { isThreadOwnPullRequest } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
+import { GitHubIssueDetailPanel } from "./githubIssue/GitHubIssueDetailPanel";
+import { GitHubIssueEmptyState } from "./githubIssue/GitHubIssueEmptyState";
+import { GitHubIssueDetailGhost } from "./githubIssue/GitHubIssueGhosts";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
 import {
@@ -2068,6 +2071,13 @@ function ChatViewContent(props: ChatViewProps) {
     : (primaryEnvironment?.serverConfig ?? null);
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig?.environment.capabilities.pullRequests === true;
+  const issueServerConfig =
+    activeRightPanelSurface?.kind === "github-issue"
+      ? (environmentById.get(activeRightPanelSurface.environmentId as EnvironmentId)
+          ?.serverConfig ?? null)
+      : null;
+  const githubIssuesCapabilityKnown = issueServerConfig !== null;
+  const supportsGitHubIssues = issueServerConfig?.environment.capabilities.githubIssues === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -6322,6 +6332,23 @@ function ChatViewContent(props: ChatViewProps) {
           initialGitScope={initialDiffPanelGitScope}
         />
       </Suspense>
+    ) : activeRightPanelSurface?.kind === "github-issue" && !githubIssuesCapabilityKnown ? (
+      <GitHubIssueDetailGhost />
+    ) : activeRightPanelSurface?.kind === "github-issue" && !supportsGitHubIssues ? (
+      <GitHubIssueEmptyState
+        title="GitHub issues unavailable"
+        description="Update this environment's T3 Code server to browse GitHub issues."
+      />
+    ) : activeRightPanelSurface?.kind === "github-issue" ? (
+      <GitHubIssueDetailPanel
+        key={`${activeRightPanelSurface.environmentId}:${activeRightPanelSurface.projectId}:${activeRightPanelSurface.repository}#${activeRightPanelSurface.number}`}
+        environmentId={activeRightPanelSurface.environmentId as EnvironmentId}
+        reference={{
+          projectId: activeRightPanelSurface.projectId as ProjectId,
+          repository: activeRightPanelSurface.repository,
+          number: activeRightPanelSurface.number,
+        }}
+      />
     ) : activeRightPanelSurface?.kind === "pull-request" && !pullRequestsCapabilityKnown ? (
       <PullRequestDetailGhost />
     ) : activeRightPanelSurface?.kind === "pull-request" && !supportsPullRequests ? (
