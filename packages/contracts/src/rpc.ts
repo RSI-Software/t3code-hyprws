@@ -61,6 +61,15 @@ import {
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueDetail,
+  GitHubIssueListInput,
+  GitHubIssueListResult,
+  GitHubIssueOperationError,
+  GitHubIssueRef,
+} from "./githubIssue.ts";
+import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -296,6 +305,10 @@ export const WS_METHODS = {
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
 
+  // GitHub issue methods
+  githubIssuesList: "githubIssues.list",
+  githubIssuesDetail: "githubIssues.detail",
+
   // Pull request methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
@@ -486,6 +499,25 @@ export const WsServerGetBackgroundPolicyRpc = Rpc.make(WS_METHODS.serverGetBackg
   payload: Schema.Struct({}),
   success: BackgroundPolicySnapshot,
   error: EnvironmentAuthorizationError,
+});
+
+const GitHubIssueRpcError = Schema.Union([
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueOperationError,
+  EnvironmentAuthorizationError,
+]);
+
+export const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
+  payload: GitHubIssueListInput,
+  success: GitHubIssueListResult,
+  error: GitHubIssueRpcError,
+});
+
+export const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
+  payload: GitHubIssueRef,
+  success: GitHubIssueDetail,
+  error: GitHubIssueRpcError,
 });
 
 const PullRequestRpcError = Schema.Union([
@@ -1041,6 +1073,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetBackgroundPolicyRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
+  WsGitHubIssuesListRpc,
+  WsGitHubIssuesDetailRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsDetailRpc,

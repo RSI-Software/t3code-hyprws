@@ -51,4 +51,17 @@ describe("ExecutionEnvironmentDescriptor", () => {
       }).capabilities.fileAttachments,
     ).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
   });
+
+  it("treats a missing GitHub Issues capability as unsupported under version skew", () => {
+    expect(decodeDescriptor(descriptor).capabilities.githubIssues).toBeUndefined();
+  });
+
+  it("preserves an advertised GitHub Issues capability", () => {
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, githubIssues: true },
+      }).capabilities.githubIssues,
+    ).toBe(true);
+  });
 });
