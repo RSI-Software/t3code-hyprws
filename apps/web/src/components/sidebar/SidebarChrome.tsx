@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, CircleDotIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -7,7 +7,7 @@ import { useFullPageBackOut } from "../../hooks/useLeaveFullPage"; // fork-hook:
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
-import { usePullRequestsSupported } from "../../state/environments";
+import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -167,8 +167,14 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   });
   const pathname = useLocation({ select: (location) => location.pathname }); // fork-hook: project-windows/sidebar-pathname
   const projectRef = resolveProjectRefFromPathname(pathname); // fork-hook: project-windows/sidebar-project-ref
-  const isOnProjectUtilityPage = projectRef !== null && pathname.endsWith("/pull-requests"); // fork-hook: project-windows/sidebar-project-utility-page
+  const isOnProjectUtilityPage =
+    pathname === "/issues" ||
+    (projectRef !== null && (pathname.endsWith("/pull-requests") || pathname.endsWith("/issues"))); // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
+  const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
+  const githubIssuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
+  );
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -181,6 +187,18 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   };
+  const handleIssuesClick = useCallback(() => {
+    closeMobileSidebar();
+    if (projectRef !== null) {
+      void navigate({
+        to: "/project/$environmentId/$projectId/issues",
+        params: projectRef,
+        search: { state: "open" },
+      });
+      return;
+    }
+    void navigate({ to: "/issues", search: { state: "open" } });
+  }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -219,6 +237,13 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               icon={<PullRequestGlyph.pullRequest />}
               label="Pull requests"
               onClick={handlePullRequestsClick}
+            />
+          ) : null}
+          {githubIssuesSupported ? (
+            <SidebarUtilityItem
+              icon={<CircleDotIcon />}
+              label="GitHub Issues"
+              onClick={handleIssuesClick}
             />
           ) : null}
           <SidebarUtilityItem
