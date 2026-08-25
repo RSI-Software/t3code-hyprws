@@ -5,6 +5,7 @@ import { makeThreadFixture } from "../test-fixtures";
 import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
+  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
