@@ -82,6 +82,11 @@ export function useWindowProjectListScope(
     nextUrlScope: WindowProjectScopeParam | undefined,
     navigate: (patch: WindowProjectScopeSearchPatch) => void,
   ) => void;
+  /**
+   * Records what this window should reopen to without navigating. Use it where the caller owns a
+   * richer navigation than a scope flip, such as scoping to a different project entirely.
+   */
+  readonly rememberScope: (scope: RememberedWindowProjectListScope) => void;
 } {
   const storageKey =
     forcedProjectRef === null ? null : windowProjectListScopeStorageKey(forcedProjectRef);
@@ -119,5 +124,14 @@ export function useWindowProjectListScope(
     [forcedProjectRef, listScope.kind, storageKey],
   );
 
-  return { listScope, onScopeChange };
+  const rememberScope = useCallback(
+    (scope: RememberedWindowProjectListScope) => {
+      if (forcedProjectRef === null) return;
+      writeRememberedListScope(forcedProjectRef, scope);
+      setRememberedState({ key: storageKey, value: scope });
+    },
+    [forcedProjectRef, storageKey],
+  );
+
+  return { listScope, onScopeChange, rememberScope };
 }

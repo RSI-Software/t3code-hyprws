@@ -158,6 +158,15 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
+import {
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueDetail,
+  GitHubIssueListInput,
+  GitHubIssueListResult,
+  GitHubIssueOperationError,
+  GitHubIssueRef,
+} from "./githubIssue.ts";
 import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
 import {
   ProviderUploadFeedbackError,
@@ -553,6 +562,8 @@ export const WS_METHODS = {
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
 
+  githubIssuesList: "githubIssues.list",
+  githubIssuesDetail: "githubIssues.detail",
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
   pullRequestsFilterOptions: "pullRequests.filterOptions",
@@ -995,6 +1006,25 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
   payload: ClientActivityReportInput,
   error: EnvironmentAuthorizationError,
+});
+
+const GitHubIssueRpcError = Schema.Union([
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueOperationError,
+  EnvironmentAuthorizationError,
+]);
+
+export const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
+  payload: GitHubIssueListInput,
+  success: GitHubIssueListResult,
+  error: GitHubIssueRpcError,
+});
+
+export const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
+  payload: GitHubIssueRef,
+  success: GitHubIssueDetail,
+  error: GitHubIssueRpcError,
 });
 
 const PullRequestRpcError = Schema.Union([
@@ -2068,6 +2098,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerReportClientActivityRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
+  WsGitHubIssuesListRpc,
+  WsGitHubIssuesDetailRpc,
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,
