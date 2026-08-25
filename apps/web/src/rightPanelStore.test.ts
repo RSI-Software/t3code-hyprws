@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { useClosedViewStore } from "./closedViewStore";
 import { reopenClosedView } from "./reopenClosedView";
 import {
+  githubIssueSurface,
   migratePersistedRightPanelState,
   pullRequestSurface,
   pullRequestSurfaceId,
@@ -12,6 +13,7 @@ import {
   selectActiveRightPanelSurface,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
+  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
 
