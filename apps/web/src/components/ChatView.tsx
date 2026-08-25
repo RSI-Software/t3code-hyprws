@@ -1188,6 +1188,14 @@ export default function ChatView(props: ChatViewProps) {
     automaticEnvironment,
     autoUpdateEnvironments,
   });
+
+  const issueServerConfig =
+    renderedRightPanelSurface?.kind === "github-issue"
+      ? (environmentById.get(renderedRightPanelSurface.environmentId as EnvironmentId)
+          ?.serverConfig ?? null)
+      : null;
+  const githubIssuesCapabilityKnown = issueServerConfig !== null;
+  const supportsGitHubIssues = issueServerConfig?.environment.capabilities.githubIssues === true;
   const providerInstanceEntries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(
       deriveProviderInstanceEntries(providerStatuses),
