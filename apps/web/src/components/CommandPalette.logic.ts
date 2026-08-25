@@ -3,6 +3,7 @@ import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
 import {
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type ScopedProjectRef,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -36,6 +37,16 @@ export function buildLinkedThreadActionItems(
     icon: input.icon,
     run: () => input.runThread({ environmentId: input.environmentId, id: thread.id }),
   }));
+}
+
+export function buildIssuesNavigationCommand(projectRef: ScopedProjectRef | null) {
+  return {
+    value: "action:issues",
+    title: "Go to Issues",
+    searchTerms: ["issues", "github", "bugs", "go to"],
+    target:
+      projectRef === null ? ({ kind: "hub" } as const) : ({ kind: "project", projectRef } as const),
+  };
 }
 
 export function browseInputEndPaddingClass(input: {
