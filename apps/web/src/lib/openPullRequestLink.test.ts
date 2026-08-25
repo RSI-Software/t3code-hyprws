@@ -4,9 +4,11 @@ import {
   changeRequestRepositoryUrl,
   findProjectForChangeRequest,
   findProjectOnChangeRequestHost,
+  findProjectForGitHubIssue,
   gitHubPullRequestBrowserUrl,
   matchesLinkedPullRequestUrl,
   parseChangeRequestUrl,
+  parseGitHubIssueUrl,
   pullRequestCandidateUrlFromReferenceAutolink,
   shouldOpenPullRequestExternally,
 } from "./openPullRequestLink";
