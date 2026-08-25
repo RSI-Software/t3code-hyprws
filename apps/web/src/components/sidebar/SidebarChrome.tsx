@@ -11,6 +11,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useFullPageBackOut } from "../../hooks/useLeaveFullPage";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes";
 import { useEnvironments } from "../../state/environments";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -148,16 +149,16 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const backOutOfFullPage = useFullPageBackOut();
   const { isMobile, setOpenMobile } = useSidebar();
-  const currentFooterPage = useLocation({
-    select: (location) =>
-      /^\/settings(?:\/|$)/.test(location.pathname)
-        ? "settings"
-        : location.pathname === "/usage"
-          ? "usage"
-          : location.pathname === "/pull-requests"
-            ? "pull-requests"
-            : null,
-  });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const projectRef = resolveProjectRefFromPathname(pathname);
+  const currentFooterPage = /^\/settings(?:\/|$)/.test(pathname)
+    ? "settings"
+    : pathname === "/usage"
+      ? "usage"
+      : pathname === "/pull-requests" ||
+          (projectRef !== null && pathname.endsWith("/pull-requests"))
+        ? "pull-requests"
+        : null;
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
@@ -171,8 +172,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   }, [isMobile, setOpenMobile]);
   const handlePullRequestsClick = useCallback(() => {
     closeMobileSidebar();
-    void navigate({ to: "/pull-requests", search: { involvement: "all", state: "open" } });
-  }, [closeMobileSidebar, navigate]);
+    void navigate({
+      ...listRouteTarget("pull-requests", projectRef),
+      search: { involvement: "all", state: "open" },
+    });
+  }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
