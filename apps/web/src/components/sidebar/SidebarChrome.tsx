@@ -17,6 +17,7 @@ import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { useIssuesSupported, usePullRequestsSupported } from "../../state/environments";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
+import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -239,9 +240,15 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   });
   const pathname = useLocation({ select: (location) => location.pathname }); // fork-hook: project-windows/sidebar-pathname
   const projectRef = resolveProjectRefFromPathname(pathname); // fork-hook: project-windows/sidebar-project-ref
-  const isOnProjectUtilityPage = projectRef !== null && pathname.endsWith("/pull-requests"); // fork-hook: project-windows/sidebar-project-utility-page
+  const isOnProjectUtilityPage =
+    pathname === "/issues" ||
+    (projectRef !== null && (pathname.endsWith("/pull-requests") || pathname.endsWith("/issues"))); // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
   const issuesSupported = useIssuesSupported();
+  const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
+  const githubIssuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
+  );
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -258,6 +265,18 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     closeMobileSidebar();
     void navigate({ to: "/issues", search: readIssueListPreferences() });
   };
+  const handleIssuesClick = useCallback(() => {
+    closeMobileSidebar();
+    if (projectRef !== null) {
+      void navigate({
+        to: "/project/$environmentId/$projectId/issues",
+        params: projectRef,
+        search: { state: "open" },
+      });
+      return;
+    }
+    void navigate({ to: "/issues", search: { state: "open" } });
+  }, [closeMobileSidebar, navigate, projectRef]);
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
