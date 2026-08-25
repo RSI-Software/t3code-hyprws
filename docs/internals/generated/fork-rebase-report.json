@@ -1,0 +1,808 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "vp run fork:rebase-report",
+  "sharedBase": {
+    "sha": "30be31195883635aba96031a8d79c255fb28b438",
+    "shortSha": "30be311",
+    "upstreamTags": ["v0.0.34-nightly.20260823.1163", "v0.0.34-nightly.20260823.1164"]
+  },
+  "upstream": {
+    "ref": "upstream/main",
+    "sha": "2394998aa2e1903844e79e44de30e09d2820d3f1",
+    "shortSha": "2394998",
+    "repository": {
+      "slug": "pingdotgg/t3code",
+      "webUrl": "https://github.com/pingdotgg/t3code"
+    },
+    "commitCount": 49,
+    "changeTypes": {
+      "chore": 1,
+      "feat": 3,
+      "fix": 42,
+      "perf": 2,
+      "test": 1
+    },
+    "releases": [
+      {
+        "tag": "v0.0.34-nightly.20260823.1163",
+        "sha": "30be31195883635aba96031a8d79c255fb28b438",
+        "shortSha": "30be311",
+        "commitsSincePrevious": []
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1164",
+        "sha": "30be31195883635aba96031a8d79c255fb28b438",
+        "shortSha": "30be311",
+        "commitsSincePrevious": []
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1166",
+        "sha": "fdd1572b69537c95e31b45fdfafe88bbe964807a",
+        "shortSha": "fdd1572",
+        "commitsSincePrevious": [
+          {
+            "sha": "fdd1572b69537c95e31b45fdfafe88bbe964807a",
+            "shortSha": "fdd1572",
+            "subject": "fix(web): give sidebar project menu rows the same side padding as other menus (#7913)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1167",
+        "sha": "2433f4c1c01cf9e9eca983c9aeec375524e29273",
+        "shortSha": "2433f4c",
+        "commitsSincePrevious": [
+          {
+            "sha": "afa83098064e7dca524a1e42dea3de03a883a0b6",
+            "shortSha": "afa8309",
+            "subject": "fix(clients): reconnect after credentials fail during remote server updates (#7953)",
+            "type": "fix"
+          },
+          {
+            "sha": "3db38b8814c49cfd783543371fad8cd4adbc19fd",
+            "shortSha": "3db38b8",
+            "subject": "feat(codex): submit thread feedback to OpenAI (#7949)",
+            "type": "feat"
+          },
+          {
+            "sha": "4d12e52223f3fcd4813b9bc52cd9cb3f2bd19539",
+            "shortSha": "4d12e52",
+            "subject": "fix(server): stop kills lingering Claude work (#5891)",
+            "type": "fix"
+          },
+          {
+            "sha": "2433f4c1c01cf9e9eca983c9aeec375524e29273",
+            "shortSha": "2433f4c",
+            "subject": "fix(ci): let Macroscope approve pull requests again (#7970)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1168",
+        "sha": "f70eeeeb06d6d96f292be7eef1ed8948103e68dc",
+        "shortSha": "f70eeee",
+        "commitsSincePrevious": [
+          {
+            "sha": "f70eeeeb06d6d96f292be7eef1ed8948103e68dc",
+            "shortSha": "f70eeee",
+            "subject": "fix(clients): move settled pinned threads into the settled section (#7969)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1169",
+        "sha": "b1670ac7d9b5b7bb9d7ebd969f27384daee22813",
+        "shortSha": "b1670ac",
+        "commitsSincePrevious": [
+          {
+            "sha": "25dcee00a6e12db2781a17b326e6e34de0d4ced7",
+            "shortSha": "25dcee0",
+            "subject": "perf(ci): speed up release builds and Windows packaging (#7975)",
+            "type": "perf"
+          },
+          {
+            "sha": "ea8c9e5ca3ace89cbf6cf0a2aa03047aab1d3ef9",
+            "shortSha": "ea8c9e5",
+            "subject": "fix(web): stop tool calls from leaving a blank page in threads (#7971)",
+            "type": "fix"
+          },
+          {
+            "sha": "b1670ac7d9b5b7bb9d7ebd969f27384daee22813",
+            "shortSha": "b1670ac",
+            "subject": "fix(web): stop recovered tool failures from marking work logs red (#7999)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1170",
+        "sha": "55c9093344a5fdbc390d713675429599fff27dbd",
+        "shortSha": "55c9093",
+        "commitsSincePrevious": [
+          {
+            "sha": "55c9093344a5fdbc390d713675429599fff27dbd",
+            "shortSha": "55c9093",
+            "subject": "fix(mobile): isolate markdown image requests (#7942)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260823.1171",
+        "sha": "a9cd94eb935fed8e73b0d88e599c27048f2939c3",
+        "shortSha": "a9cd94e",
+        "commitsSincePrevious": [
+          {
+            "sha": "9da0fab08e0ee444affdfb4916e294c579158bb6",
+            "shortSha": "9da0fab",
+            "subject": "feat(web): redesign skills in `$` menu and in `/` menu (#8009)",
+            "type": "feat"
+          },
+          {
+            "sha": "09df91f729c1c61e637e7dd0ef22827cfc8a6cb1",
+            "shortSha": "09df91f",
+            "subject": "fix(web): restore right panel toggle clicks after closing on desktop (#8016)",
+            "type": "fix"
+          },
+          {
+            "sha": "5427ca056270ad49ac88431ac1fb8bb54dd7b91b",
+            "shortSha": "5427ca0",
+            "subject": "fix(web): keep server update banners flush with the composer (#8000)",
+            "type": "fix"
+          },
+          {
+            "sha": "fa219001dc2f14cfd9c7774c2c03c153359144be",
+            "shortSha": "fa21900",
+            "subject": "perf(web): reuse work log rows during streaming (#8006)",
+            "type": "perf"
+          },
+          {
+            "sha": "a9cd94eb935fed8e73b0d88e599c27048f2939c3",
+            "shortSha": "a9cd94e",
+            "subject": "fix(web): keep provider badge legible in dark themes (#7968)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1172",
+        "sha": "b4be33f0747445f1c9df126e932c7b9792f322d5",
+        "shortSha": "b4be33f",
+        "commitsSincePrevious": [
+          {
+            "sha": "69e5ad88462f9f58dacaee9ca926dea8a658378b",
+            "shortSha": "69e5ad8",
+            "subject": "fix(web): treat configured urls with uppercase schemes as secure (#8005)",
+            "type": "fix"
+          },
+          {
+            "sha": "b4be33f0747445f1c9df126e932c7b9792f322d5",
+            "shortSha": "b4be33f",
+            "subject": "fix(desktop): keep release notes visible while downloading (#6412)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1173",
+        "sha": "17dbe8dda3ba87eb83804bc93fc0cb945186d204",
+        "shortSha": "17dbe8d",
+        "commitsSincePrevious": [
+          {
+            "sha": "17dbe8dda3ba87eb83804bc93fc0cb945186d204",
+            "shortSha": "17dbe8d",
+            "subject": "fix(web): show only providers with usage in usage views (#7563)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1174",
+        "sha": "b60a2c0b99c8d5d8f02b6705171da694d12e77e3",
+        "shortSha": "b60a2c0",
+        "commitsSincePrevious": [
+          {
+            "sha": "643daa51616d0bfcd4c8235ae6966a68f106dcfe",
+            "shortSha": "643daa5",
+            "subject": "fix(web): prevent expanded tool calls from hiding thread content (#8052)",
+            "type": "fix"
+          },
+          {
+            "sha": "b60a2c0b99c8d5d8f02b6705171da694d12e77e3",
+            "shortSha": "b60a2c0",
+            "subject": "test(server): remove no-op live activity tests (#8056)",
+            "type": "test"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1175",
+        "sha": "e9f50c3efcb02a199042364ead292e164274e716",
+        "shortSha": "e9f50c3",
+        "commitsSincePrevious": [
+          {
+            "sha": "10626c537886b41b6d9fc404521512f4f3702157",
+            "shortSha": "10626c5",
+            "subject": "fix(web): clarify terminal sidebar grouping (#7967)",
+            "type": "fix"
+          },
+          {
+            "sha": "7c6163c67aa122fa7c13466536c012888db102c6",
+            "shortSha": "7c6163c",
+            "subject": "fix(codex): show app access approval prompts (#8058)",
+            "type": "fix"
+          },
+          {
+            "sha": "e9f50c3efcb02a199042364ead292e164274e716",
+            "shortSha": "e9f50c3",
+            "subject": "feat(web): upload image attachments before sending (#8048)",
+            "type": "feat"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1176",
+        "sha": "f035a0f4cdf4abaa6704673af7b5a4a321149ba2",
+        "shortSha": "f035a0f",
+        "commitsSincePrevious": [
+          {
+            "sha": "58ba5594439c984b08d13b6d4efb5407adb06943",
+            "shortSha": "58ba559",
+            "subject": "fix(server): bound OpenCode skill discovery output (#7675)",
+            "type": "fix"
+          },
+          {
+            "sha": "9eba1252c1f8264b6951068d2e2396363412299c",
+            "shortSha": "9eba125",
+            "subject": "fix(mobile): persist thread shelf collapse state (#5152)",
+            "type": "fix"
+          },
+          {
+            "sha": "2d2efff28c4fc47745538570fcb7dd07272e3e4b",
+            "shortSha": "2d2efff",
+            "subject": "fix(mobile): restore Android tablet thread controls, clean up header (#5385)",
+            "type": "fix"
+          },
+          {
+            "sha": "f9a726e6231d76124e7210492745a40380c74df3",
+            "shortSha": "f9a726e",
+            "subject": "fix(mobile): land the first thread open above the composer on Android (#5585)",
+            "type": "fix"
+          },
+          {
+            "sha": "be3da50e96bb6700fbd111e061d8071a04427fb0",
+            "shortSha": "be3da50",
+            "subject": "fix(server): check out submodules in a new worktree (#7674)",
+            "type": "fix"
+          },
+          {
+            "sha": "ba30177b5a5e9b47885b59afcc4f00a8a7cc0efd",
+            "shortSha": "ba30177",
+            "subject": "fix(server): preserve merged PR badges after branch deletion (#6216)",
+            "type": "fix"
+          },
+          {
+            "sha": "229b05df042f896bbb44660c8524ffe222b85b8d",
+            "shortSha": "229b05d",
+            "subject": "fix(server): return fresh live pull request reads (#6472)",
+            "type": "fix"
+          },
+          {
+            "sha": "6f5c951a494e6ed0111222959a4bd9c7c8af6c23",
+            "shortSha": "6f5c951",
+            "subject": "fix(web): compare client and server versions as semver, not strings (#7579)",
+            "type": "fix"
+          },
+          {
+            "sha": "c0047c252f35875476e2478bb4df6af9dd6fcb6a",
+            "shortSha": "c0047c2",
+            "subject": "fix(web): stop follow-ups from leaving giant blank space (#8068)",
+            "type": "fix"
+          },
+          {
+            "sha": "e31e568bdb2fac30a3c785190201750c6d7dd61c",
+            "shortSha": "e31e568",
+            "subject": "fix(marketing): stop automatic Vercel deployments on pull requests (#8070)",
+            "type": "fix"
+          },
+          {
+            "sha": "a00218741f4fddb77fb2f0e37f548a798bed023a",
+            "shortSha": "a002187",
+            "subject": "chore: vouch repeat contributors (#8071)",
+            "type": "chore"
+          },
+          {
+            "sha": "6a2608292dd7ba01516112c276e475e6b64e4e2c",
+            "shortSha": "6a26082",
+            "subject": "fix(server): keep the authoritative subagent model when snapshots race task_started (#7583)",
+            "type": "fix"
+          },
+          {
+            "sha": "04df98db4c90790fb5171426894baa3bca57a935",
+            "shortSha": "04df98d",
+            "subject": "fix(server): honor auto-accept edits for the OpenCode provider (#7100)",
+            "type": "fix"
+          },
+          {
+            "sha": "3fd50643311d0b0e702628f906f7cb6bbe84e1ba",
+            "shortSha": "3fd5064",
+            "subject": "fix(server): run the CLI on Node versions without import.meta.main (#7141)",
+            "type": "fix"
+          },
+          {
+            "sha": "17822fab708a90e82ac961e3b4895932667ce419",
+            "shortSha": "17822fa",
+            "subject": "fix(server): recover from provider interrupt failures (#7412)",
+            "type": "fix"
+          },
+          {
+            "sha": "01fc7d228dd6794ffb35b57752d0218559de5e89",
+            "shortSha": "01fc7d2",
+            "subject": "fix(server): recreate a thread's worktree before starting a turn (#7839)",
+            "type": "fix"
+          },
+          {
+            "sha": "e6a109b9f74552eb735968986845e500b98c3c73",
+            "shortSha": "e6a109b",
+            "subject": "fix(server): thread delete no longer fails on already-removed worktrees (#8076)",
+            "type": "fix"
+          },
+          {
+            "sha": "f035a0f4cdf4abaa6704673af7b5a4a321149ba2",
+            "shortSha": "f035a0f",
+            "subject": "fix(web): stop update notices showing through the composer (#8083)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260824.1179",
+        "sha": "5f1147cad72197d7315a2fd073c30d7ffe1767f2",
+        "shortSha": "5f1147c",
+        "commitsSincePrevious": [
+          {
+            "sha": "5f1147cad72197d7315a2fd073c30d7ffe1767f2",
+            "shortSha": "5f1147c",
+            "subject": "fix(web): detect outdated nightly servers (#8124)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260825.1180",
+        "sha": "99960383d094b850f0001d3067fa604aa3adf7d6",
+        "shortSha": "9996038",
+        "commitsSincePrevious": [
+          {
+            "sha": "8287f2c3a771f4a88f781e9c98830692b186c5c3",
+            "shortSha": "8287f2c",
+            "subject": "fix(web): align usage page skeleton layout (#8111)",
+            "type": "fix"
+          },
+          {
+            "sha": "883e1a3cd9d70f6906a8eb1458a7a05d1d9e0d55",
+            "shortSha": "883e1a3",
+            "subject": "fix(web): make terminal links appear clickable only when clickable (#7488)",
+            "type": "fix"
+          },
+          {
+            "sha": "a09f92171186677796ccdc28148406c7491601ce",
+            "shortSha": "a09f921",
+            "subject": "fix(web): make Windows file links clickable in chat (#8081)",
+            "type": "fix"
+          },
+          {
+            "sha": "a1379db81847cc70b2c9535fd8370b69f9ebf291",
+            "shortSha": "a1379db",
+            "subject": "fix(web): sort usage models by token count (#8108)",
+            "type": "fix"
+          },
+          {
+            "sha": "99960383d094b850f0001d3067fa604aa3adf7d6",
+            "shortSha": "9996038",
+            "subject": "fix: open agent file links in the file viewer (#8098)",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-nightly.20260825.1181",
+        "sha": "2394998aa2e1903844e79e44de30e09d2820d3f1",
+        "shortSha": "2394998",
+        "commitsSincePrevious": [
+          {
+            "sha": "c034f51bb727de3d4888c74497b13e878ee65187",
+            "shortSha": "c034f51",
+            "subject": "fix(server): stop routine events from rescanning thread history (#8150)",
+            "type": "fix"
+          },
+          {
+            "sha": "2394998aa2e1903844e79e44de30e09d2820d3f1",
+            "shortSha": "2394998",
+            "subject": "fix(deps): stop pnpm installs from changing the lockfile (#8163)",
+            "type": "fix"
+          }
+        ]
+      }
+    ],
+    "unreleasedCommits": []
+  },
+  "hyprws": {
+    "ref": "origin/hyprws",
+    "sha": "18caa8ac9779334117fd3fff1b9f477a1ae9cf16",
+    "shortSha": "18caa8a",
+    "repository": {
+      "slug": "RSI-Software/t3code-hyprws",
+      "webUrl": "https://github.com/RSI-Software/t3code-hyprws"
+    },
+    "commitCount": 55,
+    "changeTypes": {
+      "chore": 1,
+      "ci": 5,
+      "docs": 6,
+      "feat": 19,
+      "fix": 18,
+      "refactor": 3,
+      "test": 1,
+      "other": 2
+    },
+    "releases": [
+      {
+        "tag": "v0.0.34-hyprws.1",
+        "sha": "7625bc487623446ad1449f9bad454ef827eec80b",
+        "shortSha": "7625bc4",
+        "commitsSincePrevious": [
+          {
+            "sha": "f5ff5b6043bf35f6ce6161d884076bb4cd942e74",
+            "shortSha": "f5ff5b6",
+            "subject": "docs(readme): hyprws",
+            "type": "docs"
+          },
+          {
+            "sha": "ab3744270c9c1dd29f28f66bd03e8ed0657a9a04",
+            "shortSha": "ab37442",
+            "subject": "fix(web): scope markdown actions to thread environment",
+            "type": "fix"
+          },
+          {
+            "sha": "0d2ebeda5ac1998ac386755c8528c2b1f1d01d9e",
+            "shortSha": "0d2ebed",
+            "subject": "refactor(web): centralize thread route navigation",
+            "type": "refactor"
+          },
+          {
+            "sha": "518b6b8c3c8b9d6cfab54eb1abb73e7db7ea9a4a",
+            "shortSha": "518b6b8",
+            "subject": "refactor(web): add physical project sidebar scope",
+            "type": "refactor"
+          },
+          {
+            "sha": "4a1e548273c51ab95d25930ba95096977586ec3d",
+            "shortSha": "4a1e548",
+            "subject": "feat(web): add project route subtree",
+            "type": "feat"
+          },
+          {
+            "sha": "8d236e713b5c0a29bb94d194824b2c54af4fb5bb",
+            "shortSha": "8d236e7",
+            "subject": "feat(web): preserve project thread routes",
+            "type": "feat"
+          },
+          {
+            "sha": "eef785b4b2c198d26c115f69a2b5f8d99bffbc2f",
+            "shortSha": "eef785b",
+            "subject": "feat(web): render scoped project shell",
+            "type": "feat"
+          },
+          {
+            "sha": "28035ed6b1996154219e05060c6d755efb0958d4",
+            "shortSha": "28035ed",
+            "subject": "fix(web): wait for scoped project hydration",
+            "type": "fix"
+          },
+          {
+            "sha": "7d15e876ce6ea67edeab1815014fdef019304f64",
+            "shortSha": "7d15e87",
+            "subject": "feat(desktop): register windows by identity",
+            "type": "feat"
+          },
+          {
+            "sha": "ef34a479526454f392fdb48ce4bc7651e2ea8cb1",
+            "shortSha": "ef34a47",
+            "subject": "feat(desktop): route project window intents",
+            "type": "feat"
+          },
+          {
+            "sha": "5698f432edf3d50bd35227316f1f600a5ea89963",
+            "shortSha": "5698f43",
+            "subject": "fix(desktop): isolate project preview and drafts",
+            "type": "fix"
+          },
+          {
+            "sha": "4cd1c72217e8aa74066bbde1e0a2d0ce68d0f513",
+            "shortSha": "4cd1c72",
+            "subject": "refactor(web): share project pathname parsing",
+            "type": "refactor"
+          },
+          {
+            "sha": "efb22a5249c487eda16023653425a97dda52dc27",
+            "shortSha": "efb22a5",
+            "subject": "fix(desktop): open forwarded project intents",
+            "type": "fix"
+          },
+          {
+            "sha": "cf39f823190236301f3955a92378ce1bca504d8a",
+            "shortSha": "cf39f82",
+            "subject": "fix(desktop): load project scope from hash routes",
+            "type": "fix"
+          },
+          {
+            "sha": "776010b8c90850de796a46fd875574496fba917b",
+            "shortSha": "776010b",
+            "subject": "feat(desktop): namespace previews by window",
+            "type": "feat"
+          },
+          {
+            "sha": "47a1627efc8bff029e0d77c482eb5c02259c2582",
+            "shortSha": "47a1627",
+            "subject": "fix(desktop): authorize and route preview IPC by window",
+            "type": "fix"
+          },
+          {
+            "sha": "0c33cfcc843b5e09d19dc6409879e2ef8e4096c2",
+            "shortSha": "0c33cfc",
+            "subject": "feat(desktop): enable previews in project windows",
+            "type": "feat"
+          },
+          {
+            "sha": "dcb1319106274dbd7a8fbe21e1cd9fb2e4597126",
+            "shortSha": "dcb1319",
+            "subject": "feat(desktop): open project windows from renderer IPC",
+            "type": "feat"
+          },
+          {
+            "sha": "15ad9732783ffa4e5637560d38a60a353040041c",
+            "shortSha": "15ad973",
+            "subject": "feat(web): detect desktop project window support",
+            "type": "feat"
+          },
+          {
+            "sha": "405b2d8094b65cfbc5ac76827d774c7b5abfbb31",
+            "shortSha": "405b2d8",
+            "subject": "feat(web): open project windows from hub actions",
+            "type": "feat"
+          },
+          {
+            "sha": "7707801a587ef2d73536cc2b446389bf51bd62ab",
+            "shortSha": "7707801",
+            "subject": "fix(web): mount scoped chrome while environment reconnects",
+            "type": "fix"
+          },
+          {
+            "sha": "ed12d3db5c28c850b7b94f9037a536509277c658",
+            "shortSha": "ed12d3d",
+            "subject": "fix(web): offer retry when scoped draft start fails",
+            "type": "fix"
+          },
+          {
+            "sha": "0430fcb77df7bf5123948bba499163ff3a35fdf1",
+            "shortSha": "0430fcb",
+            "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+            "type": "fix"
+          },
+          {
+            "sha": "90065e27af4155eee319ac7b8f39221c39e0fe1d",
+            "shortSha": "90065e2",
+            "subject": "test(web): keep route tests out of the router generator",
+            "type": "test"
+          },
+          {
+            "sha": "4c4db6fbcc11503b7fd4f39a31c0caffc85fb351",
+            "shortSha": "4c4db6f",
+            "subject": "fix(web): stop new threads waiting on an unreachable project file",
+            "type": "fix"
+          },
+          {
+            "sha": "31db1fa85097f9902650344060da0e389a02cfb4",
+            "shortSha": "31db1fa",
+            "subject": "docs(internals): record the fork delta by domain and tier",
+            "type": "docs"
+          },
+          {
+            "sha": "e816b44e3a052c061cf19cc9e32b841cfe223aac",
+            "shortSha": "e816b44",
+            "subject": "chore(scripts): add the fork:delta ledger",
+            "type": "chore"
+          },
+          {
+            "sha": "7823d7cf34688758923fc76de4aa7fa96d530b29",
+            "shortSha": "7823d7c",
+            "subject": "docs(internals): move the fork to one hyprws trunk",
+            "type": "docs"
+          },
+          {
+            "sha": "bb5bf23e60762a8b1f9b85e72ff789f44c77bf83",
+            "shortSha": "bb5bf23",
+            "subject": "ci: add fork CI and release workflows",
+            "type": "ci"
+          },
+          {
+            "sha": "29e4fbcc4c56655ba53ddb69e6d1e81ff75d58e2",
+            "shortSha": "29e4fbc",
+            "subject": "ci: name the upstream base on fork releases",
+            "type": "ci"
+          },
+          {
+            "sha": "7625bc487623446ad1449f9bad454ef827eec80b",
+            "shortSha": "7625bc4",
+            "subject": "docs: allow nightly upstream bases for fork releases",
+            "type": "docs"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-hyprws.2",
+        "sha": "ef214c826856a1cfdee42d6ad854ded51a7792cb",
+        "shortSha": "ef214c8",
+        "commitsSincePrevious": [
+          {
+            "sha": "373d7dae5a1e52d450ef38d0082c64903e70d0f4",
+            "shortSha": "373d7da",
+            "subject": "ci: name the newest upstream tag on a shared base commit",
+            "type": "ci"
+          },
+          {
+            "sha": "7c4456f2f045e2a53617440ba05472f9e25f8d2a",
+            "shortSha": "7c4456f",
+            "subject": "docs(internals): land fork lanes by squash",
+            "type": "docs"
+          },
+          {
+            "sha": "39612fedcde17cadfef8db9b5130746069c998e8",
+            "shortSha": "39612fe",
+            "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+            "type": "fix"
+          },
+          {
+            "sha": "9536df69d4eb9adbb399c99f34233eb6f4d5f622",
+            "shortSha": "9536df6",
+            "subject": "feat(server): hand every provider process its project and thread id",
+            "type": "feat"
+          },
+          {
+            "sha": "dbdb3771c8df1d4656f613195778a439c94a1b47",
+            "shortSha": "dbdb377",
+            "subject": "feat(scripts): extract one fork domain from the ledger",
+            "type": "feat"
+          },
+          {
+            "sha": "1e28c97ec312f448ac9bd3c51aa9f2342ea48ffe",
+            "shortSha": "1e28c97",
+            "subject": "fix(web): scale titlebar padding with interface zoom",
+            "type": "fix"
+          },
+          {
+            "sha": "ef214c826856a1cfdee42d6ad854ded51a7792cb",
+            "shortSha": "ef214c8",
+            "subject": "fix(server): keep pull requests on origin",
+            "type": "fix"
+          }
+        ]
+      },
+      {
+        "tag": "v0.0.34-hyprws.3",
+        "sha": "e0daecbf0ae89e211933a273581c387f1d29bc2a",
+        "shortSha": "e0daecb",
+        "commitsSincePrevious": [
+          {
+            "sha": "ea6f6dddf9063d13bcf99f223f5d47fb2562d9a6",
+            "shortSha": "ea6f6dd",
+            "subject": "Thread terminals and agents stop inheriting the launcher's tmux pane",
+            "type": null
+          },
+          {
+            "sha": "bf4b307682c0f80e9c7979e5feea3e9035d515ac",
+            "shortSha": "bf4b307",
+            "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+            "type": "feat"
+          },
+          {
+            "sha": "cbb6727b1c798595cafecbc8862cf6355d3e899c",
+            "shortSha": "cbb6727",
+            "subject": "ci(fork): verify pull-request bodies carry the squash trailer block",
+            "type": "ci"
+          },
+          {
+            "sha": "b649d92e42c6a4f912dcf23f41f92495d30c1f2e",
+            "shortSha": "b649d92",
+            "subject": "feat(server): bind thread worktrees to a managed zmux session",
+            "type": "feat"
+          },
+          {
+            "sha": "b0841bfc886d58766cc5a94741c383e87cd7b3d6",
+            "shortSha": "b0841bf",
+            "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+            "type": "fix"
+          },
+          {
+            "sha": "8213bdb9b87795beb230ed58f9633a2a43a7c48c",
+            "shortSha": "8213bdb",
+            "subject": "ci(fork): give the pull-request template its fork trailer block (#32)",
+            "type": "ci"
+          },
+          {
+            "sha": "4f58f39d567325b85b4f6b09b4bb6bd7c9e10afa",
+            "shortSha": "4f58f39",
+            "subject": "feat(agents): select custom main-thread agents (#31)",
+            "type": "feat"
+          },
+          {
+            "sha": "7ed6de7836b680dfd8c9e1434ecce652096c521b",
+            "shortSha": "7ed6de7",
+            "subject": "One setting drives terminal attach and worktree binding for zmux",
+            "type": null
+          },
+          {
+            "sha": "18369eb2d1f7af361ba7ce2cf2f9f3637d57f56a",
+            "shortSha": "18369eb",
+            "subject": "feat(web): add rich Markdown editing (#28)",
+            "type": "feat"
+          },
+          {
+            "sha": "e0daecbf0ae89e211933a273581c387f1d29bc2a",
+            "shortSha": "e0daecb",
+            "subject": "docs(fork): clarify active domains and retirement conditions",
+            "type": "docs"
+          }
+        ]
+      }
+    ],
+    "unreleasedCommits": [
+      {
+        "sha": "f39acf5d0b841539f4b54b65f5db74aa1099b52d",
+        "shortSha": "f39acf5",
+        "subject": "fix: rebind the zmux session after a branch rename",
+        "type": "fix"
+      },
+      {
+        "sha": "bb11da136e306afd15fc3fefd9ddef5afabcd5e4",
+        "shortSha": "bb11da1",
+        "subject": "fix: thread terminals attach only worktree-matched zmux sessions",
+        "type": "fix"
+      },
+      {
+        "sha": "2dda824e94e7304e8110be1f651c9026dcba1807",
+        "shortSha": "2dda824",
+        "subject": "fix: setup script terminals print a completion or failure marker",
+        "type": "fix"
+      },
+      {
+        "sha": "2109ab51e50fd7bd88e5f4c8268559321a9e026b",
+        "shortSha": "2109ab5",
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "type": "feat"
+      },
+      {
+        "sha": "b1cb2536d9d428dd314e2cd8d26ad490118dcca0",
+        "shortSha": "b1cb253",
+        "subject": "fix(server): follow external workspace symlinks globally (#66)",
+        "type": "fix"
+      },
+      {
+        "sha": "dbe5602bb0c94ef33ed76a412c9ef668657be9cd",
+        "shortSha": "dbe5602",
+        "subject": "feat(web): scope pull requests to project windows",
+        "type": "feat"
+      },
+      {
+        "sha": "18caa8ac9779334117fd3fff1b9f477a1ae9cf16",
+        "shortSha": "18caa8a",
+        "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+        "type": "feat"
+      }
+    ]
+  }
+}
