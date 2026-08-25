@@ -55,6 +55,7 @@ import {
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { buildGitHubIssuesActionItemFork } from "./CommandPalette.fork"; // fork-hook: github-issues/command-palette-import
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -167,10 +168,8 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import {
-  buildThreadRouteParams,
-  resolveThreadRouteFamily,
-} from "../threadRoutes";
+import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes"; // fork-hook: project-windows/palette-pr-route-import
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
@@ -705,10 +704,7 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const routeFamily = useParams({
-    strict: false,
-    select: (params) => resolveThreadRouteFamily(params),
-  });
+  const routeFamily = useThreadRouteFamily();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -2049,6 +2045,13 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  const githubIssuesActionItem = buildGitHubIssuesActionItemFork({
+    pathname,
+    environments,
+    navigate,
+  }); // fork-hook: github-issues/command-palette-entry
+  if (githubIssuesActionItem) actionItems.push(githubIssuesActionItem); // fork-hook: github-issues/command-palette-entry-push
 
   actionItems.push({
     kind: "action",
