@@ -21,6 +21,7 @@ export const RIGHT_PANEL_KINDS = [
   "preview",
   "terminal",
   "pull-request",
+  "github-issue",
   "agents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -62,13 +63,22 @@ export type RightPanelSurface =
       repository: string;
       number: number;
     }
+  | {
+      id: `github-issue:${string}`;
+      kind: "github-issue";
+      environmentId: string;
+      projectId: string;
+      repository: string;
+      number: number;
+    }
   | { id: "agents"; kind: "agents" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
 // v10 keys pull-request surfaces by reference instead of a singleton tab.
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
-const RIGHT_PANEL_STORAGE_VERSION = 11;
+// v12 adds GitHub issue surfaces.
+const RIGHT_PANEL_STORAGE_VERSION = 12;
 
 /**
  * The pull-request list's shared panel (see PULL_REQUESTS_PANEL_ID in the route) is session
@@ -86,13 +96,17 @@ interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "github-issue">,
   ) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
     target: { environmentId?: string; projectId: string; repository: string; number: number },
+  ) => void;
+  openGitHubIssue: (
+    ref: ScopedThreadRef,
+    target: { environmentId: string; projectId: string; repository: string; number: number },
   ) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
@@ -115,7 +129,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "github-issue">,
   ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -127,7 +141,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "github-issue">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -210,6 +224,24 @@ export function updatePullRequestTabStatus<Status extends { state: unknown; isDr
     statuses[surfaceId]?.isDraft === status.isDraft
     ? statuses
     : { ...statuses, [surfaceId]: status };
+}
+
+export type GitHubIssueSurface = Extract<RightPanelSurface, { kind: "github-issue" }>;
+
+export function githubIssueSurface(target: {
+  environmentId: string;
+  projectId: string;
+  repository: string;
+  number: number;
+}): GitHubIssueSurface {
+  return {
+    id: `github-issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`,
+    kind: "github-issue",
+    environmentId: target.environmentId,
+    projectId: target.projectId,
+    repository: target.repository,
+    number: target.number,
+  };
 }
 
 const upsertSurface = (
@@ -299,6 +331,22 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
+                    if (surface.kind === "github-issue") {
+                      if (
+                        typeof surface.environmentId !== "string" ||
+                        surface.environmentId.length === 0 ||
+                        typeof surface.projectId !== "string" ||
+                        surface.projectId.length === 0 ||
+                        typeof surface.repository !== "string" ||
+                        surface.repository.length === 0 ||
+                        typeof surface.number !== "number" ||
+                        !Number.isSafeInteger(surface.number) ||
+                        surface.number < 1
+                      ) {
+                        return [];
+                      }
+                      return [githubIssueSurface(surface)];
+                    }
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -340,7 +388,9 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? (rawActiveSurfaceId ?? null)
                 : rawActiveSurfaceId === "pull-request"
                   ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
-                  : null;
+                  : rawActiveSurfaceId === "github-issue"
+                    ? (surfaces.find((surface) => surface.kind === "github-issue")?.id ?? null)
+                    : null;
               // A migration that dropped every surface (e.g. plan-only panels
               // in v9) must not reopen an empty panel.
               const isOpen =
@@ -389,6 +439,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
             return upsertSurface(current, pullRequestSurface(target));
           }),
+        })),
+      openGitHubIssue: (ref, target) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, githubIssueSurface(target)),
+          ),
         })),
       openFile: (ref, relativePath, line) =>
         set((state) => ({
