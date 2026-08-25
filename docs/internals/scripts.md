@@ -66,6 +66,10 @@ authenticated.
   the ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in stack order for
   `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a pull-request body ends
   with the trailer block its squash commit will inherit.
+- `vp run fork:rebase-report`: Generates the tracked Markdown and JSON orientation snapshot from
+  `origin/hyprws` to live `upstream/main` (`scripts/fork-rebase-report.ts`). Pass `--fetch` for a
+  manual refresh. `--check` performs a byte-for-byte freshness check without writing. The scheduled
+  `hyprws-rebase-report.yml` run uploads a fresh pair without modifying the fork trunk.
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
   an isolated T3 SQLite database; writes create a private backup first.
 
