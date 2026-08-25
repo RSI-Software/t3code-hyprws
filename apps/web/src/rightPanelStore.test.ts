@@ -6,6 +6,7 @@ import { useClosedViewStore } from "./closedViewStore";
 import { reopenClosedView } from "./reopenClosedView";
 import {
   hostRightPanel,
+  githubIssueSurface,
   migratePersistedRightPanelState,
   pullRequestSurface,
   pullRequestSurfaceId,
@@ -13,6 +14,7 @@ import {
   selectActiveRightPanelSurface,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
+  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
 
