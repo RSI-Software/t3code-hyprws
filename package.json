@@ -43,6 +43,7 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "fork:delta": "node scripts/fork-delta.ts",
     "fork:rebase-report": "node scripts/fork-rebase-report.ts",
+    "fork:rebase-report:artifact": "node scripts/fork-rebase-report-artifact.ts",
     "connect:announce-ga": "node scripts/announce-connect-ga.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
     "sync:repos": "node scripts/sync-reference-repos.ts"
