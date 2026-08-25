@@ -1,0 +1,117 @@
+// Fork-owned thread ↔ GitHub issue links, shaped like the pull request links in
+// `orchestrationV2.ts`, which spreads these schemas in through marked hooks. Issue changes ride
+// the upstream `thread.metadata-updated` event, whose payload is the whole thread, so the fork
+// adds no event type an upstream client would reject.
+import * as Schema from "effect/Schema";
+
+import {
+  CommandId,
+  IsoDateTime,
+  PositiveInt,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
+import { GitHubIssueCloseReason, GitHubIssueState } from "./githubIssue.ts";
+
+/** Who created a thread ↔ issue link. */
+export const ThreadIssueLinkSource = Schema.Literals(["manual", "handoff", "agent"]);
+export type ThreadIssueLinkSource = typeof ThreadIssueLinkSource.Type;
+
+/** Host-level identity, so one issue linked from two projects compares equal. */
+export const ThreadIssueKey = Schema.Struct({
+  host: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+});
+export type ThreadIssueKey = typeof ThreadIssueKey.Type;
+
+/** Issue state last read from the host; null on a link until its first sync. */
+export const ThreadIssueSnapshot = Schema.Struct({
+  title: TrimmedNonEmptyString,
+  state: GitHubIssueState,
+  // Optional, not merely nullable: snapshot rows and events from an older server omit the key
+  // entirely rather than sending null.
+  closeReason: Schema.optional(Schema.NullOr(GitHubIssueCloseReason)),
+  syncedAt: IsoDateTime,
+});
+export type ThreadIssueSnapshot = typeof ThreadIssueSnapshot.Type;
+
+export const ThreadIssueLink = Schema.Struct({
+  ...ThreadIssueKey.fields,
+  url: TrimmedNonEmptyString,
+  source: ThreadIssueLinkSource,
+  linkedAt: IsoDateTime,
+  snapshot: Schema.NullOr(ThreadIssueSnapshot),
+});
+export type ThreadIssueLink = typeof ThreadIssueLink.Type;
+
+/**
+ * The thread's `issues` field. The server omits the key when a thread has no
+ * links, so a thread without links keeps its pre-feature shape on the wire and
+ * a payload from a server without links decodes unchanged. Readers treat a
+ * missing key as no links: `thread.issues ?? []`.
+ */
+export const ThreadIssueLinksFieldFork = Schema.optionalKey(Schema.Array(ThreadIssueLink));
+
+const ThreadIssueLinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.issue.link"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  ...ThreadIssueKey.fields,
+  url: TrimmedNonEmptyString,
+  source: ThreadIssueLinkSource,
+});
+
+const ThreadIssueUnlinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.issue.unlink"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  ...ThreadIssueKey.fields,
+});
+
+const ThreadIssueLinkSyncCommand = Schema.Struct({
+  type: Schema.Literal("thread.issue-link.sync"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  ...ThreadIssueKey.fields,
+  snapshot: ThreadIssueSnapshot,
+});
+
+/**
+ * Which of a thread's links to reread from the host: `stale` for a panel opening
+ * (unread or older than the server's freshness window), `all` for a refresh.
+ */
+export const ThreadIssueSyncScope = Schema.Literals(["stale", "all"]);
+export type ThreadIssueSyncScope = typeof ThreadIssueSyncScope.Type;
+
+export const ThreadIssueSyncInput = Schema.Struct({
+  threadId: ThreadId,
+  scope: ThreadIssueSyncScope,
+});
+export type ThreadIssueSyncInput = typeof ThreadIssueSyncInput.Type;
+
+/** Spread into both client command unions. */
+export const threadIssueClientCommandsFork = [
+  ThreadIssueLinkCommand,
+  ThreadIssueUnlinkCommand,
+] as const;
+
+/** Spread into the internal command union: only the server reads issue state. */
+export const threadIssueInternalCommandsFork = [ThreadIssueLinkSyncCommand] as const;
+
+/**
+ * An issue or pull request as a chat reference shows it. GitHub numbers both from one sequence,
+ * so a bare `repo#N` resolves to whichever it is.
+ */
+export const GitHubReferenceSummary = Schema.Struct({
+  kind: Schema.Literals(["issue", "pull-request"]),
+  title: Schema.String,
+  url: Schema.String,
+  state: Schema.Literals(["open", "closed", "not-planned", "draft", "merged"]),
+  author: Schema.NullOr(
+    Schema.Struct({ login: Schema.String, avatarUrl: Schema.NullOr(Schema.String) }),
+  ),
+  ownerAvatarUrl: Schema.NullOr(Schema.String),
+  updatedAt: Schema.String,
+});
+export type GitHubReferenceSummary = typeof GitHubReferenceSummary.Type;

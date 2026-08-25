@@ -38,6 +38,7 @@ import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
 import { SourceControlTokenSettings } from "./SourceControlTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   SettingsPageContainer,
@@ -568,6 +569,7 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
+      <GitHubIssueSettingsSection />
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );
