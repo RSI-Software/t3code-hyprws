@@ -78,11 +78,14 @@ const RECORD_SEPARATOR = "";
 const FIELD_SEPARATOR = "";
 
 // `--reverse` keeps stack order: oldest fork commit first, closest to upstream.
+// The whole body is read, not `%(trailers)`: a GitHub UI squash of an App-opened
+// pull request appends `Co-authored-by` after a blank line, which would hide the
+// fork trailers in the paragraph above it.
 export const forkLogArguments = (base: string, head: string) =>
   [
     "log",
     "--reverse",
-    `--format=%H${FIELD_SEPARATOR}%h${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%(trailers:unfold,only)${RECORD_SEPARATOR}`,
+    `--format=%H${FIELD_SEPARATOR}%h${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%b${RECORD_SEPARATOR}`,
     `${base}..${head}`,
   ] as const;
 
