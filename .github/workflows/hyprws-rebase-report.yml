@@ -1,6 +1,14 @@
 name: hyprws rebase report
 
+# Uploads a fresh rebase orientation for docs/operations/fork-sync.md Step 0.
+# The report embeds the origin/hyprws head, so it is never committed; every
+# hyprws push and the schedule refresh the artifact, and Step 0 regenerates
+# it live when a rebase actually starts.
+
 on:
+  push:
+    branches:
+      - hyprws
   schedule:
     - cron: "17 */6 * * *"
   workflow_dispatch:
@@ -35,6 +43,9 @@ jobs:
       - name: Generate report
         run: node scripts/fork-rebase-report.ts --fetch
 
+      - name: Summarize
+        run: cat docs/internals/generated/fork-rebase-report.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload report
         uses: actions/upload-artifact@v7
         with:
@@ -43,4 +54,4 @@ jobs:
             docs/internals/generated/fork-rebase-report.json
             docs/internals/generated/fork-rebase-report.md
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
