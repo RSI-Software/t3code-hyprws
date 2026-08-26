@@ -23,6 +23,12 @@ The `hyprws rebase report` workflow fast-forwards `origin/main` to `upstream/mai
 push, on a schedule, and on manual dispatch, so the two shas normally match.
 If they differ, upstream moved since the last run; dispatch the workflow or push the mirror yourself
 with `git push origin upstream/main:main`.
+
+The mirror job pushes with the `HYPRWS_MIRROR_TOKEN` repository secret, a fine-grained personal
+access token scoped to this repository with Contents and Workflows read/write. Upstream commits
+touch `.github/workflows`, which the default Actions token may never push. A run whose mirror job
+fails with a missing-secret error needs the secret recreated; a rejected push means `main` diverged
+and wants a human, never a force.
 That push is a fast-forward because nothing else ever writes `main`.
 If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
 
