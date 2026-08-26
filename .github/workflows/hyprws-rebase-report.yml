@@ -31,10 +31,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Require mirror token
-        if: ${{ secrets.HYPRWS_MIRROR_TOKEN == '' }}
+        env:
+          MIRROR_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
-          echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/operations/fork-sync.md"
-          exit 1
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/operations/fork-sync.md"
+            exit 1
+          fi
 
       - name: Checkout main
         uses: actions/checkout@v6
