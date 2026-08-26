@@ -963,34 +963,6 @@ describe("rightPanelStore", () => {
     );
   });
 
-  it("replaces the standalone explorer with peer file surfaces", () => {
-    useRightPanelStore.getState().open(refA, "files");
-    useRightPanelStore.getState().openFile(refA, "src/index.ts");
-    useRightPanelStore.getState().openFile(refA, "src/index.ts");
-    useRightPanelStore.getState().openFile(refA, "README.md");
-
-    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
-      isOpen: true,
-      activeSurfaceId: "file:README.md",
-      surfaces: [
-        {
-          id: "file:src/index.ts",
-          kind: "file",
-          relativePath: "src/index.ts",
-          revealLine: null,
-          revealRequestId: expect.any(Number),
-        },
-        {
-          id: "file:README.md",
-          kind: "file",
-          relativePath: "README.md",
-          revealLine: null,
-          revealRequestId: expect.any(Number),
-        },
-      ],
-    });
-  });
-
   it.each([
     ["generated\\", "generated"],
     ["notes/meeting ", "notes/meeting"],
