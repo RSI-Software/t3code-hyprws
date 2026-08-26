@@ -307,6 +307,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - The fork sections in `README.md`, `AGENTS.md`, and `docs/README.md`.
 - This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
+- `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
 - The fork trailer section of `.github/pull_request_template.md`.
 
 ### Retirement condition
