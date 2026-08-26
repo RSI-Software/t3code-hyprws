@@ -1,9 +1,10 @@
 name: hyprws rebase report
 
-# Uploads a fresh rebase orientation for docs/operations/fork-sync.md Step 0.
-# The report embeds the origin/hyprws head, so it is never committed; every
-# hyprws push and the schedule refresh the artifact, and Step 0 regenerates
-# it live when a rebase actually starts.
+# Mirrors upstream/main onto the fork's main and uploads a fresh rebase
+# orientation for docs/operations/fork-sync.md Step 0. The report embeds the
+# origin/hyprws head, so it is never committed; every hyprws push and the
+# schedule refresh both, and Step 0 regenerates the report live when a rebase
+# actually starts.
 
 on:
   push:
@@ -21,8 +22,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  mirror:
+    name: Mirror main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      # Nothing else ever writes main, so a rejected push means someone did;
+      # the job fails instead of forcing (docs/operations/fork-sync.md).
+      - name: Fast-forward main
+        run: |
+          git fetch --tags upstream main
+          git push origin upstream/main:refs/heads/main
+          git push origin --tags
+
   generate:
     name: Generate
+    needs: mirror
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
