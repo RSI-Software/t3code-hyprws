@@ -22,18 +22,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Upstream commits touch .github/workflows, which GITHUB_TOKEN may never push,
+  # so this job authenticates with HYPRWS_MIRROR_TOKEN: a fine-grained PAT for
+  # this repository with Contents and Workflows read/write.
   mirror:
     name: Mirror main
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: write
     steps:
+      - name: Require mirror token
+        if: ${{ secrets.HYPRWS_MIRROR_TOKEN == '' }}
+        run: |
+          echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/operations/fork-sync.md"
+          exit 1
+
       - name: Checkout main
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
 
       - name: Add upstream
         run: git remote add upstream https://github.com/pingdotgg/t3code.git
@@ -48,7 +56,6 @@ jobs:
 
   generate:
     name: Generate
-    needs: mirror
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
