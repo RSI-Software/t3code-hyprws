@@ -10,16 +10,20 @@ Every step is scriptable; the only human inputs are conflict decisions and a ref
 
 ## Step 0: Orient the rebase
 
-Fetch both lanes, fast-forward the `main` mirror, and generate the orientation report from live refs:
+Fetch both lanes, confirm the `main` mirror is current, and generate the orientation report from live refs:
 
 ```bash
 git fetch upstream --tags
 git fetch origin
-git push origin upstream/main:main
+git rev-parse origin/main upstream/main
 vp run fork:rebase-report
 ```
 
-The push is a fast-forward because nothing else ever writes `main`.
+The `hyprws rebase report` workflow fast-forwards `origin/main` to `upstream/main` on every `hyprws`
+push, on a schedule, and on manual dispatch, so the two shas normally match.
+If they differ, upstream moved since the last run; dispatch the workflow or push the mirror yourself
+with `git push origin upstream/main:main`.
+That push is a fast-forward because nothing else ever writes `main`.
 If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
 
 The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
@@ -31,9 +35,8 @@ They contain no wall-clock timestamp, so unchanged refs reproduce identical file
 The report embeds the `origin/hyprws` head, so a committed copy is stale after every landed commit.
 The directory is gitignored; regenerate it here rather than reading an older copy.
 
-The `hyprws rebase report` workflow runs on every `hyprws` push, on a schedule, and on manual dispatch.
-It uploads a fresh pair as a seven-day workflow artifact and prints the Markdown as the run summary.
-That artifact is a preview for readers without a checkout, not the rebase input; Step 0 is.
+The same workflow then uploads a fresh pair as a seven-day artifact and prints the Markdown as the
+run summary. That artifact is a preview for readers without a checkout, not the rebase input; Step 0 is.
 
 Download and validate a run when you need one:
 
