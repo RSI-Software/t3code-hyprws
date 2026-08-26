@@ -446,14 +446,16 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             upsertSurface(current, githubIssueSurface(target)),
           ),
         })),
+      /**
+       * Opening a file leaves the standalone explorer alone. It is the way back to the
+       * unselected tree, so consuming it would make a file selection a one-way door and
+       * would close the panel once the last file tab went away.
+       */
       openFile: (ref, relativePath, line) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
-            );
             const surfaceId = `file:${relativePath}` as const;
-            const existing = withoutStandaloneExplorer.find(
+            const existing = current.surfaces.find(
               (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
                 surface.id === surfaceId && surface.kind === "file",
             );
@@ -466,10 +468,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               isOpen: true,
               activeSurfaceId: surface.id,
               surfaces: existing
-                ? withoutStandaloneExplorer.map((entry) =>
-                    entry.id === surface.id ? surface : entry,
-                  )
-                : [...withoutStandaloneExplorer, surface],
+                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                : [...current.surfaces, surface],
             };
           }),
         })),
