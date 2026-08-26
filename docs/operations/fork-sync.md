@@ -10,21 +10,32 @@ Every step is scriptable; the only human inputs are conflict decisions and a ref
 
 ## Step 0: Orient the rebase
 
-Refresh the tracked repository-state report before choosing or applying a target:
+Fetch both lanes, fast-forward the `main` mirror, and generate the orientation report from live refs:
 
 ```bash
-vp run fork:rebase-report --fetch
+git fetch upstream --tags
+git fetch origin
+git push origin upstream/main:main
+vp run fork:rebase-report
 ```
 
-The generated [Markdown report](../internals/generated/fork-rebase-report.md) is the human and agent
-orientation. Its adjacent JSON file is the same versioned data for later automation. Both record the
-resolved source, live upstream target, shared base, every intervening release tag, commit groups, and
-change-type totals. They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
+The push is a fast-forward because nothing else ever writes `main`.
+If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
 
-The `hyprws rebase report` workflow runs on a schedule and on manual dispatch. It uploads a current
-pair as a workflow artifact without committing generated churn to `hyprws`.
+The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
+Its adjacent JSON file is the same versioned data for later automation.
+Both record the resolved source, live upstream target, shared base, every intervening release tag,
+commit groups, and change-type totals.
+They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
 
-Download and validate the latest successful artifact before using it as rebase input:
+The report embeds the `origin/hyprws` head, so a committed copy is stale after every landed commit.
+The directory is gitignored; regenerate it here rather than reading an older copy.
+
+The `hyprws rebase report` workflow runs on every `hyprws` push, on a schedule, and on manual dispatch.
+It uploads a fresh pair as a seven-day workflow artifact and prints the Markdown as the run summary.
+That artifact is a preview for readers without a checkout, not the rebase input; Step 0 is.
+
+Download and validate a run when you need one:
 
 ```bash
 vp run fork:rebase-report:artifact
@@ -40,20 +51,7 @@ The command keeps each immutable run under `.dump/runs/fork-rebase-report/<run-i
 - `git config rerere.enabled` is `true`, so a resolved conflict replays on the next sync.
 - The one-time setup below has been completed.
 
-## Step 1: Mirror main
-
-Fetch everything and fast-forward the `main` mirror.
-
-```bash
-git fetch upstream --tags
-git fetch origin
-git push origin upstream/main:main
-```
-
-The push is a fast-forward because nothing else ever writes `main`.
-If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
-
-## Step 2: Pick the target
+## Step 1: Pick the target
 
 Rebase onto an upstream tag, never onto an untagged commit.
 
@@ -66,7 +64,7 @@ Take the newest stable `vX.Y.Z` by default.
 Take the newest nightly when the fork needs an upstream fix that has not reached a stable release.
 Nightlies are tagged from `upstream/main` several times a day, so the tip is rarely far from one.
 
-## Step 3: Rebase
+## Step 2: Rebase
 
 ```bash
 expected_old=$(git rev-parse origin/hyprws)
@@ -79,7 +77,7 @@ Read the upstream change first, then reapply the smallest fork behavior on the n
 A rerere replay is a candidate, not a resolution; review every reused hunk.
 When upstream has made a fork commit obsolete, drop it with `git rebase --skip` and say so in the next commit.
 
-## Step 4: Scan and verify
+## Step 3: Scan and verify
 
 Walk the rebase scan for every active domain in [Fork delta](../internals/fork-delta.md).
 A clean rebase is not evidence that a domain is still needed.
@@ -96,7 +94,7 @@ vp run build:desktop
 Run the tests for every package a conflict touched, with `vp run --filter <package> test`.
 Fix forward with `git commit --fixup` and an autosquash rebase, so each fork commit stays self-contained.
 
-## Step 5: Publish with a lease
+## Step 4: Publish with a lease
 
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
@@ -107,10 +105,10 @@ Fetch and read the new commits, rebase them onto the new stack, then push with a
 
 Never refresh the lease without reading what it refused.
 
-## Step 6: Tag and release
+## Step 5: Tag and release
 
 A fork release is `v<upstream version>-hyprws.<n>`.
-`<upstream version>` is the `X.Y.Z` of the tag from step 2, nightly suffix dropped.
+`<upstream version>` is the `X.Y.Z` of the tag from step 1, nightly suffix dropped.
 `<n>` counts up within that version and restarts at 1 when the version changes.
 
 A stack on `v0.0.34-nightly.20260823.1164` therefore releases as `v0.0.34-hyprws.1`.
@@ -137,7 +135,7 @@ A new upstream version always restarts the suffix.
 - **The build fails on a runner tool.**
   _See the runner prerequisites below; the fix is a workflow step or an operator install, never a source change._
 - **The lease is rejected.**
-  _Step 5 covers it; do not use `--force`._
+  _Step 4 covers it; do not use `--force`._
 - **A fork commit no longer applies.**
   _Rebuild it at the new seam or drop it; record the decision in the commit or in Fork delta._
 
@@ -160,7 +158,7 @@ for workflow in ci.yml release.yml pr-size.yml pr-vouch.yml web-preview.yml depl
 done
 ```
 
-`hyprws-ci.yml` and `hyprws-release.yml` are the only workflows that stay enabled.
+`hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-rebase-report.yml` are the only workflows that stay enabled.
 
 ### Merge settings
 
