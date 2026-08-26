@@ -83,6 +83,19 @@ it("flags a bugfix that does not say whether upstream reproduces it", () => {
   );
 });
 
+it("reads trailers a GitHub UI squash left above the co-author paragraph", () => {
+  const [commit] = parseForkLog(
+    record(
+      "999999999",
+      "fix(scripts): ui squash (#88)",
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\n\nCo-authored-by: donjor <donjor@example.com>\n",
+    ),
+  );
+  assert.strictEqual(commit?.domain, "fork-meta");
+  assert.strictEqual(commit?.tier, "bugfix");
+  assert.strictEqual(commit?.upstreamable, "no");
+});
+
 it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
   const markdown = renderMarkdown(buildLedger("upstream/main", "HEAD", parseForkLog(fixture)));
   const lines = markdown.split("\n");
