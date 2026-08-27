@@ -110,6 +110,7 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
+  "chat.focusComposer",
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -485,6 +486,18 @@ export function shouldHandleTerminalExit(
   );
 }
 
+export function shouldHandleTerminalFocusRequest(input: {
+  focusOnRequest: boolean;
+  focusRequestId: number;
+  handledFocusRequestId: number;
+}): boolean {
+  return (
+    input.focusOnRequest &&
+    input.focusRequestId !== 0 &&
+    input.focusRequestId !== input.handledFocusRequestId
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -567,6 +580,10 @@ function TerminalSessionViewport({
     reportFailure: false,
   });
   const hasHandledExitRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0);
+  const pendingFocusRequestRef = useRef(false);
+  const focusOnRequestRef = useRef(focusOnRequest);
+  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
