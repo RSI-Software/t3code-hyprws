@@ -70,6 +70,47 @@ authenticated.
   (`scripts/fork-sync-gate.ts`). It accepts stable tags only and exits 1 unless the committed
   rehearsal record has a full `expected_old` equal to live `origin/hyprws` and a human sanity login
   plus ISO date. It only reports readiness; it never pushes, tags, or releases.
+- `vp run fork:upstream-refs <file>`: Scans a fork issue, comment, or pull-request body for a live
+  upstream reference (`scripts/fork-upstream-refs.ts`). Fenced blocks, code spans, and HTML comments
+  are ignored; anything left live exits 1, one finding per line as
+  `<line>:<column> <reference> (<label>)`, because GitHub would post a backlink on the
+  `pingdotgg/t3code` thread. Reads stdin when no path is given. A bare `#4379` or `GH-4379` is a
+  finding too: GitHub resolves a number this fork has never issued against the repository it was
+  forked from, and the guard cannot tell offline which numbers the fork holds. Writing a fork
+  reference as `RSI-Software/t3code-hyprws#108` clears it and still renders as `#108`. An upstream
+  URL that names no item (`/issues/new`, `/pull/new/main`, `/discussions/categories/ideas`) is not a
+  finding. See [Upstream citations](./fork-development.md#upstream-citations) for the wrapping forms.
+
+  Run it against the body file before publishing. That run is the gate: GitHub posts the backlink
+  the moment the issue, comment, or pull request is created, and nothing that reacts afterwards can
+  withdraw it. Fork CI re-runs the guard on every pull-request body as a backstop, which reports a
+  backlink that has already fired rather than preventing one.
+
+  What the guard does not cover, deliberately:
+
+  - Issue bodies and comments have no CI backstop. Only the pre-publication run covers them, so a
+    landing tool that publishes without it leaves them unguarded.
+  - Titles are never scanned. Whether a title creates a backlink is unverified, and confirming it
+    would mean posting upstream.
+  - A pull request that does not target `hyprws` never reaches `.github/workflows/hyprws-ci.yml`.
+  - Every bare number is reported, including one that names a fork item. The guard has no network,
+    so it cannot ask which numbers this fork holds, and it reads the ambiguity as upstream. Expect
+    this on prose carried down from upstream: `docs/internals/t3-connect.md` cites `#5051` that way.
+  - The Markdown reader is not a CommonMark parser. It masks fenced blocks, indented code, code
+    spans, HTML comments, and blockquote containers, and it splits inline pairing on blank lines,
+    ATX and setext headings, thematic breaks, list starts, deeper blockquotes, GFM table cells, and
+    the HTML blocks that may interrupt a paragraph. Each rule above was checked in both directions
+    against GitHub's own Markdown renderer. What remains:
+
+    - A `<pre>`, `<style>`, or `<textarea>` block is read as ending at the next blank line rather
+      than at its closing tag, so a citation after that blank is reported although GitHub prints it
+      literally. Errs toward reporting.
+    - Link and image text is not excluded, so `[#107](…)` and `[pingdotgg/t3code#4379](…)` are
+      reported although GitHub links only the destination. Errs toward reporting.
+
+    No counter-example that errs the other way survived this round. The reader is still an
+    approximation, so a shape nobody has tried can pair across a boundary it does not know.
+
 - `vp run fork:rebase-report`: Generates the gitignored Markdown and schema-v2 JSON orientation
   snapshot under `docs/internals/generated/` from `origin/hyprws` to `upstream/main`
   (`scripts/fork-rebase-report.ts`). Its read-only feasibility section walks the upstream first-parent
