@@ -55,6 +55,7 @@ interface BranchToolbarProps {
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   envLocked: boolean;
+  activeWorktrunk?: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
   availableEnvironments?: readonly EnvironmentOption[];
@@ -71,6 +72,7 @@ interface MobileRunContextSelectorProps {
   onEnvironmentChange: ((environmentId: EnvironmentId) => void) | undefined;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  activeWorktrunk: boolean;
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
@@ -86,6 +88,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvironmentChange,
   effectiveEnvMode,
   activeWorktreePath,
+  activeWorktrunk,
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
@@ -95,15 +98,15 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
     [availableEnvironments, environmentId],
   );
   const WorkspaceIcon =
-    effectiveEnvMode === "worktree"
-      ? FolderGit2Icon
-      : effectiveEnvMode === "worktrunk"
-        ? FolderCogIcon
+    activeWorktrunk || effectiveEnvMode === "worktrunk"
+      ? FolderCogIcon
+      : effectiveEnvMode === "worktree"
+        ? FolderGit2Icon
         : activeWorktreePath
           ? FolderGitIcon
           : FolderIcon;
   const workspaceLabel = envModeLocked
-    ? resolveLockedWorkspaceLabel(activeWorktreePath)
+    ? resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)
     : isWorktreeEnvMode(effectiveEnvMode)
       ? resolveEnvModeLabel(effectiveEnvMode)
       : resolveCurrentWorkspaceLabel(activeWorktreePath);
@@ -395,6 +398,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   startFromOrigin,
   onStartFromOriginChange,
   envLocked,
+  activeWorktrunk = false,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
   availableEnvironments,
@@ -492,6 +496,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           onEnvironmentChange={onEnvironmentChange}
           effectiveEnvMode={effectiveEnvMode}
           activeWorktreePath={activeWorktreePath}
+          activeWorktrunk={activeWorktrunk}
           onEnvModeChange={onEnvModeChange}
           previousWorktreeLabel={previousWorktreeLabel}
           onUsePreviousWorktree={onUsePreviousWorktree}
@@ -520,6 +525,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               envLocked={envModeLocked}
               effectiveEnvMode={effectiveEnvMode}
               activeWorktreePath={activeWorktreePath}
+              activeWorktrunk={activeWorktrunk}
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               onUsePreviousWorktree={onUsePreviousWorktree}

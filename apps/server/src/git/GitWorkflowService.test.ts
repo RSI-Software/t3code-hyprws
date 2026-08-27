@@ -155,6 +155,53 @@ describe("GitWorkflowService", () => {
     }).pipe(Effect.provide(testLayer));
   });
 
+  it.effect("reports the Worktrunk marker on local status", () => {
+    const localStatus = {
+      isRepo: true,
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: "feat-test",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+    };
+    const makeLayer = (worktrunk: boolean) =>
+      GitWorkflowService.layer.pipe(
+        Layer.provide(
+          Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+            detect: () => Effect.succeed(gitHandle),
+          }),
+        ),
+        Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+        Layer.provide(
+          Layer.mock(GitManager.GitManager)({
+            localStatus: () => Effect.succeed(localStatus),
+          }),
+        ),
+        Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
+        Layer.provide(
+          makeWorktrunkHookRunnerLayer({ isWorktrunkWorktree: () => Effect.succeed(worktrunk) }),
+        ),
+      );
+
+    return Effect.gen(function* () {
+      const marked = yield* Effect.provide(
+        Effect.flatMap(GitWorkflowService.GitWorkflowService, (workflow) =>
+          workflow.localStatus({ cwd: "/repo/wt" }),
+        ),
+        makeLayer(true),
+      );
+      const plain = yield* Effect.provide(
+        Effect.flatMap(GitWorkflowService.GitWorkflowService, (workflow) =>
+          workflow.localStatus({ cwd: "/repo/wt" }),
+        ),
+        makeLayer(false),
+      );
+
+      assert.deepStrictEqual(marked, { ...localStatus, worktrunk: true });
+      assert.deepStrictEqual(plain, localStatus);
+    });
+  });
+
   it.effect("returns an empty ref list when no VCS repository is detected", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

@@ -29,6 +29,7 @@ interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  activeWorktrunk?: boolean;
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel?: string | null;
   onUsePreviousWorktree?: () => void;
@@ -38,6 +39,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   envLocked,
   effectiveEnvMode,
   activeWorktreePath,
+  activeWorktrunk = false,
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
@@ -63,8 +65,12 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       >
         {activeWorktreePath ? (
           <>
-            <FolderGitIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
+            {activeWorktrunk ? (
+              <FolderCogIcon className="size-3" />
+            ) : (
+              <FolderGitIcon className="size-3" />
+            )}
+            {resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)}
           </>
         ) : (
           <>

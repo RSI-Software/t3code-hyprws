@@ -78,8 +78,12 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
   return activeWorktreePath ? "Current worktree" : resolveEnvModeLabel("local");
 }
 
-export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): string {
-  return activeWorktreePath ? "Worktree" : "Local checkout";
+export function resolveLockedWorkspaceLabel(
+  activeWorktreePath: string | null,
+  worktrunk = false,
+): string {
+  if (!activeWorktreePath) return "Local checkout";
+  return worktrunk ? "Worktrunk" : "Worktree";
 }
 
 export interface PreviousWorktreeSeed {
