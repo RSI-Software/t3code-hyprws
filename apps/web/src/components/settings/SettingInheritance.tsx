@@ -8,6 +8,11 @@ import {
 } from "@t3tools/contracts";
 import { CheckIcon, LayersIcon } from "lucide-react";
 import * as Equal from "effect/Equal";
+import {
+  fromWireThreadEnvModeFields,
+  isWorktreeEnvMode,
+  type StoredThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode.fork";
 
 import { cn } from "../../lib/utils";
 import type { EnvironmentPresentation } from "../../state/environments";
@@ -19,6 +24,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ProjectOverrideEntry, ScopedSettingsTarget } from "./scopedSettings";
 import { isProjectScopedSettingKey } from "./scopedSettings";
+import { displaySettingInheritanceInputs } from "./SettingInheritance.fork"; // fork-hook: worktrunk-hooks/env-mode-inheritance-import
 
 interface InheritanceLayer {
   readonly key: "project" | "environment" | "t3.json" | "built-in";
@@ -56,8 +62,11 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
       : String(value);
   }
   if (typeof value === "string") {
-    if (key === "defaultThreadEnvMode" && (value === "local" || value === "worktree")) {
-      return resolveEnvModeLabel(value);
+    if (
+      key === "defaultThreadEnvMode" &&
+      (value === "local" || isWorktreeEnvMode(value as StoredThreadEnvMode))
+    ) {
+      return resolveEnvModeLabel(value as StoredThreadEnvMode);
     }
     if (key === "worktreeSubmodules" && value in WORKTREE_SUBMODULES_LABELS) {
       return WORKTREE_SUBMODULES_LABELS[value as WorktreeSubmodules];
@@ -188,12 +197,20 @@ export function SettingInheritance({
       (candidate) => candidate.environmentId === target.environmentId,
     );
     if (!environment?.serverConfig) return [];
+    const displayInputs = displaySettingInheritanceInputs(
+      target,
+      environment.serverConfig.settings,
+    ); // fork-hook: worktrunk-hooks/env-mode-inheritance-inputs
     return [
       {
         target,
         environment: { ...environment, serverConfig: environment.serverConfig },
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
-        layers: settingInheritanceLayers(target, environment.serverConfig.settings, key),
+        layers: settingInheritanceLayers(
+          displayInputs.target,
+          displayInputs.environmentSettings,
+          key,
+        ), // fork-hook: worktrunk-hooks/env-mode-inheritance-arguments
       },
     ];
   });
@@ -298,7 +315,14 @@ export function SettingInheritance({
                           </InlineButton>
                           <span className="max-w-32 truncate text-muted-foreground tabular-nums">
                             {isProjectScopedSettingKey(key)
-                              ? formatValue(key, overrides[project.projectId]?.[key])
+                              ? formatValue(
+                                  key,
+                                  key === "defaultThreadEnvMode"
+                                    ? fromWireThreadEnvModeFields(
+                                        overrides[project.projectId] ?? {},
+                                      )
+                                    : overrides[project.projectId]?.[key],
+                                )
                               : null}
                           </span>
                         </li>
