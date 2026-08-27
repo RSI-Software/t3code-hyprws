@@ -55,7 +55,7 @@ import {
   XAiAskUserQuestionRequest,
   XAiExitPlanModeRequest,
 } from "./xaiAcpExtension.ts";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
 import {
   findModelConfigOption,
