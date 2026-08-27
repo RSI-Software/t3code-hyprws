@@ -275,6 +275,7 @@ function normalizeThreadRequest(frame: unknown, ignoredConfigKeys: ReadonlySet<s
   if (typeof config !== "object" || config === null) return { ...record, params };
   const { mcp_servers: _mcpServers, ...owned } = config as Record<string, unknown>;
   for (const key of ignoredConfigKeys) delete owned[key];
+  delete owned.shell_environment_policy; // fork-hook: upstream-fixes/codex-replay-thread-identity
   return { ...record, params: { ...params, config: owned } };
 }
 
