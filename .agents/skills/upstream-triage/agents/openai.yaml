@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upstream Triage"
+  short_description: "Check a fork bug against upstream before the fork acts"
+  default_prompt: "Use $upstream-triage to check this fork bug against upstream pingdotgg/t3code, classify it, and take the matching fork action without posting upstream."
