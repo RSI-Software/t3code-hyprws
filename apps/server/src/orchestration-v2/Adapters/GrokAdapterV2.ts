@@ -376,7 +376,11 @@ export const GrokAdapterV2Driver: ProviderAdapterDriver<GrokSettings, GrokAdapte
       return makeGrokAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          GROK_DRIVER_KIND,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/grok-adapter-instance-env
         hostPlatform,
         childProcessSpawner,
         crypto,

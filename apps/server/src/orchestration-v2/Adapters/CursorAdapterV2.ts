@@ -2623,7 +2623,11 @@ export const CursorAdapterV2Driver: ProviderAdapterDriver<
           ...input.config,
           enabled: input.enabled,
         },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          CURSOR_DRIVER_KIND,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/cursor-adapter-instance-env
         fileSystem,
         path,
         idAllocator,

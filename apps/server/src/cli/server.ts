@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import { Command, GlobalFlag } from "effect/unstable/cli";
 
 import * as ServerConfig from "../config.ts";
+import { stripInheritedProviderSessionIdentity } from "../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/server-inherited-session-identity-import
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
@@ -13,6 +14,7 @@ export const runServerCommand = (
   },
 ) =>
   Effect.gen(function* () {
+    yield* stripInheritedProviderSessionIdentity; // fork-hook: upstream-fixes/server-inherited-session-identity
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
     return yield* runServer.pipe(Effect.provideService(ServerConfig.ServerConfig, config));
