@@ -175,6 +175,7 @@ import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import { REPLAY_MARKER_MAX_AGE } from "./auth/replayMarkers.ts";
@@ -548,6 +549,7 @@ const buildAppUnderTest = (options?: {
       ProviderSessionDirectory.ProviderSessionDirectory["Service"]
     >;
     zmuxSessionBinder?: Partial<ZmuxSessionBinder.ZmuxSessionBinder["Service"]>;
+    worktrunkHookRunner?: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]>;
     terminalManager?: Partial<TerminalManager.TerminalManager["Service"]>;
     orchestrationEngine?: Partial<OrchestrationEngine.OrchestrationEngineService["Service"]>;
     threadDeletionReactor?: Partial<ThreadDeletionReactor["Service"]>;
@@ -746,11 +748,22 @@ const buildAppUnderTest = (options?: {
       unbind: () => Effect.succeed({ status: "disabled" as const }),
       ...options?.layers?.zmuxSessionBinder,
     });
+    const worktrunkHookRunnerLayer = Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+      isWorktrunkWorktree: () => Effect.succeed(false),
+      runCreateHooks: () =>
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+      runPreRemoveHook: () =>
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+      runPostRemoveHook: () =>
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+      ...options?.layers?.worktrunkHookRunner,
+    });
     const gitWorkflowLayer = GitWorkflowService.layer.pipe(
       Layer.provideMerge(vcsDriverRegistryLayer),
       Layer.provideMerge(gitVcsDriverLayer),
       Layer.provideMerge(gitManagerLayer),
       Layer.provideMerge(zmuxSessionBinderLayer),
+      Layer.provideMerge(worktrunkHookRunnerLayer),
     );
     const vcsProvisioningLayer = VcsProvisioningService.layer.pipe(
       Layer.provide(vcsDriverRegistryLayer),
