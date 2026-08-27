@@ -1,5 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, GitHubIssueDetail, GitHubIssueRef } from "@t3tools/contracts";
+import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
   CircleDotIcon,
   CircleSlash2Icon,
@@ -15,6 +16,7 @@ import {
   type DraftId,
 } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { githubIssueEnvironment } from "../../state/githubIssues";
 import { useEnvironmentQuery } from "../../state/query";
@@ -27,12 +29,12 @@ import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 
 export function githubIssueHandoffPrompt(
   issue: Pick<GitHubIssueDetail, "number" | "title" | "url">,
+  template = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
 ): string {
-  return [
-    `Work on GitHub issue #${issue.number}: ${issue.title}`,
-    issue.url,
-    "Read the issue and make the smallest complete fix, then run focused verification.",
-  ].join("\n");
+  return template
+    .replaceAll("{{number}}", String(issue.number))
+    .replaceAll("{{title}}", issue.title)
+    .replaceAll("{{url}}", issue.url);
 }
 
 type IssueDraftStore = Pick<
@@ -62,7 +64,7 @@ export function GitHubIssueDetailPanel({
   );
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <GitHubIssueDetailContent
+      <EnvironmentGitHubIssueDetailContent
         environmentId={environmentId}
         detail={query.data}
         error={query.error}
@@ -73,16 +75,37 @@ export function GitHubIssueDetailPanel({
   );
 }
 
+export function EnvironmentGitHubIssueDetailContent({
+  environmentId,
+  ...props
+}: Omit<Parameters<typeof GitHubIssueDetailContent>[0], "environmentId"> & {
+  readonly environmentId: EnvironmentId;
+}) {
+  const handoffPromptTemplate = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.githubIssueHandoffPromptTemplate,
+  );
+  return (
+    <GitHubIssueDetailContent
+      {...props}
+      environmentId={environmentId}
+      handoffPromptTemplate={handoffPromptTemplate}
+    />
+  );
+}
+
 export function GitHubIssueDetailContent({
   environmentId,
   detail,
   error,
+  handoffPromptTemplate = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
   loading,
   onRetry,
 }: {
   readonly environmentId: EnvironmentId | null;
   readonly detail: GitHubIssueDetail | null;
   readonly error: string | null;
+  readonly handoffPromptTemplate?: string;
   readonly loading: boolean;
   readonly onRetry: () => void;
 }) {
@@ -95,7 +118,10 @@ export function GitHubIssueDetailContent({
     try {
       const opened = await newThread(scopeProjectRef(environmentId, detail.projectId));
       if (opened === null) throw new Error("Draft creation returned no destination.");
-      const seeded = seedGitHubIssueDraftIfEmpty(opened.draftId, githubIssueHandoffPrompt(detail));
+      const seeded = seedGitHubIssueDraftIfEmpty(
+        opened.draftId,
+        githubIssueHandoffPrompt(detail, handoffPromptTemplate),
+      );
       toastManager.add({
         type: "success",
         title: seeded ? "Issue ready in a thread" : "Thread opened",
