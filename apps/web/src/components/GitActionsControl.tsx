@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup } from "~/components/ui/radio-group";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { cn } from "~/lib/utils";
@@ -1165,7 +1166,8 @@ function CheckoutGitActionsControl({
   );
   const isSelectingWorktreeBase =
     !activeServerThread &&
-    activeDraftThread?.envMode === "worktree" &&
+    activeDraftThread !== null &&
+    isWorktreeEnvMode(activeDraftThread.envMode) &&
     activeDraftThread.worktreePath === null;
 
   // Until a clone finishes, the status names an unborn HEAD that the repository may never have.
