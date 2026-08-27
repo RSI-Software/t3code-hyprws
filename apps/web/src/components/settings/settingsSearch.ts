@@ -168,6 +168,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "new-threads",
   },
   {
+    id: "worktrunk-hooks",
+    title: "Run Worktrunk hooks",
+    to: "/settings/general",
+  },
+  {
     id: "add-project-starts-in",
     title: "Add project starts in",
     to: "/settings/general",
