@@ -401,6 +401,7 @@ export interface ProviderAdapterV2OpenSessionInput {
   readonly resumeFromSession?: OrchestrationV2ProviderSession;
   readonly initialNativeThreadId?: string;
   readonly initialProviderItemIdentityVersion?: 2;
+  readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/open-session-project-id
 }
 
 export interface ProviderAdapterV2EnsureThreadInput {
@@ -410,6 +411,7 @@ export interface ProviderAdapterV2EnsureThreadInput {
   readonly runtimePolicy: ProviderAdapterV2RuntimePolicy;
   readonly providerSessionId?: ProviderSessionId;
   readonly existingProviderThread?: OrchestrationV2ProviderThread;
+  readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/ensure-thread-project-id
 }
 
 export interface ProviderAdapterV2TurnInput {
@@ -479,6 +481,7 @@ export interface ProviderAdapterV2RollbackThreadInput {
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly target: ProviderAdapterV2RollbackTarget;
   readonly providerThreadTurns: ReadonlyArray<OrchestrationV2ProviderTurn>;
+  readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/rollback-thread-project-id
 }
 
 export interface ProviderAdapterV2ForkThreadInput {
@@ -489,6 +492,7 @@ export interface ProviderAdapterV2ForkThreadInput {
   readonly ownerNodeId?: NodeId;
   readonly modelSelection?: ModelSelection;
   readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
+  readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/fork-thread-project-id
 }
 
 export interface ProviderAdapterV2EventSubscription {
@@ -579,6 +583,7 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly threadId?: ThreadId;
     readonly modelSelection?: ModelSelection;
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
+    readonly projectId?: OrchestrationV2AppThread["projectId"]; // fork-hook: upstream-fixes/resume-thread-project-id
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
   /** False means the native protocol explicitly does not support history injection. */
   readonly injectHistory?: (
