@@ -249,6 +249,24 @@ Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
 
+## Upstream citations
+
+GitHub turns a live cross-repo reference into an event on the item it names.
+Writing `pingdotgg/t3code#4379` in a fork issue, comment, or pull-request body posts "mentioned this" on that upstream thread, from the fork's bot account.
+The fork does not file upstream, so the backlink is noise on somebody else's issue.
+
+Neutralise the reference and leave the prose alone.
+
+- Inline, a code span: `` `pingdotgg/t3code#4379` ``, or the item URL in backticks.
+- A pasted upstream survey: one fenced block around the whole list.
+- A fork item: write it in full as `RSI-Software/t3code-hyprws#108`. GitHub renders that as `#108` and links inside this fork.
+  A bare `#108` does not clear the guard. GitHub resolves a bare number the fork has never issued against `pingdotgg/t3code`, so `#5779` in a fork body links upstream and posts the backlink.
+  The guard has no network and cannot tell offline which numbers the fork holds, so it reports every bare number, including one this fork issued.
+
+`vp run fork:upstream-refs <file>` scans a body from a file or stdin, ignores fenced blocks, code spans, and HTML comments, and exits 1 on anything left live.
+Run it before publishing an issue, a comment, or a pull-request body.
+`.github/workflows/hyprws-ci.yml` runs it on every pull-request body, so a live reference fails the required check instead of landing.
+
 ## Commit discipline
 
 Treat every fork commit as a patch that may need to survive hundreds of upstream commits.
