@@ -685,6 +685,10 @@ export const ServerSettings = Schema.Struct({
   terminalSessionMode: TerminalSessionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_SESSION_MODE)),
   ),
+  // Run the project's Worktrunk hooks (`.config/wt.toml`) around a thread
+  // worktree's create and remove. Off skips every hook on this environment;
+  // a project's `t3.json` `worktrunkHooks` overrides it per project.
+  worktrunkHooks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -913,6 +917,7 @@ export const ServerSettingsPatch = Schema.Struct({
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   terminalSessionMode: Schema.optionalKey(TerminalSessionMode),
+  worktrunkHooks: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({

@@ -494,3 +494,14 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
   });
 });
+
+describe("ServerSettings worktrunk hooks", () => {
+  it("runs Worktrunk hooks by default", () => {
+    expect(decodeServerSettings({}).worktrunkHooks).toBe(true);
+  });
+
+  it("accepts an explicit opt-out in full settings and patches", () => {
+    expect(decodeServerSettings({ worktrunkHooks: false }).worktrunkHooks).toBe(false);
+    expect(decodeServerSettingsPatch({ worktrunkHooks: false }).worktrunkHooks).toBe(false);
+  });
+});
