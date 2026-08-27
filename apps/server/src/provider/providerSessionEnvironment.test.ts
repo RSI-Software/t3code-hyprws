@@ -1,7 +1,7 @@
 import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { withProviderSessionIdentity } from "./providerSessionEnvironment.ts";
+import { withProviderSessionIdentity } from "@t3tools/provider-core/server/providerSessionEnvironment.fork";
 
 const threadId = ThreadId.make("thread-1");
 const projectId = ProjectId.make("project-1");
