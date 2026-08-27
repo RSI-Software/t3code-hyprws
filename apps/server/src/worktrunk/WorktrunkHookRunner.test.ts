@@ -1,5 +1,6 @@
 import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, expect, it, vi } from "@effect/vitest";
+import { ProjectId } from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -7,6 +8,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
+import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
+import type { ProjectionProject } from "../persistence/Services/ProjectionProjects.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -29,11 +32,32 @@ function makeLayer(input: {
   readonly run: ProcessRunner.ProcessRunner["Service"]["run"];
   readonly settingsEnabled?: boolean;
   readonly projectOverride?: boolean;
+  readonly projectRecordOverride?: boolean | null;
   readonly configExists?: (path: string) => Effect.Effect<boolean>;
   readonly load?: T3ProjectFileLoader.T3ProjectFileLoader["Service"]["load"];
 }) {
+  const projectRow: ProjectionProject = {
+    projectId: ProjectId.make("project-hooks"),
+    title: "Hooks",
+    workspaceRoot: "/repo",
+    defaultModelSelection: null,
+    defaultThreadEnvMode: null,
+    worktrunkHooks: input.projectRecordOverride ?? null,
+    scripts: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    deletedAt: null,
+  };
   return WorktrunkHookRunner.layer.pipe(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: input.run })),
+    Layer.provide(
+      Layer.succeed(ProjectionProjectRepository, {
+        upsert: () => Effect.void,
+        getById: () => Effect.succeed(Option.none()),
+        listAll: () => Effect.succeed([projectRow]),
+        deleteById: () => Effect.void,
+      }),
+    ),
     Layer.provide(
       ServerSettings.ServerSettingsService.layerTest({
         worktrunkHooks: input.settingsEnabled ?? true,
@@ -119,6 +143,54 @@ describe("WorktrunkHookRunner", () => {
               order.push("config");
               return true;
             }),
+        }),
+      ),
+    );
+  });
+
+  it.effect("applies the project record override before t3.json and settings", () => {
+    const run = vi.fn(() => Effect.succeed(successfulOutput));
+    const exists = vi.fn(() => Effect.succeed(true));
+    const load = vi.fn(() => Effect.succeed(Option.some({ worktrunkHooks: true })));
+
+    return Effect.gen(function* () {
+      const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
+      const result = yield* runner.runCreateHooks(createInput);
+
+      expect(result).toEqual({ status: "skipped", reason: "disabled" });
+      expect(load).not.toHaveBeenCalled();
+      expect(exists).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          run,
+          configExists: exists,
+          load,
+          settingsEnabled: true,
+          projectRecordOverride: false,
+        }),
+      ),
+    );
+  });
+
+  it.effect("runs hooks when the project record turns them on over a false t3.json", () => {
+    const calls: ProcessRunner.ProcessRunInput[] = [];
+    const run = recordingRun(calls);
+
+    return Effect.gen(function* () {
+      const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
+      const result = yield* runner.runCreateHooks(createInput);
+
+      expect(result).toEqual({ status: "completed" });
+      expect(hookCalls(calls)).toHaveLength(2);
+    }).pipe(
+      Effect.provide(
+        makeLayer({
+          run,
+          settingsEnabled: false,
+          projectOverride: false,
+          projectRecordOverride: true,
         }),
       ),
     );
