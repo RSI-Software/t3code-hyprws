@@ -36,17 +36,20 @@ export function useLocalDispatchState(input: {
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const beginLocalDispatch = (options?: {
     preparingWorktree?: boolean;
+    preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-option
     submissionIntent?: ComposerSubmissionIntent;
   }) => {
     const preparingWorktree = Boolean(options?.preparingWorktree);
+    const preparingWorktrunk = Boolean(options?.preparingWorktrunk); // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk
     setLocalDispatch((current) => {
       const active = serverAcknowledgedLocalDispatch ? null : current;
       if (active) {
         const submissionIntent = options?.submissionIntent ?? active.submissionIntent;
         return active.preparingWorktree === preparingWorktree &&
+          Boolean(active.preparingWorktrunk) === preparingWorktrunk && // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
           active.submissionIntent === submissionIntent
           ? active
-          : { ...active, preparingWorktree, submissionIntent };
+          : { ...active, preparingWorktree, preparingWorktrunk, submissionIntent }; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-update
       }
       return createLocalDispatchSnapshot(input.activeThread, {
         ...options,
@@ -60,6 +63,7 @@ export function useLocalDispatchState(input: {
     resetLocalDispatch,
     localDispatchStartedAt: activeLocalDispatch?.startedAt ?? null,
     isPreparingWorktree: activeLocalDispatch?.preparingWorktree ?? false,
+    isPreparingWorktrunk: activeLocalDispatch?.preparingWorktrunk ?? false, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-read
     isSendBusy: activeLocalDispatch !== null,
     backgroundSubmissionPending: activeLocalDispatch?.submissionIntent === "background",
   };

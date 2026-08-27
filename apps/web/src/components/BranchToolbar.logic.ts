@@ -9,6 +9,9 @@ import type { ThreadStructureRuntime } from "@t3tools/client-runtime/state/shell
 import * as Schema from "effect/Schema";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { workspaceRelativeFilePath } from "@t3tools/shared/path";
+import type { EnvModeFork } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-type-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-predicate-import
+import { resolveEnvModeLabelFork } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { toSortableTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import { deriveCanInterruptRunningThread } from "../session-logic";
 export { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
@@ -107,10 +110,12 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 
 export function resolveLockedWorkspaceLabel(
   activeWorktreePath: string | null,
-  effectiveEnvMode: EnvMode,
+  effectiveEnvMode: EnvModeFork, // fork-hook: worktrunk-hooks/env-mode-type
 ): string {
   if (activeWorktreePath) return activeWorktreePath.split(/[\\/]/).findLast(Boolean) ?? "Worktree";
-  return effectiveEnvMode === "worktree" ? resolveEnvModeLabel("worktree") : "Local checkout";
+  return isWorktreeEnvMode(effectiveEnvMode)
+    ? resolveEnvModeLabelFork(effectiveEnvMode)
+    : "Local checkout"; // fork-hook: worktrunk-hooks/locked-label-worktree-mode
 }
 
 export interface PreviousWorktreeSeed {
@@ -158,42 +163,44 @@ export function resolvePreviousWorktreeLabel(seed: PreviousWorktreeSeed): string
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   hasServerThread: boolean;
-  draftThreadEnvMode: EnvMode | undefined;
+  draftThreadEnvMode: EnvModeFork | undefined; // fork-hook: worktrunk-hooks/env-mode-type
   preparingWorktree?: boolean;
-}): EnvMode {
+  preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/effective-env-mode-preparing-input
+}): EnvModeFork /* fork-hook: worktrunk-hooks/env-mode-type */ {
   const { activeWorktreePath, hasServerThread, draftThreadEnvMode, preparingWorktree } = input;
   if (!hasServerThread) {
     if (activeWorktreePath) {
       return "local";
     }
-    return draftThreadEnvMode === "worktree" ? "worktree" : "local";
+    return draftThreadEnvMode ?? "local";
   }
+  if (!activeWorktreePath && preparingWorktree && input.preparingWorktrunk) return "worktrunk"; // fork-hook: worktrunk-hooks/effective-env-mode-preparing
   return activeWorktreePath || preparingWorktree ? "worktree" : "local";
 }
 
 export function resolveDraftEnvModeAfterBranchChange(input: {
   nextWorktreePath: string | null;
   currentWorktreePath: string | null;
-  effectiveEnvMode: EnvMode;
-}): EnvMode {
+  effectiveEnvMode: EnvModeFork; // fork-hook: worktrunk-hooks/env-mode-type
+}): EnvModeFork /* fork-hook: worktrunk-hooks/env-mode-type */ {
   const { nextWorktreePath, currentWorktreePath, effectiveEnvMode } = input;
   if (nextWorktreePath) {
     return "worktree";
   }
-  if (effectiveEnvMode === "worktree" && !currentWorktreePath) {
-    return "worktree";
+  if (isWorktreeEnvMode(effectiveEnvMode) && !currentWorktreePath) {
+    return effectiveEnvMode;
   }
   return "local";
 }
 
 export function resolveBranchToolbarValue(input: {
-  envMode: EnvMode;
+  envMode: EnvModeFork; // fork-hook: worktrunk-hooks/env-mode-type
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
-  if (envMode === "worktree" && !activeWorktreePath) {
+  if (isWorktreeEnvMode(envMode) && !activeWorktreePath) {
     return activeThreadBranch ?? currentGitBranch;
   }
   return currentGitBranch ?? activeThreadBranch;
@@ -201,7 +208,7 @@ export function resolveBranchToolbarValue(input: {
 
 export function resolveBranchTriggerLabel(input: {
   activeWorktreePath: string | null;
-  effectiveEnvMode: EnvMode;
+  effectiveEnvMode: EnvModeFork; // fork-hook: worktrunk-hooks/env-mode-type
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
   startFromOrigin: boolean;
@@ -216,7 +223,7 @@ export function resolveBranchTriggerLabel(input: {
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
-  if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
+  if (isWorktreeEnvMode(effectiveEnvMode) && !activeWorktreePath) {
     // Only the server can determine a local branch's configured remote.
     return startFromOrigin && resolvedActiveBranchIsRemote === false
       ? `From ${resolvedActiveBranch} (remote)`
@@ -233,7 +240,7 @@ export function resolveBranchToolbarPrBranch(input: {
 }
 
 export function resolveLocalCheckoutBranchMismatch(input: {
-  effectiveEnvMode: EnvMode;
+  effectiveEnvMode: EnvModeFork; // fork-hook: worktrunk-hooks/env-mode-type
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
