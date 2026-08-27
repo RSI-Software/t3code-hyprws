@@ -11,6 +11,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import type * as EffectAcpErrors from "effect-acp/errors";
 
 import {
+  CURSOR_DRIVER_KIND,
   CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
   resolveCursorAcpBaseModelId,
   resolveCursorAcpConfigUpdates,
@@ -60,6 +61,7 @@ export function buildCursorAcpSpawnInput(
       "acp",
     ],
     cwd,
+    harnessKind: CURSOR_DRIVER_KIND,
     ...(environment ? { env: environment } : {}),
   };
 }
