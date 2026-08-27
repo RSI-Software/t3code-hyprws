@@ -18,6 +18,8 @@ import {
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { GitBranchIcon } from "lucide-react";
 import { m } from "../i18n/messages";
+import type { EnvModeFork as EnvMode } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-type-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   useEffect,
   useEffectEvent,
@@ -91,7 +93,7 @@ interface BranchToolbarBranchSelectorProps {
   threadId: ThreadId;
   draftId?: DraftId;
   envLocked: boolean;
-  effectiveEnvModeOverride?: "local" | "worktree";
+  effectiveEnvModeOverride?: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   startFromOrigin: boolean;
@@ -287,7 +289,7 @@ export function BranchToolbarBranchSelector({
   const normalizedBranchQuery = trimmedBranchQuery.toLowerCase();
   const prReference = parsePullRequestReference(trimmedBranchQuery);
   const isSelectingWorktreeBase =
-    effectiveEnvMode === "worktree" && !envLocked && !activeWorktreePath;
+    isWorktreeEnvMode(effectiveEnvMode) && !envLocked && !activeWorktreePath;
   const isWorktreeChangeBlockedForRef = (refName: VcsRef) =>
     activeProjectCwd !== null &&
     isWorktreeChangeBlocked({
@@ -646,7 +648,7 @@ export function BranchToolbarBranchSelector({
   useEffect(() => {
     if (
       threadStarted ||
-      effectiveEnvMode !== "worktree" ||
+      !isWorktreeEnvMode(effectiveEnvMode) ||
       activeWorktreePath ||
       activeThreadBranch ||
       !worktreeBaseBranchCandidate
