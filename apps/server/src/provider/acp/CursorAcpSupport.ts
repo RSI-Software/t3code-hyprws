@@ -7,13 +7,12 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import type * as EffectAcpErrors from "effect-acp/errors";
 
 import {
+  CURSOR_DRIVER_KIND,
   CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES,
   resolveCursorAcpBaseModelId,
   resolveCursorAcpConfigUpdates,
 } from "../Layers/CursorProvider.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
-
-const CURSOR_DRIVER_KIND = "cursor";
 
 type CursorAcpRuntimeCursorSettings = Pick<CursorSettings, "apiEndpoint" | "binaryPath">;
 
