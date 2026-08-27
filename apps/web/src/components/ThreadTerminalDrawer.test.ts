@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  type KeybindingCommand,
+  type ResolvedKeybindingsConfig,
+  THREAD_JUMP_KEYBINDING_COMMANDS,
+} from "@t3tools/contracts";
+import { type ShortcutEventLike } from "../keybindings";
+import {
   shouldClearTerminalSelectionAction,
+  shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   terminalContextMenuItems,
   terminalSelectionLineRange,
@@ -90,6 +97,64 @@ describe("terminalThemeFromApp", () => {
     expect(theme.background).toEqual({ r: 0, g: 0, b: 0 });
     expect(theme.foreground).toEqual({ r: 255, g: 255, b: 255 });
     expect(theme.cursor).toEqual({ r: 221, g: 221, b: 221 });
+  });
+});
+
+function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
+  return {
+    key: "x",
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...overrides,
+  };
+}
+
+function binding(command: KeybindingCommand): ResolvedKeybindingsConfig {
+  return [
+    {
+      command,
+      shortcut: {
+        key: "x",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      },
+    },
+  ];
+}
+
+describe("shouldForwardThreadTerminalShortcut", () => {
+  it("forwards every resolved thread navigation command to the window", () => {
+    for (const command of [
+      "thread.previous",
+      "thread.next",
+      ...THREAD_JUMP_KEYBINDING_COMMANDS,
+    ] satisfies KeybindingCommand[]) {
+      expect(
+        shouldForwardThreadTerminalShortcut(
+          shortcutEvent({ ctrlKey: true }),
+          binding(command),
+          "Linux",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("keeps plain input and unrelated shortcuts in the terminal", () => {
+    expect(
+      shouldForwardThreadTerminalShortcut(shortcutEvent({ key: "a" }), binding("thread.jump.1")),
+    ).toBe(false);
+    expect(
+      shouldForwardThreadTerminalShortcut(
+        shortcutEvent({ ctrlKey: true }),
+        binding("sidebar.toggle"),
+        "Linux",
+      ),
+    ).toBe(false);
   });
 });
 
