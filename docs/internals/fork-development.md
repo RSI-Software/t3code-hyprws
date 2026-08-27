@@ -154,8 +154,14 @@ The remotes have distinct authority.
 
 - `origin` is the implicit collaboration remote for source-control reads, writes, and pull requests.
 - `upstream` is fetch-only unless the human explicitly authorizes an operation against `pingdotgg/t3code`.
-- An upstreamable trailer classifies a patch.
-- It never authorizes publishing a branch or opening an upstream pull request.
+
+**The fork posts nothing to `pingdotgg/t3code`.**
+No pull request, issue, comment, review, or reaction; reading upstream stays fine, writing to it does not.
+This is a baseline rule, not a preference: it holds until at least 2026-11-27, may hold permanently, and only the human may lift it.
+`Fork-Upstreamable: yes` is a tracking tag only.
+It marks a commit upstream is likely to supersede so the rebase feasibility walk can flag it as a retire candidate; see [Fork delta](./fork-delta.md#trailers).
+It never means "send this upstream" and never authorizes publishing a branch or posting to upstream.
+The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
 
 Keep local `main` as an exact mirror of `upstream/main`.
 Never put fork commits on `main`, and never merge `hyprws` back into it.
@@ -176,7 +182,7 @@ Reintroduce one only if a domain must ship or be extracted on its own schedule.
 ### Extracting a domain
 
 One trunk stays honest only while any single domain can leave it.
-Someone may want project windows without the rest, or upstream may want one domain offered as a series.
+Someone may want project windows without the rest, or a domain may need to ship on its own schedule.
 
 ```bash
 git switch -c extract/project-windows upstream/main
@@ -194,7 +200,7 @@ Three rules keep the replay clean:
 
 ### Stack order
 
-Keep the stack sorted from most upstreamable to most fork-specific:
+Keep the stack sorted from most likely to be superseded upstream to most fork-specific:
 
 1. `upstream-fixes` bugfixes tagged `Fork-Upstreamable: yes`, because upstream may make them removable.
 2. `fork-meta` documentation and tooling.
@@ -209,17 +215,18 @@ Reorder with an interactive rebase only when the stack is otherwise clean, and p
 
 Short-lived branches isolate one concern at a time.
 Create fork work from `hyprws`.
-Use `upstream/main` only when the human explicitly asks for a possible upstream extraction lane.
+Use `upstream/main` only for a fix that must carry no fork dependency, so a later rebase can drop it whole.
+That base keeps the commit independently removable; it is not a route to contributing the commit upstream.
 
 ```bash
 # Fork-specific work
 wt switch --create <branch> --base hyprws
 
-# A change intended for upstream without fork dependencies
+# A fix with no fork dependencies, so a later rebase can drop it alone
 wt switch --create <branch> --base upstream/main
 ```
 
-Starting from `upstream/main` does not authorize a push or pull request against `pingdotgg/t3code`.
+Starting from `upstream/main` does not authorize any write against `pingdotgg/t3code`.
 
 ### Landing
 
@@ -245,7 +252,7 @@ It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
 ## Commit discipline
 
 Treat every fork commit as a patch that may need to survive hundreds of upstream commits.
-Small, coherent commits are easier to rebase, review, reorder, drop, and upstream.
+Small, coherent commits are easier to rebase, review, reorder, and drop.
 
 - Keep one concern per commit and use the repository's conventional commit style.
 - Separate mechanical refactors from behavior changes.
@@ -351,8 +358,8 @@ Build phases that remain useful and reviewable on their own.
 4. **Optional previews.**
    Namespace preview ownership and tab ids, authorize IPC by sender, and direct events to the owning window.
 
-Upstreaming is a bonus, not a sequencing constraint.
-Phase 1 items and possibly the project route are upstream-PR candidates; the window machinery is fork-only.
+No phase here is upstream work, because the fork contributes nothing to `pingdotgg/t3code`.
+Phase 1 items and possibly the project route are the ones upstream could supersede on its own; the window machinery is fork-only.
 
 Do not optimize server subscriptions before project-scoped windows are correct.
 Measure WebSocket traffic and renderer work before moving filtering across the RPC boundary.
