@@ -3202,7 +3202,7 @@ export default function ChatView(props: ChatViewProps) {
   const content = (
     <div
       ref={setWorkspaceLayoutElement}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background [&>[data-preview-panel-mode=inline]:focus-within]:border-ring"
     >
       <DeviceSetupDialogHost
         threadKey={activeThreadKey}
@@ -3455,6 +3455,7 @@ export default function ChatView(props: ChatViewProps) {
                   >
                     <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                       <ComposerSurface.Host
+                        className="sm:focus-within:ring-1 sm:focus-within:ring-ring"
                         inert={queuedRunEdit.isSaving}
                         aria-busy={queuedRunEdit.isSaving}
                       >
