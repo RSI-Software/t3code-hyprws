@@ -56,6 +56,7 @@ describe("buildCursorAcpSpawnInput", () => {
       command: "cursor-agent",
       args: ["acp"],
       cwd: "/tmp/project",
+      harnessKind: "cursor",
     });
   });
 
@@ -72,6 +73,7 @@ describe("buildCursorAcpSpawnInput", () => {
       command: "/usr/local/bin/agent",
       args: ["-e", "http://localhost:3000", "acp"],
       cwd: "/tmp/project",
+      harnessKind: "cursor",
     });
   });
 
@@ -80,6 +82,7 @@ describe("buildCursorAcpSpawnInput", () => {
       command: "cursor-agent",
       args: ["--force", "acp"],
       cwd: "/tmp/project",
+      harnessKind: "cursor",
     });
   });
 
@@ -88,6 +91,7 @@ describe("buildCursorAcpSpawnInput", () => {
       command: "cursor-agent",
       args: ["--auto-review", "acp"],
       cwd: "/tmp/project",
+      harnessKind: "cursor",
     });
   });
 
@@ -98,6 +102,7 @@ describe("buildCursorAcpSpawnInput", () => {
         command: "cursor-agent",
         args: ["acp"],
         cwd: "/tmp/project",
+        harnessKind: "cursor",
       });
     },
   );
