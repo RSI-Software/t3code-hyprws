@@ -26,11 +26,15 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
-import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { signalProcessGroup } from "../../process/processGroup.ts";
+import {
+  type ProviderSessionIdentity,
+  withSessionIdentityWhenKnown,
+} from "../providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/acp-session-identity-import
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./AcpStderr.ts";
 import {
   collectSessionConfigOptionValues,
@@ -88,10 +92,13 @@ export interface AcpSpawnInput {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly extendEnv?: boolean;
+  /** Driver kind of the agent being spawned; other providers' harness identity is scrubbed. */
+  readonly harnessKind?: string;
 }
 
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-session-identity-option
   readonly cwd: string;
   readonly resumeSessionId?: string;
   readonly resumeMethod?: "load" | "resume";
@@ -1518,10 +1525,13 @@ export const make = (
       );
 
     // Compose the complete child environment here so the launcher's tmux
-    // variables never leak in, while preserving upstream's explicit opt-out
-    // from host-environment inheritance.
+    // variables and other providers' harness identity never leak in, while
+    // preserving upstream's explicit opt-out from host-environment inheritance.
     const spawnEnv = {
-      ...(options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env)),
+      ...stripForeignHarnessIdentityEnv(
+        options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env),
+        options.spawn.harnessKind,
+      ),
       ...options.spawn.env,
     };
     const spawnCommand = yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
@@ -1583,11 +1593,15 @@ export const make = (
             ELECTRON_RUN_AS_NODE: "1",
             T3_ACP_CGROUP_WRAPPER: "1",
           };
+    const forkSpawnEnv = withSessionIdentityWhenKnown(
+      spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment },
+      options.sessionIdentity,
+    ); // fork-hook: upstream-fixes/acp-session-identity
     const child = yield* spawner
       .spawn(
         ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
           ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
-          env: spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment }, // fork-hook: upstream-fixes/acp-spawn-environment
+          env: forkSpawnEnv, // fork-hook: upstream-fixes/acp-session-identity-env
           extendEnv: false,
           ...(options.ownDetachedProcessGroup === undefined
             ? {}
