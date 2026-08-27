@@ -9,12 +9,14 @@ import {
 import { CheckIcon, ChevronRightIcon, LayersIcon } from "lucide-react";
 import * as Equal from "effect/Equal";
 import { msg, T, useGT, useMessages } from "gt-react";
+import { isWorktreeEnvMode, type StoredThreadEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/inheritance-env-mode-import
 
 import { m, type MessageResolver } from "../../i18n/messages";
 import { cn } from "../../lib/utils";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
-import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
+import { WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic"; // fork-hook: worktrunk-hooks/env-mode-import
+import { resolveEnvModeLabelFork as resolveEnvModeLabel } from "../BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
 import { Button, InlineButton } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -77,8 +79,11 @@ function formatValue(
       : String(value);
   }
   if (typeof value === "string") {
-    if (key === "defaultThreadEnvMode" && (value === "local" || value === "worktree")) {
-      return resolveEnvModeLabel(value, resolve);
+    if (
+      key === "defaultThreadEnvMode" &&
+      (value === "local" || isWorktreeEnvMode(value as StoredThreadEnvMode))
+    ) {
+      return resolveEnvModeLabel(value as StoredThreadEnvMode);
     }
     if (key === "worktreeSubmodules" && value in WORKTREE_SUBMODULES_LABELS) {
       return resolve(WORKTREE_SUBMODULES_LABELS[value as WorktreeSubmodules]);
