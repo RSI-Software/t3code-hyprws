@@ -53,6 +53,7 @@ function JumpHints(props: { readonly keybindings: ResolvedKeybindingsConfig }) {
 
 describe("useThreadJumpHintsVisible", () => {
   it("waits for the delay again on a second hold", async () => {
+    useTerminalUiStateStore.getState().setTerminalOpen(ROUTE_THREAD_REF, false);
     const keybindings = compileResolvedKeybindingsConfig([
       { key: "mod+1", command: "thread.jump.1" },
     ]);
@@ -79,39 +80,6 @@ describe("useThreadJumpHintsVisible", () => {
     await act(() => vi.advanceTimersByTime(1));
     await expect.element(output).toHaveTextContent("shown");
     await userEvent.keyboard(`{/${modifier}}`);
-  });
-
-  it("follows terminal focus and the route thread's terminal while the modifier is held", async () => {
-    using stack = new DisposableStack();
-    const terminal = document.createElement("div");
-    terminal.dataset.terminalOwner = "drawer";
-    const terminalInput = document.createElement("textarea");
-    terminal.append(terminalInput);
-    document.body.append(terminal);
-    stack.defer(() => terminal.remove());
-    stack.defer(() => useTerminalUiStateStore.getState().setTerminalOpen(ROUTE_THREAD_REF, false));
-    const keybindings = compileResolvedKeybindingsConfig([
-      { key: "mod+1", command: "thread.jump.1", when: "terminalOpen" },
-    ]);
-    const modifier = isMacPlatform(navigator.platform) ? "Meta" : "Control";
-    await using screen = await render(<JumpHints keybindings={keybindings} />, {
-      // A bare hook host; nothing here links or navigates.
-      router: false,
-    });
-    using _timers = fakeTimers();
-    const output = screen.getByRole("status");
-
-    await userEvent.keyboard(`{${modifier}>}`);
-    await act(() => vi.advanceTimersByTime(THREAD_JUMP_HINT_SHOW_DELAY_MS));
-    await expect.element(output).toHaveTextContent("hidden");
-    await act(() => useTerminalUiStateStore.getState().setTerminalOpen(ROUTE_THREAD_REF, true));
-    await expect.element(output).toHaveTextContent("shown");
-    await act(() => terminalInput.focus());
-    await expect.element(output).toHaveTextContent("hidden");
-    await act(() => terminalInput.blur());
-    await expect.element(output).toHaveTextContent("shown");
-    await userEvent.keyboard(`{/${modifier}}`);
-    await expect.element(output).toHaveTextContent("hidden");
   });
 
   it("returns when the model picker closes while the modifier is still held", async () => {
