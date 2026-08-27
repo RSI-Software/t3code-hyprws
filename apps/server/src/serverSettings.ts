@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
   ModelSelection,
   ProjectId,
@@ -63,6 +64,7 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import { foldLegacyWorktrunkEnvModeFork } from "./serverSettings.fork.ts"; // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode-import
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -382,7 +384,9 @@ const decodeServerSettingsJsonExit = (raw: string) => {
   if (parsed._tag === "Failure") {
     return parsed;
   }
-  return decodeServerSettingsExit(migrateLegacyZmuxSettings(parsed.value));
+  return decodeServerSettingsExit(
+    migrateLegacyForkThreadEnvModeSettings(migrateLegacyZmuxSettings(parsed.value)),
+  );
 };
 const PersistedOptionalProviderSettings = Schema.Struct({
   providers: Schema.optionalKey(
@@ -612,6 +616,7 @@ function foldLegacyProjectSettings(
     if (row.defaultThreadEnvMode === "local" || row.defaultThreadEnvMode === "worktree") {
       set(row.projectId, "defaultThreadEnvMode", row.defaultThreadEnvMode);
     }
+    foldLegacyWorktrunkEnvModeFork(entries, row); // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode
     if (row.autoPull === 1) set(row.projectId, "defaultAutoPull", true);
     const scripts = decodeProjectScriptsJson(row.scripts);
     if (Option.isSome(scripts) && scripts.value.length > 0 && !resetScripts.has(row.projectId)) {
