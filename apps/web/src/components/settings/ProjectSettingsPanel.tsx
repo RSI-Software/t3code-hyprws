@@ -342,6 +342,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
         title: string;
         defaultModelSelection: ModelSelection | null;
         defaultThreadEnvMode: ThreadEnvMode | null;
+        worktrunkHooks: boolean | null;
         faviconPath: string | null;
       }>,
       failureTitle: string,
@@ -427,6 +428,14 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
     [updateAllMembers],
   );
 
+  // ----- Worktrunk hooks -----
+  const storedWorktrunkHooks = representative.worktrunkHooks ?? null;
+  const setWorktrunkHooks = useCallback(
+    (enabled: boolean | null) =>
+      void updateAllMembers({ worktrunkHooks: enabled }, "Failed to update Worktrunk hooks"),
+    [updateAllMembers],
+  );
+
   // ----- favicon -----
   const [faviconPickerOpen, setFaviconPickerOpen] = useState(false);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);
@@ -469,8 +478,9 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
   // repo's t3.json value when present, otherwise the global setting.
   const inheritedEnvMode = t3File.file?.defaultThreadEnvMode ?? settings.defaultThreadEnvMode;
   const inheritedEnvModeSource = t3File.file?.defaultThreadEnvMode != null ? "t3.json" : "global";
-  const worktrunkHooks = t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
-  const worktrunkHooksSource = t3File.file?.worktrunkHooks !== undefined ? "t3.json" : "Settings";
+  const inheritedWorktrunkHooks = t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
+  const inheritedWorktrunkHooksSource =
+    t3File.file?.worktrunkHooks !== undefined ? "t3.json" : "global";
   const importableScripts = useMemo(
     () =>
       t3File.scripts.filter(
@@ -903,6 +913,53 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
               </Select>
             }
           />
+          <SettingsRow
+            title="Worktrunk hooks"
+            description="Runs the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. Overrides t3.json and the global setting; applies to every checkout in this group."
+            resetAction={
+              storedWorktrunkHooks !== null ? (
+                <SettingResetButton
+                  label="project worktrunk hooks"
+                  onClick={() => setWorktrunkHooks(null)}
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={
+                  storedWorktrunkHooks === null ? "inherit" : storedWorktrunkHooks ? "on" : "off"
+                }
+                onValueChange={(value) => {
+                  if (value === "on" || value === "off") {
+                    setWorktrunkHooks(value === "on");
+                  } else if (value === "inherit") {
+                    setWorktrunkHooks(null);
+                  }
+                }}
+              >
+                <SelectTrigger aria-label="Worktrunk hooks">
+                  <SelectValue>
+                    {storedWorktrunkHooks === null
+                      ? group.memberProjects.length > 1
+                        ? "Default (per checkout)"
+                        : `Default (${inheritedWorktrunkHooks ? "on" : "off"})`
+                      : storedWorktrunkHooks
+                        ? "On"
+                        : "Off"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="inherit">
+                    {group.memberProjects.length > 1
+                      ? "Default (each checkout's t3.json or global setting)"
+                      : `Default (${inheritedWorktrunkHooksSource}: ${inheritedWorktrunkHooks ? "on" : "off"})`}
+                  </SelectItem>
+                  <SelectItem value="on">On</SelectItem>
+                  <SelectItem value="off">Off</SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
         </SettingsSection>
 
         <SettingsSection
@@ -1022,9 +1079,6 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
               <h3 className="text-base font-semibold text-foreground">Actions</h3>
               <p className="text-pretty text-sm text-muted-foreground">
                 Saved and run only in {selectedCheckoutLabel}.
-              </p>
-              <p className="text-pretty text-sm text-muted-foreground">
-                Worktrunk hooks: {worktrunkHooks ? "on" : "off"} — from {worktrunkHooksSource}
               </p>
             </div>
             <div className="flex w-full flex-wrap gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end">
