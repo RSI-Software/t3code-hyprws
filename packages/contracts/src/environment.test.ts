@@ -1,9 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
+const decodeWireThreadEnvMode = Schema.decodeUnknownSync(WireThreadEnvMode);
+const decodeThreadEnvMode = Schema.decodeUnknownSync(ThreadEnvMode);
 
 const descriptor = {
   environmentId: "environment-1",
