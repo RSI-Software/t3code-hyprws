@@ -14,6 +14,7 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Keep local `main` identical to `upstream/main`; never add fork commits to it.
 - Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
 - Rebase `hyprws` onto upstream release tags; never merge upstream into the fork branch.
+- Rebase onto an upstream stable tag through the `fork-sync` skill.
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
