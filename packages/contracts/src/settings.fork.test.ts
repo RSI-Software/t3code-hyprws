@@ -89,6 +89,17 @@ describe("ServerSettings.githubIssueHandoffPromptTemplate", () => {
   });
 });
 
+describe("ServerSettings worktrunk hooks", () => {
+  it("runs Worktrunk hooks by default", () => {
+    expect(decodeServerSettings({}).worktrunkHooks).toBe(true);
+  });
+
+  it("accepts an explicit opt-out in full settings and patches", () => {
+    expect(decodeServerSettings({ worktrunkHooks: false }).worktrunkHooks).toBe(false);
+    expect(decodeServerSettingsPatch({ worktrunkHooks: false }).worktrunkHooks).toBe(false);
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults the terminal session mode to a plain shell", () => {
     expect(decodeServerSettings({}).terminalSessionMode).toBe("shell");
