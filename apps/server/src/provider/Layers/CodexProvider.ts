@@ -25,7 +25,7 @@ import type {
 } from "@t3tools/contracts";
 import { PREFERRED_DEFAULT_CODEX_MODELS, ServerSettingsError } from "@t3tools/contracts";
 
-import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { createModelCapabilities, readCustomModelEntries } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
@@ -46,6 +46,8 @@ import {
 } from "./codexUsageLimits.ts";
 import type { CodexAgentDefinition } from "../Drivers/CodexAgents.ts";
 import packageJson from "../../../package.json" with { type: "json" };
+
+const CODEX_DRIVER_KIND = "codex";
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
@@ -406,9 +408,10 @@ export const withCodexAppServerClient = Effect.fn("withCodexAppServerClient")(fu
   const resolvedHomePath = input.homePath ? expandHomePath(input.homePath) : undefined;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   // `input.environment` is an overlay on the host environment. Compose the
-  // complete child environment here so the launcher's tmux variables never leak in.
+  // complete child environment here so the launcher's tmux variables and other
+  // providers' harness identity never leak in.
   const environment = {
-    ...stripInheritedTmuxEnv(process.env),
+    ...stripForeignHarnessIdentityEnv(stripInheritedTmuxEnv(process.env), CODEX_DRIVER_KIND),
     ...input.environment,
     ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
   };
