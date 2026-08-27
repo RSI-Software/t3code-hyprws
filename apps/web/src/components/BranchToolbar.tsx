@@ -21,6 +21,10 @@ import {
 } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { useEnvironmentSettings } from "../hooks/useSettings";
+import { useT3ProjectFileState } from "../hooks/useT3ProjectFileScripts";
+import { projectEnvironment } from "../state/projects";
+import { useAtomCommand } from "../state/use-atom-command";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "../state/entities";
 import {
@@ -40,10 +44,15 @@ import {
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import {
+  BranchToolbarEnvModeSelector,
+  WORKTRUNK_HOOKS_LABEL,
+  type WorktrunkHooksControl,
+} from "./BranchToolbarEnvModeSelector";
 import { Button } from "./ui/button";
 import {
   Menu,
+  MenuCheckboxItem,
   MenuGroup,
   MenuGroupLabel,
   MenuPopup,
@@ -102,6 +111,7 @@ interface MobileRunContextSelectorProps {
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
+  worktrunkHooks: WorktrunkHooksControl | null;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -119,6 +129,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  worktrunkHooks,
 }: MobileRunContextSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const activeEnvironment = useMemo(
@@ -282,6 +293,15 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
               </MenuRadioItem>
             ) : null}
           </MenuRadioGroup>
+          {effectiveEnvMode === "worktree" && worktrunkHooks ? (
+            <MenuCheckboxItem
+              variant="switch"
+              checked={worktrunkHooks.enabled}
+              onCheckedChange={() => worktrunkHooks.onToggle()}
+            >
+              {WORKTRUNK_HOOKS_LABEL}
+            </MenuCheckboxItem>
+          ) : null}
         </MenuGroup>
       </MenuPopup>
     </Menu>
@@ -510,6 +530,34 @@ export const BranchToolbar = memo(function BranchToolbar({
     });
   const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
 
+  // Resolved the way the server gates hooks: project record, then t3.json,
+  // then the environment setting. The file query only runs while the picker
+  // can show the item.
+  const settings = useEnvironmentSettings(environmentId);
+  const t3File = useT3ProjectFileState(
+    environmentId,
+    !envModeLocked && effectiveEnvMode === "worktree" && activeProject
+      ? activeProject.workspaceRoot
+      : null,
+  );
+  const updateProject = useAtomCommand(projectEnvironment.update);
+  const worktrunkHooksEnabled =
+    activeProject?.worktrunkHooks ?? t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
+  const worktrunkHooks = useMemo<WorktrunkHooksControl | null>(
+    () =>
+      activeProject
+        ? {
+            enabled: worktrunkHooksEnabled,
+            onToggle: () =>
+              void updateProject({
+                environmentId: activeProject.environmentId,
+                input: { projectId: activeProject.id, worktrunkHooks: !worktrunkHooksEnabled },
+              }),
+          }
+        : null,
+    [activeProject, updateProject, worktrunkHooksEnabled],
+  );
+
   // "Previous worktree" hops a draft into the most recently active worktree
   // of this project — the "keep going where I just was" follow-up flow. Only
   // drafts can hop; started server threads have their workspace pinned.
@@ -606,6 +654,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onEnvModeChange={onEnvModeChange}
             previousWorktreeLabel={previousWorktreeLabel}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            worktrunkHooks={worktrunkHooks}
           />
         </div>
       ) : null}
@@ -644,6 +693,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               onUsePreviousWorktree={onUsePreviousWorktree}
+              worktrunkHooks={worktrunkHooks}
             />
           ) : null}
         </div>
