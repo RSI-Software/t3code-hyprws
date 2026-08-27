@@ -18,6 +18,7 @@ import {
 const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
+    worktrunkHooks: Schema.optional(Schema.NullOr(Schema.BooleanFromBit)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
 );
@@ -36,6 +37,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root,
           default_model_selection_json,
           default_thread_env_mode,
+          worktrunk_hooks,
           favicon_path,
           scripts_json,
           created_at,
@@ -48,6 +50,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${row.workspaceRoot},
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${row.defaultThreadEnvMode},
+          ${row.worktrunkHooks == null ? null : row.worktrunkHooks ? 1 : 0},
           ${row.faviconPath ?? null},
           ${JSON.stringify(row.scripts)},
           ${row.createdAt},
@@ -60,6 +63,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root = excluded.workspace_root,
           default_model_selection_json = excluded.default_model_selection_json,
           default_thread_env_mode = excluded.default_thread_env_mode,
+          worktrunk_hooks = excluded.worktrunk_hooks,
           favicon_path = excluded.favicon_path,
           scripts_json = excluded.scripts_json,
           created_at = excluded.created_at,
@@ -79,6 +83,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           default_thread_env_mode AS "defaultThreadEnvMode",
+          worktrunk_hooks AS "worktrunkHooks",
           favicon_path AS "faviconPath",
           scripts_json AS "scripts",
           created_at AS "createdAt",
@@ -100,6 +105,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           default_thread_env_mode AS "defaultThreadEnvMode",
+          worktrunk_hooks AS "worktrunkHooks",
           favicon_path AS "faviconPath",
           scripts_json AS "scripts",
           created_at AS "createdAt",
