@@ -24,6 +24,10 @@ import {
 } from "../logicalProject";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
+  fromWireThreadEnvModeFields, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+  resolveDefaultStoredThreadEnvMode, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+} from "@t3tools/shared/threadEnvMode.fork";
+import {
   readProjects,
   readThreadShell,
   readThreadShells,
@@ -165,20 +169,10 @@ export function useNewThreadHandler() {
         const projectFile = consultProjectFile
           ? await readT3ProjectFile(project.environmentId, project.workspaceRoot)
           : null;
-        return resolveNewThreadEnvMode({
-          projectSettings: resolveProjectSettings(
-            targetServerSettings,
-            project?.id ?? null,
-            project,
-            projectFile,
-          ),
-          workspaceRoot: project?.workspaceRoot ?? null,
-          newProjectsRoot: environmentServerConfigs.get(projectRef.environmentId)?.newProjectsRoot,
-          projectHasThreads: readThreadShells().some(
-            (thread) =>
-              thread.environmentId === projectRef.environmentId &&
-              thread.projectId === projectRef.projectId,
-          ),
+        return resolveDefaultStoredThreadEnvMode({
+          projectSetting: project ? fromWireThreadEnvModeFields(project) : null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+          projectFile: projectFile?.defaultThreadEnvMode ?? null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+          globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
         });
       };
       const logicalProjectKey = project
