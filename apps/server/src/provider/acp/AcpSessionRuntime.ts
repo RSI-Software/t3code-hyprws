@@ -20,7 +20,7 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
-import { stripInheritedTmuxEnv } from "@t3tools/shared/env";
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import {
@@ -75,6 +75,8 @@ export interface AcpSpawnInput {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly extendEnv?: boolean;
+  /** Driver kind of the agent being spawned; other providers' harness identity is scrubbed. */
+  readonly harnessKind?: string;
 }
 
 export interface AcpSessionRuntimeOptions {
@@ -422,10 +424,13 @@ export const make = (
       );
 
     // Compose the complete child environment here so the launcher's tmux
-    // variables never leak in, while preserving upstream's explicit opt-out
-    // from host-environment inheritance.
+    // variables and other providers' harness identity never leak in, while
+    // preserving upstream's explicit opt-out from host-environment inheritance.
     const spawnEnv = {
-      ...(options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env)),
+      ...stripForeignHarnessIdentityEnv(
+        options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env),
+        options.spawn.harnessKind,
+      ),
       ...options.spawn.env,
     };
     const spawnCommand = yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {

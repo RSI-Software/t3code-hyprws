@@ -75,7 +75,7 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
       const serverSettings = yield* ServerSettingsService;
       const { cwd } = yield* ServerConfig;
       const eventLoggers = yield* ProviderEventLoggers;
-      const processEnv = mergeProviderInstanceEnvironment(environment);
+      const processEnv = mergeProviderInstanceEnvironment(environment, DRIVER_KIND);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
