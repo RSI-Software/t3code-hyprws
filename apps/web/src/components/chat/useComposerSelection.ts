@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { UnifiedSettings } from "@t3tools/contracts";
+import { clearWorktrunkDraftPathFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/draft-env-mode-path-import
 import { useMessages } from "gt-react";
 import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
@@ -257,6 +258,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
           newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
         }),
         ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
+        ...clearWorktrunkDraftPathFork(mode, draftThread?.worktreePath), // fork-hook: worktrunk-hooks/draft-env-mode-path
       });
     }
     scheduleComposerFocus();
