@@ -24,6 +24,7 @@ import {
   hasEnvironmentReconnectWarningGraceElapsed,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  nextTerminalFocusRequestId,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
@@ -33,6 +34,7 @@ import {
   resolveDraftHeroState,
   scheduleEnvironmentReconnectWarning,
   startNewThreadForProject,
+  shouldAutoFocusComposerOnThreadChange,
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -43,6 +45,26 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+
+describe("composer focus on thread change", () => {
+  it("depends only on active thread identity, not terminal open state", () => {
+    expect(shouldAutoFocusComposerOnThreadChange("thread-1")).toBe(true);
+  });
+
+  it("does not request focus without an active thread", () => {
+    expect(shouldAutoFocusComposerOnThreadChange(null)).toBe(false);
+  });
+});
+
+describe("terminal focus requests", () => {
+  it("resets the outstanding request when the active thread changes", () => {
+    expect(nextTerminalFocusRequestId("thread-1", "thread-2", 4)).toBe(0);
+  });
+
+  it("preserves the request while the active thread is unchanged", () => {
+    expect(nextTerminalFocusRequestId("thread-1", "thread-1", 4)).toBe(4);
+  });
+});
 
 describe("draft hero submission transition", () => {
   it("does not dock the composer before a background submission", () => {
