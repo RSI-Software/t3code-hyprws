@@ -503,7 +503,8 @@ Upstream runs `git worktree add` and `git worktree remove` directly, so a projec
 
 - When the project carries `.config/wt.toml` and `wt` is on the server's PATH, the worktree workflow runs `wt hook pre-start` and `wt hook post-start` in a new thread worktree, `wt hook pre-remove` in a worktree before removing it, and `wt hook post-remove` in the primary checkout after.
 - Every hook runs headless through `wt hook <type> --yes`, ahead of the `t3.json` setup script on create: `pre-*` hooks block, `post-start` returns once `wt` has detached its hooks, and a failed create hook lands as an error activity on the thread.
-- `worktrunkHooks` in settings is the per-environment switch, on by default; `worktrunkHooks` in `t3.json` overrides it per project. Neither turns hooks on where `.config/wt.toml` is absent.
+- `worktrunkHooks` in settings is the per-environment switch, on by default; `worktrunkHooks` in `t3.json` overrides it per project; `worktrunkHooks` on the project record overrides both. None of them turns hooks on where `.config/wt.toml` is absent.
+- The switch lives on the existing worktree surfaces only: nested under New threads in Settings, a select beside Workspace in Project settings, and an item in the composer workspace picker while New worktree is selected. That item shows the resolved value and writes the project record.
 - Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`.
 - `apps/server/src/worktrunk/` holds the hook runner; it calls `wt` through `ProcessRunner` with the inherited tmux variables stripped, and a missing binary degrades silently to upstream behaviour.
 
@@ -521,8 +522,14 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/server/src/ws.ts`                                     | Thread bootstrap worktree create; the create hooks run before the setup script. |
 | `packages/contracts/src/settings.ts`                        | `worktrunkHooks` sits between upstream keys.                                    |
 | `packages/contracts/src/t3ProjectFile.ts`                   | `worktrunkHooks` on the checked-in project file; a published JSON Schema.       |
-| `apps/web/src/components/settings/SettingsPanels.tsx`       | Settings UI for the switch; a busy upstream file.                               |
-| `apps/web/src/components/settings/ProjectSettingsPanel.tsx` | Actions page shows the project's `t3.json` value.                               |
+| `packages/contracts/src/orchestration.ts`                   | `worktrunkHooks` on the project record, its update command, and its event.      |
+| `apps/server/src/orchestration/**`                          | The project field threads decider, projector, pipeline, and snapshot query.     |
+| `apps/server/src/persistence/ForkSchema.ts`                 | Fork-only. Adds `worktrunk_hooks` outside the numbered migration sequence.      |
+| `apps/server/src/persistence/Layers/Sqlite.ts`              | `ensureForkSchema` runs right after `runMigrations` in setup.                   |
+| `apps/server/src/persistence/Layers/ProjectionProjects.ts`  | `worktrunk_hooks` in the project row SQL beside upstream columns.               |
+| `apps/web/src/components/settings/SettingsPanels.tsx`       | Switch nested under New threads; a busy upstream file.                          |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx` | Select beside the Workspace row.                                                |
+| `apps/web/src/components/BranchToolbar*.tsx`                | Composer workspace picker item; desktop select and mobile menu.                 |
 
 ## Adding a domain
 
