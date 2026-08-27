@@ -5,6 +5,10 @@
 This is the agent-driven loop that keeps the fork trunk `hyprws` current and shipped.
 [Fork development](../internals/fork-development.md) owns the rules; this page owns the steps.
 
+Run it through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill, whose five
+gates stop for orientation, rehearsal, focused checks, human sanity, and human-only apply. Commit each
+rehearsal record under [`docs/operations/fork-sync-records/`](./fork-sync-records/).
+
 Run it from the `hyprws` worktree, never from the `main` checkout.
 Every step is scriptable; the only human inputs are conflict decisions and a refused lease.
 
