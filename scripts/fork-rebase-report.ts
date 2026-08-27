@@ -9,6 +9,13 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import {
+  buildFeasibility,
+  type FeasibilityGit,
+  type ForkRebaseFeasibility,
+  type GitCommandResult,
+} from "./lib/fork-rebase-feasibility.ts";
+
 export const DEFAULT_JSON_PATH = "docs/internals/generated/fork-rebase-report.json";
 export const DEFAULT_MARKDOWN_PATH = "docs/internals/generated/fork-rebase-report.md";
 
@@ -61,7 +68,7 @@ export interface ReportLane {
 }
 
 export interface ForkRebaseReport {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly generatedBy: "vp run fork:rebase-report";
   readonly sharedBase: {
     readonly sha: string;
@@ -70,6 +77,7 @@ export interface ForkRebaseReport {
   };
   readonly upstream: ReportLane;
   readonly hyprws: ReportLane;
+  readonly feasibility: ForkRebaseFeasibility;
 }
 
 export interface ReportOptions {
@@ -81,9 +89,7 @@ export interface ReportOptions {
   readonly check: boolean;
 }
 
-export interface GitReader {
-  readonly run: (args: ReadonlyArray<string>) => string;
-}
+export interface GitReader extends FeasibilityGit {}
 
 const HELP = `Usage: vp run fork:rebase-report [options]
 
@@ -111,6 +117,21 @@ const defaultOptions = (): ReportOptions => ({
   fetch: false,
   check: false,
 });
+
+const updateCommand = (options: ReportOptions): string => {
+  const defaults = defaultOptions();
+  const args: Array<string> = [];
+  if (options.source !== defaults.source) args.push("--source", options.source);
+  if (options.target !== defaults.target) args.push("--target", options.target);
+  if (options.jsonOut !== defaults.jsonOut) args.push("--json-out", options.jsonOut);
+  if (options.markdownOut !== defaults.markdownOut) {
+    args.push("--markdown-out", options.markdownOut);
+  }
+  if (remoteFromRef(options.source) !== null && remoteFromRef(options.target) !== null) {
+    args.push("--fetch");
+  }
+  return ["vp run fork:rebase-report", ...args].join(" ");
+};
 
 export class UsageError extends Error {}
 
@@ -158,7 +179,7 @@ export const parseArgs = (argv: ReadonlyArray<string>): ReportOptions => {
   return options;
 };
 
-class SystemGit implements GitReader {
+export class SystemGit implements GitReader {
   private readonly cwd: string;
 
   constructor(cwd: string) {
@@ -171,6 +192,20 @@ class SystemGit implements GitReader {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
+  }
+
+  runResult(args: ReadonlyArray<string>): GitCommandResult {
+    const result = NodeChildProcess.spawnSync("git", [...args], {
+      cwd: this.cwd,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      ...(result.error === undefined ? {} : { error: result.error }),
+    };
   }
 }
 
@@ -349,7 +384,7 @@ export const buildReport = (git: GitReader, source: string, target: string): For
   const hyprws = buildLane(git, baseSha, source, sourceSha, isForkRelease);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedBy: "vp run fork:rebase-report",
     sharedBase: {
       sha: baseSha,
@@ -360,6 +395,7 @@ export const buildReport = (git: GitReader, source: string, target: string): For
     },
     upstream,
     hyprws,
+    feasibility: buildFeasibility(git, sourceSha, targetSha, baseSha),
   };
 };
 
@@ -480,6 +516,85 @@ const renderCommitSections = (lane: ReportLane, fork: boolean): ReadonlyArray<st
   return lines;
 };
 
+const escapeTableCell = (value: string): string => value.replaceAll("|", "\\|");
+
+const linkedSha = (sha: string, repository: ReportRepository): string => {
+  const shortSha = sha.slice(0, 7);
+  return repository.webUrl === null
+    ? `\`${shortSha}\``
+    : `[\`${shortSha}\`](${repository.webUrl}/commit/${sha})`;
+};
+
+const feasibilitySummary = (report: ForkRebaseReport): string => {
+  const { ffBoundary, conflicts } = report.feasibility;
+  const hunks = conflicts.reduce((total, conflict) => total + conflict.hunkCount, 0);
+  const forkCommits = new Set(conflicts.map((conflict) => conflict.introducingForkCommit.sha));
+  const domains = new Set(
+    conflicts.flatMap((conflict) =>
+      conflict.introducingForkCommit.domain === null ? [] : [conflict.introducingForkCommit.domain],
+    ),
+  );
+  return `Feasibility: clean through ${ffBoundary.cleanCommitCount}/${ffBoundary.upstreamCommitCount} upstream commits; ${conflicts.length} ${conflicts.length === 1 ? "file" : "files"} / ${hunks} ${hunks === 1 ? "hunk" : "hunks"} conflict vs ${report.upstream.ref} (${forkCommits.size} fork ${forkCommits.size === 1 ? "commit" : "commits"}, ${domains.size} ${domains.size === 1 ? "domain" : "domains"}).`;
+};
+
+const renderFeasibility = (report: ForkRebaseReport): ReadonlyArray<string> => {
+  const { ffBoundary, conflicts, overlap } = report.feasibility;
+  const lines: Array<string> = ["## Feasibility", "", "**Fast-forward boundary.**", ""];
+  if (ffBoundary.firstConflict === null) {
+    lines.push(
+      `The fork stack merges cleanly through all ${ffBoundary.upstreamCommitCount} upstream commits.`,
+    );
+  } else {
+    const commit = ffBoundary.firstConflict;
+    const tags =
+      commit.tags.length === 0 ? "" : ` (${commit.tags.map((tag) => `\`${tag}\``).join(", ")})`;
+    lines.push(
+      `The first conflict is upstream commit ${linkedSha(commit.sha, report.upstream.repository)}${tags}: ${commit.subject}`,
+    );
+  }
+  lines.push("");
+  if (ffBoundary.changes.length > 0) {
+    lines.push("| Upstream commit | Tags | Files added to conflict set |", "| --- | --- | --- |");
+    for (const change of ffBoundary.changes) {
+      lines.push(
+        `| ${linkedSha(change.sha, report.upstream.repository)} ${escapeTableCell(change.subject)} | ${change.tags.map((tag) => `\`${tag}\``).join(", ")} | ${change.filesAdded.map((path) => `\`${path}\``).join("<br>")} |`,
+      );
+    }
+  } else {
+    lines.push("No upstream commit adds a conflict.");
+  }
+
+  lines.push("", `**Conflicts against \`${report.upstream.ref}\`.**`, "");
+  if (conflicts.length > 0) {
+    lines.push(
+      "| File | Hunks | Introducing fork commit | Domain | Tier |",
+      "| --- | ---: | --- | --- | --- |",
+    );
+    for (const conflict of conflicts) {
+      const commit = conflict.introducingForkCommit;
+      lines.push(
+        `| \`${conflict.path}\` | ${conflict.hunkCount} | ${linkedSha(commit.sha, report.hyprws.repository)} ${escapeTableCell(commit.subject)} | ${commit.domain ?? "?"} | ${commit.tier ?? "?"} |`,
+      );
+    }
+  } else {
+    lines.push("None.");
+  }
+
+  lines.push(
+    "",
+    "**Overlap surface.**",
+    "",
+    `${overlap.upstreamChanged} upstream-changed files; ${overlap.forkChanged} fork-changed files; ${overlap.overlap} overlap (${overlap.hardConflict} hard-conflict, ${overlap.automerged.length} automerged).`,
+    "",
+  );
+  if (overlap.automerged.length > 0) {
+    lines.push("Automerged overlap:", "", ...overlap.automerged.map((path) => `- \`${path}\``));
+  } else {
+    lines.push("No automerged overlap.");
+  }
+  return lines;
+};
+
 export const renderMarkdown = (report: ForkRebaseReport): string => {
   const changeRows: Array<readonly [string, string, string]> = [];
   const types = [
@@ -532,9 +647,13 @@ export const renderMarkdown = (report: ForkRebaseReport): string => {
     "",
     "## State",
     "",
+    feasibilitySummary(report),
+    "",
     "```text",
     renderStateGraph(report),
     "```",
+    "",
+    ...renderFeasibility(report),
     "",
     "## Change types",
     "",
@@ -600,7 +719,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 0;
   }
   if (argv.includes("-V") || argv.includes("--version")) {
-    process.stdout.write("1\n");
+    process.stdout.write("2\n");
     return 0;
   }
 
@@ -635,7 +754,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       );
       if (stale.length > 0) {
         for (const output of stale) process.stderr.write(`stale: ${output.relative}\n`);
-        process.stderr.write("run: vp run fork:rebase-report --fetch\n");
+        process.stderr.write(`run: ${updateCommand(options)}\n`);
         return 1;
       }
       process.stdout.write("current: fork rebase report\n");
