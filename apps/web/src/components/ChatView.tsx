@@ -8644,7 +8644,7 @@ export default function ChatView(props: ChatViewProps) {
   });
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background [&>[data-preview-panel-mode=inline]:focus-within]:border-ring">
       <Dialog
         open={
           deviceSetupThread !== null &&
@@ -8908,7 +8908,7 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
-                      <ComposerSurface.Host>
+                      <ComposerSurface.Host className="sm:focus-within:ring-1 sm:focus-within:ring-ring">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
                             composerRef={composerRef}
