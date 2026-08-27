@@ -6,8 +6,10 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
+  isChatFocusComposerShortcut,
   isDiffToggleShortcut,
   modelPickerJumpCommandForIndex,
   modelPickerJumpIndexFromCommand,
@@ -17,6 +19,7 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalFocusShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -547,6 +550,44 @@ describe("model picker navigation helpers", () => {
     assert.strictEqual(modelPickerJumpIndexFromCommand("modelPicker.jump.1"), 0);
     assert.strictEqual(modelPickerJumpIndexFromCommand("modelPicker.jump.3"), 2);
     assert.isNull(modelPickerJumpIndexFromCommand("thread.jump.1"));
+  });
+});
+
+describe("focus shortcuts", () => {
+  it("resolves Ctrl+` to terminal.focus outside the terminal", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "terminal.focus",
+    );
+    assert.isTrue(
+      isTerminalFocusShortcut(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+    );
+  });
+
+  it("resolves Ctrl+` to chat.focusComposer while the terminal is focused", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+      "chat.focusComposer",
+    );
+    assert.isTrue(
+      isChatFocusComposerShortcut(
+        event({ key: "`", ctrlKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        {
+          platform: "Linux",
+          context: { terminalFocus: true },
+        },
+      ),
+    );
   });
 });
 
