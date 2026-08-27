@@ -14,6 +14,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 const gitHandle = {
   kind: "git" as const,
@@ -32,6 +33,20 @@ const gitHandle = {
 
 const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
   Effect.succeed(gitHandle);
+
+const makeWorktrunkHookRunnerLayer = (
+  overrides: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]> = {},
+) =>
+  Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+    isWorktrunkWorktree: () => Effect.succeed(false),
+    runCreateHooks: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    runPreRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    runPostRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    ...overrides,
+  });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowService", (it) => {
   it.effect("finds a name among the refs of every namespace", () =>
@@ -72,6 +87,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
             ),
           ),
           Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})), // fork-hook: zmux-estate/ref-named-test-layer
+          Layer.provide(makeWorktrunkHookRunnerLayer()), // fork-hook: worktrunk-hooks/ref-named-test-layer
           Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
