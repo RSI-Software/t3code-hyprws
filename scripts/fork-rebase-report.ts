@@ -11,10 +11,19 @@ import * as NodePath from "node:path";
 
 import {
   buildFeasibility,
+  parseMergeTreeResult,
+  readForkStack,
   type FeasibilityGit,
   type ForkRebaseFeasibility,
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
+import {
+  EMPTY_RETIREMENT_LEDGER,
+  parseForkRetirementLedger,
+  retirementDecision,
+  type ForkRetirementLedger,
+  type RetirementDecision,
+} from "./lib/fork-retirement-ledger.ts";
 
 export const DEFAULT_JSON_PATH = "docs/internals/generated/fork-rebase-report.json";
 export const DEFAULT_MARKDOWN_PATH = "docs/internals/generated/fork-rebase-report.md";
@@ -67,8 +76,23 @@ export interface ReportLane {
   readonly unreleasedCommits: ReadonlyArray<ReportCommit>;
 }
 
+export interface RetireSignal {
+  readonly kind: "already-upstream" | "behaviour-overlap";
+  readonly evidence: string;
+}
+
+export interface RetireCandidate {
+  readonly commit: string;
+  readonly subject: string;
+  readonly domain: string | null;
+  readonly tier: string | null;
+  readonly signals: ReadonlyArray<RetireSignal>;
+  readonly decision: RetirementDecision;
+  readonly reason?: string;
+}
+
 export interface ForkRebaseReport {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly generatedBy: "vp run fork:rebase-report";
   readonly sharedBase: {
     readonly sha: string;
@@ -78,6 +102,7 @@ export interface ForkRebaseReport {
   readonly upstream: ReportLane;
   readonly hyprws: ReportLane;
   readonly feasibility: ForkRebaseFeasibility;
+  readonly retireCandidates: ReadonlyArray<RetireCandidate>;
 }
 
 export interface ReportOptions {
@@ -373,7 +398,156 @@ const buildLane = (
   };
 };
 
-export const buildReport = (git: GitReader, source: string, target: string): ForkRebaseReport => {
+const changedPathsForCommit = (
+  git: Pick<GitReader, "run">,
+  commit: string,
+): ReadonlyArray<string> =>
+  git
+    .run(["-c", "core.quotePath=false", "diff", "--name-only", "-z", `${commit}^`, commit])
+    .split("\0")
+    .filter(Boolean)
+    .toSorted();
+
+interface HunkRange {
+  readonly start: number;
+  readonly end: number;
+  readonly label: string;
+}
+
+export const parseAddedHunkRanges = (diff: string): ReadonlyArray<HunkRange> =>
+  diff.split("\n").flatMap((line) => {
+    const match = /^@@ -\d+(?:,\d+)? \+(?<start>\d+)(?:,(?<count>\d+))? @@/.exec(line);
+    const start = Number(match?.groups?.start);
+    const count = match?.groups?.count === undefined ? 1 : Number(match.groups.count);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(count)) return [];
+    const end = count <= 1 ? start : start + count - 1;
+    return [
+      {
+        start,
+        end,
+        label: count === 0 ? `${start},0` : count === 1 ? `${start}` : `${start}-${end}`,
+      },
+    ];
+  });
+
+const hunkDistance = (left: HunkRange, right: HunkRange): number => {
+  if (left.end < right.start) return right.start - left.end;
+  if (right.end < left.start) return left.start - right.end;
+  return 0;
+};
+
+export const buildRetireCandidates = (
+  git: GitReader,
+  sourceSha: string,
+  targetSha: string,
+  baseSha: string,
+  feasibility: ForkRebaseFeasibility,
+  ledger: ForkRetirementLedger,
+): ReadonlyArray<RetireCandidate> => {
+  const targetTree = git.run(["rev-parse", `${targetSha}^{tree}`]).trim();
+  const hardByCommit = new Map<string, Array<string>>();
+  for (const conflict of feasibility.conflicts) {
+    const evidence = `${conflict.path} (${conflict.hunkCount} ${conflict.hunkCount === 1 ? "hunk" : "hunks"})`;
+    const sha = conflict.introducingForkCommit.sha;
+    hardByCommit.set(sha, [...(hardByCommit.get(sha) ?? []), evidence]);
+  }
+  const overlapPaths = new Set([
+    ...feasibility.overlap.automerged,
+    ...feasibility.conflicts.map((conflict) => conflict.path),
+  ]);
+  const upstreamHunkCache = new Map<string, ReadonlyArray<HunkRange>>();
+  const upstreamHunks = (path: string): ReadonlyArray<HunkRange> => {
+    const cached = upstreamHunkCache.get(path);
+    if (cached !== undefined) return cached;
+    const ranges = parseAddedHunkRanges(
+      git.run(["diff", "--no-ext-diff", "--unified=0", baseSha, targetSha, "--", path]),
+    );
+    upstreamHunkCache.set(path, ranges);
+    return ranges;
+  };
+
+  return readForkStack(git, sourceSha).flatMap((forkCommit) => {
+    const signals: Array<RetireSignal> = [];
+    const parent = git.run(["rev-parse", `${forkCommit.sha}^`]).trim();
+    const reverse = parseMergeTreeResult(
+      targetSha,
+      forkCommit.sha,
+      git.runResult([
+        "-c",
+        "core.quotePath=false",
+        "merge-tree",
+        "--write-tree",
+        `--merge-base=${parent}`,
+        targetSha,
+        forkCommit.sha,
+      ]),
+    );
+    if (reverse.conflicts.length === 0 && reverse.tree === targetTree) {
+      signals.push({
+        kind: "already-upstream",
+        evidence: "the target tree already contains this commit's patch",
+      });
+    }
+
+    const hard = (hardByCommit.get(forkCommit.sha) ?? []).toSorted();
+    const hardPaths = new Set(
+      feasibility.conflicts
+        .filter((conflict) => conflict.introducingForkCommit.sha === forkCommit.sha)
+        .map((conflict) => conflict.path),
+    );
+    const weak = changedPathsForCommit(git, forkCommit.sha)
+      .filter((path) => overlapPaths.has(path) && !hardPaths.has(path))
+      .flatMap((path) => {
+        const forkHunks = parseAddedHunkRanges(
+          git.run([
+            "diff",
+            "--no-ext-diff",
+            "--unified=0",
+            `${forkCommit.sha}^`,
+            forkCommit.sha,
+            "--",
+            path,
+          ]),
+        );
+        return forkHunks.flatMap((forkHunk) =>
+          upstreamHunks(path).flatMap((upstreamHunk) =>
+            hunkDistance(forkHunk, upstreamHunk) <= 3
+              ? [`${path}@${forkHunk.label}~${upstreamHunk.label}`]
+              : [],
+          ),
+        );
+      });
+    if (hard.length > 0 || weak.length > 0) {
+      signals.push({
+        kind: "behaviour-overlap",
+        evidence: [
+          ...(hard.length === 0 ? [] : [`hard: ${hard.join(", ")}`]),
+          ...(weak.length === 0 ? [] : [`weak hunk overlap: ${weak.join(", ")}`]),
+        ].join("; "),
+      });
+    }
+    if (signals.length === 0) return [];
+    const recorded = retirementDecision(ledger, forkCommit.subject);
+    return [
+      {
+        commit: forkCommit.sha,
+        subject: forkCommit.subject,
+        domain: forkCommit.domain,
+        tier: forkCommit.tier,
+        signals,
+        decision: recorded.decision,
+        ...(recorded.reason === undefined ? {} : { reason: recorded.reason }),
+      },
+    ];
+  });
+};
+
+export const buildReport = (
+  git: GitReader,
+  source: string,
+  target: string,
+  retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
+): ForkRebaseReport => {
   const sourceSha = git.run(["rev-parse", `${source}^{commit}`]).trim();
   const targetSha = git.run(["rev-parse", `${target}^{commit}`]).trim();
   const baseSha = git.run(["merge-base", sourceSha, targetSha]).trim();
@@ -382,9 +556,10 @@ export const buildReport = (git: GitReader, source: string, target: string): For
   const isForkRelease = (tag: string) => /^v\d+\.\d+\.\d+-hyprws\.\d+$/.test(tag);
   const upstream = buildLane(git, baseSha, target, targetSha, isUpstreamRelease);
   const hyprws = buildLane(git, baseSha, source, sourceSha, isForkRelease);
+  const feasibility = buildFeasibility(git, sourceSha, targetSha, baseSha);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedBy: "vp run fork:rebase-report",
     sharedBase: {
       sha: baseSha,
@@ -395,7 +570,15 @@ export const buildReport = (git: GitReader, source: string, target: string): For
     },
     upstream,
     hyprws,
-    feasibility: buildFeasibility(git, sourceSha, targetSha, baseSha),
+    feasibility,
+    retireCandidates: buildRetireCandidates(
+      git,
+      sourceSha,
+      targetSha,
+      baseSha,
+      feasibility,
+      retirementLedger,
+    ),
   };
 };
 
@@ -537,6 +720,30 @@ const feasibilitySummary = (report: ForkRebaseReport): string => {
   return `Feasibility: clean through ${ffBoundary.cleanCommitCount}/${ffBoundary.upstreamCommitCount} upstream commits; ${conflicts.length} ${conflicts.length === 1 ? "file" : "files"} / ${hunks} ${hunks === 1 ? "hunk" : "hunks"} conflict vs ${report.upstream.ref} (${forkCommits.size} fork ${forkCommits.size === 1 ? "commit" : "commits"}, ${domains.size} ${domains.size === 1 ? "domain" : "domains"}).`;
 };
 
+export const renderRetireCandidates = (report: ForkRebaseReport): ReadonlyArray<string> => {
+  const lines = ["## Retire candidates", ""];
+  if (report.retireCandidates.length === 0) return [...lines, "None."];
+  lines.push(
+    "| Fork commit | Domain | Tier | Signals | Decision |",
+    "| --- | --- | --- | --- | --- |",
+  );
+  for (const candidate of report.retireCandidates) {
+    const signals = candidate.signals
+      .map((signal) => `\`${signal.kind}\`: ${escapeTableCell(signal.evidence)}`)
+      .join("<br>");
+    const decision =
+      candidate.decision === "none"
+        ? "candidate"
+        : candidate.decision === "keep"
+          ? `kept${candidate.reason === undefined ? "" : ` — ${escapeTableCell(candidate.reason)}`}`
+          : `${candidate.decision}${candidate.reason === undefined ? "" : ` — ${escapeTableCell(candidate.reason)}`}`;
+    lines.push(
+      `| ${linkedSha(candidate.commit, report.hyprws.repository)} ${escapeTableCell(candidate.subject)} | ${candidate.domain ?? "?"} | ${candidate.tier ?? "?"} | ${signals} | ${decision} |`,
+    );
+  }
+  return lines;
+};
+
 const renderFeasibility = (report: ForkRebaseReport): ReadonlyArray<string> => {
   const { ffBoundary, conflicts, overlap } = report.feasibility;
   const lines: Array<string> = ["## Feasibility", "", "**Fast-forward boundary.**", ""];
@@ -655,6 +862,8 @@ export const renderMarkdown = (report: ForkRebaseReport): string => {
     "",
     ...renderFeasibility(report),
     "",
+    ...renderRetireCandidates(report),
+    "",
     "## Change types",
     "",
     ...table,
@@ -719,7 +928,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 0;
   }
   if (argv.includes("-V") || argv.includes("--version")) {
-    process.stdout.write("2\n");
+    process.stdout.write("3\n");
     return 0;
   }
 
@@ -732,7 +941,10 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       fetchRef(git, options.source);
       fetchRef(git, options.target);
     }
-    const report = buildReport(git, options.source, options.target);
+    const retirementLedger = parseForkRetirementLedger(
+      NodeFS.readFileSync(NodePath.join(root, "docs/internals/fork-delta.md"), "utf8"),
+    );
+    const report = buildReport(git, options.source, options.target, retirementLedger);
     const outputs = [
       {
         relative: options.jsonOut,
