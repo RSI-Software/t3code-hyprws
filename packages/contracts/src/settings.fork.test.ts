@@ -72,6 +72,23 @@ describe("migrateLegacyZmuxSettings", () => {
   });
 });
 
+describe("ServerSettings.githubIssueHandoffPromptTemplate", () => {
+  it("defaults legacy configs to the built-in issue handoff prompt", () => {
+    expect(decodeServerSettings({}).githubIssueHandoffPromptTemplate).toBe(
+      DEFAULT_SERVER_SETTINGS.githubIssueHandoffPromptTemplate,
+    );
+  });
+
+  it("trims a custom prompt and rejects an empty prompt", () => {
+    expect(
+      decodeServerSettingsPatch({
+        githubIssueHandoffPromptTemplate: "  Fix {{url}} carefully.  ",
+      }).githubIssueHandoffPromptTemplate,
+    ).toBe("Fix {{url}} carefully.");
+    expect(() => decodeServerSettingsPatch({ githubIssueHandoffPromptTemplate: "   " })).toThrow();
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults the terminal session mode to a plain shell", () => {
     expect(decodeServerSettings({}).terminalSessionMode).toBe("shell");
