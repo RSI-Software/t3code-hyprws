@@ -31,7 +31,7 @@ import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "
 import { makeAcpRegistryTextGeneration } from "./textGeneration.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
