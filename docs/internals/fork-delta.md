@@ -489,14 +489,14 @@ Upstream runs `git worktree add` and `git worktree remove` directly, so a projec
 ### Shape
 
 - When the project carries `.config/wt.toml` and `wt` is on the server's PATH, the worktree workflow runs `wt hook pre-start` and `wt hook post-start` in a new thread worktree, `wt hook pre-remove` in a worktree before removing it, and `wt hook post-remove` in the primary checkout after.
-- Create-time hook output lands in the thread terminal, ahead of the `t3.json` setup script; remove-time hooks run headless and log.
+- Every hook runs headless through `wt hook <type> --yes`, ahead of the `t3.json` setup script on create: `pre-*` hooks block, `post-start` returns once `wt` has detached its hooks, and a failed create hook lands as an error activity on the thread.
 - `worktrunkHooks` in settings is the per-environment switch, on by default; `worktrunkHooks` in `t3.json` overrides it per project. Neither turns hooks on where `.config/wt.toml` is absent.
 - Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`.
-- `apps/server/src/worktrunk/` holds the hook runner; it calls `wt` through `ProcessRunner` and the terminal manager, and a missing binary degrades silently to upstream behaviour.
+- `apps/server/src/worktrunk/` holds the hook runner; it calls `wt` through `ProcessRunner` with the inherited tmux variables stripped, and a missing binary degrades silently to upstream behaviour.
 
 ### Retirement condition
 
-Upstream worktree lifecycle exposes create and remove hooks a project can bind shell commands to, with their output visible in the thread.
+Upstream worktree lifecycle exposes create and remove hooks a project can bind shell commands to.
 
 ### Rebase scan
 
