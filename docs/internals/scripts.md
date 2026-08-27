@@ -78,6 +78,19 @@ authenticated.
 - `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
   artifact under `.dump/runs/fork-rebase-report/<run-id>/`. Pass `--run <id>` to inspect a specific
   run. An existing run directory is reused because workflow artifacts are immutable.
+- `vp run fork:upstream-watch`: Sweeps the fork's open `upstream-watch` issues and resolves each
+  upstream item their bodies cite (`scripts/fork-upstream-watch.ts`). Per citation it reports whether
+  the upstream pull request merged and whether its merge commit is contained in the rebase target, so
+  the sync's orient step knows which watches ride the rebase. The issue list is paged to completeness
+  and the sweep fails rather than reporting a truncated one, because a capped sweep is indistinguishable
+  from a clean one. The endpoint pages by offset over a live set and offers no cursor, so a multi-page
+  walk repeats until two walks see the same issue numbers; otherwise an issue that closes mid-walk
+  slides a still-open one behind the cursor. A closed upstream issue is `fix-uncited` only when it
+  closed as completed: a `not_planned` closure has no fixing pull request to find, so it is `dropped`.
+  An issue takes the least advanced verdict among the citations that can still
+  advance, so a spent citation never strands a watch whose fix has landed. Pass `--target vX.Y.Z` for a
+  release and `--json` for tooling. It reads GitHub and Git only, and recognizes a citation only inside
+  a code span, so it can never fire a cross-reference on an upstream thread.
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
   an isolated T3 SQLite database; writes create a private backup first.
 
