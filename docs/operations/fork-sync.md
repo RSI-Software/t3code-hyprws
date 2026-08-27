@@ -59,6 +59,51 @@ vp run fork:rebase-report:artifact
 The command keeps each immutable run under `.dump/runs/fork-rebase-report/<run-id>/`. Use
 `--run <id>` to inspect a particular manual or scheduled run.
 
+### Re-read what waits on upstream
+
+Every fork issue labelled `upstream-watch` waits on an upstream issue or pull request, and orienting is
+where each one is re-read. Sweep them before you pick a target, then again against the tag you picked:
+
+```bash
+vp run fork:upstream-watch                  # against upstream/main, to pick a target
+vp run fork:upstream-watch --target vX.Y.Z  # against the tag you picked
+```
+
+The two sweeps answer different questions and can disagree. A fix merged after the tag is `ready`
+against `upstream/main` and `pending-tag` against the tag, so only the tag-targeted sweep describes
+what a release built from that tag contains. Keep its output; [Step 5](#step-5-tag-and-release) closes
+from that sweep alone.
+
+The sweep lists every open `upstream-watch` issue and, for each upstream item its body cites, whether
+that item is merged and whether its merge commit is contained in the target. It pages the full open
+set rather than capping it, re-walks a multi-page set until two walks agree so an issue closing mid-walk
+cannot hide one behind the cursor, and fails loudly rather than reporting a list it had to truncate. It proves
+the label exists before it reports an empty sweep, so `No open upstream-watch issues` is evidence and
+not the shape of a renamed label. It reads
+GitHub and Git and writes nothing. It recognizes a citation only inside a code span, so the sweep
+itself can never fire a cross-reference on an upstream thread.
+
+A verdict is per citation; the issue takes the least advanced verdict among the citations that can
+still advance. `dropped` and `fix-uncited` are spent, so a watch that also cites the merged fix still
+reaches `ready`.
+
+| Verdict       | Meaning                                                                                         | Action                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ready`       | The merge commit is contained in the target.                                                    | The fix rides this rebase. Keep the watch open and close it at [Step 5](#step-5-tag-and-release). |
+| `pending-tag` | Merged upstream, but not in the target.                                                         | Take a newer tag when the fix is worth it, or leave the issue open.                               |
+| `waiting`     | The upstream item is still open.                                                                | Leave it. Trial the pull request in a worktree when the fork needs it sooner.                     |
+| `dropped`     | Upstream will not fix it: the pull request closed unmerged, or the issue closed as not planned. | Decide the fork's own fix and drop the label.                                                     |
+| `fix-uncited` | The upstream issue closed as completed and no fix is cited.                                     | Find the pull request that closed it and add it to the body as a code span.                       |
+| `unresolved`  | The merge commit is not in the local object store.                                              | Re-run after `git fetch upstream --tags`.                                                         |
+| `uncited`     | The body cites no upstream item.                                                                | Nothing can resolve it; add the citation as a code span or drop the label.                        |
+
+The `upstream-triage` skill applies the label whenever it decides the fork waits on upstream.
+
+This step decides which watches ride the rebase; it never closes one.
+`ready` proves only that the target contains the merge commit, and the target is upstream code that no
+fork release has shipped yet. A watch closes at [Step 5](#step-5-tag-and-release), where the release
+that carries the fix exists and the behavior can be verified in it.
+
 ## Preconditions
 
 - `upstream` points at `pingdotgg/t3code` and `origin` at `RSI-Software/t3code-hyprws`.
@@ -142,6 +187,20 @@ An installed fork build updates from that release, because the build derives its
 
 Bump `<n>` for a fork-only change or a newer nightly on the same upstream version.
 A new upstream version always restarts the suffix.
+
+### Close what the release shipped
+
+Every watch that [Step 0](#step-0-orient-the-rebase)'s **tag-targeted** sweep called `ready` is now in
+a published fork build. That sweep, `vp run fork:upstream-watch --target <the tag this release builds>`,
+is the only candidate set. Do not close from the `upstream/main` sweep beside it: a fix merged after the
+tag is `ready` there and `pending-tag` against the tag, so that set can name a merge this release does
+not carry. Re-run the tag-targeted sweep if you no longer have its output.
+
+Install or run the build, verify the reported behavior is actually fixed, and close the issue naming
+the upstream merge commit and this fork release. A watch whose behavior is still broken stays open with
+what you saw; the upstream fix landing is not the same claim as the fork working.
+
+This is the only step that closes an `upstream-watch` issue.
 
 ## Failure handling
 
