@@ -1,3 +1,4 @@
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,6 +11,7 @@ import {
   resolveTerminalSelectionActionPosition,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
+  shouldHandleTerminalFocusRequest,
   shouldHandleTerminalSelectionMouseUp,
   terminalSelectionActionDelayForClickCount,
   terminalSelectionLineRange,
@@ -59,6 +61,16 @@ describe("shouldForwardThreadTerminalShortcut", () => {
     }
   });
 
+  it("passes the composer focus hop through the terminal", () => {
+    expect(
+      shouldForwardThreadTerminalShortcut(
+        shortcutEvent({ key: "`", ctrlKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        "Linux",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps plain input and unrelated shortcuts in the terminal", () => {
     expect(
       shouldForwardThreadTerminalShortcut(shortcutEvent({ key: "a" }), binding("thread.jump.1")),
@@ -69,6 +81,42 @@ describe("shouldForwardThreadTerminalShortcut", () => {
         binding("sidebar.toggle"),
         "Linux",
       ),
+    ).toBe(false);
+  });
+});
+
+describe("terminal focus requests", () => {
+  it("handles a non-zero request once when a fresh viewport becomes ready", () => {
+    expect(
+      shouldHandleTerminalFocusRequest({
+        focusOnRequest: true,
+        focusRequestId: 4,
+        handledFocusRequestId: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHandleTerminalFocusRequest({
+        focusOnRequest: true,
+        focusRequestId: 4,
+        handledFocusRequestId: 4,
+      }),
+    ).toBe(false);
+  });
+
+  it("never focuses for the zero no-request sentinel", () => {
+    expect(
+      shouldHandleTerminalFocusRequest({
+        focusOnRequest: true,
+        focusRequestId: 0,
+        handledFocusRequestId: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHandleTerminalFocusRequest({
+        focusOnRequest: true,
+        focusRequestId: 0,
+        handledFocusRequestId: 4,
+      }),
     ).toBe(false);
   });
 });
