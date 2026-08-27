@@ -274,6 +274,7 @@ function normalizeThreadRequest(frame: unknown, ignoredConfigKeys: ReadonlySet<s
     ),
   );
   for (const key of ignoredConfigKeys) delete owned[key];
+  delete owned.shell_environment_policy; // fork-hook: upstream-fixes/codex-replay-thread-identity
   return { ...record, params: { ...params, config: owned } };
 }
 
