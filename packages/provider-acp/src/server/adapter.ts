@@ -62,6 +62,10 @@ import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresen
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import {
+  providerSessionIdentity,
+  type ProviderSessionIdentity,
+} from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/acp-adapter-session-identity-import
+import {
   applyAcpAgentTerminalUpdate,
   acpContentBlockDisplayText,
   embeddedTerminalIdsFromSessionUpdate,
@@ -140,6 +144,7 @@ export interface AcpAdapterV2RuntimeInput {
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Scoped credentials for terminal fallback when an ACP agent drops `mcpServers`. */
   readonly processEnvironment?: NodeJS.ProcessEnv;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-adapter-session-identity-field
   readonly resumeSessionId?: string;
   readonly interruptPromptOnCancel?: boolean;
   readonly clientCapabilities: EffectAcpSchema.InitializeRequest["clientCapabilities"];
@@ -2102,6 +2107,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           onTermination: AcpAdapterV2RuntimeInput["onTermination"] = () =>
             handleRuntimeTerminationAtGeneration(runtimeGeneration),
         ): AcpAdapterV2RuntimeInput => {
+          const forkSessionIdentity = providerSessionIdentity(input); // fork-hook: upstream-fixes/acp-adapter-session-identity
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
@@ -2110,6 +2116,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             ...(mcpContext.processEnvironment === undefined
               ? {}
               : { processEnvironment: mcpContext.processEnvironment }),
+            sessionIdentity: forkSessionIdentity, // fork-hook: upstream-fixes/acp-adapter-session-identity-input
             ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
             interruptPromptOnCancel: flavor.interruptPromptOnCancel ?? false,
             clientCapabilities: {

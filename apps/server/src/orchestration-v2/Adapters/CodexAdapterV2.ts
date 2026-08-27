@@ -110,7 +110,7 @@ import {
 } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
@@ -120,6 +120,10 @@ import {
   MCP_APP_RESOURCE_SCHEME,
 } from "@t3tools/shared/mcpApp";
 import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
+import {
+  codexThreadIdentityConfig,
+  withoutProviderSessionIdentity,
+} from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/codex-shared-identity-import
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -1303,20 +1307,27 @@ export class CodexAppServerClientFactory extends Context.Service<
 export const CODEX_THREAD_CONFIG = { "tools.update_plan.enabled": true } as const;
 
 export function codexThreadRuntimeParams(input: {
+  readonly threadId?: ThreadId | null; // fork-hook: upstream-fixes/codex-runtime-thread-identity
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  readonly sessionIdentity?: { readonly projectId?: string | undefined }; // fork-hook: upstream-fixes/codex-thread-project-id
 }): {
   readonly cwd?: string;
   readonly model?: string;
   readonly config: Readonly<Record<string, Schema.Json>>;
 } {
   const { mcpSession } = input;
+  const forkThreadIdentity = codexThreadIdentityConfig({
+    ...input.sessionIdentity,
+    threadId: input.sessionIdentity === undefined ? undefined : (input.threadId ?? undefined),
+  }); // fork-hook: upstream-fixes/codex-thread-identity
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...forkThreadIdentity, // fork-hook: upstream-fixes/codex-thread-identity-config
       ...(mcpSession === undefined
         ? {}
         : {
@@ -1506,8 +1517,9 @@ export const layerAppServerClientFactory: Layer.Layer<
       open: (input) =>
         Effect.gen(function* () {
           const scope = yield* Scope.Scope;
+          const forkSharedEnvironment = withoutProviderSessionIdentity(input.environment); // fork-hook: upstream-fixes/codex-shared-identity
           const environment = {
-            ...input.environment,
+            ...forkSharedEnvironment, // fork-hook: upstream-fixes/codex-shared-identity-env
             ...(input.settings.homePath ? { CODEX_HOME: input.settings.homePath } : {}),
           };
           const command = yield* makeCodexAppServerSpawnCommand({
@@ -6470,8 +6482,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   "thread/start",
                   codexThreadRuntimeParams({
                     mcpSession,
+                    threadId: threadInput.threadId,
                     modelSelection: threadInput.modelSelection,
                     runtimePolicy: threadInput.runtimePolicy,
+                    sessionIdentity: { projectId: threadInput.projectId }, // fork-hook: upstream-fixes/codex-start-project-id
                   }),
                 ),
               ),
@@ -6505,6 +6519,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   mcpSession: yield* readMcpSession(
                     threadInput.threadId ?? threadInput.providerThread.appThreadId,
                   ),
+                  threadId: threadInput.threadId ?? threadInput.providerThread.appThreadId, // fork-hook: upstream-fixes/codex-resume-thread-id
+                  sessionIdentity: { projectId: threadInput.projectId }, // fork-hook: upstream-fixes/codex-resume-project-id
                   ...(threadInput.modelSelection === undefined
                     ? {}
                     : { modelSelection: threadInput.modelSelection }),
@@ -7233,8 +7249,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   excludeTurns: true,
                   ...codexThreadRuntimeParams({
                     mcpSession: yield* readMcpSession(threadInput.providerThread.appThreadId),
+                    threadId: threadInput.providerThread.appThreadId, // fork-hook: upstream-fixes/codex-rollback-thread-identity
                     modelSelection: input.modelSelection,
                     runtimePolicy: input.runtimePolicy,
+                    sessionIdentity: { projectId: threadInput.projectId }, // fork-hook: upstream-fixes/codex-rollback-project-id
                   }),
                 });
               }
@@ -7282,6 +7300,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                       : { lastTurnId: boundary.lastTurnId }),
                     ...codexThreadRuntimeParams({
                       mcpSession: yield* mcpSessions.read(threadInput.targetThreadId),
+                      threadId: threadInput.targetThreadId, // fork-hook: upstream-fixes/codex-fork-thread-id
+                      sessionIdentity: { projectId: threadInput.projectId }, // fork-hook: upstream-fixes/codex-fork-project-id
                       ...(threadInput.modelSelection === undefined
                         ? {}
                         : { modelSelection: threadInput.modelSelection }),

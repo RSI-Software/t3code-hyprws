@@ -49,6 +49,10 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import {
+  providerSessionProjectId,
+  withThreadProjects,
+} from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/open-session-project-id-import
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -2082,6 +2086,10 @@ export const layerWithOptions = (
                   dropMcpCredentialReservation(input.threadId, mcpCredentialId);
                 }
               });
+              const forkSessionProject = yield* providerSessionProjectId(
+                projectionStore,
+                input.threadId,
+              ); // fork-hook: upstream-fixes/open-session-project-id-lookup
               const sessionScope = yield* Scope.fork(sessionScopes);
               const runtime = yield* adapter
                 .openSession({
@@ -2101,6 +2109,7 @@ export const layerWithOptions = (
                         initialProviderItemIdentityVersion:
                           input.initialProviderItemIdentityVersion,
                       }),
+                  ...forkSessionProject, // fork-hook: upstream-fixes/open-session-project-id-spread
                 })
                 .pipe(
                   Effect.provideService(Scope.Scope, sessionScope),
@@ -2144,7 +2153,10 @@ export const layerWithOptions = (
               const eventSubscribers = yield* Ref.make<
                 ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
               >(new Map());
-              const exposedRuntime = decorateRuntime(runtime, eventSubscribers);
+              const exposedRuntime = decorateRuntime(
+                withThreadProjects(projectionStore, runtime),
+                eventSubscribers,
+              ); // fork-hook: upstream-fixes/thread-project-runtime
               const now = yield* Clock.currentTimeMillis;
               const entry: LiveSessionEntry = {
                 attachedThreadIds: new Set([input.threadId]),

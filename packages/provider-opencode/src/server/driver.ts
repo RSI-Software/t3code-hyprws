@@ -62,7 +62,8 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
+import { withoutProviderSessionIdentity } from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/opencode2-shared-identity-import
 import {
   enrichProviderSnapshotWithVersionAdvisory,
   makeCachedProviderMaintenanceResolution,
@@ -282,12 +283,13 @@ export const OpenCodeDriver: ProviderDriver<
         ),
       );
       // One OpenCode 2 server per instance, spawned on first use or reached at `serverUrl`.
+      const forkSharedEnvironment = withoutProviderSessionIdentity(processEnv); // fork-hook: upstream-fixes/opencode2-shared-identity
       const openCode2Server = yield* OpenCode2Server.make({
         binaryPath: effectiveConfig.binaryPath,
         serverUrl: effectiveConfig.serverUrl,
         serverPassword: effectiveConfig.serverPassword,
         directory: host.paths.cwd,
-        environment: processEnv,
+        environment: forkSharedEnvironment, // fork-hook: upstream-fixes/opencode2-shared-identity-env
       }).pipe(
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, openCodeRuntime),
         Effect.provideService(

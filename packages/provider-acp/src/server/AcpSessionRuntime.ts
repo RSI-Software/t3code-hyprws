@@ -26,11 +26,16 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env"; // fork-hook: upstream-fixes/acp-spawn-scrub-import
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./stderr.ts";
+import {
+  type ProviderSessionIdentity,
+  withSessionIdentityWhenKnown,
+} from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/acp-session-identity-import
 import {
   collectSessionConfigOptionValues,
   decideToolCallUpdateEmission,
@@ -88,10 +93,12 @@ export interface AcpSpawnInput {
   readonly env?: NodeJS.ProcessEnv;
   readonly extendEnv?: boolean;
   readonly shell?: false;
+  readonly harnessKind?: string; // fork-hook: upstream-fixes/acp-harness-kind
 }
 
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-session-identity-option
   readonly cwd: string;
   readonly resumeSessionId?: string;
   readonly resumeMethod?: "load" | "resume";
@@ -1509,12 +1516,19 @@ export const make = (
         ),
       );
 
+    const spawnEnv = {
+      ...stripForeignHarnessIdentityEnv(
+        options.spawn.extendEnv === false ? {} : stripInheritedTmuxEnv(process.env),
+        options.spawn.harnessKind,
+      ),
+      ...options.spawn.env,
+    }; // fork-hook: upstream-fixes/acp-spawn-scrub
     const spawnCommand =
       options.spawn.shell === false
         ? { command: options.spawn.command, args: options.spawn.args, shell: false }
         : yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
-            ...(options.spawn.env ? { env: options.spawn.env } : {}),
-            extendEnv: options.spawn.extendEnv ?? true,
+            env: spawnEnv, // fork-hook: upstream-fixes/acp-spawn-environment
+            extendEnv: false, // fork-hook: upstream-fixes/acp-spawn-environment
           });
     const linuxCgroupLease =
       options.ownDescendantProcessGroups === true && options.processGroupPlatform === "linux"
@@ -1571,12 +1585,16 @@ export const make = (
             ELECTRON_RUN_AS_NODE: "1",
             T3_ACP_CGROUP_WRAPPER: "1",
           };
+    const forkSpawnEnv = withSessionIdentityWhenKnown(
+      spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment },
+      options.sessionIdentity,
+    ); // fork-hook: upstream-fixes/acp-session-identity
     const child = yield* spawner
       .spawn(
         ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
           ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
-          ...(spawnEnvironment ? { env: spawnEnvironment } : {}),
-          extendEnv: options.spawn.extendEnv ?? true,
+          env: forkSpawnEnv, // fork-hook: upstream-fixes/acp-session-identity-env
+          extendEnv: false, // fork-hook: upstream-fixes/acp-spawn-environment
           ...(options.ownDetachedProcessGroup === undefined
             ? {}
             : { detached: options.ownDetachedProcessGroup }),
