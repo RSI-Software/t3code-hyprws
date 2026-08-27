@@ -27,7 +27,7 @@ import {
   type ProviderDriver,
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import {
   makeCachedProviderMaintenanceResolution,
   resolveProviderMaintenanceCapabilitiesEffect,
