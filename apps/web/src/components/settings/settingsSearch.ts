@@ -450,6 +450,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     localBackendManagementOnly: true,
   },
   {
+    id: "github-issue-handoff-prompt",
+    title: "GitHub issue handoff prompt",
+    to: "/settings/source-control",
+  },
+  {
     id: "network-access",
     title: "Network access",
     to: "/settings/connections",
