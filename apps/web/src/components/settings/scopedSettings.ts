@@ -21,6 +21,7 @@ import {
   resolveWorktreeCleanup,
   type ProjectSettingSource,
 } from "@t3tools/shared/projectSettings";
+import { patchProjectThreadEnvModeOverride } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-patch-replace-import
 import * as Equal from "effect/Equal";
 import * as Cause from "effect/Cause";
 
@@ -238,8 +239,14 @@ export function planScopedSettingsPatch(
   const serverKeys = Object.keys(serverPatch);
   const { connectedEnvironments } = selectScopedSettingsEnvironments(scope, environments, null);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  // Fork: the thread mode's `...Fork` sibling travels with the wire slot it
+  // belongs to, so it never counts as an unscopable key on its own.
   const unscopableKeys = isProjectScope
-    ? serverKeys.filter((key) => !isProjectScopedSettingKey(key))
+    ? serverKeys.filter(
+        (key) =>
+          !isProjectScopedSettingKey(key) &&
+          !(key === "defaultThreadEnvModeFork" && "defaultThreadEnvMode" in serverPatch),
+      )
     : [];
   const serverWrites: ScopedServerWrite[] =
     serverKeys.length === 0
@@ -288,6 +295,7 @@ export function planScopedSettingsPatch(
                 next[key] =
                   isPlainObject(value) && isPlainObject(base) ? { ...base, ...value } : value;
               }
+              patchProjectThreadEnvModeOverride(next, serverPatch); // fork-hook: worktrunk-hooks/env-mode-patch-replace
               return next as ProjectSettingsOverrides;
             })
         : scope.kind === "all" || scope.kind === "environment"
