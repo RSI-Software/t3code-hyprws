@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
   ModelSelection,
   ProjectId,
@@ -55,6 +56,7 @@ import {
   readSecretFieldValues,
   sourceControlHostSecretName,
 } from "./sourceControl/sourceControlHostSecrets.ts";
+import { foldLegacyWorktrunkEnvModeFork } from "./serverSettings.fork.ts"; // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode-import
 
 import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./settingsSecrets.ts";
 
@@ -356,7 +358,9 @@ const decodeServerSettingsJsonExit = (raw: string) => {
   if (parsed._tag === "Failure") {
     return parsed;
   }
-  return decodeServerSettingsExit(migrateLegacyZmuxSettings(parsed.value));
+  return decodeServerSettingsExit(
+    migrateLegacyForkThreadEnvModeSettings(migrateLegacyZmuxSettings(parsed.value)),
+  );
 };
 
 function migrateLegacyProviderSettings(
@@ -556,6 +560,7 @@ function foldLegacyProjectSettings(
     if (row.defaultThreadEnvMode === "local" || row.defaultThreadEnvMode === "worktree") {
       set(row.projectId, "defaultThreadEnvMode", row.defaultThreadEnvMode);
     }
+    foldLegacyWorktrunkEnvModeFork(entries, row); // fork-hook: worktrunk-hooks/fold-legacy-worktrunk-env-mode
     if (row.autoPull === 1) set(row.projectId, "defaultAutoPull", true);
     const scripts = decodeProjectScriptsJson(row.scripts);
     if (Option.isSome(scripts) && scripts.value.length > 0 && !resetScripts.has(row.projectId)) {
