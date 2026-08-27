@@ -1293,6 +1293,9 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   branch: Schema.optional(TrimmedNonEmptyString),
   startFromOrigin: Schema.optional(Schema.Boolean),
   requireWorktree: Schema.optional(Schema.Boolean),
+  // The worktree is a Worktrunk worktree: the server runs the project's
+  // Worktrunk hooks around its create and remove.
+  worktrunk: Schema.optional(Schema.Boolean),
 });
 
 const ThreadTurnStartBootstrap = Schema.Struct({
