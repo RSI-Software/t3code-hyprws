@@ -10806,7 +10806,7 @@ export default function ChatView(props: ChatViewProps) {
   return (
     <div
       ref={workspaceLayoutRef}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background [&>[data-preview-panel-mode=inline]:focus-within]:border-ring"
     >
       <Dialog
         open={
@@ -11099,6 +11099,7 @@ export default function ChatView(props: ChatViewProps) {
                       contextStrip={showComposerContextStrip || showComposerModelStrip}
                     >
                       <ComposerSurface.Host
+                        className="sm:focus-within:ring-1 sm:focus-within:ring-ring"
                         inert={isSavingQueuedEdit}
                         aria-busy={isSavingQueuedEdit}
                       >
