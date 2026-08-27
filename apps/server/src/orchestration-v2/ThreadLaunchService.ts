@@ -62,6 +62,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      readonly worktrunk?: boolean | undefined; // fork-hook: worktrunk-hooks/launch-strategy-worktrunk
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -481,6 +482,7 @@ const make = Effect.gen(function* () {
           threadId,
           projectCwd: project.workspaceRoot,
           worktreePath,
+          strategy: input.workspaceStrategy, // fork-hook: worktrunk-hooks/launch-worktree-strategy
         }); // fork-hook: zmux-estate/launch-worktree-zmux-bind
       }
 
