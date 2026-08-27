@@ -54,6 +54,7 @@ import {
   type Icon,
 } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   PolicyTooltip,
@@ -591,7 +592,12 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
-      {isPrimaryEnvironment ? <SourceControlWritingSettingsSection /> : null}
+      {isPrimaryEnvironment ? (
+        <>
+          <GitHubIssueSettingsSection />
+          <SourceControlWritingSettingsSection />
+        </>
+      ) : null}
     </SettingsPageContainer>
   );
 }

@@ -31,6 +31,19 @@ describe("GitHub issue handoff", () => {
     expect(prompt.split("\n")).toHaveLength(3);
   });
 
+  it("fills every supported field in a custom template", () => {
+    expect(
+      githubIssueHandoffPrompt(
+        {
+          number: 42,
+          title: "Fix the cache",
+          url: "https://github.com/acme/web/issues/42",
+        },
+        "Issue {{number}}: {{title}}\nSource: {{url}}\nAgain: {{number}}",
+      ),
+    ).toBe("Issue 42: Fix the cache\nSource: https://github.com/acme/web/issues/42\nAgain: 42");
+  });
+
   it("seeds only an empty destination composer", () => {
     const setPrompt = vi.fn();
     expect(
