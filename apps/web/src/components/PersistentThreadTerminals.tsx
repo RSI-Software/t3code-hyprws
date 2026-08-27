@@ -177,6 +177,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     reconcileTerminalIds(threadRef, serverOrderedTerminalIds);
   }, [reconcileTerminalIds, serverOrderedTerminalIds, terminalUiState.terminalIds, threadRef]);
   const [localFocusRequestId, setLocalFocusRequestId] = useState(0);
+  if (!visible && localFocusRequestId !== 0) setLocalFocusRequestId(0);
   const worktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveWorktreePath = launchContext !== null ? launchContext.worktreePath : worktreePath;
   const cwd =
@@ -195,9 +196,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     : {};
 
   const bumpFocusRequestId = () => {
-    if (!visible) {
-      return;
-    }
+    if (!visible) return;
     setLocalFocusRequestId((value) => value + 1);
   };
 
@@ -272,7 +271,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           activeTerminalId={terminalUiState.activeTerminalId}
           terminalGroups={terminalUiState.terminalGroups}
           activeTerminalGroupId={terminalUiState.activeTerminalGroupId}
-          focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
+          focusRequestId={focusRequestId + localFocusRequestId}
           onSplitTerminal={splitTerminal}
           onSplitTerminalVertical={splitTerminalVertical}
           onNewTerminal={createNewTerminal}
