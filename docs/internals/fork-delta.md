@@ -59,6 +59,11 @@ A `bugfix` that upstream reproduces is a retire candidate, not fork delta we wan
 Wait for upstream to fix the defect on its own, then drop the commit at the next rebase.
 The fork does not ask upstream to make that happen.
 
+Every signalled commit gets one retirement outcome during the rebase. **Retire** records the dropped
+subject under [Retired](#retired). **Keep** records the subject and reason under [Kept](#kept), so the
+next report does not ask again. **Partial** records the same subject in both tables: the replacement
+cell says what portion upstream supplied, while the keep reason says what fork behaviour remains.
+
 ## Trailers
 
 Every fork commit carries `Fork-Domain` and `Fork-Tier`.
@@ -110,6 +115,23 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
+
+## Retired
+
+| Fork commit | Domain | Upstream replacement | Retired at |
+| ----------- | ------ | -------------------- | ---------- |
+
+References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never
+live links. A retired-only subject must no longer be present in the fork stack; `fork:delta --check`
+reports it as `retired but present` until the rebase drops it.
+
+## Kept
+
+| Fork commit | Domain | Reason | Reviewed at |
+| ----------- | ------ | ------ | ----------- |
+
+A kept reason documents the fork behaviour that the overlap signal did not replace. A subject in
+both Retired and Kept is a partial decision and remains in the active fork ledger.
 
 ## project-windows
 
