@@ -267,6 +267,13 @@ Fork branding and local workstation preferences belong in documentation or the d
 
 ## Syncing upstream
 
+### Guided stable-tag sync
+
+Run upstream stable-tag rebases through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md)
+skill. Its five gates keep the rewrite on a rehearsal branch, commit the record under
+[`docs/operations/fork-sync-records/`](../operations/fork-sync-records/), and stop before the human-only
+lease push and release.
+
 Rebase the fork trunk onto upstream history.
 Do not merge `upstream/main` into `hyprws`, because repeated merge commits obscure the patch stack.
 
