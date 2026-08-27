@@ -545,6 +545,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
         ? ["Terminal session"]
         : []),
+      ...(settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks
+        ? ["Run Worktrunk hooks"]
+        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -655,6 +658,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.terminalSessionMode,
+      settings.worktrunkHooks,
       settings.wordWrap,
       followSystem,
       theme,
@@ -729,6 +733,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
+      worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
@@ -2754,6 +2759,29 @@ export function GeneralSettingsPanel() {
             }
           />
         ) : null}
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("worktrunk-hooks")}
+          description="Run the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. A project's t3.json worktrunkHooks overrides this."
+          resetAction={
+            settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks ? (
+              <SettingResetButton
+                label="worktrunk hooks"
+                onClick={() =>
+                  updateSettings({ worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.worktrunkHooks}
+              onCheckedChange={(checked) => updateSettings({ worktrunkHooks: Boolean(checked) })}
+              aria-label="Run Worktrunk hooks"
+            />
+          }
+        />
+
         <SettingsRow
           serverScoped
           {...searchableSetting("add-project-starts-in")}
