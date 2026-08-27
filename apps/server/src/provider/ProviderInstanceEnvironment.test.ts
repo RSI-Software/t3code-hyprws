@@ -24,6 +24,7 @@ describe("mergeProviderInstanceEnvironment", () => {
           { name: "CLAUDE_CONFIG_DIR", value, sensitive: false },
           { name: "CUSTOM_VALUE", value, sensitive: false },
         ],
+        "codex",
         baseEnv,
       );
 
@@ -39,20 +40,9 @@ describe("mergeProviderInstanceEnvironment", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it("leaves inherited provider homes unchanged", () => {
-    const baseEnv = { CODEX_HOME: "~/.codex", CLAUDE_CONFIG_DIR: "~\\.claude" };
-
-    expect(
-      mergeProviderInstanceEnvironment(
-        [{ name: "CUSTOM_VALUE", value: "~/.custom", sensitive: false }],
-        baseEnv,
-      ),
-    ).toEqual({ ...baseEnv, CUSTOM_VALUE: "~/.custom" });
-  });
-
   it("strips inherited tmux environment without changing unrelated values", () => {
     expect(
-      mergeProviderInstanceEnvironment(undefined, {
+      mergeProviderInstanceEnvironment(undefined, "codex", {
         TMUX: "/tmp/tmux-1000/default,123,0",
         TMUX_PANE: "%42",
         TMUX_TMPDIR: "/tmp/tmux-1000",
@@ -68,6 +58,7 @@ describe("mergeProviderInstanceEnvironment", () => {
           { name: "OPENROUTER_API_KEY", value: "sk-or-test", sensitive: true },
           { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
         ],
+        "codex",
         { ANTHROPIC_API_KEY: "inherited", PATH: "/bin" },
       ),
     ).toMatchObject({
