@@ -16,6 +16,7 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Rebase `hyprws` onto upstream release tags; never merge upstream into the fork branch.
 - Rebase onto an upstream stable tag through the `fork-sync` skill.
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
+- Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
 - Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.

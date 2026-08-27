@@ -55,6 +55,26 @@ jobs:
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
 
+      # A live `pingdotgg/t3code#N` or item URL in a fork body posts a backlink
+      # on the upstream thread, and a bare `#N` the fork never issued resolves
+      # there, so a citation must sit in a code span or a fence and a fork item
+      # must name this fork in full (docs/internals/fork-development.md). The
+      # guard reports every bare number, because it cannot tell those apart
+      # offline. This is a backstop, not the gate:
+      # the body is already published by the time the run starts, so it reports
+      # a backlink that has fired rather than preventing one. `vp run
+      # fork:upstream-refs` against the body file before publishing is the gate,
+      # and it is the only thing that covers an issue or a comment. Runs before
+      # the squash-body ledger so a failure there cannot hide this one; see
+      # docs/internals/scripts.md for what stays unguarded.
+      - name: Upstream citations
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
+          vp run fork:upstream-refs "$RUNNER_TEMP/pull-request-body.md"
+
       # The squash commit takes the pull-request body as its message, so the
       # body must already end with the trailer block. `edited` above re-runs
       # this when the body changes.
