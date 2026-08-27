@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
+import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
   MergeTreeError,
   parseMergeTreeResult,
@@ -55,7 +56,7 @@ const forkReleased = commit("d", "feat(desktop): released fork change");
 const forkUnreleased = commit("e", "unscoped fork change");
 
 const fixture: ForkRebaseReport = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   generatedBy: "vp run fork:rebase-report",
   sharedBase: {
     sha: "a".repeat(40),
@@ -127,6 +128,7 @@ const fixture: ForkRebaseReport = {
       automerged: [],
     },
   },
+  retireCandidates: [],
 };
 
 it("classifies conventional prefixes and leaves prose as Other", () => {
@@ -185,7 +187,7 @@ it("encodes versioned, stable, ANSI-free JSON", () => {
   const first = encodeReportJson(fixture);
   const second = encodeReportJson(fixture);
   assert.strictEqual(first, second);
-  assert.strictEqual(JSON.parse(first).schemaVersion, 2);
+  assert.strictEqual(JSON.parse(first).schemaVersion, 3);
   assert.notMatch(first, /\u001b\[/);
 });
 
@@ -223,6 +225,7 @@ interface GitFixture {
   readonly cleanTargetSha: string;
   readonly conflictTargetSha: string;
   readonly introducingSha: string;
+  readonly alreadyUpstreamSha: string;
 }
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
@@ -243,12 +246,14 @@ const makeGitFixture = (): GitFixture => {
 
   writeLines(root, "shared.txt");
   writeLines(root, "auto.txt");
+  writeLines(root, "adjacent.txt");
   git(root, ["add", "."]);
   git(root, ["commit", "-m", "base"]);
   git(root, ["branch", "fork-stack"]);
 
   git(root, ["switch", "-c", "upstream-lane"]);
   writeLines(root, "auto.txt", { 30: "upstream auto change" });
+  writeLines(root, "adjacent.txt", { 12: "upstream adjacent change" });
   NodeFS.writeFileSync(NodePath.join(root, "upstream.txt"), "upstream\n");
   git(root, ["add", "."]);
   git(root, ["commit", "-m", "fix: clean upstream change"]);
@@ -268,6 +273,7 @@ const makeGitFixture = (): GitFixture => {
   git(root, ["switch", "fork-stack"]);
   writeLines(root, "shared.txt", { 2: "fork first conflict", 30: "fork second conflict" });
   writeLines(root, "auto.txt", { 2: "fork auto change" });
+  writeLines(root, "adjacent.txt", { 10: "fork adjacent change" });
   git(root, ["add", "."]);
   git(root, [
     "commit",
@@ -276,10 +282,34 @@ const makeGitFixture = (): GitFixture => {
     "-m",
     "Fork-Domain: fixture-domain\nFork-Tier: qol",
   ]);
+  const introducingSha = git(root, ["rev-parse", "HEAD"]);
+
+  NodeFS.writeFileSync(NodePath.join(root, "upstream.txt"), "upstream\n");
+  git(root, ["add", "upstream.txt"]);
+  git(root, [
+    "commit",
+    "-m",
+    "fix(test): change already upstream",
+    "-m",
+    "Fork-Domain: fixture-domain\nFork-Tier: bugfix\nFork-Upstreamable: yes",
+  ]);
   const sourceSha = git(root, ["rev-parse", "HEAD"]);
   git(root, ["update-ref", "refs/remotes/origin/hyprws", sourceSha]);
 
-  return { root, sourceSha, cleanTargetSha, conflictTargetSha, introducingSha: sourceSha };
+  NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(root, "docs/internals/fork-delta.md"),
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
+  );
+
+  return {
+    root,
+    sourceSha,
+    cleanTargetSha,
+    conflictTargetSha,
+    introducingSha,
+    alreadyUpstreamSha: sourceSha,
+  };
 };
 
 it("reports a clean fork stack through a non-conflicting target", () => {
@@ -290,10 +320,25 @@ it("reports a clean fork stack through a non-conflicting target", () => {
       "origin/hyprws",
       fixtureRepo.cleanTargetSha,
     );
-    assert.strictEqual(report.schemaVersion, 2);
+    assert.strictEqual(report.schemaVersion, 3);
     assert.strictEqual(report.feasibility.ffBoundary.firstConflict, null);
     assert.strictEqual(report.feasibility.ffBoundary.cleanCommitCount, 1);
     assert.deepStrictEqual(report.feasibility.conflicts, []);
+    assert.deepStrictEqual(
+      report.retireCandidates.map((candidate) => [
+        candidate.commit,
+        candidate.signals.map((signal) => signal.kind),
+      ]),
+      [
+        [fixtureRepo.introducingSha, ["behaviour-overlap"]],
+        [fixtureRepo.alreadyUpstreamSha, ["already-upstream", "behaviour-overlap"]],
+      ],
+    );
+    assert.include(
+      report.retireCandidates[0]?.signals[0]?.evidence ?? "",
+      "weak hunk overlap: adjacent.txt@10~12",
+    );
+    assert.notInclude(report.retireCandidates[0]?.signals[0]?.evidence ?? "", "auto.txt");
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
@@ -329,13 +374,42 @@ it("finds conflict commit N, attributes files and counts conflict hunks and over
       tier: "qol",
     });
     assert.deepStrictEqual(report.feasibility.overlap, {
-      upstreamChanged: 3,
-      forkChanged: 2,
-      overlap: 2,
+      upstreamChanged: 4,
+      forkChanged: 4,
+      overlap: 4,
       hardConflict: 1,
-      automerged: ["auto.txt"],
+      automerged: ["adjacent.txt", "auto.txt", "upstream.txt"],
     });
+    const overlap = report.retireCandidates.find(
+      (candidate) => candidate.commit === fixtureRepo.introducingSha,
+    );
+    assert.include(overlap?.signals[0]?.evidence ?? "", "hard: shared.txt (2 hunks)");
+    assert.include(overlap?.signals[0]?.evidence ?? "", "weak hunk overlap: adjacent.txt@10~12");
+    assert.notInclude(overlap?.signals[0]?.evidence ?? "", "auto.txt");
     assert.include(renderMarkdown(report), "Feasibility: clean through 1/2 upstream commits");
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
+});
+
+it("renders a recorded keep as kept instead of a fresh candidate", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    const ledger = parseForkRetirementLedger(
+      "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n| feat(test): introduce fork changes | fixture-domain | upstream changed another hunk | v1.0.0 |\n",
+    );
+    const report = buildReport(
+      new SystemGit(fixtureRepo.root),
+      "origin/hyprws",
+      fixtureRepo.cleanTargetSha,
+      ledger,
+    );
+    const kept = report.retireCandidates.find(
+      (candidate) => candidate.commit === fixtureRepo.introducingSha,
+    );
+    assert.strictEqual(kept?.decision, "keep");
+    assert.strictEqual(kept?.reason, "upstream changed another hunk");
+    assert.include(renderMarkdown(report), "| kept — upstream changed another hunk |");
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
@@ -368,7 +442,7 @@ it("treats merge-tree exit codes above one as command errors", () => {
   );
 });
 
-it("checks schema v2 output for default and explicit targets and detects a moved ref", () => {
+it("checks schema v3 output for default and explicit targets and detects a moved ref", () => {
   const fixtureRepo = makeGitFixture();
   try {
     const args = ["--json-out", "report.json", "--markdown-out", "report.md"];
@@ -380,7 +454,7 @@ it("checks schema v2 output for default and explicit targets and detects a moved
     assert.strictEqual(
       JSON.parse(NodeFS.readFileSync(NodePath.join(fixtureRepo.root, "report.json"), "utf8"))
         .schemaVersion,
-      2,
+      3,
     );
     assert.strictEqual(run([...args, "--check"], fixtureRepo.root), 0);
 
