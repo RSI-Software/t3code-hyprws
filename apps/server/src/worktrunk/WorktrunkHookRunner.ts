@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 
+import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -61,8 +62,9 @@ export interface WorktrunkPostRemoveHookInput {
  * created itself, so the worktree matches one made with `wt switch --create`.
  * Every hook runs headless through `wt hook <type> --yes`; `pre-*` hooks block
  * and `post-start` returns once `wt` has detached its hooks, exactly as the
- * `wt` commands do. Settings, `t3.json`, `.config/wt.toml`, and the `wt`
- * binary gate every call; a skipped hook leaves upstream behaviour untouched.
+ * `wt` commands do. The project record, `t3.json`, settings, `.config/wt.toml`,
+ * and the `wt` binary gate every call, in that order; a skipped hook leaves
+ * upstream behaviour untouched.
  */
 export class WorktrunkHookRunner extends Context.Service<
   WorktrunkHookRunner,
@@ -113,6 +115,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const projectFileLoader = yield* T3ProjectFileLoader.T3ProjectFileLoader;
+  const projectRepository = yield* ProjectionProjectRepository;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const hostEnvironment = yield* HostProcessEnvironment;
   const env = stripInheritedTmuxEnv(hostEnvironment);
@@ -122,9 +125,44 @@ export const make = Effect.gen(function* () {
       Effect.as({ status: "skipped", reason } as const),
     );
 
+  // The project record's override wins over t3.json and settings. Hooks run
+  // against the project checkout, so the record is the one whose workspace
+  // root is that checkout; a group of checkouts each carries its own row.
+  const projectOverride = Effect.fn("WorktrunkHookRunner.projectOverride")(function* (
+    projectCwd: string,
+  ) {
+    const projects = yield* projectRepository.listAll().pipe(
+      Effect.catch((error) =>
+        Effect.logDebug(
+          "Worktrunk hooks ignored the project override; projects could not be read",
+          {
+            projectCwd,
+            detail: error.message,
+          },
+        ).pipe(
+          Effect.as(
+            [] as ReadonlyArray<{
+              readonly workspaceRoot: string;
+              readonly deletedAt: string | null;
+              readonly worktrunkHooks?: boolean | null;
+            }>,
+          ),
+        ),
+      ),
+    );
+    const target = path.resolve(projectCwd);
+    for (const project of projects) {
+      if (project.deletedAt !== null || path.resolve(project.workspaceRoot) !== target) continue;
+      if (project.worktrunkHooks != null) return project.worktrunkHooks;
+    }
+    return undefined;
+  });
+
   const checkEnabled = Effect.fn("WorktrunkHookRunner.checkEnabled")(function* (
     projectCwd: string,
   ) {
+    const override = yield* projectOverride(projectCwd);
+    if (override !== undefined) return override;
     const settingsEnabled = yield* serverSettings.getSettings.pipe(
       Effect.map((settings) => settings.worktrunkHooks),
       Effect.catch((error) =>
