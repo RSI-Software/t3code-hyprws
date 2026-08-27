@@ -23,9 +23,11 @@ import {
   AuthOrchestrationOperateScope,
   AuthTerminalOperateScope,
   type ContextMenuItem,
+  type KeybindingCommand,
   type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
@@ -60,12 +62,9 @@ import { useOpenInPreferredEditor } from "../editorPreferences";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { isTerminalUrl } from "../terminal-links";
 import {
-  isDiffToggleShortcut,
   isTerminalClearShortcut,
-  isTerminalNewShortcut,
-  isTerminalSplitShortcut,
-  isTerminalSplitVerticalShortcut,
-  isTerminalToggleShortcut,
+  resolveShortcutCommand,
+  type ShortcutEventLike,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "../keybindings";
@@ -103,6 +102,29 @@ import {
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
+const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "terminal.toggle",
+  "terminal.new",
+  "terminal.split",
+  "terminal.splitVertical",
+  "terminal.close",
+  "diff.toggle",
+  "thread.previous",
+  "thread.next",
+  ...THREAD_JUMP_KEYBINDING_COMMANDS,
+]);
+
+export function shouldForwardThreadTerminalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  platform?: string,
+): boolean {
+  const command = resolveShortcutCommand(event, keybindings, {
+    ...(platform === undefined ? {} : { platform }),
+    context: { terminalFocus: true, terminalOpen: true },
+  });
+  return command !== null && THREAD_TERMINAL_WINDOW_COMMANDS.has(command);
+}
 
 interface DrawerLayout {
   viewportHeight: number;
@@ -934,17 +956,10 @@ function TerminalSessionViewport({
 
       function handleBeforeKey(event: KeyboardEvent): boolean {
         const currentKeybindings = readKeybindings();
-        const options = { context: { terminalFocus: true, terminalOpen: true } };
         if (preventTerminalCloseShortcut(event, currentKeybindings)) {
           return false;
         }
-        if (
-          isTerminalToggleShortcut(event, currentKeybindings, options) ||
-          isTerminalSplitShortcut(event, currentKeybindings, options) ||
-          isTerminalSplitVerticalShortcut(event, currentKeybindings, options) ||
-          isTerminalNewShortcut(event, currentKeybindings, options) ||
-          isDiffToggleShortcut(event, currentKeybindings, options)
-        ) {
+        if (shouldForwardThreadTerminalShortcut(event, currentKeybindings)) {
           return false;
         }
 
