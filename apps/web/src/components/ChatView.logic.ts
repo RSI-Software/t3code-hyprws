@@ -247,6 +247,14 @@ export function codexArtifactTemplatePromptToAppend(
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+export function nextTerminalFocusRequestId(
+  previousThreadKey: string | null,
+  nextThreadKey: string | null,
+  currentRequestId: number,
+): number {
+  return previousThreadKey === nextThreadKey ? currentRequestId : 0;
+}
+
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;
   activeThreadKey: string | null;
@@ -645,6 +653,10 @@ export function getAntigravitySendBlockReason(
     return "That Antigravity model is no longer available. Choose another model.";
   }
   return null;
+}
+
+export function shouldAutoFocusComposerOnThreadChange(activeThreadId: string | null): boolean {
+  return activeThreadId !== null;
 }
 
 export function reconcileMountedTerminalThreadIds(input: {
