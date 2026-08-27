@@ -7,6 +7,9 @@ import type {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
+import { ForkThreadEnvMode } from "@t3tools/contracts"; // fork-hook: worktrunk-hooks/env-mode-enum-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-predicate-import
+import { resolveForkEnvModeLabel } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -22,7 +25,7 @@ export interface EnvironmentOption {
   machine: EnvironmentMachineKind;
 }
 
-export const EnvMode = Schema.Literals(["local", "worktree"]);
+export const EnvMode = Schema.Literals(ForkThreadEnvMode.literals); // fork-hook: worktrunk-hooks/env-mode-enum
 export type EnvMode = typeof EnvMode.Type;
 
 const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
@@ -91,6 +94,8 @@ export function resolveContextStripLabelsCompact(input: {
 }
 
 export function resolveEnvModeLabel(mode: EnvMode): string {
+  const forkLabel = resolveForkEnvModeLabel(mode); // fork-hook: worktrunk-hooks/env-mode-label
+  if (forkLabel !== null) return forkLabel;
   return mode === "worktree" ? "New worktree" : "Current checkout";
 }
 
@@ -109,9 +114,12 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 export function resolveLockedWorkspaceLabel(
   activeWorktreePath: string | null,
   effectiveEnvMode: EnvMode,
+  worktrunk = false, // fork-hook: worktrunk-hooks/locked-label-worktrunk-param
 ): string {
-  if (activeWorktreePath) return "Worktree";
-  return effectiveEnvMode === "worktree" ? resolveEnvModeLabel("worktree") : "Local checkout";
+  if (activeWorktreePath) return worktrunk ? "Worktrunk" : "Worktree"; // fork-hook: worktrunk-hooks/locked-label-worktrunk
+  return isWorktreeEnvMode(effectiveEnvMode)
+    ? resolveEnvModeLabel(effectiveEnvMode)
+    : "Local checkout"; // fork-hook: worktrunk-hooks/locked-label-worktree-mode
 }
 
 export interface PreviousWorktreeSeed {
@@ -170,14 +178,16 @@ export function resolveEffectiveEnvMode(input: {
    * from the start of that setup but gets its worktree path only at the end.
    */
   preparingWorktree?: boolean;
+  preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/effective-env-mode-preparing-input
 }): EnvMode {
   const { activeWorktreePath, hasServerThread, draftThreadEnvMode, preparingWorktree } = input;
   if (!hasServerThread) {
     if (activeWorktreePath) {
       return "local";
     }
-    return draftThreadEnvMode === "worktree" ? "worktree" : "local";
+    return draftThreadEnvMode ?? "local";
   }
+  if (!activeWorktreePath && preparingWorktree && input.preparingWorktrunk) return "worktrunk"; // fork-hook: worktrunk-hooks/effective-env-mode-preparing
   return activeWorktreePath || preparingWorktree ? "worktree" : "local";
 }
 
@@ -190,8 +200,8 @@ export function resolveDraftEnvModeAfterBranchChange(input: {
   if (nextWorktreePath) {
     return "worktree";
   }
-  if (effectiveEnvMode === "worktree" && !currentWorktreePath) {
-    return "worktree";
+  if (isWorktreeEnvMode(effectiveEnvMode) && !currentWorktreePath) {
+    return effectiveEnvMode;
   }
   return "local";
 }
@@ -203,7 +213,7 @@ export function resolveBranchToolbarValue(input: {
   currentGitBranch: string | null;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
-  if (envMode === "worktree" && !activeWorktreePath) {
+  if (isWorktreeEnvMode(envMode) && !activeWorktreePath) {
     return activeThreadBranch ?? currentGitBranch;
   }
   return currentGitBranch ?? activeThreadBranch;
@@ -226,7 +236,7 @@ export function resolveBranchTriggerLabel(input: {
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
-  if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
+  if (isWorktreeEnvMode(effectiveEnvMode) && !activeWorktreePath) {
     const baseRef =
       startFromOrigin && resolvedActiveBranchIsRemote === false
         ? `origin/${resolvedActiveBranch}`
