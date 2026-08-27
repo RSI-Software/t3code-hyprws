@@ -27,6 +27,7 @@ describe("buildGrokAcpSpawnInput", () => {
       command: "/usr/local/bin/grok",
       args: ["agent", "stdio"],
       cwd: "/tmp/project",
+      harnessKind: "grok",
       env: {
         XAI_API_KEY: "secret",
         GROK_OAUTH2_REFERRER: "t3code",

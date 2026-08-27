@@ -13,6 +13,8 @@ import {
 } from "../Layers/CursorProvider.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
+const CURSOR_DRIVER_KIND = "cursor";
+
 type CursorAcpRuntimeCursorSettings = Pick<CursorSettings, "apiEndpoint" | "binaryPath">;
 
 export interface CursorAcpRuntimeInput extends Omit<
@@ -42,6 +44,7 @@ export function buildCursorAcpSpawnInput(
       "acp",
     ],
     cwd,
+    harnessKind: CURSOR_DRIVER_KIND,
     ...(environment ? { env: environment } : {}),
   };
 }

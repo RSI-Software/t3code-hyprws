@@ -415,6 +415,7 @@ const makeCursorAcpProbeRuntime = (
             "acp",
           ],
           cwd: process.cwd(),
+          harnessKind: "cursor",
           ...(environment ? { env: environment } : {}),
         },
         cwd: process.cwd(),
