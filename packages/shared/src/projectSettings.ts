@@ -191,6 +191,17 @@ function resolveProjectOverrides(
     }
     effective[key] = value;
     sources[key] = "project";
+    // Fork: the thread mode's `...Fork` sibling is not a scopable key of its
+    // own; it travels with the override that carries the wire slot. The pair
+    // replaces wholesale, so the environment's sibling must never survive
+    // next to a project-set slot that lacks one.
+    if (key === "defaultThreadEnvMode") {
+      if (overrides.defaultThreadEnvModeFork !== undefined) {
+        effective.defaultThreadEnvModeFork = overrides.defaultThreadEnvModeFork;
+      } else {
+        delete effective.defaultThreadEnvModeFork;
+      }
+    }
   }
   // Like the environment guard, text generation never runs on an instance
   // this project turned off.
@@ -262,6 +273,9 @@ export function clearProjectSettingsOverrides(
   if (current === undefined) return null;
   const next = { ...current };
   for (const key of keys) delete next[key];
+  // Fork: the thread mode's `...Fork` sibling has no key of its own to clear;
+  // dropping the wire slot would otherwise leave a stale exact mode behind.
+  if (keys.includes("defaultThreadEnvMode")) delete next.defaultThreadEnvModeFork;
   return Object.keys(next).length === 0 ? null : next;
 }
 

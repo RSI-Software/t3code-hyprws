@@ -162,6 +162,7 @@ interface StartThreadBootstrap {
     readonly baseBranch: string;
     readonly branch?: string;
     readonly startFromOrigin?: boolean;
+    readonly worktrunk?: boolean; // fork-hook: worktrunk-hooks/bootstrap-worktrunk
   };
   readonly runSetupScript?: boolean;
 }
@@ -657,6 +658,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
             ...(prepareWorktree.startFromOrigin === undefined
               ? {}
               : { startFromOrigin: prepareWorktree.startFromOrigin }),
+            ...(prepareWorktree.worktrunk === true ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-strategy
           }
         : bootstrap?.worktreePath
           ? {
