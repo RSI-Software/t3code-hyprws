@@ -137,6 +137,8 @@ describe("KeybindingsSettings.logic", () => {
   it("formats static and project script command labels", () => {
     expect(commandLabel("commandPalette.toggle")).toBe("Command Palette: Toggle");
     expect(commandLabel("themeEditor.toggle")).toBe("Theme Editor: Toggle");
+    expect(commandLabel("terminal.focus")).toBe("Terminal: Focus");
+    expect(commandLabel("chat.focusComposer")).toBe("Chat: Focus Composer");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
   });
 
@@ -165,7 +167,13 @@ describe("KeybindingsSettings.logic", () => {
     ] satisfies ResolvedKeybindingsConfig);
 
     expect(options).toEqual(
-      expect.arrayContaining(["chat.new", "rightPanel.toggleMaximized", "script.setup-db.run"]),
+      expect.arrayContaining([
+        "chat.new",
+        "chat.focusComposer",
+        "terminal.focus",
+        "rightPanel.toggleMaximized",
+        "script.setup-db.run",
+      ]),
     );
   });
 
