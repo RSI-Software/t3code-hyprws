@@ -318,6 +318,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
+- `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
 - The fork trailer section of `.github/pull_request_template.md`.
 
 ### Retirement condition
@@ -329,8 +330,8 @@ Retired with the fork.
 | Path                                       | Why it matters                                                |
 | ------------------------------------------ | ------------------------------------------------------------- |
 | `README.md`, `AGENTS.md`, `docs/README.md` | Upstream edits these often and they carry fork-only sections. |
-| `package.json` scripts block               | `fork:delta` sits between upstream aliases.                   |
-| `docs/internals/scripts.md`                | Carries the `fork:delta` entry.                               |
+| `package.json` scripts block               | The `fork:*` aliases sit between upstream aliases.            |
+| `docs/internals/scripts.md`                | Carries the `fork:*` script entries.                          |
 | `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
 | `.github/pull_request_template.md`         | Carries the fork trailer block every squash body needs.       |
 
@@ -343,7 +344,7 @@ Upstream's workflows also target Blacksmith runners the fork does not have.
 
 ### Shape
 
-- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, and the desktop build on `hyprws`.
+- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, the upstream-citation guard, and the desktop build on `hyprws`.
 - `.github/workflows/hyprws-release.yml` builds a Linux x64 AppImage from a `v*-hyprws.*` tag and publishes it.
 
 Both run on GitHub-hosted runners, which are free for a public repository.
