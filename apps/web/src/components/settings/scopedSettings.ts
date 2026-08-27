@@ -22,6 +22,10 @@ import {
   resolveWorktreeCleanup,
   type ProjectSettingSource,
 } from "@t3tools/shared/projectSettings";
+import {
+  allowPairedThreadEnvModeFork,
+  patchProjectThreadEnvModeOverride,
+} from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-patch-replace-import
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Equal from "effect/Equal";
 import * as Cause from "effect/Cause";
@@ -309,6 +313,7 @@ export function planScopedSettingsPatch(
         ...serverKeys.filter((key) => !isProjectScopedSettingKey(key)),
       ]
     : [];
+  allowPairedThreadEnvModeFork(unscopableKeys, serverPatch); // fork-hook: worktrunk-hooks/env-mode-scopable-pair
   const clientPatch = Object.fromEntries(
     refusesClientKeys ? [] : Object.entries(patch).filter(([key]) => clientKeys.includes(key)),
   ) as ClientSettingsPatch;
@@ -359,6 +364,7 @@ export function planScopedSettingsPatch(
                 next[key] =
                   isPlainObject(value) && isPlainObject(base) ? { ...base, ...value } : value;
               }
+              patchProjectThreadEnvModeOverride(next, serverPatch); // fork-hook: worktrunk-hooks/env-mode-patch-replace
               return next as ProjectSettingsOverrides;
             })
         : scope.kind === "all" || scope.kind === "environment"
