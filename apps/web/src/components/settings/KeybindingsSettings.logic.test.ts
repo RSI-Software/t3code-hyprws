@@ -284,6 +284,8 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("commandPalette.toggle")).toBe("Command Palette: Toggle");
     expect(commandLabel("themeEditor.toggle")).toBe("Theme Editor: Toggle");
     expect(commandLabel("view.reopenClosed")).toBe("Reopen Closed Tab");
+    expect(commandLabel("terminal.focus")).toBe("Terminal: Focus");
+    expect(commandLabel("chat.focusComposer")).toBe("Chat: Focus Composer");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
   });
 
@@ -323,6 +325,8 @@ describe("KeybindingsSettings.logic", () => {
       expect.arrayContaining([
         "chat.new",
         "threadPanel.toggle",
+        "chat.focusComposer",
+        "terminal.focus",
         "rightPanel.toggleMaximized",
         "composer.cycleHost",
         "thread.stop",
