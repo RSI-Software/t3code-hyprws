@@ -18,7 +18,7 @@ const run: WorkflowRun = {
 };
 
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 3,
   generatedBy: "vp run fork:rebase-report",
   sharedBase: { sha: "b".repeat(40), shortSha: "bbbbbbb", upstreamTags: [] },
   upstream: {
