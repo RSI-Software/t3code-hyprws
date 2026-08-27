@@ -9,7 +9,8 @@ import type {
 
 import type { DraftId } from "../../composerDraftStore";
 import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
-import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
+import { type EnvironmentOption } from "../BranchToolbar.logic"; // fork-hook: worktrunk-hooks/env-mode-import
+import type { EnvModeFork as EnvMode } from "../BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-type-import
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
 import ProjectScriptsControl, {
