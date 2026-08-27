@@ -259,6 +259,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
   },
   {
+    id: "github-issue-handoff-prompt",
+    title: "GitHub issue handoff prompt",
+    to: "/settings/source-control",
+  },
+  {
     id: "remote-environments",
     title: "Remote environments",
     to: "/settings/connections",

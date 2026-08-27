@@ -59,6 +59,8 @@ Open an issue to read its description, labels, assignees, and newest 100 comment
 
 Choose **Work on this issue** to open an empty draft in the issue's project. T3 Code puts a short issue reference and instruction in the composer but does not send it. Existing draft work is never overwritten.
 
+To change that text, open **Settings → Source Control → GitHub issues** and edit **GitHub issue handoff prompt**. The template supports `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the server environment that owns the issue, so its web and desktop clients use the same prompt.
+
 Issues are read-only in T3 Code: commenting, closing, labeling, and assigning remain on GitHub. The GitHub CLI must be installed and authenticated on each server that holds a project. Run `gh auth login` for GitHub.com or `gh auth login --hostname <host>` for GitHub Enterprise.
 
 **Fix what you wrote, in place**
