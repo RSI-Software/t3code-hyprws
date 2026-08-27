@@ -70,6 +70,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
 import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
 import * as ProcessRunner from "./processRunner.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -202,6 +203,9 @@ const layerServerSettings = ServerSettings.layer.pipe(
 const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
   Layer.provide(ProcessRunner.layer),
   Layer.provideMerge(layerServerSettings),
+);
+const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
 );
 
 const layerNativeTelemetry = NativeTelemetryClient.layer.pipe(
@@ -336,6 +340,7 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
   Layer.provideMerge(WorktreeSetupTracker.layer),
   Layer.provideMerge(ZmuxSessionBinderLayerLive),
+  Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
@@ -349,6 +354,7 @@ const layerGit = Layer.empty.pipe(
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(ZmuxSessionBinderLayerLive),
+  Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(layerGit),
 );
 
@@ -709,6 +715,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(ServerBrowser.layer.pipe(Layer.provide(DesktopBrowserChannel.layer))),
   // Server browser tabs and HTML render previews install and run the same headless browser.
   Layer.provide(PreviewBrowser.layer),
+  Layer.provide(WorktrunkHookRunnerLayerLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
   Layer.provide(layerCommandReadiness),
