@@ -15,6 +15,7 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+import { normalizeTrailerValue } from "./lib/fork-trailers.ts";
 
 export const ForkTier = Schema.Literals(["core", "qol", "bugfix"]);
 export type ForkTier = typeof ForkTier.Type;
@@ -94,8 +95,7 @@ const readTrailer = (trailers: string, key: string): string | undefined => {
     const separator = line.indexOf(":");
     if (separator === -1) continue;
     if (line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) continue;
-    const value = line.slice(separator + 1).trim();
-    return value.length > 0 ? value : undefined;
+    return normalizeTrailerValue(line.slice(separator + 1));
   }
   return undefined;
 };
