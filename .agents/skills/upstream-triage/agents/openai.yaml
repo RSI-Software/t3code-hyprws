@@ -1,4 +1,4 @@
 interface:
   display_name: "Upstream Triage"
-  short_description: "Check a fork bug against upstream before the fork acts"
-  default_prompt: "Use $upstream-triage to check this fork bug against upstream pingdotgg/t3code, classify it, and take the matching fork action without posting upstream."
+  short_description: "Triage a fork bug, or survey a fork domain, against upstream — reads only"
+  default_prompt: "Use $upstream-triage against upstream pingdotgg/t3code without posting to it. Given a symptom, triage it: cite the upstream item, classify it, and take the matching fork action. Given a fork domain, survey it: report what upstream shipped, merged but has not released, is still working on, and turned down, with dates and sources, and map each item to one fork follow-up."
