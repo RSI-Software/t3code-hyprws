@@ -731,6 +731,8 @@ function ProjectDetail({
   // repo's t3.json value when present, otherwise the global setting.
   const inheritedEnvMode = t3File.file?.defaultThreadEnvMode ?? scriptSettings.defaultThreadEnvMode;
   const inheritedEnvModeSource = t3File.file?.defaultThreadEnvMode != null ? "t3.json" : "global";
+  const worktrunkHooks = t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
+  const worktrunkHooksSource = t3File.file?.worktrunkHooks !== undefined ? "t3.json" : "Settings";
   const importableScripts = useMemo(
     () =>
       t3File.scripts.filter(
@@ -1297,6 +1299,9 @@ function ProjectDetail({
                 {scriptsInherited
                   ? "Inherited from machine defaults."
                   : `Overridden for ${selectedCheckoutLabel}.`}
+              </p>
+              <p className="text-pretty text-sm text-muted-foreground">
+                Worktrunk hooks: {worktrunkHooks ? "on" : "off"} — from {worktrunkHooksSource}
               </p>
             </div>
             <div className="flex w-full flex-wrap gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end">
