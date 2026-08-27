@@ -223,6 +223,10 @@ describe("KeybindingsSettings.logic", () => {
     });
   });
 
+    expect(commandLabel("terminal.focus")).toBe("Terminal: Focus");
+    expect(commandLabel("chat.focusComposer")).toBe("Chat: Focus Composer");
+        "chat.focusComposer",
+        "terminal.focus",
   it("reports conflicting shortcuts that share an active when context", () => {
     const rows = buildKeybindingRows([
       {
