@@ -61,6 +61,7 @@ import type { GitManagerServiceError } from "@t3tools/contracts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
 
@@ -608,6 +609,7 @@ export const make = Effect.gen(function* () {
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const crypto = yield* Crypto.Crypto;
   const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+  const worktrunkHookRunner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
 
   const sourceControlProvider = (cwd: string) => sourceControlProviders.resolve({ cwd });
   const serverSettingsService = yield* ServerSettings.ServerSettingsService;
@@ -2138,6 +2140,12 @@ export const make = Effect.gen(function* () {
         });
       }
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
+      if (input.threadId) {
+        yield* worktrunkHookRunner.runCreateHooks({
+          projectCwd: input.cwd,
+          worktreePath: worktree.worktree.path,
+        });
+      }
       yield* maybeRunSetupScript(worktree.worktree.path);
 
       return {
