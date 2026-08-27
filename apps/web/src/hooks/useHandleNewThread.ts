@@ -22,6 +22,10 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
+  fromWireThreadEnvModeFields, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+  resolveDefaultStoredThreadEnvMode, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+} from "@t3tools/shared/threadEnvMode.fork";
+import {
   readProject,
   readProjects,
   readThreadShell,
@@ -207,7 +211,13 @@ export function createNewThreadHandler(router: AnyRouter) {
             [{ environmentId: projectRef.environmentId, id: projectRef.projectId }],
             [],
           ) > 0,
-      });
+      }) === "local"
+        ? "local"
+        : resolveDefaultStoredThreadEnvMode({
+            projectSetting: project ? fromWireThreadEnvModeFields(project) : null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+            projectFile: projectFile?.defaultThreadEnvMode ?? null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
+            globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
+          }); // fork-hook: worktrunk-hooks/env-mode-new-project-folder
     };
     const logicalProjectKey = project
       ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
