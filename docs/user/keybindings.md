@@ -51,6 +51,10 @@ Use **Inspect** to pick an element in the app and reveal its color token. Inspec
 successful pick; its hover glow and badge preview the element and color family that click will select.
 **Cancel** or `Escape` exits Inspect and clears its selection and spotlight.
 
+`terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
+`chat.focusComposer` moves focus back to the message composer without closing the terminal. Both
+commands default to `` ctrl+` ``, so the same shortcut hops between the composer and terminal.
+
 `rightPanel.toggleMaximized` maximizes or restores the open right panel. It has no default shortcut,
 so add one in **Settings** → **Keybindings** if you want to use it.
 
