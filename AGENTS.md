@@ -18,6 +18,14 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
 
+**Nothing is posted upstream.**
+The fork posts nothing to `pingdotgg/t3code`: no pull request, issue, comment, review, or reaction.
+Reading upstream is fine; writing to it is not.
+This is a baseline rule, not a preference: it holds until at least 2026-11-27, may hold permanently, and only the human may lift it.
+`Fork-Upstreamable: yes` is a tracking tag only.
+It marks a commit upstream is likely to supersede so the rebase feasibility walk can flag it as a retire candidate, and it never authorizes contributing that commit.
+The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs (Codex, Claude Code, Cursor, Grok, OpenCode) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
