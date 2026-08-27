@@ -17,6 +17,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 const gitHandle = {
   kind: "git" as const,
@@ -36,6 +37,20 @@ const gitHandle = {
 const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
   Effect.succeed(gitHandle);
 
+const makeWorktrunkHookRunnerLayer = (
+  overrides: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]> = {},
+) =>
+  Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+    isWorktrunkWorktree: () => Effect.succeed(false),
+    runCreateHooks: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    runPreRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    runPostRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
+    ...overrides,
+  });
+
 function layer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
 }) {
@@ -48,6 +63,7 @@ function layer(input: {
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
     Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
+    Layer.provide(makeWorktrunkHookRunnerLayer()),
   );
 }
 
@@ -158,6 +174,7 @@ describe("GitWorkflowService", () => {
         }),
       ),
       Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
 
     return Effect.gen(function* () {
