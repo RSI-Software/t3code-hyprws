@@ -66,11 +66,15 @@ authenticated.
   the ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in stack order for
   `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a pull-request body ends
   with the trailer block its squash commit will inherit.
-- `vp run fork:rebase-report`: Generates the gitignored Markdown and JSON orientation snapshot under
-  `docs/internals/generated/` from `origin/hyprws` to `upstream/main` (`scripts/fork-rebase-report.ts`).
-  Pass `--fetch` to refresh both remotes first. `--check` performs a byte-for-byte comparison against
-  the files on disk without writing. The `hyprws-rebase-report.yml` run uploads a fresh pair on every
-  `hyprws` push and on a schedule; the report is never committed because it embeds the fork head.
+- `vp run fork:rebase-report`: Generates the gitignored Markdown and schema-v2 JSON orientation
+  snapshot under `docs/internals/generated/` from `origin/hyprws` to `upstream/main`
+  (`scripts/fork-rebase-report.ts`). Its read-only feasibility section walks the upstream first-parent
+  lane with `git merge-tree`, attributes each hard-conflict file and hunk count to its introducing fork
+  commit/domain/tier, and lists overlapping files Git automerged for semantic review. Pass
+  `--target vX.Y.Z` to inspect a release and `--fetch` to refresh both remotes first. `--check` performs
+  a byte-for-byte comparison against the files on disk without writing. The
+  `hyprws-rebase-report.yml` run uploads a fresh pair on every `hyprws` push and on a schedule; the
+  report is never committed because it embeds the fork head.
 - `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
   artifact under `.dump/runs/fork-rebase-report/<run-id>/`. Pass `--run <id>` to inspect a specific
   run. An existing run directory is reused because workflow artifacts are immutable.
