@@ -115,6 +115,7 @@ import {
   formatModelSlugName,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   projectScriptCwd,
   projectScriptTerminalInput,
@@ -368,6 +369,7 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
+  resolveEnvModeLabel,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
@@ -1848,6 +1850,7 @@ export default function ChatView(props: ChatViewProps) {
     resetLocalDispatch,
     localDispatchStartedAt,
     isPreparingWorktree: isLocallyPreparingWorktree,
+    isPreparingWorktrunk, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-destructure
     isSendBusy,
     backgroundSubmissionPending,
   } = useLocalDispatchState({
@@ -3390,6 +3393,7 @@ export default function ChatView(props: ChatViewProps) {
     hasServerThread: isServerThread,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
     preparingWorktree: isPreparingWorktree,
+    preparingWorktrunk: isPreparingWorktrunk, // fork-hook: worktrunk-hooks/effective-env-mode-preparing-worktrunk
   });
   const canOverrideServerThreadEnvMode = Boolean(
     isServerThread &&
@@ -5334,6 +5338,9 @@ export default function ChatView(props: ChatViewProps) {
     } else {
       beginLocalDispatch({
         preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
+        preparingWorktrunk:
+          (multipleModelSelections !== null || Boolean(baseBranchForWorktree)) &&
+          sendEnvMode === "worktrunk", // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-begin
         submissionIntent:
           submissionIntent === "background" && !isLocalDraftThread
             ? "foreground"
@@ -5451,6 +5458,7 @@ export default function ChatView(props: ChatViewProps) {
                         baseBranch: activeThreadBranch!,
                         requireWorktree: true,
                         ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                        ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send-multiple
                       },
                       runSetupScript: true,
                     },
@@ -5680,6 +5688,7 @@ export default function ChatView(props: ChatViewProps) {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send
                     },
                     runSetupScript: true,
                   }
@@ -6242,7 +6251,7 @@ export default function ChatView(props: ChatViewProps) {
           envMode: mode,
           newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
         }),
-        ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
+        ...(isWorktreeEnvMode(mode) && draftThread?.worktreePath ? { worktreePath: null } : {}),
       });
     }
     scheduleComposerFocus();
@@ -7092,6 +7101,7 @@ export default function ChatView(props: ChatViewProps) {
                                     }
                                   : {})}
                                 envLocked={envLocked}
+                                activeWorktrunk={gitStatusQuery.data?.worktrunk === true}
                                 onComposerFocusRequest={scheduleComposerFocusStable}
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
