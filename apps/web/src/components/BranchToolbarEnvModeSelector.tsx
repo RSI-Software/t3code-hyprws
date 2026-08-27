@@ -4,14 +4,17 @@ import { FolderGit2Icon, FolderGitIcon, FolderIcon } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent } from "react";
 import { T, useGT, useMessages } from "gt-react";
 
+import { FolderCogIcon } from "lucide-react"; // fork-hook: worktrunk-hooks/env-mode-selector-cog-import
 import {
-  resolveCurrentWorkspaceLabel,
-  resolveEnvModeLabel,
-  resolveLockedWorkspaceLabel,
-  type EnvMode,
-} from "./BranchToolbar.logic";
+  type EnvModeFork as EnvMode,
+  resolveEnvModeLabelFork as resolveEnvModeLabel,
+} from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktree-mode-import
+
+import { resolveCurrentWorkspaceLabel, resolveLockedWorkspaceLabel } from "./BranchToolbar.logic"; // fork-hook: worktrunk-hooks/env-mode-import
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
+import { BranchToolbarWorktrunkSelectItem } from "./BranchToolbarEnvModeSelector.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-item-import
 import {
   Select,
   SelectGroup,
@@ -32,6 +35,7 @@ interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  activeWorktrunk?: boolean; // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-prop-type
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel?: string | null;
   previousWorktreeBranch?: string | null;
@@ -43,6 +47,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   envLocked,
   effectiveEnvMode,
   activeWorktreePath,
+  activeWorktrunk = false, // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-default
   onEnvModeChange,
   previousWorktreeLabel,
   previousWorktreeBranch = null,
@@ -62,6 +67,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       label: resolveCurrentWorkspaceLabel(activeWorktreePath, m),
     },
     { value: "worktree", label: resolveEnvModeLabel("worktree", m) },
+    { value: "worktrunk", label: resolveEnvModeLabel("worktrunk") }, // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-option
     ...(showPreviousWorktree && previousWorktreeLabel
       ? [{ value: PREVIOUS_WORKTREE_SELECT_VALUE, label: previousWorktreeLabel }]
       : []),
@@ -79,17 +85,29 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         className="inline-flex h-7 min-w-0 items-center gap-1.5 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-sm sm:h-6 sm:text-xs"
         data-composer-context-control
       >
+        {/* fork-hook: worktrunk-hooks/env-mode-selector-locked-icon */}
         {activeWorktreePath ? (
-          <FolderGitIcon className="size-3" />
+          activeWorktrunk ? (
+            <FolderCogIcon className="size-3" /> // fork-hook: worktrunk-hooks/locked-worktrunk-icon
+          ) : (
+            <FolderGitIcon className="size-3" /> // fork-hook: worktrunk-hooks/locked-worktree-icon
+          )
+        ) : effectiveEnvMode === "worktrunk" ? (
+          <FolderCogIcon className="size-3" /> // fork-hook: worktrunk-hooks/new-worktrunk-icon
         ) : effectiveEnvMode === "worktree" ? (
           <FolderGit2Icon className="size-3" />
         ) : (
           <FolderIcon className="size-3" />
         )}
+        {/* fork-hook-end */}
         <ComposerContextLabel>
-          {forceNewWorktree
-            ? resolveEnvModeLabel("worktree", m)
-            : resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, m)}
+          {/* fork-hook: worktrunk-hooks/env-mode-selector-locked-label */}
+          {
+            forceNewWorktree
+              ? resolveEnvModeLabel("worktree")
+              : resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode) // fork-hook: worktrunk-hooks/locked-worktrunk-label
+          }
+          {/* fork-hook-end */}
         </ComposerContextLabel>
       </span>
     );
@@ -133,8 +151,8 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         }
         label={
           <>
-            {effectiveEnvMode === "worktree"
-              ? resolveEnvModeLabel("worktree", m)
+            {isWorktreeEnvMode(effectiveEnvMode) // fork-hook: worktrunk-hooks/env-mode-selector-trigger-tooltip
+              ? resolveEnvModeLabel(effectiveEnvMode) // fork-hook: worktrunk-hooks/env-mode-selector-trigger-tooltip-label
               : resolveCurrentWorkspaceLabel(activeWorktreePath, m)}
             {shortcutLabel ? ` · ${shortcutLabel}` : null}
           </>
@@ -142,6 +160,10 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       >
         {effectiveEnvMode === "worktree" ? (
           <FolderGit2Icon className="size-3" />
+        ) : effectiveEnvMode === "worktrunk" ? ( // fork-hook: worktrunk-hooks/env-mode-selector-trigger-icon
+          <FolderCogIcon // fork-hook: worktrunk-hooks/env-mode-selector-trigger-cog-icon
+            className="size-3" // fork-hook: worktrunk-hooks/env-mode-selector-trigger-cog-size
+          />
         ) : activeWorktreePath ? (
           <FolderGitIcon className="size-3" />
         ) : (
@@ -176,6 +198,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               {resolveEnvModeLabel("worktree", m)}
             </span>
           </SelectItem>
+          {/* fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-item */}
+          <BranchToolbarWorktrunkSelectItem />
+          {/* fork-hook-end */}
           {showPreviousWorktree && previousWorktreeLabel ? (
             <SelectItem value={PREVIOUS_WORKTREE_SELECT_VALUE}>
               <PreviousWorktreeItemContent branch={previousWorktreeBranch} />
