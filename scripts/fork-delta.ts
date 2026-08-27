@@ -16,6 +16,12 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { normalizeTrailerValue } from "./lib/fork-trailers.ts";
+import {
+  EMPTY_RETIREMENT_LEDGER,
+  parseForkRetirementLedger,
+  retirementDecision,
+  type ForkRetirementLedger,
+} from "./lib/fork-retirement-ledger.ts";
 
 export const ForkTier = Schema.Literals(["core", "qol", "bugfix"]);
 export type ForkTier = typeof ForkTier.Type;
@@ -183,7 +189,28 @@ export const buildLedger = (
   base: string,
   head: string,
   commits: ReadonlyArray<ForkCommit>,
-): ForkLedger => ({ base, head, commits, findings: collectFindings(commits) });
+  retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
+): ForkLedger => {
+  const retired = commits.filter(
+    (commit) => retirementDecision(retirementLedger, commit.subject).decision === "retire",
+  );
+  const active = commits.filter(
+    (commit) => retirementDecision(retirementLedger, commit.subject).decision !== "retire",
+  );
+  return {
+    base,
+    head,
+    commits: active,
+    findings: [
+      ...collectFindings(active),
+      ...retired.map((commit) => ({
+        short: commit.short,
+        subject: commit.subject,
+        problem: "retired but present",
+      })),
+    ],
+  };
+};
 
 // Narrows the ledger to one domain so its commits can be extracted as a unit.
 // Returns null when no fork commit carries that domain.
@@ -301,7 +328,9 @@ const command = Command.make(
       Flag.withDefault("HEAD"),
     ),
     check: Flag.boolean("check").pipe(
-      Flag.withDescription("Exit 1 when any fork commit lacks a valid Fork-Domain or Fork-Tier."),
+      Flag.withDescription(
+        "Exit 1 when a fork commit has invalid trailers or is still present after retirement.",
+      ),
       Flag.withDefault(false),
     ),
     json: Flag.boolean("json").pipe(
@@ -344,7 +373,11 @@ const command = Command.make(
         process.stdout.write("ok: squash body carries its fork trailers\n");
         return;
       }
-      const full = buildLedger(base, head, yield* readForkLog(base, head));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const retirementLedger = parseForkRetirementLedger(
+        yield* fileSystem.readFileString("docs/internals/fork-delta.md"),
+      );
+      const full = buildLedger(base, head, yield* readForkLog(base, head), retirementLedger);
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");

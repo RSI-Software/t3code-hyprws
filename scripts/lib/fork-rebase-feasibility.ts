@@ -65,7 +65,7 @@ interface MergeTreeResult {
   readonly conflicts: ReadonlyArray<string>;
 }
 
-interface ForkStackCommit {
+export interface ForkStackCommit {
   readonly sha: string;
   readonly subject: string;
   readonly domain: string | null;
@@ -164,25 +164,34 @@ const readUpstreamCommits = (
     ]),
   ).map((commit) => ({ ...commit, tags: tagsAt(git, commit.sha) }));
 
+const readTrailer = (body: string, key: string): string | null => {
+  for (const line of body.split("\n")) {
+    const separator = line.indexOf(":");
+    if (separator === -1 || line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) {
+      continue;
+    }
+    return normalizeTrailerValue(line.slice(separator + 1)) ?? null;
+  }
+  return null;
+};
+
 const parseForkStack = (raw: string): ReadonlyArray<ForkStackCommit> =>
   raw
     .split(RECORD_SEPARATOR)
     .map((record) => record.replace(/^\n+/, ""))
     .filter((record) => record.trim().length > 0)
     .map((record) => {
-      const [sha = "", subject = "", domain = "", tier = ""] = record
-        .replace(/\n+$/, "")
-        .split(FIELD_SEPARATOR);
+      const [sha = "", subject = "", body = ""] = record.replace(/\n+$/, "").split(FIELD_SEPARATOR);
       if (sha.length === 0) throw new Error("git log returned a malformed fork commit");
       return {
         sha,
         subject,
-        domain: normalizeTrailerValue(domain) ?? null,
-        tier: normalizeTrailerValue(tier) ?? null,
+        domain: readTrailer(body, "Fork-Domain"),
+        tier: readTrailer(body, "Fork-Tier"),
       };
     });
 
-const readForkStack = (
+export const readForkStack = (
   git: Pick<FeasibilityGit, "run">,
   sourceSha: string,
 ): ReadonlyArray<ForkStackCommit> =>
@@ -191,7 +200,7 @@ const readForkStack = (
       "log",
       "--reverse",
       "--topo-order",
-      `--format=%H${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%(trailers:key=Fork-Domain,valueonly)${FIELD_SEPARATOR}%(trailers:key=Fork-Tier,valueonly)${RECORD_SEPARATOR}`,
+      `--format=%H${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%b${RECORD_SEPARATOR}`,
       `upstream/main..${sourceSha}`,
     ]),
   );
