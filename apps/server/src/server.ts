@@ -54,6 +54,7 @@ import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -152,6 +153,11 @@ const ServerSettingsLayerLive = ServerSettings.layer.pipe(
 );
 const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
   Layer.provide(ProcessRunner.layer),
+  Layer.provideMerge(ServerSettingsLayerLive),
+);
+const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provide(T3ProjectFileLoader.layer),
   Layer.provideMerge(ServerSettingsLayerLive),
 );
 
@@ -292,6 +298,7 @@ const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.lay
 const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(ProjectSetupScriptRunner.layer),
   Layer.provideMerge(ZmuxSessionBinderLayerLive),
+  Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(TextGeneration.layer),
@@ -305,6 +312,7 @@ const GitLayerLive = Layer.empty.pipe(
 const GitWorkflowLayerLive = GitWorkflowService.layer.pipe(
   Layer.provideMerge(VcsDriverRegistryLayerLive),
   Layer.provideMerge(ZmuxSessionBinderLayerLive),
+  Layer.provideMerge(WorktrunkHookRunnerLayerLive),
   Layer.provideMerge(GitLayerLive),
 );
 
@@ -492,6 +500,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
   Layer.provide(GitHubIssueServiceLive),
+  Layer.provide(WorktrunkHookRunnerLayerLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer),
   Layer.provide(commandReadinessLayer),

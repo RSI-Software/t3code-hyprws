@@ -112,6 +112,7 @@ import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -498,6 +499,7 @@ const makeWsRpcLayer = (
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const worktrunkHookRunner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -691,6 +693,26 @@ const makeWsRpcLayer = (
             worktreePath: input.worktreePath,
             detail: input.notice.detail,
           });
+        });
+
+      const recordWorktrunkHookFailure = (input: {
+        readonly threadId: ThreadId;
+        readonly worktreePath: string;
+        readonly result: WorktrunkHookRunner.WorktrunkHookFailedResult;
+      }) =>
+        Effect.gen(function* () {
+          const createdAt = yield* nowIso;
+          yield* appendThreadActivity({
+            threadId: input.threadId,
+            kind: "worktrunk-hook.failed",
+            summary: `Worktrunk ${input.result.operation} hook failed`,
+            createdAt,
+            payload: {
+              detail: input.result.detail,
+              worktreePath: input.worktreePath,
+            },
+            tone: "error",
+          }).pipe(Effect.ignoreCause({ log: false }));
         });
 
       const toBootstrapDispatchCommandCauseError = (cause: Cause.Cause<unknown>) => {
@@ -1115,6 +1137,17 @@ const makeWsRpcLayer = (
                   threadId: command.threadId,
                   worktreePath: targetWorktreePath,
                   notice: bindResult.notice,
+                });
+              }
+              const hookResult = yield* worktrunkHookRunner.runCreateHooks({
+                projectCwd: bootstrap.prepareWorktree.projectCwd,
+                worktreePath: targetWorktreePath,
+              });
+              if (hookResult.status === "failed") {
+                yield* recordWorktrunkHookFailure({
+                  threadId: command.threadId,
+                  worktreePath: targetWorktreePath,
+                  result: hookResult,
                 });
               }
               yield* dispatchFromClient({
