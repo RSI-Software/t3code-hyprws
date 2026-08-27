@@ -36,12 +36,13 @@ const makeWorktrunkHookRunnerLayer = (
   overrides: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]> = {},
 ) =>
   Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+    isWorktrunkWorktree: () => Effect.succeed(false),
     runCreateHooks: () =>
-      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
     runPreRemoveHook: () =>
-      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
     runPostRemoveHook: () =>
-      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+      Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
     ...overrides,
   });
 
@@ -274,14 +275,27 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, unbind })),
-      Layer.provide(makeWorktrunkHookRunnerLayer({ runPreRemoveHook, runPostRemoveHook })),
+      Layer.provide(
+        makeWorktrunkHookRunnerLayer({
+          isWorktrunkWorktree: () => Effect.sync(() => calls.push("marker") > 0),
+          runPreRemoveHook,
+          runPostRemoveHook,
+        }),
+      ),
     );
 
     return Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
       yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
 
-      assert.deepStrictEqual(calls, ["resolve", "unbind", "pre-remove", "remove", "post-remove"]);
+      assert.deepStrictEqual(calls, [
+        "resolve",
+        "unbind",
+        "marker",
+        "pre-remove",
+        "remove",
+        "post-remove",
+      ]);
       assert.deepStrictEqual(unbind.mock.calls[0]?.[0], "/repo/wt");
       assert.deepStrictEqual(runPreRemoveHook.mock.calls[0]?.[0], {
         projectCwd: "/repo",
@@ -291,6 +305,36 @@ describe("GitWorkflowService", () => {
         projectCwd: "/repo",
         worktreePath: "/repo/wt",
       });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("removes a plain worktree without running Worktrunk hooks", () => {
+    const removeWorktree = vi.fn(() => Effect.void);
+    const runPreRemoveHook = vi.fn(() => Effect.succeed({ status: "completed" as const }));
+    const runPostRemoveHook = vi.fn(() => Effect.succeed({ status: "completed" as const }));
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: resolveGitHandle,
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          resolve: () => Effect.succeed({ status: "disabled" as const }),
+        }),
+      ),
+      Layer.provide(makeWorktrunkHookRunnerLayer({ runPreRemoveHook, runPostRemoveHook })),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
+
+      expect(removeWorktree).toHaveBeenCalledOnce();
+      expect(runPreRemoveHook).not.toHaveBeenCalled();
+      expect(runPostRemoveHook).not.toHaveBeenCalled();
     }).pipe(Effect.provide(layer));
   });
 

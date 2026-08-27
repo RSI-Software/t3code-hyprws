@@ -336,15 +336,22 @@ export const make = Effect.gen(function* () {
                 });
               }
             }
-            yield* worktrunkHookRunner.runPreRemoveHook({
-              projectCwd: input.cwd,
-              worktreePath: input.path,
-            });
+            // Decide before removal: the marker lives in the gitdir that
+            // `git worktree remove` deletes.
+            const worktrunk = yield* worktrunkHookRunner.isWorktrunkWorktree(input.path);
+            if (worktrunk) {
+              yield* worktrunkHookRunner.runPreRemoveHook({
+                projectCwd: input.cwd,
+                worktreePath: input.path,
+              });
+            }
             yield* git.removeWorktree(input);
-            yield* worktrunkHookRunner.runPostRemoveHook({
-              projectCwd: input.cwd,
-              worktreePath: input.path,
-            });
+            if (worktrunk) {
+              yield* worktrunkHookRunner.runPostRemoveHook({
+                projectCwd: input.cwd,
+                worktreePath: input.path,
+              });
+            }
           }),
         ),
       ),

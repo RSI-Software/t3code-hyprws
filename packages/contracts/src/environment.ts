@@ -24,7 +24,7 @@ export const ExecutionEnvironmentPlatform = Schema.Struct({
  * fresh git worktree ("worktree"). Lives here (not settings.ts) so
  * orchestration contracts can reference it without an import cycle.
  */
-export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
+export const ThreadEnvMode = Schema.Literals(["local", "worktree", "worktrunk"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 export type ExecutionEnvironmentPlatform = typeof ExecutionEnvironmentPlatform.Type;
 
