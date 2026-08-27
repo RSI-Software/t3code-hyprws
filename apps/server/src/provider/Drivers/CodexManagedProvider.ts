@@ -15,7 +15,7 @@ import {
   probeCodexSkillsForCwd,
 } from "../CodexProvider.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import {
   type ProviderDriverCreateInput,
   type ProviderInstance,

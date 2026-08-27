@@ -30,7 +30,7 @@ import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {

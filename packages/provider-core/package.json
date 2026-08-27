@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./server/providerSessionEnvironment.fork": {
+      "types": "./src/server/providerSessionEnvironment.fork.ts",
+      "import": "./src/server/providerSessionEnvironment.fork.ts"
+    },
     "./client": {
       "types": "./src/client.ts",
       "import": "./src/client.ts"
@@ -42,6 +46,10 @@
     "./server/IdAllocator": {
       "types": "./src/server/IdAllocator.ts",
       "import": "./src/server/IdAllocator.ts"
+    },
+    "./server/instanceEnvironment.fork": {
+      "types": "./src/server/instanceEnvironment.fork.ts",
+      "import": "./src/server/instanceEnvironment.fork.ts"
     },
     "./server/instanceEnvironment": {
       "types": "./src/server/instanceEnvironment.ts",

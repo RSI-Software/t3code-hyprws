@@ -33,7 +33,7 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
-import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { mergeForkProviderInstanceEnvironment as mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment.fork"; // fork-hook: upstream-fixes/provider-instance-env-import
 import {
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
