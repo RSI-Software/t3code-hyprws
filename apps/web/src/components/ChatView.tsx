@@ -124,6 +124,7 @@ import {
   resolvePromptInjectedEffort,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import { projectScriptCwd, resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -424,6 +425,7 @@ import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,
+  resolveEnvModeLabel,
   resolveLocalCheckoutBranchMismatch,
   shouldShowComposerContextStrip,
   shouldShowEnvironmentIndicator,
@@ -857,6 +859,12 @@ function isCompactCommandMessage(message: ChatMessage): boolean {
   return message.role === "user" && text === "/compact" && !message.attachments?.length;
 }
 
+type LocalDispatchOptionsFork = {
+  preparingWorktree?: boolean;
+  preparingWorktrunk?: boolean;
+  submissionIntent?: ComposerSubmissionIntent;
+}; // fork-hook: worktrunk-hooks/local-dispatch-options-type
+
 type ChatViewProps =
   | {
       environmentId: EnvironmentId;
@@ -909,19 +917,20 @@ function useLocalDispatchState(input: {
     threadError: input.threadError,
   });
   const activeLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
-  const beginLocalDispatch = (options?: {
-    preparingWorktree?: boolean;
-    submissionIntent?: ComposerSubmissionIntent;
-  }) => {
+  const beginLocalDispatch = (
+    options?: LocalDispatchOptionsFork, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-option
+  ) => {
     const preparingWorktree = Boolean(options?.preparingWorktree);
+    const preparingWorktrunk = Boolean(options?.preparingWorktrunk); // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk
     setLocalDispatch((current) => {
       const active = serverAcknowledgedLocalDispatch ? null : current;
       if (active) {
         const submissionIntent = options?.submissionIntent ?? active.submissionIntent;
         return active.preparingWorktree === preparingWorktree &&
+          Boolean(active.preparingWorktrunk) === preparingWorktrunk && // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-compare
           active.submissionIntent === submissionIntent
           ? active
-          : { ...active, preparingWorktree, submissionIntent };
+          : { ...active, preparingWorktree, preparingWorktrunk, submissionIntent }; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-update
       }
       return createLocalDispatchSnapshot(input.activeThread, {
         ...options,
@@ -935,6 +944,7 @@ function useLocalDispatchState(input: {
     resetLocalDispatch,
     localDispatchStartedAt: activeLocalDispatch?.startedAt ?? null,
     isPreparingWorktree: activeLocalDispatch?.preparingWorktree ?? false,
+    isPreparingWorktrunk: activeLocalDispatch?.preparingWorktrunk ?? false, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-read
     isSendBusy: activeLocalDispatch !== null,
     backgroundSubmissionPending: activeLocalDispatch?.submissionIntent === "background",
   };
@@ -2512,6 +2522,7 @@ export default function ChatView(props: ChatViewProps) {
     resetLocalDispatch,
     localDispatchStartedAt,
     isPreparingWorktree: isLocallyPreparingWorktree,
+    isPreparingWorktrunk, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-destructure
     isSendBusy,
     backgroundSubmissionPending,
   } = useLocalDispatchState({
@@ -4619,6 +4630,7 @@ export default function ChatView(props: ChatViewProps) {
     hasServerThread: isServerThread,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
     preparingWorktree: isPreparingWorktree,
+    preparingWorktrunk: isPreparingWorktrunk, // fork-hook: worktrunk-hooks/effective-env-mode-preparing-worktrunk
   });
   const canOverrideServerThreadEnvMode = Boolean(
     isServerThread &&
@@ -6324,16 +6336,19 @@ export default function ChatView(props: ChatViewProps) {
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
     const baseBranchForWorktree =
-      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
+      isFirstMessage && isWorktreeEnvMode(sendEnvMode) && !activeThread.worktreePath
         ? activeThreadBranch
         : null;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
     const shouldCreateWorktree =
-      isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
+      isFirstMessage && isWorktreeEnvMode(sendEnvMode) && !activeThread.worktreePath;
     if (shouldCreateWorktree && !activeThreadBranch) {
-      setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
+      setThreadError(
+        threadIdForSend,
+        `Select a base branch before sending in ${resolveEnvModeLabel(sendEnvMode)} mode.`,
+      );
       return;
     }
 
@@ -6540,6 +6555,9 @@ export default function ChatView(props: ChatViewProps) {
     } else {
       beginLocalDispatch({
         preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
+        preparingWorktrunk:
+          (multipleModelSelections !== null || Boolean(baseBranchForWorktree)) &&
+          sendEnvMode === "worktrunk", // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-begin
         submissionIntent:
           submissionIntent === "background" && !isLocalDraftThread
             ? "foreground"
@@ -6665,6 +6683,7 @@ export default function ChatView(props: ChatViewProps) {
                         baseBranch: activeThreadBranch!,
                         requireWorktree: true,
                         ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                        ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send-multiple
                       },
                       runSetupScript: true,
                     },
@@ -6948,6 +6967,7 @@ export default function ChatView(props: ChatViewProps) {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(sendEnvMode === "worktrunk" ? { worktrunk: true } : {}), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send
                     },
                     runSetupScript: true,
                   }
@@ -7542,7 +7562,7 @@ export default function ChatView(props: ChatViewProps) {
           envMode: mode,
           newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
         }),
-        ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
+        ...(isWorktreeEnvMode(mode) && draftThread?.worktreePath ? { worktreePath: null } : {}),
       });
     }
     scheduleComposerFocus();
@@ -8383,6 +8403,7 @@ export default function ChatView(props: ChatViewProps) {
                                     }
                                   : {})}
                                 envLocked={envLocked}
+                                activeWorktrunk={gitStatusQuery.data?.worktrunk === true}
                                 onComposerFocusRequest={scheduleComposerFocusStable}
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
