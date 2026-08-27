@@ -1,3 +1,4 @@
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -10,6 +11,7 @@ import {
   shouldClearTerminalSelectionAction,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
+  shouldHandleTerminalFocusRequest,
   terminalContextMenuItems,
   terminalSelectionLineRange,
   terminalSelectionMenuItems,
