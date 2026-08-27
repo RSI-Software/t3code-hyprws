@@ -218,6 +218,8 @@ const VcsStatusLocalShape = {
   isDefaultRef: Schema.Boolean,
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
   hasWorkingTreeChanges: Schema.Boolean,
+  // Fork: present on a worktree created in `worktrunk` mode; the gitdir marker is its only record.
+  worktrunk: Schema.optional(Schema.Boolean),
   workingTree: Schema.Struct({
     // Absolute worktree root on the environment that every files[].path is
     // relative to. Absent when the server could not resolve it.

@@ -55,6 +55,7 @@ import { environmentThreadShells, environmentThreadDetails } from "../state/thre
 import { waitForAtomValue } from "../state/waitForAtomValue";
 import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
 import { stripInlineContextReferences } from "~/lib/composerContextReferences";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
 import type { ReviewCommentContext } from "../reviewCommentContext";
@@ -818,7 +819,7 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
     envMode: input.envMode,
     branch: input.branch,
     worktreePath: null,
-    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    startFromOrigin: isWorktreeEnvMode(input.envMode) && input.startFromOrigin,
   };
 }
 
@@ -1128,6 +1129,7 @@ export async function waitForRevertedMessage(
 export interface LocalDispatchSnapshot {
   startedAt: string;
   preparingWorktree: boolean;
+  preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk
   submissionIntent: ComposerSubmissionIntent;
   latestUserMessageId: ChatMessage["id"] | null;
   latestRunId: RunId | null;
@@ -1143,6 +1145,7 @@ export function createLocalDispatchSnapshot(
   options?: {
     preparingWorktree?: boolean;
     latestUserMessageId?: ChatMessage["id"] | null;
+    preparingWorktrunk?: boolean; // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-option
     submissionIntent?: ComposerSubmissionIntent;
   },
 ): LocalDispatchSnapshot {
@@ -1151,6 +1154,7 @@ export function createLocalDispatchSnapshot(
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
+    preparingWorktrunk: Boolean(options?.preparingWorktrunk), // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-snapshot
     submissionIntent: options?.submissionIntent ?? "foreground",
     latestUserMessageId: options?.latestUserMessageId ?? null,
     latestRunId: latestRun?.runId ?? null,
