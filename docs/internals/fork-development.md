@@ -295,6 +295,20 @@ It names the upstream paths that would silently invalidate a domain, including t
 
 A clean rebase is not evidence that a domain is still needed.
 
+### Upstream watch
+
+A fork bug that upstream already tracks is not fixed twice.
+It gets a fork issue labelled `upstream-watch` whose body cites the upstream issue or pull request in a
+code span, and that issue is re-read at the orient step of every sync.
+
+`vp run fork:upstream-watch` is that re-read.
+It resolves each cited item against the rebase target and says whether the fix is already contained in it.
+The runbook's [orient step](../operations/fork-sync.md#re-read-what-waits-on-upstream) owns the verdicts.
+
+The issue closes only once the upstream fix rides in a fork release and has been verified there, with the
+upstream merge commit and that release named in the closing comment.
+A watch label without a citation is not a watch; it is a forgotten issue.
+
 Run focused verification after resolving conflicts, including `vp run fork:delta --check`.
 Then publish the rewritten branch with an explicit expected-old lease.
 
