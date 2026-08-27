@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@t3tools/contracts";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   useCallback,
   useDeferredValue,
@@ -45,6 +46,7 @@ import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   deriveLocalBranchNameFromRemoteRef,
   resolveBranchTriggerLabel,
+  type EnvMode,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
@@ -79,7 +81,7 @@ interface BranchToolbarBranchSelectorProps {
   threadId: ThreadId;
   draftId?: DraftId;
   envLocked: boolean;
-  effectiveEnvModeOverride?: "local" | "worktree";
+  effectiveEnvModeOverride?: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   startFromOrigin: boolean;
@@ -271,7 +273,7 @@ export function BranchToolbarBranchSelector({
   const normalizedDeferredBranchQuery = deferredTrimmedBranchQuery.toLowerCase();
   const prReference = parsePullRequestReference(trimmedBranchQuery);
   const isSelectingWorktreeBase =
-    effectiveEnvMode === "worktree" && !envLocked && !activeWorktreePath;
+    isWorktreeEnvMode(effectiveEnvMode) && !envLocked && !activeWorktreePath;
   const checkoutPullRequestItemValue =
     prReference && onCheckoutPullRequestRequest ? `__checkout_pull_request__:${prReference}` : null;
   const canCreateBranch = !isSelectingWorktreeBase && trimmedBranchQuery.length > 0;
@@ -508,7 +510,7 @@ export function BranchToolbarBranchSelector({
 
   useEffect(() => {
     if (
-      effectiveEnvMode !== "worktree" ||
+      !isWorktreeEnvMode(effectiveEnvMode) ||
       activeWorktreePath ||
       activeThreadBranch ||
       !worktreeBaseBranchCandidate
