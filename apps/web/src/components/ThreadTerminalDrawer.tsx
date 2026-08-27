@@ -1532,7 +1532,9 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+          isPanel
+            ? "h-full flex-1"
+            : "shrink-0 border-t border-border/80 sm:focus-within:border-ring",
         )}
         style={isPanel ? undefined : { height: `${drawerHeight}px` }}
       >
@@ -1569,7 +1571,9 @@ export default function ThreadTerminalDrawer({
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "shrink-0 border-t border-border/80",
+        isPanel
+          ? "h-full flex-1"
+          : "shrink-0 border-t border-border/80 sm:focus-within:border-ring",
       )}
       style={isPanel ? undefined : { height: `${drawerHeight}px` }}
     >
