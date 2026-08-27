@@ -11,9 +11,11 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   effectiveShortcutsForCommand,
   formatShortcutLabel,
+  isChatFocusComposerShortcut,
   isDiffToggleShortcut,
   isRichTextBoldShortcut,
   modelPickerJumpCommandForIndex,
@@ -24,6 +26,7 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalFocusShortcut,
   isTerminalToggleShortcut,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
