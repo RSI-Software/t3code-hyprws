@@ -90,7 +90,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         gcpLocation: settings.gcpLocation,
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
-      const processEnvironment = mergeProviderInstanceEnvironment(environment);
+      const processEnvironment = mergeProviderInstanceEnvironment(environment, DRIVER);
       const profileDirectory = resolveAntigravityProfileDirectory(
         serverConfig.stateDir,
         instanceId,
