@@ -34,6 +34,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -184,6 +185,7 @@ export const make = Effect.gen(function* () {
       Effect.flatMap((cwd) => withWorkspaceLease(cwd, effect)),
     );
   const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+  const worktrunkHookRunner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -271,6 +273,17 @@ export const make = Effect.gen(function* () {
     (input: Input) =>
       ensureGit(operation, input.cwd).pipe(Effect.andThen(run(input)));
 
+  // The gitdir marker is the only record of a `worktrunk` thread, so status carries it to
+  // the client instead of any thread or project state.
+  const withWorktrunkFlag =
+    (cwd: string) =>
+    <Status extends VcsStatusLocalResult, E, R>(status: Effect.Effect<Status, E, R>) =>
+      Effect.flatMap(status, (value) =>
+        Effect.map(worktrunkHookRunner.isWorktrunkWorktree(cwd), (worktrunk) =>
+          worktrunk ? { ...value, worktrunk } : value,
+        ),
+      );
+
   return GitWorkflowService.of({
     isRepository: Effect.fn("GitWorkflowService.isRepository")(function (cwd) {
       return registry.detect({ cwd }).pipe(
@@ -322,7 +335,9 @@ export const make = Effect.gen(function* () {
     status: Effect.fn("GitWorkflowService.status")(function (input) {
       return detectGitRepositoryForStatus("GitWorkflowService.status", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
-          isGitRepository ? gitManager.status(input) : Effect.succeed(nonRepositoryStatus()),
+          isGitRepository
+            ? gitManager.status(input).pipe(withWorktrunkFlag(input.cwd))
+            : Effect.succeed(nonRepositoryStatus()),
         ),
       );
     }),
@@ -330,7 +345,7 @@ export const make = Effect.gen(function* () {
       return detectGitRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository
-            ? gitManager.localStatus(input)
+            ? gitManager.localStatus(input).pipe(withWorktrunkFlag(input.cwd))
             : Effect.succeed(nonRepositoryLocalStatus()),
         ),
       );
@@ -471,7 +486,22 @@ export const make = Effect.gen(function* () {
                 });
               }
             }
+            // Decide before removal: the marker lives in the gitdir that
+            // `git worktree remove` deletes.
+            const worktrunk = yield* worktrunkHookRunner.isWorktrunkWorktree(input.path);
+            if (worktrunk) {
+              yield* worktrunkHookRunner.runPreRemoveHook({
+                projectCwd: input.cwd,
+                worktreePath: input.path,
+              });
+            }
             yield* git.removeWorktree(input);
+            if (worktrunk) {
+              yield* worktrunkHookRunner.runPostRemoveHook({
+                projectCwd: input.cwd,
+                worktreePath: input.path,
+              });
+            }
           }),
         ),
       );
