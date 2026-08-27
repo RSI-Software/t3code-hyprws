@@ -18,7 +18,7 @@ import { providerInstanceEntriesFor } from "../../providerInstances";
 import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
 import { firstManagedDenial } from "../../state/managedPolicy";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
-import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
+import { WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic"; // fork-hook: worktrunk-hooks/workspace-env-mode-label-import
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
@@ -29,6 +29,9 @@ import { Switch } from "../ui/switch";
 import { resolveDefaultModelSettingsPresentation } from "./ProjectDefaultsSettings.logic";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
 import { useSearchableSetting } from "./settingsSearch";
+import { workspaceEnvModeFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-hook-import
+import { workspaceEnvModeResetActionFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-reset-import
+import { envModeSelectFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-select-import
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -108,15 +111,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
+  const workspaceEnvMode = workspaceEnvModeFork(settings); // fork-hook: worktrunk-hooks/workspace-env-mode
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const unavailable = connectedEnvironments.length === 0;
-  const effective = target
-    ? resolveProjectSettings(target.settings, null, null, null).settings
-    : null;
 
   const modelDisabledReason = useScopedModelDisabledReason(settings, entries);
   const effortDisabledReason = selection
@@ -233,39 +234,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           ? gt("Where new threads in this project start.")
           : gt("Where new threads start. Projects and their t3.json can override it.")
       }
-      resetAction={
-        !isProjectScope && settings.defaultThreadEnvMode !== null ? (
-          <SettingResetButton
-            ariaLabel={gt("Reset default workspace to default")}
-            onClick={() => updateSettings({ defaultThreadEnvMode: null })}
-          />
-        ) : null
-      }
-      control={
-        <Select
-          value={mixedWorkspace ? null : (effective?.defaultThreadEnvMode ?? null)}
-          onValueChange={(value) => {
-            if (value === "local" || value === "worktree")
-              updateSettings({ defaultThreadEnvMode: value });
-          }}
-        >
-          <SelectTrigger size="sm" aria-label={gt("Default workspace")}>
-            <SelectValue>
-              {(value: string | null) =>
-                value === "local" || value === "worktree"
-                  ? resolveEnvModeLabel(value, m)
-                  : unavailable
-                    ? gt("Unavailable", { $context: "setting value cannot be read" })
-                    : gt("Mixed", { $context: "values differ across targets" })
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            <SelectItem value="local">{resolveEnvModeLabel("local", m)}</SelectItem>
-            <SelectItem value="worktree">{resolveEnvModeLabel("worktree", m)}</SelectItem>
-          </SelectPopup>
-        </Select>
-      }
+      resetAction={workspaceEnvModeResetActionFork(workspaceEnvMode, updateSettings)} // fork-hook: worktrunk-hooks/workspace-env-mode-reset
+      control={envModeSelectFork(mixedWorkspace, workspaceEnvMode, unavailable, updateSettings)} // fork-hook: worktrunk-hooks/workspace-env-mode-select
     />
   );
 
