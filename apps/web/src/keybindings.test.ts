@@ -478,17 +478,25 @@ describe("thread navigation helpers", () => {
     );
   });
 
-  it("never shows jump hints while the terminal is focused, even with an unrestricted binding", () => {
-    assert.isFalse(
+  it("shows jump hints with terminal focus when the binding is active there", () => {
+    assert.isTrue(
       shouldShowThreadJumpHints(event({ metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),
     );
-    assert.isTrue(
-      shouldShowThreadJumpHints(event({ metaKey: true }), DEFAULT_BINDINGS, {
+
+    const composerOnlyBindings = compile([
+      {
+        shortcut: modShortcut("1"),
+        command: "thread.jump.1",
+        whenAst: whenNot(whenIdentifier("terminalFocus")),
+      },
+    ]);
+    assert.isFalse(
+      shouldShowThreadJumpHints(event({ metaKey: true }), composerOnlyBindings, {
         platform: "MacIntel",
-        context: { terminalFocus: false },
+        context: { terminalFocus: true },
       }),
     );
   });
