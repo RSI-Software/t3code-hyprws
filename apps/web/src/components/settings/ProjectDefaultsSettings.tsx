@@ -31,6 +31,9 @@ import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
 import { searchableSetting } from "./settingsSearch";
+import { workspaceEnvModeFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-hook-import
+import { workspaceEnvModeResetActionFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-reset-import
+import { envModeSelectFork } from "./ProjectDefaultsSettings.fork"; // fork-hook: worktrunk-hooks/workspace-env-mode-select-import
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -89,6 +92,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
+  const workspaceEnvMode = workspaceEnvModeFork(settings); // fork-hook: worktrunk-hooks/workspace-env-mode
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
@@ -216,39 +220,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           ? "Where new threads in this project start."
           : "Where new threads start. Projects and their t3.json can override it."
       }
-      resetAction={
-        !isProjectScope && settings.defaultThreadEnvMode !== null ? (
-          <SettingResetButton
-            label="default workspace"
-            onClick={() => updateSettings({ defaultThreadEnvMode: null })}
-          />
-        ) : null
-      }
-      control={
-        <Select
-          value={mixedWorkspace ? null : (effective?.defaultThreadEnvMode ?? null)}
-          onValueChange={(value) => {
-            if (value === "local" || value === "worktree")
-              updateSettings({ defaultThreadEnvMode: value });
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Default workspace">
-            <SelectValue>
-              {(value: string | null) =>
-                value === "local" || value === "worktree"
-                  ? resolveEnvModeLabel(value)
-                  : unavailable
-                    ? "Unavailable"
-                    : "Mixed"
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup align="end" alignItemWithTrigger={false}>
-            <SelectItem value="local">{resolveEnvModeLabel("local")}</SelectItem>
-            <SelectItem value="worktree">{resolveEnvModeLabel("worktree")}</SelectItem>
-          </SelectPopup>
-        </Select>
-      }
+      resetAction={workspaceEnvModeResetActionFork(workspaceEnvMode, updateSettings)} // fork-hook: worktrunk-hooks/workspace-env-mode-reset
+      control={envModeSelectFork(mixedWorkspace, workspaceEnvMode, unavailable, updateSettings)} // fork-hook: worktrunk-hooks/workspace-env-mode-select
     />
   );
 

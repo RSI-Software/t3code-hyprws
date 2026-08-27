@@ -1334,6 +1334,7 @@ export default function ChatView(props: ChatViewProps) {
     resetLocalDispatch,
     localDispatchStartedAt,
     isPreparingWorktree: isLocallyPreparingWorktree,
+    isPreparingWorktrunk, // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-destructure
     isSendBusy,
     backgroundSubmissionPending,
   } = useLocalDispatchState({
@@ -2078,6 +2079,7 @@ export default function ChatView(props: ChatViewProps) {
     hasServerThread: isServerThread,
     draftThreadEnvMode: isLocalDraftThread ? draftThread?.envMode : undefined,
     preparingWorktree: isPreparingWorktree,
+    preparingWorktrunk: isPreparingWorktrunk, // fork-hook: worktrunk-hooks/effective-env-mode-preparing-worktrunk
   });
   const canOverrideServerThreadEnvMode = Boolean(
     isServerThread &&
@@ -3662,6 +3664,7 @@ export default function ChatView(props: ChatViewProps) {
                                     }
                                   : {})}
                                 envLocked={envLocked}
+                                activeWorktrunk={gitStatusQuery.data?.worktrunk === true} // fork-hook: worktrunk-hooks/active-worktrunk
                                 onComposerFocusRequest={scheduleComposerFocusStable}
                                 {...(canCheckoutPullRequestIntoThread
                                   ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
