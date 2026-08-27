@@ -32,9 +32,11 @@ import {
   TerminalProcessChangedError,
   type TerminalWriteInput,
   type ContextMenuItem,
+  type KeybindingCommand,
   type ProviderInstanceId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
+  THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
@@ -73,6 +75,8 @@ import {
   isTerminalSplitVerticalShortcut,
   isTerminalToggleShortcut,
   isThreadNavigationShortcut,
+  resolveShortcutCommand,
+  type ShortcutEventLike,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "../keybindings";
@@ -115,6 +119,30 @@ import {
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
+const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "terminal.toggle",
+  "terminal.new",
+  "terminal.split",
+  "terminal.splitVertical",
+  "terminal.close",
+  "diff.toggle",
+  "chat.focusComposer",
+  "thread.previous",
+  "thread.next",
+  ...THREAD_JUMP_KEYBINDING_COMMANDS,
+]);
+
+export function shouldForwardThreadTerminalShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  platform?: string,
+): boolean {
+  const command = resolveShortcutCommand(event, keybindings, {
+    ...(platform === undefined ? {} : { platform }),
+    context: { terminalFocus: true, terminalOpen: true },
+  });
+  return command !== null && THREAD_TERMINAL_WINDOW_COMMANDS.has(command);
+}
 
 interface DrawerLayout {
   viewportHeight: number;
@@ -483,6 +511,18 @@ export function shouldHandleTerminalExit(
   );
 }
 
+export function shouldHandleTerminalFocusRequest(input: {
+  focusOnRequest: boolean;
+  focusRequestId: number;
+  handledFocusRequestId: number;
+}): boolean {
+  return (
+    input.focusOnRequest &&
+    input.focusRequestId !== 0 &&
+    input.focusRequestId !== input.handledFocusRequestId
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -616,6 +656,10 @@ function TerminalSessionViewport({
     reportFailure: false,
   });
   const hasHandledExitRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0);
+  const pendingFocusRequestRef = useRef(false);
+  const focusOnRequestRef = useRef(focusOnRequest);
+  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   const readKeybindings = useEffectEvent(() => keybindings);
   const readThreadShortcutContext = useEffectEvent(() => threadShortcutContext(threadRef));
@@ -1904,7 +1948,9 @@ export default function ThreadTerminalDrawer({
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
           "relative flex min-w-0 flex-col overflow-hidden bg-background",
-          isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+          isPanel
+            ? "h-full flex-1"
+            : "z-45 shrink-0 border-t border-border/80 sm:focus-within:border-ring",
         )}
         style={isPanel ? undefined : { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` }}
       >
@@ -1934,7 +1980,9 @@ export default function ThreadTerminalDrawer({
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
         "relative flex min-w-0 flex-col overflow-hidden bg-background",
-        isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
+        isPanel
+          ? "h-full flex-1"
+          : "z-45 shrink-0 border-t border-border/80 sm:focus-within:border-ring",
       )}
       style={isPanel ? undefined : { height: `var(${DRAG_HEIGHT_PROPERTY}, ${drawerHeight}px)` }}
     >
