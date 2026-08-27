@@ -17,6 +17,7 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
+- Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.
 
 **Nothing is posted upstream.**
 The fork posts nothing to `pingdotgg/t3code`: no pull request, issue, comment, review, or reaction.
