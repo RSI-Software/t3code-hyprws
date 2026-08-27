@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 
+import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
   buildLedger,
   collectFindings,
@@ -115,6 +116,38 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
     lines.some((line) =>
       line.startsWith("| `ddddddddd` | chore: untagged | missing Fork-Domain |"),
     ),
+  );
+});
+
+it("skips retired subjects from listings and makes --check fail while one is present", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n| fix(web): scope markdown actions | project-windows | `canonical/project#123` | v1.0.0 |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.notInclude(
+    ledger.commits.map((commit) => commit.subject),
+    "fix(web): scope markdown actions",
+  );
+  assert.deepInclude(ledger.findings, {
+    short: "aaaaaaaaa",
+    subject: "fix(web): scope markdown actions",
+    problem: "retired but present",
+  });
+  assert.isAbove(ledger.findings.length, 0);
+});
+
+it("keeps a partial subject active when its retired and kept portions are both recorded", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n| fix(web): scope markdown actions | project-windows | `canonical/project#123` | v1.0.0 |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n| fix(web): scope markdown actions | project-windows | project scope remains | v1.0.0 |\n",
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.include(
+    ledger.commits.map((commit) => commit.subject),
+    "fix(web): scope markdown actions",
+  );
+  assert.notInclude(
+    ledger.findings.map((finding) => finding.problem),
+    "retired but present",
   );
 });
 
