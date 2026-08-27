@@ -117,6 +117,14 @@ export function codexArtifactTemplatePromptToAppend(
     : codexArtifactTemplateUsePrompt(template);
 }
 
+export function nextTerminalFocusRequestId(
+  previousThreadKey: string | null,
+  nextThreadKey: string | null,
+  currentRequestId: number,
+): number {
+  return previousThreadKey === nextThreadKey ? currentRequestId : 0;
+}
+
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;
   activeThreadKey: string | null;
@@ -468,6 +476,10 @@ export function buildRevertTurnCountByUserMessageId(input: {
     }
   }
   return byUserMessageId;
+}
+
+export function shouldAutoFocusComposerOnThreadChange(activeThreadId: string | null): boolean {
+  return activeThreadId !== null;
 }
 
 export function reconcileMountedTerminalThreadIds(input: {
