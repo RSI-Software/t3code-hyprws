@@ -795,6 +795,7 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: GitRefName,
     branch: Schema.optional(GitRefName),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    worktrunk: Schema.optional(Schema.Boolean), // fork-hook: worktrunk-hooks/launch-strategy-worktrunk
     repositories: Schema.optional(
       Schema.Array(Schema.Struct({ path: TrimmedNonEmptyString }))
         .check(Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX))
