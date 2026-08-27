@@ -163,6 +163,11 @@ It marks a commit upstream is likely to supersede so the rebase feasibility walk
 It never means "send this upstream" and never authorizes publishing a branch or posting to upstream.
 The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
 
+Reading upstream is how the fork decides what to do about a bug it feels.
+Run the [`upstream-triage`](../../.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing one, so the fork knows whether upstream already fixed it, has a pull request open, or has never seen it.
+The skill reads upstream and writes only in this fork.
+Where it finds a suggestion worth making, it drafts one for the human, who decides whether to post it.
+
 Keep local `main` as an exact mirror of `upstream/main`.
 Never put fork commits on `main`, and never merge `hyprws` back into it.
 Push `main` to `origin` only as a fast-forward, so `origin/main` stays a readable mirror.
