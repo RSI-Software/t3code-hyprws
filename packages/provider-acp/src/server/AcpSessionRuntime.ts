@@ -28,6 +28,7 @@ import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import * as EffectAcpProtocol from "effect-acp/protocol";
+import { stripForeignHarnessIdentityEnv, stripInheritedTmuxEnv } from "@t3tools/shared/env"; // fork-hook: upstream-fixes/acp-spawn-scrub-import
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { AgentScope, AgentScopeThreadId, RAISE_OOM_SCORE_LINE } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -35,6 +36,11 @@ import { windowsSystem32Path } from "@t3tools/shared/windowsSystem";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./stderr.ts";
+import { providerSpawnOptionsFork } from "./AcpSpawnEnvironment.fork.ts"; // fork-hook: upstream-fixes/acp-spawn-options-import
+import {
+  type ProviderSessionIdentity,
+  withSessionIdentityWhenKnown,
+} from "@t3tools/provider-core/server/providerSessionEnvironment.fork"; // fork-hook: upstream-fixes/acp-session-identity-import
 import {
   collectSessionConfigOptionValues,
   decideToolCallUpdateEmission,
@@ -101,6 +107,7 @@ export interface AcpSpawnInput {
   readonly env?: NodeJS.ProcessEnv;
   readonly extendEnv?: boolean;
   readonly shell?: false;
+  readonly harnessKind?: string; // fork-hook: upstream-fixes/acp-harness-kind
 }
 
 // A provided env is the complete child environment, as in OpenCodeRuntime. Extending it would
@@ -110,6 +117,7 @@ const spawnExtendsEnv = (spawn: AcpSpawnInput): boolean =>
 
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
+  readonly sessionIdentity?: ProviderSessionIdentity; // fork-hook: upstream-fixes/acp-session-identity-option
   readonly cwd: string;
   readonly resumeSessionId?: string;
   readonly resumeMethod?: "load" | "resume";
@@ -1463,12 +1471,21 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
       ),
     );
 
+  const spawnEnv = {
+    ...stripForeignHarnessIdentityEnv(
+      spawnExtendsEnv(options.spawn) ? stripInheritedTmuxEnv(process.env) : {},
+      options.spawn.harnessKind,
+    ),
+    ...options.spawn.env,
+  }; // fork-hook: upstream-fixes/acp-spawn-scrub
+  const forkSpawnPolicy = providerSpawnOptionsFork(spawnEnv); // fork-hook: upstream-fixes/acp-spawn-environment
   const spawnCommand =
     options.spawn.shell === false
       ? { command: options.spawn.command, args: options.spawn.args, shell: false }
       : yield* resolveSpawnCommand(options.spawn.command, options.spawn.args, {
           ...(options.spawn.env ? { env: options.spawn.env } : {}),
           extendEnv: spawnExtendsEnv(options.spawn),
+          ...forkSpawnPolicy, // fork-hook: upstream-fixes/acp-spawn-environment
         });
   const commandLookupEnv = spawnExtendsEnv(options.spawn)
     ? { ...process.env, ...options.spawn.env }
@@ -1542,12 +1559,18 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
           ELECTRON_RUN_AS_NODE: "1",
           T3_ACP_CGROUP_WRAPPER: "1",
         };
+  const forkSpawnEnv = withSessionIdentityWhenKnown(
+    spawnEnvironment === undefined ? spawnEnv : { ...spawnEnv, ...spawnEnvironment },
+    options.sessionIdentity,
+  ); // fork-hook: upstream-fixes/acp-session-identity
+  const forkChildSpawnPolicy = providerSpawnOptionsFork(forkSpawnEnv); // fork-hook: upstream-fixes/acp-spawn-environment
   const child = yield* spawner
     .spawn(
       ChildProcess.make(containedSpawnCommand.command, containedSpawnCommand.args, {
         ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
         ...(spawnEnvironment ? { env: spawnEnvironment } : {}),
         extendEnv: spawnExtendsEnv(options.spawn),
+        ...forkChildSpawnPolicy, // fork-hook: upstream-fixes/acp-session-identity-env
         // Windows `detached` gives the child its own console, which breaks stdio pipes through
         // `.cmd` shims; taskkill /T cleans up the tree there without it.
         ...(options.ownDetachedProcessGroup === undefined
