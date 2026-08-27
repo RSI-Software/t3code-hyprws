@@ -102,6 +102,7 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
+  "chat.focusComposer",
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -404,6 +405,18 @@ export function shouldHandleTerminalExit(
   );
 }
 
+export function shouldHandleTerminalFocusRequest(input: {
+  focusOnRequest: boolean;
+  focusRequestId: number;
+  handledFocusRequestId: number;
+}): boolean {
+  return (
+    input.focusOnRequest &&
+    input.focusRequestId !== 0 &&
+    input.focusRequestId !== input.handledFocusRequestId
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -417,8 +430,8 @@ interface TerminalViewportProps {
   onSessionExited: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   focusRequestId: number;
-  autoFocus: boolean;
   visible: boolean;
+  focusOnRequest: boolean;
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
@@ -457,8 +470,8 @@ function TerminalSessionViewport({
   onSessionExited,
   onAddTerminalContext,
   focusRequestId,
-  autoFocus,
   visible,
+  focusOnRequest,
   resizeEpoch,
   drawerHeight,
   keybindings,
@@ -492,6 +505,10 @@ function TerminalSessionViewport({
     reportFailure: false,
   });
   const hasHandledExitRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0);
+  const pendingFocusRequestRef = useRef(false);
+  const focusOnRequestRef = useRef(focusOnRequest);
+  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
@@ -681,10 +698,15 @@ function TerminalSessionViewport({
       synchronizeTerminalStatus(terminal, latestSession.status, latestSession.version);
       if (
         hasTerminalWriteAccess() &&
-        visibleRef.current &&
-        mount.contains(document.activeElement)
+        pendingFocusRequestRef.current &&
+        focusOnRequestRef.current
       ) {
-        terminal.focus();
+        pendingFocusRequestRef.current = false;
+        window.requestAnimationFrame(() => {
+          if (terminalRef.current === terminal && focusOnRequestRef.current) {
+            terminal.focus();
+          }
+        });
       }
 
       const dismissSelectionAction = (supersede = false) => {
@@ -1093,12 +1115,33 @@ function TerminalSessionViewport({
     previousSessionRef.current = current;
   }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
 
-  // Each new request focuses again, even when nothing else changed.
-  const focusRequest = autoFocus && canOperateTerminal && visible ? focusRequestId : null;
   useEffect(() => {
-    if (focusRequest === null) return;
-    (terminalRef.current ?? containerRef.current)?.focus();
-  }, [focusRequest]);
+    const handledFocusRequestId = handledFocusRequestIdRef.current;
+    if (
+      !shouldHandleTerminalFocusRequest({
+        focusOnRequest: focusOnRequest && canOperateTerminal,
+        focusRequestId,
+        handledFocusRequestId,
+      })
+    ) {
+      if (!focusOnRequest) pendingFocusRequestRef.current = false;
+      return;
+    }
+
+    handledFocusRequestIdRef.current = focusRequestId;
+    pendingFocusRequestRef.current = true;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    pendingFocusRequestRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (terminalRef.current === terminal && focusOnRequestRef.current) {
+        terminal.focus();
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [canOperateTerminal, focusOnRequest, focusRequestId]);
 
   // The surface measures its mount, so each drawer resize or window resize refits it.
   // A hidden surface skips fitting, and showing it again fits through setVisible.
@@ -1284,7 +1327,7 @@ function TerminalSplitPanes({
                 onSessionExited={() => onCloseTerminal(terminalId)}
                 onAddTerminalContext={onAddTerminalContext}
                 focusRequestId={focusRequestId}
-                autoFocus={terminalId === activeTerminalId}
+                focusOnRequest={visible && terminalId === activeTerminalId}
                 visible={visible}
                 resizeEpoch={resizeEpoch}
                 drawerHeight={drawerHeight}
@@ -1888,7 +1931,7 @@ export default function ThreadTerminalDrawer({
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
                   focusRequestId={focusRequestId}
-                  autoFocus
+                  focusOnRequest={visible}
                   visible={visible}
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
