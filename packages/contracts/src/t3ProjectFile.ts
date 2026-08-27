@@ -93,6 +93,12 @@ export const T3ProjectFile = Schema.Struct({
         'How new worktrees populate git submodules: "recursive" (the default) initializes nested submodules too, "top-level" initializes only those declared by this repository, and "none" leaves every submodule empty for a setup script to handle. A project or environment setting in T3 Code overrides this.',
     }),
   ),
+  worktrunkHooks: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description:
+        "Whether T3 Code runs this repository's Worktrunk hooks (.config/wt.toml) when it creates or removes a thread worktree. Overrides the environment setting for this project; false skips every hook.",
+    }),
+  ),
   scripts: Schema.optionalKey(
     Schema.Array(T3ProjectFileScript)
       .annotate({
