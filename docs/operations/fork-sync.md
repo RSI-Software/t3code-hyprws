@@ -35,7 +35,13 @@ If it is rejected, someone committed to `main`; stop and inspect before forcing 
 The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
 Its adjacent JSON file is the same versioned data for later automation.
 Both record the resolved source, live upstream target, shared base, every intervening release tag,
-commit groups, and change-type totals.
+commit groups, change-type totals, and read-only rebase feasibility.
+The `Feasibility:` line names how many upstream first-parent commits remain clean, while the detailed
+section identifies the first conflicting upstream commit, each conflict's introducing fork commit and
+trailers, and overlapping files that Git automerged. Treat the first conflict as the fast-forward
+boundary: the fork stack can advance automatically only through the preceding commit. Automerged
+overlap is still a semantic review surface, not proof that the fork behavior remains valid.
+Use `--target vX.Y.Z` to inspect a specific release instead of the live upstream tip.
 They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
 
 The report embeds the `origin/hyprws` head, so a committed copy is stale after every landed commit.
