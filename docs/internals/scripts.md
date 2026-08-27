@@ -61,11 +61,12 @@ authenticated.
 - `vp run typecheck`: Strict TypeScript checks for all packages.
 - `vp run test`: Runs workspace tests.
 - `vp run lint:mobile`: Mobile native static analysis (`scripts/mobile-native-static-check.ts`).
-- `vp run fork:delta`: Lists fork commits above `upstream/main` by `Fork-Domain` and `Fork-Tier` trailer
-  (`scripts/fork-delta.ts`). `--check` exits 1 when a fork commit lacks a valid trailer; `--json` emits
-  the ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in stack order for
-  `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a pull-request body ends
-  with the trailer block its squash commit will inherit.
+- `vp run fork:delta`: Lists active fork commits above `upstream/main` by `Fork-Domain` and
+  `Fork-Tier` trailer (`scripts/fork-delta.ts`), omitting subjects recorded under Retired in the fork
+  ledger. `--check` exits 1 when a commit has invalid trailers or a retired subject is still present;
+  `--json` emits the active ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in
+  stack order for `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a
+  pull-request body ends with the trailer block its squash commit will inherit.
 - `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
   (`scripts/fork-sync-gate.ts`). It accepts stable tags only and exits 1 unless the committed
   rehearsal record has a full `expected_old` equal to live `origin/hyprws` and a human sanity login
@@ -111,13 +112,15 @@ authenticated.
     No counter-example that errs the other way survived this round. The reader is still an
     approximation, so a shape nobody has tried can pair across a boundary it does not know.
 
-- `vp run fork:rebase-report`: Generates the gitignored Markdown and schema-v2 JSON orientation
+- `vp run fork:rebase-report`: Generates the gitignored Markdown and schema-v3 JSON orientation
   snapshot under `docs/internals/generated/` from `origin/hyprws` to `upstream/main`
   (`scripts/fork-rebase-report.ts`). Its read-only feasibility section walks the upstream first-parent
   lane with `git merge-tree`, attributes each hard-conflict file and hunk count to its introducing fork
-  commit/domain/tier, and lists overlapping files Git automerged for semantic review. Pass
-  `--target vX.Y.Z` to inspect a release and `--fetch` to refresh both remotes first. `--check` performs
-  a byte-for-byte comparison against the files on disk without writing. The
+  commit/domain/tier, and lists overlapping files Git automerged for semantic review. Its Retire
+  candidates section marks commits whose patch is already upstream or whose changed hunks overlap
+  or sit adjacent to upstream hunks, and carries forward Retired/Kept decisions by commit subject from the fork
+  ledger. Pass `--target vX.Y.Z` to inspect a release and `--fetch` to refresh both remotes first.
+  `--check` performs a byte-for-byte comparison against the files on disk without writing. The
   `hyprws-rebase-report.yml` run uploads a fresh pair on every `hyprws` push and on a schedule; the
   report is never committed because it embeds the fork head.
 - `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
