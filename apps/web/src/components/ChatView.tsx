@@ -538,6 +538,7 @@ import {
   scheduleEnvironmentReconnectWarning,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  nextTerminalFocusRequestId,
   shouldShowBranchMismatchBanner,
   shouldShowPlanFollowUpPrompt,
   shouldOpenProactivePullRequest,
@@ -563,6 +564,7 @@ import {
   observeProactivePanelUserChoice,
   resolveProactiveTurnDiffAction,
   resolveThreadMetadataUpdateForNextTurn,
+  shouldAutoFocusComposerOnThreadChange,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -1138,6 +1140,9 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     reconcileTerminalIds(threadRef, serverOrderedTerminalIds);
   }, [reconcileTerminalIds, serverOrderedTerminalIds, terminalUiState.terminalIds, threadRef]);
   const [localFocusRequestId, setLocalFocusRequestId] = useState(0);
+  useEffect(() => {
+    if (!visible) setLocalFocusRequestId(0);
+  }, [visible]);
   const worktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveWorktreePath = useMemo(() => {
     if (launchContext !== null) {
@@ -1168,9 +1173,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   );
 
   const bumpFocusRequestId = useCallback(() => {
-    if (!visible) {
-      return;
-    }
+    if (!visible) return;
     setLocalFocusRequestId((value) => value + 1);
   }, [visible]);
 
@@ -1357,7 +1360,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
           activeTerminalId={terminalUiState.activeTerminalId}
           terminalGroups={terminalUiState.terminalGroups}
           activeTerminalGroupId={terminalUiState.activeTerminalGroupId}
-          focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
+          focusRequestId={focusRequestId + localFocusRequestId}
           onSplitTerminal={splitTerminal}
           onSplitTerminalVertical={splitTerminalVertical}
           onNewTerminal={createNewTerminal}
@@ -2061,7 +2064,11 @@ export default function ChatView(props: ChatViewProps) {
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
   // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
-  const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
+  const [terminalFocusRequests, setTerminalFocusRequests] = useState({
+    threadKey: null as string | null,
+    drawerRequestId: 0,
+    panelRequestId: 0,
+  });
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [terminalUiLaunchContext, setTerminalUiLaunchContext] =
@@ -2374,6 +2381,49 @@ export default function ChatView(props: ChatViewProps) {
     widthStorageKey: `t3code:preview-panel-width:${activeThreadKey}`,
   });
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const terminalFocusRequestId = nextTerminalFocusRequestId(
+    terminalFocusRequests.threadKey,
+    activeThreadKey,
+    terminalFocusRequests.drawerRequestId,
+  );
+  const panelTerminalFocusRequestId = nextTerminalFocusRequestId(
+    terminalFocusRequests.threadKey,
+    activeThreadKey,
+    terminalFocusRequests.panelRequestId,
+  );
+  if (terminalFocusRequests.threadKey !== activeThreadKey) {
+    setTerminalFocusRequests({
+      threadKey: activeThreadKey,
+      drawerRequestId: 0,
+      panelRequestId: 0,
+    });
+  }
+  const requestTerminalFocus = useCallback(() => {
+    if (activeThreadKey === null) return;
+    setTerminalFocusRequests((current) => ({
+      threadKey: activeThreadKey,
+      drawerRequestId:
+        nextTerminalFocusRequestId(current.threadKey, activeThreadKey, current.drawerRequestId) + 1,
+      panelRequestId: nextTerminalFocusRequestId(
+        current.threadKey,
+        activeThreadKey,
+        current.panelRequestId,
+      ),
+    }));
+  }, [activeThreadKey]);
+  const requestPanelTerminalFocus = useCallback(() => {
+    if (activeThreadKey === null) return;
+    setTerminalFocusRequests((current) => ({
+      threadKey: activeThreadKey,
+      drawerRequestId: nextTerminalFocusRequestId(
+        current.threadKey,
+        activeThreadKey,
+        current.drawerRequestId,
+      ),
+      panelRequestId:
+        nextTerminalFocusRequestId(current.threadKey, activeThreadKey, current.panelRequestId) + 1,
+    }));
+  }, [activeThreadKey]);
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&
@@ -4854,6 +4904,7 @@ export default function ChatView(props: ChatViewProps) {
       }
       const terminalId = allocateTerminalId();
       storeEnsureTerminal(activeThreadRef, terminalId, { open: true });
+      requestTerminalFocus();
       void openTerminal({
         environmentId,
         input: {
@@ -4870,6 +4921,7 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     setTerminalOpen(nextOpen);
+    if (nextOpen) requestTerminalFocus();
   };
   const toggleTerminalVisibilityStable = useStableCallback(toggleTerminalVisibility);
   const splitTerminal = (direction: "horizontal" | "vertical" = "horizontal") => {
@@ -4892,7 +4944,7 @@ export default function ChatView(props: ChatViewProps) {
     } else {
       storeSplitTerminal(activeThreadRef, terminalId);
     }
-    setTerminalFocusRequestId((value) => value + 1);
+    requestTerminalFocus();
     void openTerminal({
       environmentId,
       input: {
@@ -4918,7 +4970,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     const terminalId = allocateTerminalId();
     storeNewTerminal(activeThreadRef, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestTerminalFocus();
     void openTerminal({
       environmentId,
       input: {
@@ -4959,7 +5011,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     })();
     storeCloseTerminal(activeThreadRef, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestTerminalFocus();
   };
   const runProjectScript = async (
     script: ProjectScript,
@@ -4998,7 +5050,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) {
       return;
     }
-    setTerminalFocusRequestId((value) => value + 1);
+    requestTerminalFocus();
 
     const runtimeEnv = projectScriptRuntimeEnv({
       project: {
@@ -5841,7 +5893,7 @@ export default function ChatView(props: ChatViewProps) {
     const cwd = gitCwd ?? activeProject.workspaceRoot;
     const terminalId = allocateTerminalId();
     useRightPanelStore.getState().openTerminal(activeThreadRef, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestPanelTerminalFocus();
     void openTerminal({
       environmentId: activeThreadRef.environmentId,
       input: {
@@ -5873,7 +5925,7 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore
       .getState()
       .splitTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId, direction);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestPanelTerminalFocus();
     void openTerminal({
       environmentId: activeThreadRef.environmentId,
       input: {
@@ -5898,7 +5950,7 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore
       .getState()
       .activateTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestPanelTerminalFocus();
   };
   const activatePanelTerminalStable = useStableCallback(activatePanelTerminal);
   const closePanelTerminal = (terminalId: string) => {
@@ -5916,7 +5968,7 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore
       .getState()
       .closeTerminal(activeThreadRef, activeRightPanelSurface.id, terminalId);
-    setTerminalFocusRequestId((value) => value + 1);
+    requestPanelTerminalFocus();
   };
   const closePanelTerminalStable = useStableCallback(closePanelTerminal);
   const requestCloseTerminal = (terminalId: string) => {
@@ -5946,7 +5998,7 @@ export default function ChatView(props: ChatViewProps) {
       setActivePreviewTab(activeThreadRef, surface.resourceId);
     }
     if (surface.kind === "terminal") {
-      setTerminalFocusRequestId((value) => value + 1);
+      requestPanelTerminalFocus();
     }
     if (surface.kind === "diff" && !diffOpen) {
       onDiffPanelOpen?.();
@@ -6725,7 +6777,7 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeThreadKey]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (!shouldAutoFocusComposerOnThreadChange(activeThread?.id ?? null)) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposerStable();
     });
@@ -7836,12 +7888,8 @@ export default function ChatView(props: ChatViewProps) {
     const previous = terminalUiOpenByThreadRef.current[activeThreadKey] ?? false;
     const current = Boolean(terminalUiState.terminalOpen);
 
-    if (!previous && current) {
-      terminalUiOpenByThreadRef.current[activeThreadKey] = current;
-      setTerminalFocusRequestId((value) => value + 1);
-      return;
-    } else if (previous && !current) {
-      terminalUiOpenByThreadRef.current[activeThreadKey] = current;
+    terminalUiOpenByThreadRef.current[activeThreadKey] = current;
+    if (previous && !current) {
       const frame = window.requestAnimationFrame(() => {
         focusComposerStable();
       });
@@ -7849,8 +7897,6 @@ export default function ChatView(props: ChatViewProps) {
         window.cancelAnimationFrame(frame);
       };
     }
-
-    terminalUiOpenByThreadRef.current[activeThreadKey] = current;
   }, [activeThreadKey, focusComposerStable, terminalUiState.terminalOpen]);
 
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
@@ -7967,6 +8013,32 @@ export default function ChatView(props: ChatViewProps) {
             );
           },
         );
+        return;
+      }
+
+      if (command === "terminal.focus") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (rightPanelMaximized) {
+          toggleRightPanelMaximized();
+        }
+        if (!terminalUiState.terminalOpen) {
+          toggleTerminalVisibility();
+          return;
+        }
+        requestTerminalFocus();
+        return;
+      }
+
+      if (command === "chat.focusComposer") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (rightPanelMaximized) {
+          toggleRightPanelMaximized();
+          scheduleComposerFocus();
+          return;
+        }
+        focusComposer();
         return;
       }
 
@@ -10850,7 +10922,7 @@ export default function ChatView(props: ChatViewProps) {
         threadRef={activeThreadRef}
         surface={renderedRightPanelSurface}
         launchContext={activeTerminalLaunchContext ?? null}
-        focusRequestId={terminalFocusRequestId}
+        focusRequestId={panelTerminalFocusRequestId}
         keybindings={keybindings}
         onAddTerminalContext={addTerminalContextToDraftStable}
         onSplitTerminal={splitPanelTerminalStable}
