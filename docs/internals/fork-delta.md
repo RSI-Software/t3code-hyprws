@@ -440,6 +440,19 @@ The fork does not offer them upstream; it waits for upstream to fix the defect a
 - A lane created from `upstream/main`, so the fix carries no fork dependency.
 - No shared helpers across fixes; each must drop alone.
 
+### Terminal focus contract
+
+Three commits share one behavior contract while each still drops alone.
+A rebase that drops one must re-check the other two against it.
+
+- Thread jump keys, previous/next, and the command palette shortcut switch threads while the terminal has focus; every other key stays in the shell.
+- Thread navigation always lands in the composer, even when that thread's terminal drawer is open.
+- The terminal takes focus only on an explicit request: opening the drawer, creating or splitting a terminal, or `` ctrl+` `` from the composer.
+  `` ctrl+` `` from the terminal returns to the composer with the drawer open; closing the drawer returns to the composer.
+- The focused pane (composer, terminal drawer, right panel) shows a static ring in the focus-ring color; no animation.
+
+Proof: `apps/web/src/components/ThreadTerminalDrawer.test.ts`, `ChatView.logic.test.ts`, and a Chrome pass on each landing.
+
 ### Retirement condition
 
 Per commit: upstream ships the fix, and the next rebase drops the commit.
