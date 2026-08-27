@@ -89,6 +89,10 @@ The last matching rule in `keybindings.json` wins, even across different command
 `project.openWindow` opens or reveals the active project's desktop window and defaults to
 `mod+alt+o`. The project-window command and its keybinding are shown only in the desktop app.
 
+`terminal.focus` moves focus into the thread terminal drawer, opening it if needed.
+`chat.focusComposer` moves focus back to the composer without closing the drawer. Both default to
+`` ctrl+` ``, so the one shortcut hops between the composer and the terminal.
+
 ## Reserved and platform shortcuts
 
 - `mod+w` (desktop) closes the focused terminal, the selected range of right-panel tabs, or the active tab if there is no range. On web, browsers intercept `mod+w`. Rebind `rightPanel.close` and `terminal.close` to a shortcut such as `alt+w`.
