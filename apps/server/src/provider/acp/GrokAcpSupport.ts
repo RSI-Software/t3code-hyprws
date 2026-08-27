@@ -76,6 +76,7 @@ export function buildGrokAcpSpawnInput(
     command: grokSettings?.binaryPath || "grok",
     args: [...grokAcpSpawnArgs(runtimeMode)],
     cwd,
+    harnessKind: GROK_DRIVER_KIND,
     env: {
       ...environment,
       [GROK_OAUTH2_REFERRER_ENV]: T3_CODE_OAUTH_REFERRER,

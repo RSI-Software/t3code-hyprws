@@ -58,6 +58,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import { mcpToolPresentation } from "../../provider/McpToolPresentation.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { withProviderSessionIdentity } from "../../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/opencode-session-identity-import
 import type { EventNdjsonLogger } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "../../provider/ProviderEventLoggers.ts";
 import {
@@ -958,11 +959,12 @@ export function makeOpenCodeAdapterV2(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? serverConfig.cwd;
+        const forkSessionEnvironment = withProviderSessionIdentity(options.environment, input); // fork-hook: upstream-fixes/opencode-session-identity
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
           serverUrl: options.settings.serverUrl,
-          environment: options.environment,
+          environment: forkSessionEnvironment, // fork-hook: upstream-fixes/opencode-session-identity-env
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
@@ -3754,7 +3756,11 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
       return makeOpenCodeAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          OPENCODE_PROVIDER,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/opencode-adapter-instance-env
         runtime: openCodeRuntime,
         idAllocator,
         serverConfig,

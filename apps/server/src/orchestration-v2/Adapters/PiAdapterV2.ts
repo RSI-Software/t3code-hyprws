@@ -63,6 +63,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
 import { mcpToolPresentation } from "../../provider/McpToolPresentation.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { withProviderSessionIdentity } from "../../provider/providerSessionEnvironment.ts"; // fork-hook: upstream-fixes/pi-session-identity-import
 import {
   expandPiSkillReference,
   parsePiCompactCommand,
@@ -413,9 +414,10 @@ export function makePiAdapterV2(
       if (!resolvedLaunchArgs.ok) {
         return yield* protocolError(resolvedLaunchArgs.message);
       }
+      const forkSessionEnvironment = withProviderSessionIdentity(options.environment, input); // fork-hook: upstream-fixes/pi-session-identity
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
-        environment: options.environment,
+        environment: forkSessionEnvironment, // fork-hook: upstream-fixes/pi-session-identity-env
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
@@ -2974,7 +2976,11 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
       return makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+        environment: mergeProviderInstanceEnvironment(
+          input.environment,
+          PI_DRIVER_KIND,
+          hostEnvironment,
+        ), // fork-hook: upstream-fixes/pi-adapter-instance-env
         spawner,
         fileSystem,
         idAllocator,
