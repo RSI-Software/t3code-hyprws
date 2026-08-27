@@ -49,19 +49,25 @@ The other domains in this ledger keep their own reasons to exist.
 
 Every fork change carries one tier.
 
-| Tier     | Meaning                                            | On retirement                      |
-| -------- | -------------------------------------------------- | ---------------------------------- |
-| `core`   | The domain does not work without it.               | Deleted with the domain.           |
-| `qol`    | Polish. Drop it and the domain still works.        | Reassess individually.             |
-| `bugfix` | A defect fix. Note whether upstream reproduces it. | Upstream it, or keep if fork-only. |
+| Tier     | Meaning                                            | On retirement                        |
+| -------- | -------------------------------------------------- | ------------------------------------ |
+| `core`   | The domain does not work without it.               | Deleted with the domain.             |
+| `qol`    | Polish. Drop it and the domain still works.        | Reassess individually.               |
+| `bugfix` | A defect fix. Note whether upstream reproduces it. | Dropped once upstream supersedes it. |
 
-A `bugfix` that upstream reproduces is an upstreaming candidate, not fork delta we want to carry.
-Send it upstream as its own pull request and drop it from the stack when it lands.
+A `bugfix` that upstream reproduces is a retire candidate, not fork delta we want to carry.
+Wait for upstream to fix the defect on its own, then drop the commit at the next rebase.
+The fork does not ask upstream to make that happen.
 
 ## Trailers
 
 Every fork commit carries `Fork-Domain` and `Fork-Tier`.
-A `bugfix` also carries `Fork-Upstreamable`, so the ledger can tell an upstreaming candidate from a fork-only fix.
+A `bugfix` also carries `Fork-Upstreamable`, so the ledger can tell a retire candidate from a fork-only fix.
+
+**`Fork-Upstreamable: yes` is a tracking tag only.**
+It marks a commit upstream is likely to supersede, so the rebase feasibility walk can flag it as a retire candidate.
+It never means "send this upstream", and it never authorizes posting to `pingdotgg/t3code`.
+The fork posts no pull request, issue, comment, review, or reaction upstream until at least 2026-11-27, possibly ever; only the human may lift that rule.
 
 ```text
 feat(desktop): register windows by identity
@@ -124,7 +130,7 @@ Entry points are the hub project actions, the command palette, a keybinding, and
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
 QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; Pull Requests shares its search contract through `apps/web/src/components/pullRequest/pullRequestListRoute.ts`, adds `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`, and resolves the project-window entry point in `apps/web/src/components/sidebar/SidebarChrome.tsx`.
-Two bugfixes reproduce upstream and should be offered there; the rest are fork-only.
+Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
 
 An auto-update relaunch is one of those fork-only defects.
 `quitAndInstall` destroys every window and comes back with no arguments, which is correct upstream because there is one window to come back to.
@@ -397,11 +403,12 @@ explicitly trusted artifact links shared across worktrees.
 ### Need
 
 Fixes the fork needs now that belong to no fork domain and would be correct in upstream T3 Code as they stand.
-They sit at the bottom of the stack so each one can be offered upstream and dropped without touching a product domain.
+They sit at the bottom of the stack so each one drops without touching a product domain once upstream ships its own fix.
+The fork does not offer them upstream; it waits for upstream to fix the defect and then retires the commit.
 
 ### Shape
 
-- One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes`.
+- One upstream-native commit per fix, `Fork-Tier: bugfix`, `Fork-Upstreamable: yes` as a retire-candidate tag.
 - A lane created from `upstream/main`, so the fix carries no fork dependency.
 - No shared helpers across fixes; each must drop alone.
 
@@ -456,7 +463,7 @@ Answer three questions before opening one:
 3. Which upstream paths does it touch, so a rebase scan can find collisions?
 
 If the third answer is "many files across unrelated systems", the change is probably not a domain.
-It is probably a bugfix to send upstream, filed under `upstream-fixes`.
+It is probably a bugfix rather than a domain, and it belongs to `upstream-fixes`.
 
 Keep the domain's new code in its own files so it replays cleanly onto upstream.
 See [Extracting a domain](./fork-development.md#extracting-a-domain).
