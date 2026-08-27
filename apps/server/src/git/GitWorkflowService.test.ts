@@ -12,6 +12,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 const gitHandle = {
   kind: "git" as const,
@@ -31,6 +32,19 @@ const gitHandle = {
 const resolveGitHandle: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"] = () =>
   Effect.succeed(gitHandle);
 
+const makeWorktrunkHookRunnerLayer = (
+  overrides: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]> = {},
+) =>
+  Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+    runCreateHooks: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+    runPreRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+    runPostRemoveHook: () =>
+      Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+    ...overrides,
+  });
+
 function makeLayer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
 }) {
@@ -43,6 +57,7 @@ function makeLayer(input: {
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
     Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
+    Layer.provide(makeWorktrunkHookRunnerLayer()),
   );
 }
 
@@ -124,6 +139,7 @@ describe("GitWorkflowService", () => {
         }),
       ),
       Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
 
     return Effect.gen(function* () {
@@ -237,6 +253,18 @@ describe("GitWorkflowService", () => {
         return { status: "unbound" as const, target: "repo/feat-test" };
       }),
     );
+    const runPreRemoveHook = vi.fn((_input: WorktrunkHookRunner.WorktrunkPreRemoveHookInput) =>
+      Effect.sync(() => {
+        calls.push("pre-remove");
+        return { status: "completed" as const };
+      }),
+    );
+    const runPostRemoveHook = vi.fn((_input: WorktrunkHookRunner.WorktrunkPostRemoveHookInput) =>
+      Effect.sync(() => {
+        calls.push("post-remove");
+        return { status: "completed" as const };
+      }),
+    );
     const layer = GitWorkflowService.layer.pipe(
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -246,14 +274,23 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, unbind })),
+      Layer.provide(makeWorktrunkHookRunnerLayer({ runPreRemoveHook, runPostRemoveHook })),
     );
 
     return Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
       yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
 
-      assert.deepStrictEqual(calls, ["resolve", "unbind", "remove"]);
+      assert.deepStrictEqual(calls, ["resolve", "unbind", "pre-remove", "remove", "post-remove"]);
       assert.deepStrictEqual(unbind.mock.calls[0]?.[0], "/repo/wt");
+      assert.deepStrictEqual(runPreRemoveHook.mock.calls[0]?.[0], {
+        projectCwd: "/repo",
+        worktreePath: "/repo/wt",
+      });
+      assert.deepStrictEqual(runPostRemoveHook.mock.calls[0]?.[0], {
+        projectCwd: "/repo",
+        worktreePath: "/repo/wt",
+      });
     }).pipe(Effect.provide(layer));
   });
 
@@ -290,6 +327,7 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ renameBranch })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, bind })),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
 
     return Effect.gen(function* () {
@@ -325,6 +363,7 @@ describe("GitWorkflowService", () => {
           bind,
         }),
       ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
 
     return Effect.gen(function* () {
@@ -364,6 +403,7 @@ describe("GitWorkflowService", () => {
           unbind,
         }),
       ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
 
     return Effect.gen(function* () {
