@@ -98,6 +98,7 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
+  "chat.focusComposer",
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -328,6 +329,18 @@ export function shouldHandleTerminalExit(
   );
 }
 
+export function shouldHandleTerminalFocusRequest(input: {
+  focusOnRequest: boolean;
+  focusRequestId: number;
+  handledFocusRequestId: number;
+}): boolean {
+  return (
+    input.focusOnRequest &&
+    input.focusRequestId !== 0 &&
+    input.focusRequestId !== input.handledFocusRequestId
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -341,8 +354,8 @@ interface TerminalViewportProps {
   onSessionExited: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   focusRequestId: number;
-  autoFocus: boolean;
   visible: boolean;
+  focusOnRequest: boolean;
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
@@ -367,8 +380,8 @@ export function TerminalViewport({
   onSessionExited,
   onAddTerminalContext,
   focusRequestId,
-  autoFocus,
   visible,
+  focusOnRequest,
   resizeEpoch,
   drawerHeight,
   keybindings,
@@ -393,6 +406,10 @@ export function TerminalViewport({
     reportFailure: false,
   });
   const hasHandledExitRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0);
+  const pendingFocusRequestRef = useRef(false);
+  const focusOnRequestRef = useRef(focusOnRequest);
+  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   // Holds the request id of the selection popup currently on screen, so a
   // popup that was superseded (but whose menu promise has not settled yet)
@@ -565,9 +582,13 @@ export function TerminalViewport({
       // never started, so only "exited" triggers the message — as with xterm.)
       synchronizedStatusRef.current = "closed";
       synchronizeTerminalStatus(terminal, latestSession.status);
-      // Startup may finish after the user has returned to the composer.
-      if (visibleRef.current && mount.contains(document.activeElement)) {
-        terminal.focus();
+      if (pendingFocusRequestRef.current && focusOnRequestRef.current) {
+        pendingFocusRequestRef.current = false;
+        window.requestAnimationFrame(() => {
+          if (terminalRef.current === terminal && focusOnRequestRef.current) {
+            terminal.focus();
+          }
+        });
       }
 
       const dismissSelectionAction = (supersede = false) => {
@@ -969,11 +990,32 @@ export function TerminalViewport({
   }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
 
   useEffect(() => {
-    if (!autoFocus || !visible) return;
-    // Claim focus when requested, then hand it to the terminal once ready only
-    // if the user has not focused something else in the meantime.
-    (terminalRef.current ?? containerRef.current)?.focus();
-  }, [autoFocus, focusRequestId, visible]);
+    const handledFocusRequestId = handledFocusRequestIdRef.current;
+    if (
+      !shouldHandleTerminalFocusRequest({
+        focusOnRequest,
+        focusRequestId,
+        handledFocusRequestId,
+      })
+    ) {
+      if (!focusOnRequest) pendingFocusRequestRef.current = false;
+      return;
+    }
+
+    handledFocusRequestIdRef.current = focusRequestId;
+    pendingFocusRequestRef.current = true;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    pendingFocusRequestRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (terminalRef.current === terminal && focusOnRequestRef.current) {
+        terminal.focus();
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [focusOnRequest, focusRequestId]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1562,7 +1604,7 @@ export default function ThreadTerminalDrawer({
                           onSessionExited={() => onCloseTerminal(terminalId)}
                           onAddTerminalContext={onAddTerminalContext}
                           focusRequestId={focusRequestId}
-                          autoFocus={terminalId === resolvedActiveTerminalId}
+                          focusOnRequest={visible && terminalId === resolvedActiveTerminalId}
                           visible={visible}
                           resizeEpoch={resizeEpoch}
                           drawerHeight={drawerHeight}
@@ -1592,7 +1634,7 @@ export default function ThreadTerminalDrawer({
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
                   focusRequestId={focusRequestId}
-                  autoFocus
+                  focusOnRequest={visible}
                   visible={visible}
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
