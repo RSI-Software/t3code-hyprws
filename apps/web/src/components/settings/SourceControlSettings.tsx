@@ -56,6 +56,7 @@ import {
   type Icon,
 } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { GitHubIssueSettingsSection } from "./GitHubIssueSettings";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
 import {
   PolicyTooltip,
@@ -597,6 +598,9 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
+      {/* Their rows are serverScoped: without a primary they render inert with
+          an explanation, which beats disappearing. */}
+      <GitHubIssueSettingsSection />
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );
