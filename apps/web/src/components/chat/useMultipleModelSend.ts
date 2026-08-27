@@ -44,8 +44,11 @@ import {
   startFanoutThread,
 } from "./chatViewSend";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
+import type { StoredThreadEnvMode as EnvModeFork } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/multi-env-mode-import
+import { worktrunkBootstrapFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/multi-bootstrap-import
 
 interface MultipleModelSendInput {
+  readonly sendEnvMode: EnvModeFork; // fork-hook: worktrunk-hooks/multi-env-mode-input
   readonly environmentId: EnvironmentId;
   readonly routeThreadKey: string;
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
@@ -76,6 +79,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     promptRef,
     runtimeMode,
     startFromOrigin,
+    sendEnvMode, // fork-hook: worktrunk-hooks/multi-env-mode-read
     worktreeRepositories,
     resetLocalDispatch,
     setThreadError,
@@ -202,6 +206,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       baseBranch: branch,
                       requireWorktree: true,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...worktrunkBootstrapFork(sendEnvMode), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send-multiple
                       ...(worktreeRepositories ? { repositories: worktreeRepositories } : {}),
                     },
                     runSetupScript: true,
