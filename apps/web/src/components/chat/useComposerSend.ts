@@ -94,6 +94,7 @@ import {
 } from "./composerSend.logic";
 import { usePlanFollowUpSend } from "./useProposedPlanSend";
 import { useMultipleModelSend } from "./useMultipleModelSend";
+import { worktrunkBootstrapFork, worktrunkDispatchFork } from "./useComposerSend.fork"; // fork-hook: worktrunk-hooks/send-bootstrap-import
 import { type ComposerDispatchMode } from "@t3tools/client-runtime/state/composer-dispatch";
 import {
   awaitAttachmentUploads,
@@ -360,6 +361,7 @@ export function useComposerSend(input: ComposerSendInput) {
     startFromOrigin,
     resetLocalDispatch,
     setThreadError,
+    sendEnvMode, // fork-hook: worktrunk-hooks/multi-send-env-mode
   });
   const submitPlanFollowUp = usePlanFollowUpSend({
     environmentId,
@@ -1093,6 +1095,10 @@ export function useComposerSend(input: ComposerSendInput) {
     } else {
       beginLocalDispatch({
         preparingWorktree: multipleModelSelections !== null || Boolean(baseBranchForWorktree),
+        ...worktrunkDispatchFork(
+          sendEnvMode,
+          multipleModelSelections !== null || Boolean(baseBranchForWorktree),
+        ), // fork-hook: worktrunk-hooks/local-dispatch-preparing-worktrunk-begin
         submissionIntent:
           submissionIntent === "background" && !isLocalDraftThread
             ? "foreground"
@@ -1269,6 +1275,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...worktrunkBootstrapFork(sendEnvMode), // fork-hook: worktrunk-hooks/bootstrap-worktrunk-send
                     },
                     runSetupScript: true,
                   }

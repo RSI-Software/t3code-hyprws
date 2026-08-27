@@ -21,6 +21,7 @@ import {
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
+import { ForkThreadEnvMode } from "./environment.fork.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
   CustomModelSetting,
@@ -155,7 +156,7 @@ const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
 export const TerminalSessionMode = Schema.Literals(["shell", "zmux"]);
 export type TerminalSessionMode = typeof TerminalSessionMode.Type;
-export const DEFAULT_TERMINAL_SESSION_MODE: TerminalSessionMode = "shell";
+const DEFAULT_TERMINAL_SESSION_MODE: TerminalSessionMode = "shell";
 
 // "artwork" follows the running channel and shows nothing on Latest. The fixed artwork
 // modes let any channel opt into a specific channel's art.
@@ -1011,6 +1012,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  // Fork: the exact stored mode when the override's `defaultThreadEnvMode` is
+  // only standing in for it, same field pair as the global settings.
+  defaultThreadEnvModeFork: Schema.optionalKey(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: ForwardCompatibleOptional(WorktreeSubmodules),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
@@ -1036,7 +1040,12 @@ export const ProjectSettingsOverrides = Schema.Struct({
   providerInstances: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, ProjectProviderInstanceOverride),
   ),
-} satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
+} satisfies Record<ProjectScopedServerSettingKey, unknown> & {
+  // Fork: the `...Fork` sibling is deliberately NOT a standalone scopable
+  // key — it only travels with the wire slot it belongs to.
+  defaultThreadEnvModeFork?: unknown;
+  providerInstances?: unknown; // fork-hook: worktrunk-hooks/settings-overrides-provider-instances
+});
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
 /** True if null stores an override; otherwise null removes it. */
@@ -1227,6 +1236,9 @@ export const ServerSettings = Schema.Struct({
   ),
   /** Null inherits t3.json, then local; omit it on the wire for older clients requiring a literal. */
   defaultThreadEnvMode: OmittedWhenNull(ThreadEnvMode),
+  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
+  // in for it. A released client ignores this key and reads the wire value.
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
@@ -1323,6 +1335,27 @@ export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
   }
   return rest;
 }; // fork-hook: zmux-estate/legacy-zmux-settings-migration
+
+/**
+ * Fork: lift a settings file that stored `defaultThreadEnvMode: "worktrunk"`
+ * into the wire pair. The key is now the value every released client can
+ * decode, and the fork sibling carries the exact mode. Runs on the raw parsed
+ * JSON before schema decode; the file converges on the next write.
+ */
+export const migrateLegacyForkThreadEnvModeSettings = (raw: unknown): unknown => {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.defaultThreadEnvMode !== "worktrunk") {
+    return raw;
+  }
+  return {
+    ...record,
+    defaultThreadEnvMode: "worktree" satisfies ThreadEnvMode,
+    defaultThreadEnvModeFork: "worktrunk" satisfies ForkThreadEnvMode,
+  };
+};
 
 export const providerInstanceConfigEnabledFlag = (config: unknown): boolean | undefined => {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
@@ -1582,6 +1615,7 @@ export const ServerSettingsPatch = Schema.Struct({
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
   defaultThreadEnvMode: Schema.optionalKey(Schema.NullOr(ThreadEnvMode)),
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
