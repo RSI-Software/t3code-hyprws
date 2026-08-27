@@ -68,6 +68,8 @@ const CURSOR_ACP_MODEL_DISCOVERY_FAILED_MESSAGE = [
   `See ${CURSOR_CLI_INSTALLATION_DOCS_URL}.`,
   "Check server logs for ACP details.",
 ].join(" ");
+export const CURSOR_DRIVER_KIND = "cursor";
+
 export const CURSOR_PARAMETERIZED_MODEL_PICKER_CAPABILITIES = {
   _meta: {
     parameterizedModelPicker: true,
@@ -415,6 +417,7 @@ const makeCursorAcpProbeRuntime = (
             "acp",
           ],
           cwd: process.cwd(),
+          harnessKind: CURSOR_DRIVER_KIND,
           ...(environment ? { env: environment } : {}),
         },
         cwd: process.cwd(),
