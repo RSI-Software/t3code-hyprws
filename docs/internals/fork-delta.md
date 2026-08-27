@@ -101,17 +101,18 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 
 ## Domain index
 
-| Domain                                | Status | Tiers present     | Retires when                                              |
-| ------------------------------------- | ------ | ----------------- | --------------------------------------------------------- |
-| [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.             |
-| [github-issues](#github-issues)       | Active | core              | Upstream multi-environment Issues on web and desktop.     |
-| [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.              |
-| [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                |
-| [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.   |
-| [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                      |
-| [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.               |
-| [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                 |
-| [zmux-estate](#zmux-estate)           | Active | core              | Upstream terminals attach to an external session manager. |
+| Domain                                | Status | Tiers present     | Retires when                                                 |
+| ------------------------------------- | ------ | ----------------- | ------------------------------------------------------------ |
+| [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                |
+| [github-issues](#github-issues)       | Active | core              | Upstream multi-environment Issues on web and desktop.        |
+| [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.                 |
+| [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                   |
+| [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.      |
+| [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                         |
+| [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.                  |
+| [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                    |
+| [zmux-estate](#zmux-estate)           | Active | core              | Upstream terminals attach to an external session manager.    |
+| [worktrunk-hooks](#worktrunk-hooks)   | Active | core              | Upstream worktree lifecycle exposes create and remove hooks. |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -477,6 +478,38 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.          |
 | `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and its legacy migration sit between upstream keys. |
 | `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for the switch; a busy upstream file.                         |
+
+## worktrunk-hooks
+
+### Need
+
+A thread worktree behaves like one the operator created with `wt switch --create` on the same project: the hooks in `.config/wt.toml` seed the checkout on create and clean up on remove.
+Upstream runs `git worktree add` and `git worktree remove` directly, so a project that depends on those hooks gets a bare worktree and leaves per-branch state behind.
+
+### Shape
+
+- When the project carries `.config/wt.toml` and `wt` is on the server's PATH, the worktree workflow runs `wt hook pre-start` and `wt hook post-start` in a new thread worktree, `wt hook pre-remove` in a worktree before removing it, and `wt hook post-remove` in the primary checkout after.
+- Every hook runs headless through `wt hook <type> --yes`, ahead of the `t3.json` setup script on create: `pre-*` hooks block, `post-start` returns once `wt` has detached its hooks, and a failed create hook lands as an error activity on the thread.
+- `worktrunkHooks` in settings is the per-environment switch, on by default; `worktrunkHooks` in `t3.json` overrides it per project. Neither turns hooks on where `.config/wt.toml` is absent.
+- Worktree paths stay T3 Code's; the fork never delegates to `wt switch` or `wt remove`.
+- `apps/server/src/worktrunk/` holds the hook runner; it calls `wt` through `ProcessRunner` with the inherited tmux variables stripped, and a missing binary degrades silently to upstream behaviour.
+
+### Retirement condition
+
+Upstream worktree lifecycle exposes create and remove hooks a project can bind shell commands to.
+
+### Rebase scan
+
+| Path                                                        | Why it matters                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `apps/server/src/worktrunk/**`                              | Fork-only. A conflict means upstream grew its own worktree hook model.          |
+| `apps/server/src/git/GitWorkflowService.ts`                 | Worktree remove; the pre-remove and post-remove calls hook here.                |
+| `apps/server/src/git/GitManager.ts`                         | Pull-request worktree create; the create hooks run beside the zmux bind.        |
+| `apps/server/src/ws.ts`                                     | Thread bootstrap worktree create; the create hooks run before the setup script. |
+| `packages/contracts/src/settings.ts`                        | `worktrunkHooks` sits between upstream keys.                                    |
+| `packages/contracts/src/t3ProjectFile.ts`                   | `worktrunkHooks` on the checked-in project file; a published JSON Schema.       |
+| `apps/web/src/components/settings/SettingsPanels.tsx`       | Settings UI for the switch; a busy upstream file.                               |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx` | Actions page shows the project's `t3.json` value.                               |
 
 ## Adding a domain
 
