@@ -3,12 +3,15 @@ import {
   environmentGitHubIssueKey,
   type EnvironmentGitHubIssueListEntry,
 } from "@t3tools/client-runtime/state/github-issues";
-import type { EnvironmentId, GitHubIssueListState, ScopedProjectRef } from "@t3tools/contracts";
+import type { GitHubIssueListState, ScopedProjectRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RefreshCwIcon, SearchIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 
-import { GitHubIssueDetailContent } from "../components/githubIssue/GitHubIssueDetailPanel";
+import {
+  EnvironmentGitHubIssueDetailContent,
+  GitHubIssueDetailContent,
+} from "../components/githubIssue/GitHubIssueDetailPanel";
 import { GitHubIssueEmptyState } from "../components/githubIssue/GitHubIssueEmptyState";
 import { resolveGitHubIssueQueryTargets } from "../components/githubIssue/GitHubIssueList.logic";
 import { GitHubIssueListGhosts } from "../components/githubIssue/GitHubIssueGhosts";
@@ -319,7 +322,7 @@ export function GitHubIssuesPage({
       description="This issue's environment does not support GitHub Issues."
     />
   ) : (
-    <GitHubIssueDetailContent
+    <EnvironmentGitHubIssueDetailContent
       environmentId={selectedRef.environmentId}
       detail={detailQuery.data}
       error={detailQuery.error}
