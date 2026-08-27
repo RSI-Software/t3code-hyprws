@@ -32,6 +32,7 @@ import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
+import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -148,6 +149,7 @@ export const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
   const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+  const worktrunkHookRunner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -343,7 +345,15 @@ export const make = Effect.gen(function* () {
                 });
               }
             }
+            yield* worktrunkHookRunner.runPreRemoveHook({
+              projectCwd: input.cwd,
+              worktreePath: input.path,
+            });
             yield* git.removeWorktree(input);
+            yield* worktrunkHookRunner.runPostRemoveHook({
+              projectCwd: input.cwd,
+              worktreePath: input.path,
+            });
           }),
         ),
       ),
