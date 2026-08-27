@@ -2421,12 +2421,13 @@ export function GeneralSettingsPanel() {
         ) : null}
 
         <SettingsRow
-          {...searchableSetting("worktrunk-hooks")}
-          description="Run the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. A project's t3.json worktrunkHooks overrides this."
+          className="bg-muted/20 sm:pl-9"
+          title={searchableSetting("worktrunk-hooks").title}
+          description="Runs the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. Project settings and t3.json override this per project."
           resetAction={
             settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks ? (
               <SettingResetButton
-                label="worktrunk hooks"
+                label="run worktrunk hooks"
                 onClick={() =>
                   updateSettings({ worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks })
                 }

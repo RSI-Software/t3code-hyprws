@@ -55,6 +55,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
+import { ProjectionProjectRepositoryLive } from "./persistence/Layers/ProjectionProjects.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -158,6 +159,7 @@ const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
 const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
   Layer.provide(ProcessRunner.layer),
   Layer.provide(T3ProjectFileLoader.layer),
+  Layer.provide(ProjectionProjectRepositoryLive),
   Layer.provideMerge(ServerSettingsLayerLive),
 );
 
