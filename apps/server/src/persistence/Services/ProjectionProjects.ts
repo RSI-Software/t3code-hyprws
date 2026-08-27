@@ -12,7 +12,7 @@ import {
   ProjectIconOverride,
   ProjectId,
   ProjectScript,
-  ThreadEnvMode,
+  ForkThreadEnvMode,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -26,7 +26,7 @@ export const ProjectionProject = Schema.Struct({
   title: Schema.String,
   workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.NullOr(ForkThreadEnvMode),
   autoPull: Schema.Boolean,
   faviconPath: Schema.optional(Schema.NullOr(Schema.String)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
