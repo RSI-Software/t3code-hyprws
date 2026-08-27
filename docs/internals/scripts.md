@@ -66,6 +66,10 @@ authenticated.
   the ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in stack order for
   `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a pull-request body ends
   with the trailer block its squash commit will inherit.
+- `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
+  (`scripts/fork-sync-gate.ts`). It accepts stable tags only and exits 1 unless the committed
+  rehearsal record has a full `expected_old` equal to live `origin/hyprws` and a human sanity login
+  plus ISO date. It only reports readiness; it never pushes, tags, or releases.
 - `vp run fork:rebase-report`: Generates the gitignored Markdown and schema-v2 JSON orientation
   snapshot under `docs/internals/generated/` from `origin/hyprws` to `upstream/main`
   (`scripts/fork-rebase-report.ts`). Its read-only feasibility section walks the upstream first-parent
