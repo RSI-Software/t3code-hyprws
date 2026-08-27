@@ -277,11 +277,6 @@ export function shouldShowThreadJumpHintsForModifiers(
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): boolean {
-  // Ghostty can write keys to the shell before window shortcuts run, regardless of the when clause.
-  if (resolveContext(options).terminalFocus) {
-    return false;
-  }
-
   const platform = resolvePlatform(options);
 
   for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
