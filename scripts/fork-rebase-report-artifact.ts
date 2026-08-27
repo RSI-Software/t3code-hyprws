@@ -199,7 +199,7 @@ export const validateArtifact = (
     throw new ValidationError("fork-rebase-report.json is not valid JSON");
   }
   const report = requireRecord(parsed, "report");
-  if (report.schemaVersion !== 1 || report.generatedBy !== "vp run fork:rebase-report") {
+  if (report.schemaVersion !== 3 || report.generatedBy !== "vp run fork:rebase-report") {
     throw new ValidationError("report schema or generator is unsupported");
   }
   const upstream = requireRecord(report.upstream, "upstream lane");
