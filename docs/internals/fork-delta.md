@@ -196,7 +196,7 @@ Browse GitHub issues and hand one to an agent on web and desktop, with project-w
 
 The contracts and server expose read-only issue list and detail requests through the existing GitHub CLI integration. Lists degrade per project, merge capable environments, and keep environment identity on every client-side reference.
 
-The web renderer provides hub and project-window routes with search, state and project filters, project/all-project scope, issue descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer. The palette intentionally has a “Go to Issues” command but no matching “Go to Pull Requests” command.
+The web renderer provides hub and project-window routes with search, state and project filters, project/all-project scope, issue descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer. The hand-off prompt is an environment-scoped template configured under Source Control settings. The palette intentionally has a “Go to Issues” command but no matching “Go to Pull Requests” command.
 
 ### Retirement condition
 
@@ -207,6 +207,7 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | Path                                                                               | Why it matters                                                    |
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `packages/contracts/src/githubIssue.ts`                                            | Wire issue shapes and tagged failures.                            |
+| `packages/contracts/src/settings.ts`                                               | Environment-scoped issue hand-off prompt template.                |
 | `packages/contracts/src/rpc.ts`, `packages/contracts/src/environment.ts`           | RPC registration and optional capability.                         |
 | `apps/server/src/githubIssue/**`                                                   | GitHub CLI normalization, discovery, list, and detail service.    |
 | `apps/server/src/sourceControl/GitHubCli.ts`                                       | Shared process boundary; excluded upstream CLI changes land here. |
@@ -217,6 +218,8 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/web/src/routes/_chat.issues.tsx`                                             | Hub list and shared page implementation.                          |
 | `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                                     |
 | `apps/web/src/components/githubIssue/githubIssueRouteSearch.ts`                    | Shared route search contract.                                     |
+| `apps/web/src/components/githubIssue/GitHubIssueDetailPanel.tsx`                   | Detail rendering and configurable composer hand-off.              |
+| `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting for the hand-off prompt template.          |
 | `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                |
 | `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.                           |
 | `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                                     |
