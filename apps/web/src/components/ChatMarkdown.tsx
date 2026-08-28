@@ -2066,6 +2066,59 @@ function ChatMarkdown({
           const onClick = props.onClick;
           const canOpenInPreview = Boolean(threadRef) && isPreviewSupportedInRuntime();
           const githubLinkTarget = parseGitHubLinkTarget(href);
+          const handleExternalLinkContextMenu = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+            if (!href || !faviconHost) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const api = readLocalApi();
+            if (!api) return;
+            const pullRequest = resolveThreadPullRequest(href);
+            const currentPullRequest =
+              threadRef === undefined ? null : readThreadShell(threadRef)?.linkedPullRequest;
+            const threadLinkAction =
+              currentPullRequest != null && matchesLinkedPullRequestUrl(currentPullRequest, href)
+                ? "unlink-from-thread"
+                : pullRequest === null
+                  ? undefined
+                  : "link-to-thread";
+            void showExternalLinkContextMenu({
+              href,
+              canOpenInPreview,
+              threadLinkAction,
+              position: { x: event.clientX, y: event.clientY },
+              showContextMenu: (items, position) => api.contextMenu.show(items, position),
+              openInPreview: async (target) => {
+                const result = await openExternalLinkInPreview(target);
+                if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+                  reportMarkdownActionFailure(
+                    { operation: "open-link-in-preview", target },
+                    result.cause,
+                  );
+                }
+              },
+              openExternal: (target) => api.shell.openExternal(target),
+              copyLink: (target) => writeTextToClipboard(target, "link"),
+              updateThreadLink: updateThreadPullRequestLink,
+              reportFailure: (operation, cause) => {
+                reportMarkdownActionFailure({ operation, target: href }, cause);
+                if (
+                  operation === "link-pull-request-to-thread" ||
+                  operation === "unlink-pull-request-from-thread"
+                ) {
+                  toastManager.add(
+                    stackedThreadToast({
+                      type: "error",
+                      title:
+                        operation === "link-pull-request-to-thread"
+                          ? "Unable to link pull request"
+                          : "Unable to unlink pull request",
+                      description: cause instanceof Error ? cause.message : "The request failed.",
+                    }),
+                  );
+                }
+              },
+            });
+          };
           if (href && githubLinkTarget) {
             const destinations = githubLinkDestinations(githubLinkTarget, canOpenInPreview);
             const preferredDestination = preferredGitHubLinkDestination({
@@ -2084,6 +2137,7 @@ function ChatMarkdown({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={onClick}
+                onContextMenu={handleExternalLinkContextMenu}
                 onOpen={(destination, event) => openGitHubLinkDestination(destination, event, href)}
               >
                 {children}
@@ -2108,61 +2162,7 @@ function ChatMarkdown({
                 // an ordinary link and keeps the `_blank` the shell already handles.
                 if (href) openChangeRequestLink(event, href);
               }}
-              onContextMenu={(event) => {
-                if (!href || !faviconHost) return;
-                event.preventDefault();
-                event.stopPropagation();
-                const api = readLocalApi();
-                if (!api) return;
-                const pullRequest = resolveThreadPullRequest(href);
-                const currentPullRequest =
-                  threadRef === undefined ? null : readThreadShell(threadRef)?.linkedPullRequest;
-                const threadLinkAction =
-                  currentPullRequest != null &&
-                  matchesLinkedPullRequestUrl(currentPullRequest, href)
-                    ? "unlink-from-thread"
-                    : pullRequest === null
-                      ? undefined
-                      : "link-to-thread";
-                void showExternalLinkContextMenu({
-                  href,
-                  canOpenInPreview,
-                  threadLinkAction,
-                  position: { x: event.clientX, y: event.clientY },
-                  showContextMenu: (items, position) => api.contextMenu.show(items, position),
-                  openInPreview: async (target) => {
-                    const result = await openExternalLinkInPreview(target);
-                    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-                      reportMarkdownActionFailure(
-                        { operation: "open-link-in-preview", target },
-                        result.cause,
-                      );
-                    }
-                  },
-                  openExternal: (target) => api.shell.openExternal(target),
-                  copyLink: (target) => writeTextToClipboard(target, "link"),
-                  updateThreadLink: updateThreadPullRequestLink,
-                  reportFailure: (operation, cause) => {
-                    reportMarkdownActionFailure({ operation, target: href }, cause);
-                    if (
-                      operation === "link-pull-request-to-thread" ||
-                      operation === "unlink-pull-request-from-thread"
-                    ) {
-                      toastManager.add(
-                        stackedThreadToast({
-                          type: "error",
-                          title:
-                            operation === "link-pull-request-to-thread"
-                              ? "Unable to link pull request"
-                              : "Unable to unlink pull request",
-                          description:
-                            cause instanceof Error ? cause.message : "The request failed.",
-                        }),
-                      );
-                    }
-                  },
-                });
-              }}
+              onContextMenu={handleExternalLinkContextMenu}
             >
               {faviconHost && hastHasText(node) ? (
                 <MarkdownExternalLinkContent host={faviconHost} plainText={plainHastText(node)}>
