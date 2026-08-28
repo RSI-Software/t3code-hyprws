@@ -21,6 +21,9 @@ import {
 } from "../auth/http.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
+import { TextGeneration } from "../textGeneration/TextGeneration.ts";
+import { generateThreadGroupTitle } from "./ThreadGroupTitles.ts";
 
 export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -122,6 +125,47 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
             return yield* failEnvironmentNotFound("agent_not_found");
           }
           return projectAgentActivitySnapshot(snapshot.value);
+        }),
+      )
+      .handle(
+        "generateThreadGroupTitle",
+        Effect.fn("environment.orchestration.generateThreadGroupTitle")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          const serverSettings = yield* Effect.serviceOption(ServerSettingsService);
+          const textGeneration = yield* Effect.serviceOption(TextGeneration);
+          if (Option.isNone(serverSettings) || Option.isNone(textGeneration)) {
+            return yield* failEnvironmentInternal(
+              "thread_group_title_generation_failed",
+              new Error("Thread group title generation is unavailable."),
+            );
+          }
+          const snapshot = yield* projectionSnapshotQuery
+            .getShellSnapshot()
+            .pipe(
+              Effect.catch((cause) =>
+                failEnvironmentInternal("thread_group_title_generation_failed", cause),
+              ),
+            );
+          const project = snapshot.projects.find((entry) => entry.id === args.payload.projectId);
+          if (!project) return yield* failEnvironmentNotFound("project_not_found");
+          const settings = yield* serverSettings.value.getSettings.pipe(
+            Effect.catch((cause) =>
+              failEnvironmentInternal("thread_group_title_generation_failed", cause),
+            ),
+          );
+          return yield* generateThreadGroupTitle(textGeneration.value, {
+            cwd: project.workspaceRoot,
+            memberTitles: args.payload.memberTitles,
+            ...(args.payload.previousTitle === undefined
+              ? {}
+              : { previousTitle: args.payload.previousTitle }),
+            modelSelection: settings.textGenerationModelSelection,
+          }).pipe(
+            Effect.catch((cause) =>
+              failEnvironmentInternal("thread_group_title_generation_failed", cause),
+            ),
+          );
         }),
       )
       .handle(

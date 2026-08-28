@@ -25,8 +25,9 @@ import {
   ServerAuthSessionMethod,
 } from "./auth.ts";
 import {
-  DpopFailureReason,
   AuthSessionId,
+  DpopFailureReason,
+  ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
@@ -99,6 +100,7 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "orchestration_thread_snapshot_failed",
   "orchestration_agent_activity_failed",
   "orchestration_dispatch_failed",
+  "thread_group_title_generation_failed",
   "internal_error",
 ]);
 export type EnvironmentInternalErrorReason = typeof EnvironmentInternalErrorReason.Type;
@@ -198,6 +200,7 @@ export class EnvironmentInternalError extends Schema.TaggedErrorClass<Environmen
 export const EnvironmentResourceNotFoundReason = Schema.Literals([
   "thread_not_found",
   "agent_not_found",
+  "project_not_found",
 ]);
 export type EnvironmentResourceNotFoundReason = typeof EnvironmentResourceNotFoundReason.Type;
 
@@ -346,6 +349,11 @@ const EnvironmentOrchestrationAgentActivityErrors = [
 const EnvironmentOrchestrationDispatchErrors = [
   EnvironmentRequestInvalidError,
   EnvironmentScopeRequiredError,
+  EnvironmentInternalError,
+] as const;
+const EnvironmentThreadGroupTitleGenerationErrors = [
+  EnvironmentScopeRequiredError,
+  EnvironmentResourceNotFoundError,
   EnvironmentInternalError,
 ] as const;
 
@@ -530,6 +538,21 @@ const EnvironmentOrchestrationAgentActivityQuery = {
   beforeCursor: Schema.optional(TrimmedNonEmptyString),
 };
 
+export const ThreadGroupTitleGenerationInput = Schema.Struct({
+  projectId: ProjectId,
+  memberTitles: Schema.Array(TrimmedNonEmptyString).check(
+    Schema.isMinLength(2),
+    Schema.isMaxLength(50),
+  ),
+  previousTitle: Schema.optional(TrimmedNonEmptyString),
+});
+export type ThreadGroupTitleGenerationInput = typeof ThreadGroupTitleGenerationInput.Type;
+
+export const ThreadGroupTitleGenerationResult = Schema.Struct({
+  title: TrimmedNonEmptyString,
+});
+export type ThreadGroupTitleGenerationResult = typeof ThreadGroupTitleGenerationResult.Type;
+
 export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
   .add(
     HttpApiEndpoint.get("snapshot", "/api/orchestration/snapshot", {
@@ -566,6 +589,14 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
         error: EnvironmentOrchestrationAgentActivityErrors,
       },
     ).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("generateThreadGroupTitle", "/api/orchestration/thread-group-title", {
+      headers: OptionalBearerHeaders,
+      payload: ThreadGroupTitleGenerationInput,
+      success: ThreadGroupTitleGenerationResult,
+      error: EnvironmentThreadGroupTitleGenerationErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
     HttpApiEndpoint.post("dispatch", "/api/orchestration/dispatch", {
