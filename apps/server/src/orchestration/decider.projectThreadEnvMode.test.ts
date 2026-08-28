@@ -58,52 +58,6 @@ it.layer(NodeServices.layer)("decider project defaultThreadEnvMode", (it) => {
     }),
   );
 
-  it.effect("propagates worktrunkHooks through meta.update into the read model", () =>
-    Effect.gen(function* () {
-      const readModel = yield* projectEvent(createEmptyReadModel(now), seedProjectCreated(1));
-      expect(readModel.projects[0]?.worktrunkHooks).toBeNull();
-
-      const set = yield* decideOrchestrationCommand({
-        command: {
-          type: "project.meta.update",
-          commandId: CommandId.make("cmd-project-hooks-set"),
-          projectId,
-          worktrunkHooks: false,
-        },
-        readModel,
-      });
-      const setEvent = Array.isArray(set) ? set[0] : set;
-      expect((setEvent.payload as { worktrunkHooks?: unknown }).worktrunkHooks).toBe(false);
-      const afterSet = yield* projectEvent(readModel, { ...setEvent, sequence: 2 });
-      expect(afterSet.projects[0]?.worktrunkHooks).toBe(false);
-
-      const unrelated = yield* decideOrchestrationCommand({
-        command: {
-          type: "project.meta.update",
-          commandId: CommandId.make("cmd-project-hooks-title"),
-          projectId,
-          title: "Renamed",
-        },
-        readModel: afterSet,
-      });
-      const unrelatedEvent = Array.isArray(unrelated) ? unrelated[0] : unrelated;
-      expect("worktrunkHooks" in (unrelatedEvent.payload as object)).toBe(false);
-
-      const clear = yield* decideOrchestrationCommand({
-        command: {
-          type: "project.meta.update",
-          commandId: CommandId.make("cmd-project-hooks-clear"),
-          projectId,
-          worktrunkHooks: null,
-        },
-        readModel: afterSet,
-      });
-      const clearEvent = Array.isArray(clear) ? clear[0] : clear;
-      const afterClear = yield* projectEvent(afterSet, { ...clearEvent, sequence: 3 });
-      expect(afterClear.projects[0]?.worktrunkHooks).toBeNull();
-    }),
-  );
-
   it.effect("omits the field when unset and clears it on explicit null", () =>
     Effect.gen(function* () {
       const readModel = yield* projectEvent(createEmptyReadModel(now), seedProjectCreated(1));

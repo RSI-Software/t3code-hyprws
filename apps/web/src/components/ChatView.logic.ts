@@ -27,6 +27,7 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import type { ComposerSubmissionIntent } from "../composer-logic";
 import type { TimelineEntry } from "../session-logic";
@@ -358,7 +359,7 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
     envMode: input.envMode,
     branch: input.branch,
     worktreePath: null,
-    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    startFromOrigin: isWorktreeEnvMode(input.envMode) && input.startFromOrigin,
   };
 }
 

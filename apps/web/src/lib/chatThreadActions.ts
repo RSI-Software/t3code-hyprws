@@ -5,6 +5,7 @@ import type {
   ProjectId,
   ScopedProjectRef,
 } from "@t3tools/contracts";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 interface ThreadContextLike {
@@ -36,7 +37,7 @@ export function resolveNewDraftStartFromOrigin(input: {
   envMode: DraftThreadEnvMode;
   newWorktreesStartFromOrigin: boolean;
 }): boolean {
-  return input.envMode === "worktree" && input.newWorktreesStartFromOrigin;
+  return isWorktreeEnvMode(input.envMode) && input.newWorktreesStartFromOrigin;
 }
 
 export function resolveNewThreadModelSelectionOverride(input: {
