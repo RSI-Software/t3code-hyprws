@@ -331,6 +331,16 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps the Issues browser as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "github-issues");
+    useRightPanelStore.getState().open(refA, "github-issues");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "github-issues",
+      surfaces: [{ id: "github-issues", kind: "github-issues" }],
+    });
+  });
+
   it("keeps the standalone explorer beside peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");
