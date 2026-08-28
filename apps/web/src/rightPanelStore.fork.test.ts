@@ -1,0 +1,352 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { forkSupersedes } from "../../../scripts/lib/fork-supersedes.ts";
+import {
+  migratePersistedRightPanelState,
+  selectActiveRightPanelSurface,
+  selectSelectedRightPanelSurface,
+  selectThreadRightPanelState,
+  useRightPanelStore,
+} from "./rightPanelStore";
+import {
+  githubIssueSurface,
+  normalizeAgentsSurfaceFork,
+  updatePullRequestTabStatus,
+} from "./rightPanelStore.fork";
+const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
+beforeEach(() => {
+  useRightPanelStore.setState({ byThreadKey: {} });
+});
+describe("rightPanelStore", () => {
+  // The fork persists the Agents surface with drill-down state while upstream
+  // reconciles the plain shape (commit `b14ef0ccce`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > removes persisted file surfaces when their workspace no longer exists",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
+  it("upgrades saved Agents surfaces with neutral drill-down state", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "agents",
+            surfaces: [{ id: "agents", kind: "agents" }],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "agents",
+          surfaces: [
+            {
+              id: "agents",
+              kind: "agents",
+              selectedAgentId: null,
+              rosterFocusAgentId: null,
+            },
+          ],
+        },
+      },
+    });
+  });
+  // The fork activates Agents drill-down selection while upstream activates
+  // the plain singleton surface (commit `b14ef0ccce`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > reopening an inactive singleton activates its existing surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
+  it("opens one child directly and returns to its roster row", () => {
+    useRightPanelStore.getState().openAgents(refA, { selectedAgentId: "agent-1" });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: "agent-1",
+      rosterFocusAgentId: null,
+    });
+    useRightPanelStore.getState().openAgents(refA, {
+      selectedAgentId: null,
+      rosterFocusAgentId: "agent-1",
+    });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: null,
+      rosterFocusAgentId: "agent-1",
+    });
+  });
+  it("opens the unfocused roster when a launcher passes its click event", () => {
+    const clickEvent = { _reactName: "onClick", type: "click" };
+    useRightPanelStore
+      .getState()
+      .openAgents(refA, { selectedAgentId: clickEvent as unknown as string });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: null,
+      rosterFocusAgentId: null,
+    });
+  });
+  // The fork backfills pre-widen Agents surfaces while upstream asserts the
+  // selected surface keeps the plain shape (commit `b14ef0ccce`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > close hides the panel without clearing its selected surface",
+    reason:
+      "the fork widens the Agents surface with drill-down state while upstream asserts the plain shape",
+    commit: "b14ef0ccce",
+  });
+  it("backfills a pre-widen Agents surface and round-trips a widened one", () => {
+    // A v13/v14 panel stored the surface before it carried drill-down state.
+    const stored = { id: "agents", kind: "agents" };
+    expect(normalizeAgentsSurfaceFork(stored)).toEqual([
+      { id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null },
+    ]);
+    const widened = {
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: "agent-1",
+      rosterFocusAgentId: "agent-2",
+    } as const;
+    expect(normalizeAgentsSurfaceFork(widened)).toEqual([widened]);
+    // Anything but a stored string is drill-down state the roster cannot resolve.
+    expect(
+      normalizeAgentsSurfaceFork({ selectedAgentId: 7, rosterFocusAgentId: undefined }),
+    ).toEqual([{ id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null }]);
+  });
+  it("normalizes persisted GitHub issue surfaces to their reference-keyed tab", () => {
+    const id = githubIssueSurface({
+      environmentId: "env-1",
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 42,
+    }).id;
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "github-issue",
+            surfaces: [
+              {
+                id: "github-issue",
+                kind: "github-issue",
+                environmentId: "env-1",
+                projectId: "project-a",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: id,
+          surfaces: [
+            {
+              id,
+              kind: "github-issue",
+              environmentId: "env-1",
+              projectId: "project-a",
+              repository: "pingdotgg/t3code",
+              number: 42,
+            },
+          ],
+        },
+      },
+    });
+  });
+  it("drops malformed or environment-less persisted GitHub issue surfaces", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "github-issue",
+            surfaces: [
+              {
+                id: "github-issue",
+                kind: "github-issue",
+                projectId: "project-a",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+              {
+                id: "github-issue:malformed",
+                kind: "github-issue",
+                environmentId: "env-1",
+                projectId: "",
+                repository: "pingdotgg/t3code",
+                number: 42,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: { "env-1:thread-A": { isOpen: false, activeSurfaceId: null, surfaces: [] } },
+    });
+  });
+  it("keeps the Issues browser as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "github-issues");
+    useRightPanelStore.getState().open(refA, "github-issues");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "github-issues",
+      surfaces: [{ id: "github-issues", kind: "github-issues" }],
+    });
+  });
+  // The fork keeps the standalone explorer beside open files while upstream
+  // replaces it (commit `cb6fe69b6d`).
+  forkSupersedes({
+    upstream:
+      "apps/web/src/rightPanelStore.test.ts > replaces the standalone explorer with peer file surfaces",
+    reason:
+      "the fork keeps the standalone explorer beside peer file surfaces while upstream replaces it",
+    commit: "cb6fe69b6d",
+  });
+  it("keeps the standalone explorer beside peer file surfaces", () => {
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().openFile(refA, "README.md");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "file:README.md",
+      surfaces: [
+        { id: "files", kind: "files" },
+        {
+          id: "file:src/index.ts",
+          kind: "file",
+          relativePath: "src/index.ts",
+          revealLine: null,
+          revealRequestId: 2,
+        },
+        {
+          id: "file:README.md",
+          kind: "file",
+          relativePath: "README.md",
+          revealLine: null,
+          revealRequestId: 1,
+        },
+      ],
+    });
+  });
+  it("returns to the explorer when the last file surface closes", () => {
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().openFile(refA, "README.md");
+    useRightPanelStore.getState().closeSurface(refA, "file:README.md");
+    useRightPanelStore.getState().closeSurface(refA, "file:src/index.ts");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "files",
+      surfaces: [{ id: "files", kind: "files" }],
+    });
+  });
+  it("deselects the open file by activating the explorer surface", () => {
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().activateSurface(refA, "files");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "files",
+      surfaces: [
+        { id: "files", kind: "files" },
+        {
+          id: "file:src/index.ts",
+          kind: "file",
+          relativePath: "src/index.ts",
+          revealLine: null,
+          revealRequestId: 1,
+        },
+      ],
+    });
+  });
+  it("tracks one surface per GitHub issue", () => {
+    const first = {
+      environmentId: "env-1",
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 7966,
+    };
+    const second = { ...first, number: 7967 };
+    useRightPanelStore.getState().openGitHubIssue(refA, first);
+    useRightPanelStore.getState().openGitHubIssue(refA, second);
+    useRightPanelStore.getState().openGitHubIssue(refA, first);
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual([
+      githubIssueSurface(first).id,
+      githubIssueSurface(second).id,
+    ]);
+    expect(state.activeSurfaceId).toBe(githubIssueSurface(first).id);
+  });
+
+  describe("updatePullRequestTabStatus", () => {
+    const status = (isDraft: boolean) => ({
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 4909,
+      state: "open" as const,
+      isDraft,
+    });
+
+    // Regression for the tab wearing no state: this failed when the status was written under a
+    // key rebuilt from the pull request while the tab strip reads it under the surface's own id.
+    it("keys a status under the same id a surface opened from an environment carries", () => {
+      const target = {
+        environmentId: "remote",
+        projectId: "project-a",
+        repository: "pingdotgg/t3code",
+        number: 4909,
+      };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("keys a status under the same id a thread surface with no environment carries", () => {
+      const target = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4909 };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("returns the identical map when the tab's state and draft flag are unchanged", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(false));
+      expect(second).toBe(first);
+    });
+
+    it("replaces the entry when the draft flag changes", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(true));
+      expect(second).not.toBe(first);
+      expect(second["pull-request:1"]).toEqual(status(true));
+    });
+  });
+});
