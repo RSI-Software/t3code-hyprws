@@ -12,6 +12,7 @@ import {
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
+  type ProviderRuntimeEvent,
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -619,6 +620,61 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           { taskId: "child-2", status: "running" },
         ],
       );
+    }),
+  );
+
+  it.effect("preserves Codex child item lifecycle as attributed item rows", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const detail = "child result ".repeat(40);
+      const events: ProviderRuntimeEvent[] = [];
+
+      for (const lifecycle of ["item.started", "item.updated", "item.completed"] as const) {
+        const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+        yield* runtime.emit({
+          id: asEventId(`evt-child-${lifecycle}`),
+          kind: "notification",
+          provider: ProviderDriverKind.make("codex"),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          method: "collabAgent/item",
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-1"),
+          payload: {
+            agentThreadId: "child-thread-1",
+            agentPath: "/root/audit",
+            lifecycle,
+            item: {
+              type: "agentMessage",
+              id: "child-message-1",
+              text: detail,
+            },
+          },
+        });
+        const event = yield* Fiber.join(eventFiber);
+        NodeAssert.equal(event._tag, "Some");
+        if (event._tag === "Some") {
+          events.push(event.value);
+        }
+      }
+
+      NodeAssert.deepStrictEqual(
+        events.map((event) => event.type),
+        ["item.started", "item.updated", "item.completed"],
+      );
+      for (const event of events) {
+        if (
+          event.type !== "item.started" &&
+          event.type !== "item.updated" &&
+          event.type !== "item.completed"
+        ) {
+          continue;
+        }
+        NodeAssert.equal(event.itemId, "child-message-1");
+        NodeAssert.equal(event.payload.itemType, "assistant_message");
+        NodeAssert.equal(event.payload.agentId, "child-thread-1");
+        NodeAssert.equal(event.payload.timelineBypass, true);
+        NodeAssert.equal(event.payload.detail?.length, 180);
+      }
     }),
   );
 

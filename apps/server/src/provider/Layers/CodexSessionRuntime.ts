@@ -1028,6 +1028,18 @@ function shouldSuppressChildConversationNotification(
  */
 export type CodexChildNotificationRoute = "agent-event" | "parent" | "drop";
 
+const CHILD_ITEM_UPDATE_METHODS: ReadonlySet<string> = new Set([
+  "item/agentMessage/delta",
+  "item/reasoning/textDelta",
+  "item/reasoning/summaryTextDelta",
+  "item/reasoning/summaryPartAdded",
+  "item/commandExecution/outputDelta",
+  "item/commandExecution/terminalInteraction",
+  "item/fileChange/outputDelta",
+  "item/fileChange/patchUpdated",
+  "item/plan/delta",
+]);
+
 const CHILD_AGENT_EVENT_METHODS: ReadonlySet<string> = new Set([
   "turn/started",
   "turn/completed",
@@ -1040,14 +1052,6 @@ const CHILD_AGENT_EVENT_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 const CHILD_CHATTER_METHODS: ReadonlySet<string> = new Set([
-  "item/agentMessage/delta",
-  "item/reasoning/textDelta",
-  "item/reasoning/summaryTextDelta",
-  "item/reasoning/summaryPartAdded",
-  "item/commandExecution/outputDelta",
-  "item/fileChange/outputDelta",
-  "item/fileChange/patchUpdated",
-  "item/plan/delta",
   "turn/plan/updated",
   "turn/diff/updated",
   "thread/name/updated",
@@ -1066,7 +1070,7 @@ const CHILD_CHATTER_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 export function routeCodexChildNotification(method: string): CodexChildNotificationRoute {
-  if (CHILD_AGENT_EVENT_METHODS.has(method)) {
+  if (CHILD_AGENT_EVENT_METHODS.has(method) || CHILD_ITEM_UPDATE_METHODS.has(method)) {
     return "agent-event";
   }
   if (CHILD_CHATTER_METHODS.has(method)) {
@@ -1483,15 +1487,64 @@ export const makeCodexSessionRuntime = (
               },
             });
             return true;
+          case "item/agentMessage/delta":
+          case "item/reasoning/textDelta":
+          case "item/reasoning/summaryTextDelta":
+          case "item/reasoning/summaryPartAdded":
+          case "item/commandExecution/outputDelta":
+          case "item/commandExecution/terminalInteraction":
+          case "item/fileChange/outputDelta":
+          case "item/fileChange/patchUpdated":
+          case "item/plan/delta": {
+            const itemType = notification.method.startsWith("item/reasoning/")
+              ? "reasoning"
+              : notification.method.startsWith("item/commandExecution/")
+                ? "commandExecution"
+                : notification.method.startsWith("item/fileChange/")
+                  ? "fileChange"
+                  : notification.method === "item/plan/delta"
+                    ? "plan"
+                    : "agentMessage";
+            const detail =
+              "delta" in notification.params
+                ? notification.params.delta
+                : notification.method === "item/commandExecution/terminalInteraction"
+                  ? notification.params.stdin
+                  : notification.method === "item/fileChange/patchUpdated"
+                    ? notification.params.changes.map((change) => change.path).join(", ")
+                    : `Reasoning summary part ${notification.params.summaryIndex + 1}`;
+            yield* emitEvent({
+              kind: "notification",
+              threadId: options.threadId,
+              ...(child.spawnTurnId ? { turnId: child.spawnTurnId } : {}),
+              itemId: ProviderItemId.make(notification.params.itemId),
+              method: "collabAgent/item",
+              payload: {
+                ...childIdentity,
+                lifecycle: "item.updated",
+                item: {
+                  id: notification.params.itemId,
+                  type: itemType,
+                  ...(detail.length > 0 ? { text: detail } : {}),
+                },
+              },
+            });
+            return true;
+          }
           case "item/started":
           case "item/completed":
             yield* emitEvent({
               kind: "notification",
               threadId: options.threadId,
               ...(child.spawnTurnId ? { turnId: child.spawnTurnId } : {}),
+              ...(typeof notification.params.item.id === "string"
+                ? { itemId: ProviderItemId.make(notification.params.item.id) }
+                : {}),
               method: "collabAgent/item",
               payload: {
                 ...childIdentity,
+                lifecycle:
+                  notification.method === "item/started" ? "item.started" : "item.completed",
                 item: notification.params.item,
               },
             });
