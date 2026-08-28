@@ -362,3 +362,47 @@ jobs:
             release-assets/*.yml
           fail_on_unmatched_files: true
           token: ${{ github.token }}
+
+      - name: Prune old nightlies
+        if: needs.preflight.outputs.release_channel == 'nightly'
+        continue-on-error: false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT_TAG: ${{ needs.preflight.outputs.tag }}
+          NIGHTLY_KEEP: 7
+        run: |
+          set -euo pipefail
+
+          releases="$(gh release list \
+            --limit 1000 \
+            --json tagName,isPrerelease,isDraft,publishedAt)"
+          stale_tags="$(
+            jq -r \
+              --arg current "$CURRENT_TAG" \
+              --argjson keep "$NIGHTLY_KEEP" \
+              '
+                map(select(
+                  .isPrerelease == true and
+                  .isDraft == false and
+                  (.tagName | test("^.*-hyprws-nightly\\..*$"))
+                ))
+                | sort_by(.publishedAt)
+                | reverse
+                | .[$keep:]
+                | .[]
+                | select(.tagName != $current)
+                | .tagName
+              ' <<< "$releases"
+          )"
+
+          if [[ -z "$stale_tags" ]]; then
+            echo "No old nightly releases to prune."
+            exit 0
+          fi
+
+          while IFS= read -r tag; do
+            echo "Deleting old nightly release and tag: $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done <<< "$stale_tags"
