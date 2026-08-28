@@ -3,10 +3,10 @@ import {
   environmentGitHubIssueKey,
   type EnvironmentGitHubIssueListEntry,
 } from "@t3tools/client-runtime/state/github-issues";
-import type { GitHubIssueListState, ScopedProjectRef } from "@t3tools/contracts";
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { RefreshCwIcon, SearchIcon } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { RefreshCwIcon } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   EnvironmentGitHubIssueDetailContent,
@@ -14,26 +14,40 @@ import {
 } from "../components/githubIssue/GitHubIssueDetailPanel";
 import { GitHubIssueEmptyState } from "../components/githubIssue/GitHubIssueEmptyState";
 import { resolveGitHubIssueQueryTargets } from "../components/githubIssue/GitHubIssueList.logic";
+import {
+  GitHubIssueFilterAdd,
+  GitHubIssueFilterBar,
+} from "../components/githubIssue/GitHubIssueFilterBar";
+import {
+  GitHubIssueOrderMenu,
+  GitHubIssueSearchField,
+} from "../components/githubIssue/GitHubIssueListControls";
+import {
+  applyGitHubIssueListView,
+  DEFAULT_GITHUB_ISSUE_ORDER,
+  gitHubIssueFacets,
+  gitHubIssueNarrowingIsEmpty,
+  NO_GITHUB_ISSUE_NARROWING,
+  toggleGitHubIssueNarrowing,
+  type GitHubIssueListNarrowing,
+  type GitHubIssueOrder,
+} from "../components/githubIssue/GitHubIssueListView.logic";
 import { GitHubIssueListGhosts } from "../components/githubIssue/GitHubIssueGhosts";
 import { GitHubIssueRow } from "../components/githubIssue/GitHubIssueRow";
-import { GitHubIssueProjectPicker } from "../components/githubIssue/GitHubIssueProjectPicker";
+import {
+  ALL_PROJECTS_VALUE,
+  GitHubIssueProjectMenu,
+} from "../components/githubIssue/GitHubIssueProjectMenu";
+import { GitHubIssueStateToggle } from "../components/githubIssue/GitHubIssueStateToggle";
+import { pullRequestProjectKey } from "../components/pullRequest/PullRequestListFilters";
 import {
   selectedGitHubIssueRef,
   validateGitHubIssueSearch,
   type IssuesSearch,
 } from "../components/githubIssue/githubIssueRouteSearch";
-import { WindowProjectScopeToggle } from "../components/WindowProjectScopeToggle";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../components/WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { Button } from "../components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "../components/ui/input-group";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select";
 import { SidebarInset } from "../components/ui/sidebar";
 import { Spinner } from "../components/ui/spinner";
 import { isElectron } from "../env";
@@ -43,22 +57,15 @@ import { useEnvironments } from "../state/environments";
 import { githubIssueEnvironment, useGitHubIssueList } from "../state/githubIssues";
 import { useDebouncedValue } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
-import {
-  allEnvironmentShellsBootstrappedAtom,
-  environmentShellBootstrappedAtom,
-} from "../state/shell";
+import { allEnvironmentShellsBootstrappedAtom } from "../state/shell";
 import { useWindowProjectListScope } from "../windowProjectScope";
-
-const STATE_OPTIONS = [
-  { value: "open", label: "Open" },
-  { value: "closed", label: "Closed" },
-  { value: "all", label: "All" },
-] as const satisfies ReadonlyArray<{ value: GitHubIssueListState; label: string }>;
 
 export type IssuesSearchUpdater = (update: (previous: IssuesSearch) => IssuesSearch) => void;
 type IssuesSearchPatch = {
   [Key in keyof IssuesSearch]?: IssuesSearch[Key] | undefined;
 };
+
+const NO_ENTRIES: ReadonlyArray<EnvironmentGitHubIssueListEntry> = [];
 
 export const Route = createFileRoute("/_chat/issues")({
   validateSearch: validateGitHubIssueSearch,
@@ -96,7 +103,7 @@ export function GitHubIssuesPage({
         .toSorted((left, right) => left.environmentId.localeCompare(right.environmentId)),
     [environments],
   );
-  const { listScope, onScopeChange } = useWindowProjectListScope(forcedProjectRef, search.scope);
+  const { listScope, rememberScope } = useWindowProjectListScope(forcedProjectRef, search.scope);
   const capabilityKnown =
     listScope.kind === "project"
       ? environments.some(
@@ -112,46 +119,29 @@ export function GitHubIssuesPage({
   );
 
   const allProjects = useProjects();
-  const projectsKnown = useAtomValue(
-    listScope.kind === "project"
-      ? environmentShellBootstrappedAtom(listScope.projectRef.environmentId)
-      : allEnvironmentShellsBootstrappedAtom,
-  );
-  const scopedEnvironmentId =
-    listScope.kind === "project" ? listScope.projectRef.environmentId : null;
-  const allowedEnvironmentIds = useMemo(
-    () =>
-      new Set(
-        scopedEnvironmentId === null
-          ? capableEnvironments.map((environment) => environment.environmentId)
-          : [scopedEnvironmentId],
-      ),
-    [capableEnvironments, scopedEnvironmentId],
+  const projectsKnown = useAtomValue(allEnvironmentShellsBootstrappedAtom);
+  // Every capable environment, not just this window's: a project window may filter to another
+  // project, so the menu has to be able to name one.
+  const capableEnvironmentIds = useMemo(
+    () => new Set(capableEnvironments.map((environment) => environment.environmentId)),
+    [capableEnvironments],
   );
   const githubProjects = useMemo(
     () =>
       allProjects
         .filter(
           (project) =>
-            allowedEnvironmentIds.has(project.environmentId) &&
+            capableEnvironmentIds.has(project.environmentId) &&
             project.repositoryIdentity?.provider === "github",
         )
         .toSorted((left, right) => left.title.localeCompare(right.title)),
-    [allProjects, allowedEnvironmentIds],
+    [allProjects, capableEnvironmentIds],
   );
-  const scopedProject =
-    forcedProjectRef !== null
-      ? listScope.kind === "project"
-        ? githubProjects.find(
-            (project) =>
-              project.id === forcedProjectRef.projectId &&
-              project.environmentId === forcedProjectRef.environmentId,
-          )
-        : undefined
-      : githubProjects.find(
-          (project) =>
-            project.id === search.projectId && project.environmentId === search.environmentId,
-        );
+  // A project window keeps `projectId` out of the URL while it shows its own project, so this only
+  // ever resolves an explicit choice.
+  const scopedProject = githubProjects.find(
+    (project) => project.id === search.projectId && project.environmentId === search.environmentId,
+  );
   const scopedProjectId =
     forcedProjectRef !== null && listScope.kind === "project"
       ? forcedProjectRef.projectId
@@ -206,13 +196,14 @@ export function GitHubIssuesPage({
     (patch: IssuesSearchPatch) =>
       onNavigate((previous) => {
         const next = { ...previous, ...patch };
+        const keepProject = forcedProjectRef === null || next.scope === "all";
         return {
           state: next.state ?? previous.state,
           ...(next.q ? { q: next.q } : {}),
-          ...(forcedProjectRef === null && next.projectId ? { projectId: next.projectId } : {}),
-          ...(forcedProjectRef === null && next.environmentId
-            ? { environmentId: next.environmentId }
-            : {}),
+          // A project window drops its project filter unless it is deliberately scoped to `all`,
+          // where an explicit project is how it looks at another project's issues.
+          ...(keepProject && next.projectId ? { projectId: next.projectId } : {}),
+          ...(keepProject && next.environmentId ? { environmentId: next.environmentId } : {}),
           ...(next.selectedEnvironmentId
             ? { selectedEnvironmentId: next.selectedEnvironmentId }
             : {}),
@@ -231,6 +222,38 @@ export function GitHubIssuesPage({
     number: undefined,
   };
   const updateFilters = (patch: IssuesSearchPatch) => updateSearch({ ...patch, ...clearSelection });
+  const windowProjectKey =
+    forcedProjectRef === null
+      ? null
+      : pullRequestProjectKey({
+          id: forcedProjectRef.projectId,
+          environmentId: forcedProjectRef.environmentId,
+        });
+  const projectMenuValue =
+    listScope.kind === "project" && windowProjectKey !== null
+      ? windowProjectKey
+      : scopedProject
+        ? pullRequestProjectKey(scopedProject)
+        : ALL_PROJECTS_VALUE;
+  /**
+   * Outside a project window this is a plain project filter. Inside one, choosing anything other
+   * than the window's own project also widens the window scope, since that is what makes another
+   * project's issues reachable at all.
+   */
+  const selectProject = (next: string) => {
+    const project = githubProjects.find((candidate) => pullRequestProjectKey(candidate) === next);
+    if (windowProjectKey === null) {
+      updateFilters({ projectId: project?.id, environmentId: project?.environmentId });
+      return;
+    }
+    const own = next === windowProjectKey;
+    rememberScope(own ? "project" : "all");
+    updateFilters({
+      scope: own ? undefined : "all",
+      projectId: own ? undefined : project?.id,
+      environmentId: own ? undefined : project?.environmentId,
+    });
+  };
   const selectIssue = useCallback(
     (issue: EnvironmentGitHubIssueListEntry) =>
       updateSearch({
@@ -242,8 +265,23 @@ export function GitHubIssuesPage({
     [updateSearch],
   );
 
-  const stateLabel = STATE_OPTIONS.find((option) => option.value === search.state)?.label ?? "Open";
-  const entries = listQuery.data?.entries ?? [];
+  // Order and narrowing sit on the fetched list rather than the request, so they stay out of the
+  // route search and reset with the page.
+  const [order, setOrder] = useState<GitHubIssueOrder>(DEFAULT_GITHUB_ISSUE_ORDER);
+  const [narrowing, setNarrowing] = useState<GitHubIssueListNarrowing>(NO_GITHUB_ISSUE_NARROWING);
+  const fetched = listQuery.data?.entries ?? NO_ENTRIES;
+  const facets = useMemo(() => gitHubIssueFacets(fetched), [fetched]);
+  const entries = useMemo(
+    () => applyGitHubIssueListView(fetched, narrowing, order),
+    [fetched, narrowing, order],
+  );
+  const narrowed = !gitHubIssueNarrowingIsEmpty(narrowing);
+  const narrowingProps = {
+    types: facets.types,
+    labels: facets.labels,
+    narrowing,
+    onNarrowing: setNarrowing,
+  };
   const body = !capabilityKnown ? (
     <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground text-sm">
       <Spinner className="size-4" /> Connecting to the environment...
@@ -260,7 +298,7 @@ export function GitHubIssuesPage({
     />
   ) : listQuery.isPending && listQuery.data === null ? (
     <GitHubIssueListGhosts />
-  ) : listQuery.data?.environmentErrors.length && entries.length === 0 ? (
+  ) : listQuery.data?.environmentErrors.length && fetched.length === 0 ? (
     <GitHubIssueEmptyState
       title="Could not load issues"
       description={
@@ -268,11 +306,21 @@ export function GitHubIssuesPage({
       }
       action={<Button onClick={listQuery.refresh}>Try again</Button>}
     />
-  ) : entries.length === 0 && (listQuery.data?.errors.length ?? 0) > 0 ? (
+  ) : fetched.length === 0 && (listQuery.data?.errors.length ?? 0) > 0 ? (
     <GitHubIssueEmptyState
       title="Could not load issues"
       description={listQuery.data?.errors[0]?.message ?? "GitHub did not answer."}
       action={<Button onClick={listQuery.refresh}>Try again</Button>}
+    />
+  ) : entries.length === 0 && narrowed ? (
+    <GitHubIssueEmptyState
+      title="No issues"
+      description={`The type and label filters hide all ${fetched.length} loaded issues.`}
+      action={
+        <Button variant="outline" onClick={() => setNarrowing(NO_GITHUB_ISSUE_NARROWING)}>
+          Clear filters
+        </Button>
+      }
     />
   ) : entries.length === 0 ? (
     <GitHubIssueEmptyState
@@ -293,6 +341,7 @@ export function GitHubIssuesPage({
             selectedRef.number === issue.number
           }
           showProject={scopedProjectId === undefined}
+          onFilter={(key, name) => setNarrowing(toggleGitHubIssueNarrowing(narrowing, key, name))}
           onSelect={selectIssue}
         />
       ))}
@@ -328,6 +377,14 @@ export function GitHubIssuesPage({
       error={detailQuery.error}
       loading={detailQuery.isPending}
       onRetry={detailQuery.refresh}
+      onSelectSubIssue={(child) =>
+        updateSearch({
+          selectedEnvironmentId: selectedRef.environmentId,
+          selectedProjectId: selectedRef.projectId,
+          repository: selectedRef.repository,
+          number: child.number,
+        })
+      }
     />
   );
 
@@ -355,58 +412,34 @@ export function GitHubIssuesPage({
         </WorkspacePageHeader>
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(20rem,0.9fr)_minmax(24rem,1.1fr)]">
-          <section className="flex min-h-0 min-w-0 flex-col border-r border-border">
-            <div className="grid gap-2 border-b border-border/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-              <InputGroup className="min-w-0">
-                <InputGroupAddon>
-                  <SearchIcon aria-hidden />
-                </InputGroupAddon>
-                <InputGroupInput
-                  type="search"
-                  aria-label="Search GitHub issues"
-                  placeholder="Search issues"
+          <section className="@container/issues flex min-h-0 min-w-0 flex-col border-r border-border">
+            {/*
+              The search field keeps a usable width and the controls wrap under it as one row, so a
+              narrow window loses a line of height rather than shaving the field to a few characters.
+              Applied filters take a line of their own beneath, Linear's way.
+            */}
+            <div className="flex flex-col gap-2 border-b border-border/70 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <GitHubIssueSearchField
                   value={search.q ?? ""}
-                  onChange={(event) => updateFilters({ q: event.currentTarget.value || undefined })}
+                  onChange={(next) => updateFilters({ q: next || undefined })}
                 />
-              </InputGroup>
-              <Select
-                value={search.state}
-                onValueChange={(value: string | null) => {
-                  const next = STATE_OPTIONS.find((option) => option.value === value);
-                  if (next) updateFilters({ state: next.value });
-                }}
-              >
-                <SelectTrigger
-                  aria-label="Filter GitHub issues by state"
-                  className="min-w-28 sm:w-auto"
-                >
-                  <SelectValue>{stateLabel}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {STATE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-              {forcedProjectRef === null ? (
-                <GitHubIssueProjectPicker
-                  projects={githubProjects}
-                  selected={scopedProject}
-                  onChange={(projectId, environmentId) =>
-                    updateFilters({ projectId, environmentId })
-                  }
-                />
-              ) : (
-                <WindowProjectScopeToggle
-                  forcedProjectRef={forcedProjectRef}
-                  listScope={listScope}
-                  onNavigate={(scope) =>
-                    onScopeChange(scope, (scopePatch) => updateFilters(scopePatch))
-                  }
-                />
-              )}
+                <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2">
+                  <GitHubIssueFilterAdd {...narrowingProps} />
+                  <GitHubIssueStateToggle
+                    state={search.state}
+                    onState={(next) => updateFilters({ state: next })}
+                  />
+                  <GitHubIssueProjectMenu
+                    projects={githubProjects}
+                    value={projectMenuValue}
+                    windowProjectKey={windowProjectKey}
+                    onValueChange={selectProject}
+                  />
+                  <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
+                </div>
+              </div>
+              <GitHubIssueFilterBar {...narrowingProps} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {listQuery.data?.errors.map((error) => (
