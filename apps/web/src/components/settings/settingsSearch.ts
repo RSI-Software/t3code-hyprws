@@ -259,6 +259,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
   },
   {
+    id: "github-change-request-destination",
+    title: "GitHub issue and pull request destination",
+    to: "/settings/source-control",
+  },
+  {
+    id: "github-link-destination",
+    title: "GitHub repository link destination",
+    to: "/settings/source-control",
+  },
+  {
     id: "github-issue-handoff-prompt",
     title: "GitHub issue handoff prompt",
     to: "/settings/source-control",
