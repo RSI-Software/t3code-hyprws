@@ -222,6 +222,15 @@ export interface PullRequestProviderApi {
   readonly kind: SourceControlProviderKind;
   readonly capabilities: PullRequestCapabilities;
 
+  /** Publishes one already-staged file and returns the markdown text the editor should insert. */
+  readonly uploadAttachment?: (
+    input: ProviderRepositoryRef & {
+      readonly path: string;
+      readonly name: string;
+      readonly mimeType: string;
+    },
+  ) => Effect.Effect<string, PullRequestProviderError>;
+
   /** The signed-in account, which is what involvement filtering compares against. */
   readonly getViewer: (input: {
     readonly cwd: string;
