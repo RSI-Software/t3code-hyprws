@@ -134,6 +134,13 @@ import {
   resolveExternalWebLinkHost,
   showExternalLinkContextMenu,
 } from "./chat/externalLinkContextMenu";
+import { GitHubDestinationLink } from "./chat/GitHubDestinationLink";
+import {
+  githubLinkDestinations,
+  parseGitHubLinkTarget,
+  preferredGitHubLinkDestination,
+  type GitHubLinkDestination,
+} from "./chat/githubLinkDestinations";
 import { hasSpecificPierreIconForFileName, syntheticFileNameForLanguageId } from "../pierre-icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { Button } from "./ui/button";
@@ -2379,6 +2386,10 @@ function useChatMarkdownState({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Leaving the scope invalidates media requests still loading for it.
     [mediaScopeKey],
   );
+  const githubLinkOpenMode = useClientSettings((settings) => settings.githubLinkOpenMode);
+  const githubChangeRequestOpenMode = useClientSettings(
+    (settings) => settings.githubChangeRequestOpenMode,
+  );
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
     refresh: true,
@@ -2587,6 +2598,35 @@ function useChatMarkdownState({
       return result;
     });
   };
+  const openGitHubLinkDestination = useCallback(
+    (
+      destination: GitHubLinkDestination,
+      event: ReactMouseEvent<HTMLAnchorElement | HTMLButtonElement>,
+      href: string,
+    ) => {
+      if (destination === "native" && openChangeRequestLink(event, href)) return;
+      const api = readLocalApi();
+      if (!api) {
+        toastManager.add({ type: "error", title: "Link opening is unavailable." });
+        return;
+      }
+      if (destination === "integrated") {
+        void openExternalLinkInPreview(href).then((result) => {
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            reportMarkdownActionFailure(
+              { operation: "open-link-in-preview", target: href },
+              result.cause,
+            );
+          }
+        });
+        return;
+      }
+      void api.shell.openExternal(href).catch((cause) => {
+        reportMarkdownActionFailure({ operation: "open-link-external", target: href }, cause);
+      });
+    },
+    [openChangeRequestLink, openExternalLinkInPreview],
+  );
   const openMarkdownFileInPreview = (path: string) => {
     const preparedConnection = threadRef ? readPreparedConnection(threadRef.environmentId) : null;
     if (!threadRef || !canOperatePreview || preparedConnection === null) {
@@ -2723,6 +2763,8 @@ function useChatMarkdownState({
     environmentId,
     expandMedia,
     fileLinkChip,
+    githubChangeRequestOpenMode,
+    githubLinkOpenMode,
     githubMedia,
     renderContextReference,
     headingLevelOffset,
@@ -2738,6 +2780,7 @@ function useChatMarkdownState({
     openChangeRequestLink,
     openDeferredMarkdownLink,
     openExternalLinkInPreview,
+    openGitHubLinkDestination,
     openMarkdownMedia,
     projects,
     linkedThreadPullRequestFor,
@@ -2881,6 +2924,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
       canOperatePreview,
       cwd,
       environmentId,
+      githubChangeRequestOpenMode,
+      githubLinkOpenMode,
       imageBaseDir,
       markdownFileLinkMetaByHref,
       threadRef,
@@ -2889,6 +2934,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       openDeferredMarkdownLink,
       linkTargetPreference,
       openExternalLinkInPreview,
+      openGitHubLinkDestination,
       projects,
       linkedThreadPullRequestFor,
       resolveThreadPullRequest,
@@ -2952,6 +2998,83 @@ const CHAT_MARKDOWN_COMPONENTS = {
       const canOpenInPreview =
         canOperatePreview && Boolean(threadRef && isPreviewAvailableFor(threadRef.environmentId));
       const linkChildren = <MarkdownLinkContext value>{children}</MarkdownLinkContext>;
+      const githubLinkTarget = parseGitHubLinkTarget(href);
+      const handleExternalLinkContextMenu = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+        if (!href || !faviconHost) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const api = readLocalApi();
+        if (!api) return;
+        const threadLinkAction = !canOperateHost
+          ? undefined
+          : linkedThreadPullRequestFor(href) !== null
+            ? "unlink-from-thread"
+            : resolveThreadPullRequest(href) === null
+              ? undefined
+              : "link-to-thread";
+        void showExternalLinkContextMenu({
+          href,
+          canOpenInPreview,
+          threadLinkAction,
+          position: { x: event.clientX, y: event.clientY },
+          showContextMenu: (items, position) => api.contextMenu.show(items, position),
+          openInPreview: async (target) => {
+            const result = await openExternalLinkInPreview(target);
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              reportMarkdownActionFailure(
+                { operation: "open-link-in-preview", target },
+                result.cause,
+              );
+            }
+          },
+          openExternal: (target) => api.shell.openExternal(target),
+          copyLink: (target) => writeTextToClipboard(target, "link"),
+          updateThreadLink: updateThreadPullRequestLink,
+          reportFailure: (operation, cause) => {
+            reportMarkdownActionFailure({ operation, target: href }, cause);
+            if (
+              operation === "link-pull-request-to-thread" ||
+              operation === "unlink-pull-request-from-thread"
+            ) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title:
+                    operation === "link-pull-request-to-thread"
+                      ? "Unable to link pull request"
+                      : "Unable to unlink pull request",
+                  description: cause instanceof Error ? cause.message : "The request failed.",
+                }),
+              );
+            }
+          },
+        });
+      };
+      if (href && githubLinkTarget) {
+        const destinations = githubLinkDestinations(githubLinkTarget, canOpenInPreview);
+        const preferredDestination = preferredGitHubLinkDestination({
+          target: githubLinkTarget,
+          canOpenInPreview,
+          linkMode: githubLinkOpenMode,
+          changeRequestMode: githubChangeRequestOpenMode,
+        });
+        return (
+          <GitHubDestinationLink
+            {...props}
+            href={href}
+            linkTarget={githubLinkTarget}
+            destinations={destinations}
+            preferredDestination={preferredDestination}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClick}
+            onContextMenu={handleExternalLinkContextMenu}
+            onOpen={(destination, event) => openGitHubLinkDestination(destination, event, href)}
+          >
+            {linkChildren}
+          </GitHubDestinationLink>
+        );
+      }
       const link = (
         <a
           {...props}
@@ -3032,57 +3155,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
               void readLocalApi()?.shell.openExternal(href);
             });
           }}
-          onContextMenu={(event) => {
-            if (!href || !faviconHost) return;
-            event.preventDefault();
-            event.stopPropagation();
-            const api = readLocalApi();
-            if (!api) return;
-            const threadLinkAction = !canOperateHost
-              ? undefined
-              : linkedThreadPullRequestFor(href) !== null
-                ? "unlink-from-thread"
-                : resolveThreadPullRequest(href) === null
-                  ? undefined
-                  : "link-to-thread";
-            void showExternalLinkContextMenu({
-              href,
-              canOpenInPreview,
-              threadLinkAction,
-              position: { x: event.clientX, y: event.clientY },
-              showContextMenu: (items, position) => api.contextMenu.show(items, position),
-              openInPreview: async (target) => {
-                const result = await openExternalLinkInPreview(target);
-                if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-                  reportMarkdownActionFailure(
-                    { operation: "open-link-in-preview", target },
-                    result.cause,
-                  );
-                }
-              },
-              openExternal: (target) => api.shell.openExternal(target),
-              copyLink: (target) => writeTextToClipboard(target, "link"),
-              updateThreadLink: updateThreadPullRequestLink,
-              reportFailure: (operation, cause) => {
-                reportMarkdownActionFailure({ operation, target: href }, cause);
-                if (
-                  operation === "link-pull-request-to-thread" ||
-                  operation === "unlink-pull-request-from-thread"
-                ) {
-                  toastManager.add(
-                    stackedThreadToast({
-                      type: "error",
-                      title:
-                        operation === "link-pull-request-to-thread"
-                          ? "Unable to link pull request"
-                          : "Unable to unlink pull request",
-                      description: cause instanceof Error ? cause.message : "The request failed.",
-                    }),
-                  );
-                }
-              },
-            });
-          }}
+          onContextMenu={handleExternalLinkContextMenu}
         >
           {faviconHost && hasText && !isPullRequestAutolink ? (
             <MarkdownExternalLinkContent host={faviconHost} plainText={plainHastText(node)}>
