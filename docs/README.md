@@ -5,6 +5,7 @@
 - [Install and first run](./user/install.md)
 - [Permission modes](./user/permission-modes.md)
 - [Keyboard shortcuts](./user/keybindings.md)
+- [Browser bookmarks](./user/browser.md)
 - [Organizing threads](./user/thread-sidebar.md)
 - [Review usage](./user/usage.md)
 - [Anonymous usage data](./user/telemetry.md)
