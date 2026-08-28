@@ -1153,6 +1153,7 @@ describe("applyThreadDetailEvent", () => {
       if (result.kind === "updated") {
         expect(result.thread.activities).toHaveLength(1);
         expect(result.thread.activities[0]?.kind).toBe("file-edit");
+        expect(result.thread.activities[0]?.sequence).toBe(12);
       }
     });
 
@@ -1250,13 +1251,17 @@ describe("applyThreadDetailEvent", () => {
         ...(sequence === null ? {} : { sequence }),
         createdAt: "2026-04-01T11:00:00.000Z",
       });
-      // Snapshot loads deliver null-sequence rows first (DB order), which
-      // activityOrder sorts last; an in-order live append must not freeze
-      // that prefix.
+      // A snapshot arrives in DB order, which can transpose sequenced rows and
+      // leads with the unsequenced ones; an in-order live append must repair
+      // that whole prefix rather than freeze it behind the fast path.
       const result = applyThreadDetailEvent(
         {
           ...baseThread,
-          activities: [makeActivity("activity-null", null), makeActivity("activity-a", 1)],
+          activities: [
+            makeActivity("activity-null", null),
+            makeActivity("activity-b", 2),
+            makeActivity("activity-a", 1),
+          ],
         },
         {
           ...baseEventFields,
@@ -1267,7 +1272,7 @@ describe("applyThreadDetailEvent", () => {
           type: "thread.activity-appended",
           payload: {
             threadId: ThreadId.make("thread-1"),
-            activity: makeActivity("activity-b", 2),
+            activity: makeActivity("activity-c", 3),
           },
         },
       );
@@ -1275,9 +1280,10 @@ describe("applyThreadDetailEvent", () => {
       expect(result.kind).toBe("updated");
       if (result.kind === "updated") {
         expect(result.thread.activities.map((activity) => activity.id)).toEqual([
+          "activity-null",
           "activity-a",
           "activity-b",
-          "activity-null",
+          "activity-c",
         ]);
       }
     });
