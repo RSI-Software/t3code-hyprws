@@ -74,13 +74,20 @@ says `None.` with its replay evidence.
 
 ## Gate 3 — Check
 
-Walk every involved domain's rebase scan, including automerged overlap. Then run only focused checks:
+Scan every involved domain against the target, then run only focused checks:
 
 ```bash
+vp run fork:scan --head origin/hyprws --target "$tag"
 vp run fork:delta --check
 vp run --filter <touched-package> typecheck
 vp test run <tests-beside-every-touched-file>
 ```
+
+`fork:scan` lists every file the fork and upstream both changed over the shared base, which is the
+overlap the record reviews. Read each `in scan` file against its automerge. A `MISSING` file is a
+gap in `docs/internals/fork-delta.md`; record it and leave the ledger edit to the human at gate 4.
+This run is the blocking one, because `$tag` is the rebase target the fork has not reached yet. Fork
+CI runs the same scan against live `upstream/main` on every push, advisory only.
 
 Record exact commands and results. The commit table carries one row per decision, claim, or change,
 keyed by its exact subject; the record schema owns which commits require a row. Review every file
@@ -90,9 +97,9 @@ product claim must name the exact UI label and expected outcome; a thread-sync c
 message, never a draft.
 
 **Stop.** Show the human failed checks, silent seams, and the complete draft record. Continue only
-when `fork:delta`, every targeted typecheck, and every adjacent test pass. Never substitute a
-repo-wide `vp check`, `vp run -r typecheck`, or `vp run -r test` for the targeted set: fork CI owns
-the full suite, and a repo-wide run hides which seam failed.
+when `fork:scan`, `fork:delta`, every targeted typecheck, and every adjacent test pass. Never
+substitute a repo-wide `vp check`, `vp run -r typecheck`, or `vp run -r test` for the targeted set:
+fork CI owns the full suite, and a repo-wide run hides which seam failed.
 
 ## Gate 4 — Human sanity
 
@@ -116,11 +123,13 @@ git add "docs/operations/fork-sync-records/$tag.md" docs/internals/fork-delta.md
 git commit -m "docs(fork): record $tag rehearsal" \
   -m $'Fork-Domain: fork-meta\nFork-Tier: qol'
 vp run fork:delta --check
+vp run fork:scan --head origin/hyprws --target "$tag"
 ```
 
 The guard runs first because a squash subject carries `(#<number>)`, which posts a backlink upstream
 once the record is published. `fork:delta --check` counts the record commit, so it reports one more
-than the record's `Stack size`.
+than the record's `Stack size`. The scan is green once every `MISSING` file from gate 3 has a row in
+its domain's scan table.
 
 **Stop.** Show the human the sanity login/date, resolved retire/keep subjects, grounding evidence,
 record commit, and green checks. Continue only with a committed record and explicit human approval.
