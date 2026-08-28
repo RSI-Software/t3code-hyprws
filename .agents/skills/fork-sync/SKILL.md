@@ -69,7 +69,8 @@ record immediately and retain every `Fork-*` trailer.
 
 **Stop.** Show the human the rebased head, stack size, conflict counts by class, all
 `retire-candidate`/`human` rows, and any unresolved block. Continue only when the rebase is complete
-and the conflicts table has one row per (fork commit, file).
+and every conflicted (fork commit, file) has a row, or the rebase stopped zero times and the record
+says `None.` with its replay evidence.
 
 ## Gate 3 — Check
 
@@ -81,8 +82,10 @@ vp run --filter <touched-package> typecheck
 vp test run <tests-beside-every-touched-file>
 ```
 
-Record exact commands and results. The commit table must have one row for every rehearsed fork
-commit, keyed by its exact subject. Record typecheck-only findings under **Silent seams**. Every
+Record exact commands and results. The commit table carries one row per decision, claim, or change,
+keyed by its exact subject; the record schema owns which commits require a row. Review every file
+the orientation report predicted as automerged overlap, because no rebase stop will raise one.
+Record typecheck-only findings under **Silent seams**. Every
 product claim must name the exact UI label and expected outcome; a thread-sync claim must use a sent
 message, never a draft.
 
@@ -108,11 +111,16 @@ this approval.
 Commit the completed record and durable decisions on the rehearsal branch:
 
 ```bash
+vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
 git add "docs/operations/fork-sync-records/$tag.md" docs/internals/fork-delta.md
 git commit -m "docs(fork): record $tag rehearsal" \
   -m $'Fork-Domain: fork-meta\nFork-Tier: qol'
 vp run fork:delta --check
 ```
+
+The guard runs first because a squash subject carries `(#<number>)`, which posts a backlink upstream
+once the record is published. `fork:delta --check` counts the record commit, so it reports one more
+than the record's `Stack size`.
 
 **Stop.** Show the human the sanity login/date, resolved retire/keep subjects, grounding evidence,
 record commit, and green checks. Continue only with a committed record and explicit human approval.
