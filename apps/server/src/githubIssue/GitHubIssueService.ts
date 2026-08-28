@@ -27,8 +27,13 @@ import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJso
 const DEFAULT_LIMIT = 50;
 const PROJECT_CONCURRENCY = 8;
 const DETAIL_COMMENT_LIMIT = 100;
-const ISSUE_LIST_FIELDS = "number,title,url,author,assignees,labels,state,createdAt,updatedAt";
-const ISSUE_DETAIL_FIELDS = `${ISSUE_LIST_FIELDS},body,comments,closedAt`;
+// `issueType` and `subIssues` need a recent `gh`; an older CLI rejects the unknown field name and
+// degrades the whole project, which the list already reports per project rather than swallowing.
+// `comments` is asked for by count alone: `gh` has no count field, and the entry keeps only the
+// length, so the cost is one subprocess read rather than anything crossing the socket.
+const ISSUE_LIST_FIELDS =
+  "number,title,url,author,assignees,labels,issueType,state,createdAt,updatedAt,comments,reactionGroups";
+const ISSUE_DETAIL_FIELDS = `${ISSUE_LIST_FIELDS},body,subIssues,closedAt`;
 
 type GitHubIssueCliError = GitHubIssueCliMissingError | GitHubIssueCliUnauthenticatedError;
 type GitHubIssueError = GitHubIssueCliError | GitHubIssueOperationError;
