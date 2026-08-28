@@ -13,23 +13,36 @@ Set `tag=vX.Y.Z` to the chosen stable tag. The record is
 `docs/operations/fork-sync-records/$tag.md`; follow [the record schema](references/record.md) and
 [the rehearsal procedure](references/rehearse.md).
 
+Every command a gate runs is written here or in those two references, and nowhere else. The
+[fork-sync runbook](../../../docs/operations/fork-sync.md) owns the invariants each gate enforces, what
+the orientation output means, failure handling, and the one-time repository setup; it carries no gate
+command.
+
 ## Gate 1 — Orient
 
-One command orients the whole gate. The preflight it runs fetches upstream tags, so list the
-candidates after it and orient against the one you pick. The `hyprws` worktree does not need to be
-clean; orientation reads `origin/hyprws`.
+The preflight fetches both lanes and proves the `main` mirror is current, so run it first. Sweep the
+watches against `upstream/main` before you pick, because a watch that is still `waiting` there can
+change which tag is worth taking. Then list the candidates and orient against the one you pick.
 
 ```bash
-vp run fork:preflight
+node scripts/fork-preflight.ts
+node scripts/fork-upstream-watch.ts
 git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 3
 node scripts/fork-orient.ts --target "$tag"
 ```
 
 `node` is deliberate: Gate 1 runs in a worktree with no dependencies installed, and `vp run
-fork:orient` is the same command once `vp i` has run. Orientation proves the tag exists as a tag and
-is reachable from `upstream/main`; a version-shaped name is refused. It prints target, source, shared
-base, mirror currency, feasibility, automerged overlap, retire candidates, and an `upstream-watch`
-verdict per open issue against that tag.
+fork:preflight`, `vp run fork:upstream-watch`, and `vp run fork:orient` are the same commands once
+`vp i` has run. Orientation re-runs the preflight itself and refuses on an unmet precondition, so the
+first line is the one that names every unmet one before anything else runs. The `hyprws` worktree does
+not need to be clean; orientation reads `origin/hyprws`.
+
+Orientation proves the tag exists as a tag and is reachable from `upstream/main`; a version-shaped
+name is refused. It prints target, source, shared base, mirror currency, feasibility, automerged
+overlap, retire candidates, and an `upstream-watch` verdict per open issue against that tag. That
+tag-targeted sweep is the one Gate 5 closes from; the pre-pick sweep above only informs the pick.
+The runbook explains [what each verdict
+means](../../../docs/operations/fork-sync.md#what-the-orientation-means).
 
 **Stop.** Show the human the Stop block the command printed. Continue only after the human confirms
 the target. The orientation is not permission to modify a ref.
@@ -48,9 +61,11 @@ git rebase "$tag"
 ```
 
 At every stop, read upstream intent first and preserve it, then reapply the smallest fork behavior
-at the current seam. Never skip, squash, reorder, or reword a fork commit. Classify every conflicted
-file as `mechanical`, `seam-moved`, `retire-candidate`, or `human`; review rerere output as a new
-resolution. Start the record immediately and retain every `Fork-*` trailer.
+at the current seam. Never squash, reorder, or reword a fork commit, and never run `git rebase
+--skip`: a commit upstream has made obsolete is a `retire-candidate` row for the human at Gate 4, not
+a commit the rehearsal drops on its own. Classify every conflicted file as `mechanical`,
+`seam-moved`, `retire-candidate`, or `human`; review rerere output as a new resolution. Start the
+record immediately and retain every `Fork-*` trailer.
 
 **Stop.** Show the human the rebased head, stack size, conflict counts by class, all
 `retire-candidate`/`human` rows, and any unresolved block. Continue only when the rebase is complete
@@ -72,8 +87,9 @@ product claim must name the exact UI label and expected outcome; a thread-sync c
 message, never a draft.
 
 **Stop.** Show the human failed checks, silent seams, and the complete draft record. Continue only
-when `fork:delta`, every targeted typecheck, and every adjacent test pass. Do not substitute repo-wide
-checks.
+when `fork:delta`, every targeted typecheck, and every adjacent test pass. Never substitute a
+repo-wide `vp check`, `vp run -r typecheck`, or `vp run -r test` for the targeted set: fork CI owns
+the full suite, and a repo-wide run hides which seam failed.
 
 ## Gate 4 — Human sanity
 
@@ -116,7 +132,9 @@ moved, fetch it, read the new commits, incorporate them through the drift proced
 [the rehearsal reference](references/rehearse.md), update the record, and repeat gates 3–4.
 
 **Stop.** The skill and agent never run the commands below. Print their resolved values for the
-human, who alone performs the published-head rewrite, tag, and release:
+human, who alone performs the published-head rewrite, tag, and release. `$release_tag` follows the
+[fork release naming
+rule](../../../docs/operations/fork-sync.md#invariants):
 
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
@@ -130,3 +148,8 @@ gh release view "$release_tag" --repo RSI-Software/t3code-hyprws
 The human verifies the release has the `.AppImage` and `latest-linux.yml` assets and that the
 record's retire/keep ledger entries are present. A refused lease returns to rehearsal; it is never
 silently refreshed.
+
+Then the human installs or runs that build and closes each `upstream-watch` issue Gate 1's
+tag-targeted sweep called `ready`, naming the upstream merge commit and this fork release. This is
+the only place a watch closes, and only that sweep names the candidates. A watch whose behavior is
+still broken stays open with what was seen.
