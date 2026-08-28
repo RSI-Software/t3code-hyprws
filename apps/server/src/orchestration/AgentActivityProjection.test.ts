@@ -27,7 +27,18 @@ describe("projectAgentActivity", () => {
           transcriptDir: "/home/alice/.claude/transcripts/run-1",
           sessionUrl: "https://example.test/session/1",
         },
-        files: [{ path: "src/index.ts" }, { path: "/home/alice/private/secret.ts" }],
+        files: [
+          { path: "src/index.ts" },
+          { path: "/home/alice/private/secret.ts" },
+          { path: String.raw`\\server\share\secret.txt` },
+          { path: String.raw`~\private\secret.txt` },
+        ],
+        notes: [
+          "path:/home/alice/private.txt",
+          String.raw`read \\server\share\secret.txt`,
+          String.raw`read ~\private\secret.txt`,
+          "https://example.test/a",
+        ],
       }),
     );
 
@@ -35,7 +46,13 @@ describe("projectAgentActivity", () => {
     expect(projected.payload).toEqual({
       agentId: "agent-1",
       runHandles: { runId: "run-1", sessionUrl: "https://example.test/session/1" },
-      files: [{ path: "src/index.ts" }, {}],
+      files: [{ path: "src/index.ts" }, {}, {}, {}],
+      notes: [
+        "path:[local path]",
+        "read [local path]",
+        "read [local path]",
+        "https://example.test/a",
+      ],
     });
     expect(projected.truncated).toBe(true);
     expect(JSON.stringify(projected)).not.toContain("/home/alice");

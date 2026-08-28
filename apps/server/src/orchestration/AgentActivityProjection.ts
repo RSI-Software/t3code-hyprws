@@ -31,12 +31,12 @@ interface ProjectionBudget {
 }
 
 function isAbsoluteLocalPath(value: string): boolean {
-  return /^(?:file:\/\/|~[\\/]|\/(?!\/)|[a-z]:[\\/])/iu.test(value.trim());
+  return /^(?:file:\/\/|~[\\/]|\\\\|\/(?!\/)|[a-z]:[\\/])/iu.test(value.trim());
 }
 
 function redactInlineLocalPaths(value: string, budget: ProjectionBudget): string {
   const redacted = value.replace(
-    /(^|[\s"'`(=])(?:file:\/\/|~\/|\/(?!\/)|[a-z]:[\\/])[^\s"'`<>)]*/giu,
+    /(^|[\s"'`([{:;,=])(?:file:\/\/|~[\\/]|\\\\|\/(?!\/)|[a-z]:[\\/])[^\s"'`<>\])},;]*/giu,
     (match, prefix: string) => `${prefix}[local path]`,
   );
   if (redacted !== value) {
