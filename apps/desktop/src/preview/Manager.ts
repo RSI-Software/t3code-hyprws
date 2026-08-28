@@ -728,6 +728,39 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     ).pipe(Effect.ignore);
   });
 
+  const applyZoom = Effect.fn("PreviewManager.applyZoom")(function* (
+    tabId: string,
+    transform: (current: number) => number,
+    expectedWebContents?: Electron.WebContents,
+  ) {
+    yield* withTabLifecycleLock(
+      tabId,
+      Effect.gen(function* () {
+        const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+        if (
+          !tab ||
+          (expectedWebContents !== undefined &&
+            (tab.webContentsId !== expectedWebContents.id ||
+              expectedWebContents.isDestroyed() ||
+              webContents.fromId(expectedWebContents.id) !== expectedWebContents))
+        ) {
+          return;
+        }
+        const next = transform(tab.zoomFactor);
+        if (Math.abs(next - tab.zoomFactor) < ZOOM_EPSILON) return;
+        if (tab.webContentsId != null) {
+          const wc = webContents.fromId(tab.webContentsId);
+          if (wc && !wc.isDestroyed()) {
+            yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
+              wc.setZoomFactor(next),
+            );
+          }
+        }
+        yield* update(tabId, { zoomFactor: next });
+      }),
+    );
+  });
+
   /**
    * Mute counterpart to {@link assertTabZoom}: pushes the tab's committed mute
    * onto whichever guest it currently owns, reading both at call time so an
@@ -1496,6 +1529,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const audioStateChanged = (
       event: Electron.Event<Electron.WebContentsAudioStateChangedEventParams>,
     ) => runFork(syncTabAudible(tabId, wc, event.audible));
+    const zoomChanged = (_event: Electron.Event, direction: "in" | "out") =>
+      runFork(
+        applyZoom(tabId, (current) => nextZoomLevel(current, direction), wc).pipe(Effect.ignore),
+      );
     const publishFavicon = Effect.fn("PreviewManager.publishFavicon")(function* (input: {
       readonly captureDocumentId: number;
       readonly dataUrl: string;
@@ -1691,6 +1728,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("did-stop-loading", sync);
         wc.off("did-fail-load", failed as never);
         wc.off("audio-state-changed", audioStateChanged);
+        wc.off("zoom-changed", zoomChanged);
         wc.off("before-input-event", beforeInput);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
@@ -1707,6 +1745,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.on("did-stop-loading", sync);
         wc.on("did-fail-load", failed as never);
         wc.on("audio-state-changed", audioStateChanged);
+        wc.on("zoom-changed", zoomChanged);
         wc.ipc.on(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.on(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
         wc.setWindowOpenHandler(({ url }) => {
@@ -2324,25 +2363,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const reapplyZoom = Effect.fn("PreviewManager.reapplyZoom")(function* () {
     const tabIds = Array.from((yield* SynchronizedRef.get(tabsRef)).keys());
     yield* Effect.forEach(tabIds, assertTabZoom, { discard: true });
-  });
-
-  const applyZoom = Effect.fn("PreviewManager.applyZoom")(function* (
-    tabId: string,
-    transform: (current: number) => number,
-  ) {
-    const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
-    if (!tab) return;
-    const next = transform(tab.zoomFactor);
-    if (Math.abs(next - tab.zoomFactor) < ZOOM_EPSILON) return;
-    if (tab.webContentsId != null) {
-      const wc = webContents.fromId(tab.webContentsId);
-      if (wc && !wc.isDestroyed()) {
-        yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
-          wc.setZoomFactor(next),
-        );
-      }
-    }
-    yield* update(tabId, { zoomFactor: next });
   });
 
   // Emulated media lives on the CDP debugger session, not the WebContents, so
