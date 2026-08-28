@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   PullRequestActionInput,
+  PullRequestAttachmentCreateUploadUrlInput,
   PullRequestCapabilities,
   PullRequestListInput,
   PullRequestListResult,
@@ -13,6 +14,7 @@ import {
 const decodeListResult = Schema.decodeUnknownSync(PullRequestListResult);
 const decodeListInput = Schema.decodeUnknownSync(PullRequestListInput);
 const decodeReviewerRequest = Schema.decodeUnknownSync(PullRequestReviewerRequestInput);
+const decodeAttachmentUpload = Schema.decodeUnknownSync(PullRequestAttachmentCreateUploadUrlInput);
 
 const LIST_RESULT: PullRequestListResult = {
   viewers: { "github.com": "bilal", "gitlab.com": "bilal.hassan" },
@@ -116,6 +118,28 @@ describe("PullRequestListInput", () => {
     const long = (length: number) => ({ "github.com acme/web": "c".repeat(length) });
     expect(decodeListInput({ state: "open", cursors: long(4096) })).toBeDefined();
     expect(() => decodeListInput({ state: "open", cursors: long(4097) })).toThrow();
+  });
+});
+
+describe("PullRequestAttachmentCreateUploadUrlInput", () => {
+  it("accepts GitHub image and video media within the common 10 MB limit", () => {
+    const base = { projectId: "project-1", repository: "acme/web", number: 7 };
+    expect(
+      decodeAttachmentUpload({
+        ...base,
+        name: "demo.webm",
+        mimeType: "video/webm",
+        sizeBytes: 10 * 1024 * 1024,
+      }).mimeType,
+    ).toBe("video/webm");
+    expect(() =>
+      decodeAttachmentUpload({
+        ...base,
+        name: "demo.webm",
+        mimeType: "video/webm",
+        sizeBytes: 10 * 1024 * 1024 + 1,
+      }),
+    ).toThrow();
   });
 });
 

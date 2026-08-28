@@ -1,11 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeCrypto from "node:crypto";
 
-import {
-  ATTACHMENT_UPLOAD_URL_TTL_MS,
-  type AttachmentCreateUploadUrlInput,
-  AttachmentUploadSigningKeyError,
-} from "@t3tools/contracts";
+import { ATTACHMENT_UPLOAD_URL_TTL_MS, AttachmentUploadSigningKeyError } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -29,7 +25,7 @@ import {
 } from "../auth/utils.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
-import { inferImageExtension } from "../imageMime.ts";
+import { inferAttachmentExtension } from "../attachmentMime.ts";
 
 export const ATTACHMENT_UPLOAD_ROUTE_PREFIX = "/api/attachments/upload";
 
@@ -66,9 +62,11 @@ const loadSigningSecret = Effect.gen(function* () {
   return yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
 });
 
-export const issueAttachmentUploadUrl = Effect.fn("AttachmentUpload.issueUrl")(function* (
-  input: AttachmentCreateUploadUrlInput,
-) {
+export const issueAttachmentUploadUrl = Effect.fn("AttachmentUpload.issueUrl")(function* (input: {
+  readonly name: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+}) {
   const secret = yield* loadSigningSecret.pipe(
     Effect.mapError((cause) => new AttachmentUploadSigningKeyError({ cause })),
   );
@@ -152,7 +150,7 @@ export const storeAttachmentUpload = Effect.fn("AttachmentUpload.store")(functio
   }
 
   const config = yield* ServerConfig.ServerConfig;
-  const extension = inferImageExtension({ mimeType: claims.mimeType, fileName: claims.name });
+  const extension = inferAttachmentExtension({ mimeType: claims.mimeType, fileName: claims.name });
   const relativePath = `${claims.attachmentId}${extension}`;
   const finalPath = resolveAttachmentRelativePath({
     attachmentsDir: config.attachmentsDir,
