@@ -19,6 +19,7 @@ const detail = {
   author: { login: "octocat", name: "Octo Cat", avatarUrl: null },
   assignees: [{ login: "maintainer", name: null, avatarUrl: "https://example.com/avatar" }],
   labels: [{ name: "feature", color: "1d76db" }],
+  issueType: { name: "Feature \u2728", color: "BLUE" },
   state: "open",
   createdAt: "2026-08-20T00:00:00Z",
   updatedAt: "2026-08-21T00:00:00Z",
@@ -34,6 +35,14 @@ const detail = {
     },
   ],
   commentCount: 1,
+  subIssues: [
+    {
+      number: 43,
+      title: "Render the list",
+      url: "https://github.com/t3tools/t3code/issues/43",
+      state: "open",
+    },
+  ],
   closedAt: null,
 } as const;
 
