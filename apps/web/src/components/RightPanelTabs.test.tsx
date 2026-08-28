@@ -94,13 +94,15 @@ function renderTabs(
   second?: DesktopPreviewFavicon,
   audio?: { audible?: boolean; audioMuted?: boolean },
   previewRuntimeTabId: ((tabId: string) => string) | null = (tabId) => `runtime:${tabId}`,
+  options: { empty?: boolean; issuesAvailable?: boolean } = {},
 ) {
+  const surfaces = options.empty ? [] : second ? [previewSurface, secondSurface] : [previewSurface];
   return renderToStaticMarkup(
     <RightPanelTabs
       mode="inline"
-      surfaces={second ? [previewSurface, secondSurface] : [previewSurface]}
+      surfaces={surfaces}
       environmentId={null}
-      activeSurfaceId={previewSurface.id}
+      activeSurfaceId={options.empty ? null : previewSurface.id}
       pendingSurfaceIds={new Set()}
       previewSessions={sessions}
       desktopByTabId={{
@@ -120,6 +122,7 @@ function renderTabs(
       onAddTerminal={() => undefined}
       onAddPullRequest={() => undefined}
       onAddPullRequests={() => undefined}
+      onAddIssues={() => undefined}
       onAddDiff={() => undefined}
       onAddFiles={() => undefined}
       onAddAgents={() => undefined}
@@ -131,6 +134,7 @@ function renderTabs(
       filesAvailable={false}
       pullRequestAvailable={false}
       pullRequestsAvailable={false}
+      issuesAvailable={options.issuesAvailable ?? false}
       agentsAvailable={false}
       deviceAvailable={false}
     >
@@ -138,6 +142,18 @@ function renderTabs(
     </RightPanelTabs>,
   );
 }
+
+describe("RightPanelTabs surface launchers", () => {
+  it("offers the capability-gated Issues action in the shared launcher model", () => {
+    const html = renderTabs(null, undefined, undefined, undefined, {
+      empty: true,
+      issuesAvailable: true,
+    });
+
+    expect(html).toContain(">Issues<");
+    expect(html).toContain('data-surface-launcher-keys="BI"');
+  });
+});
 
 describe("RightPanelTabs preview favicon", () => {
   it("prefers a live capture and never asks Google about a private hostname", () => {
