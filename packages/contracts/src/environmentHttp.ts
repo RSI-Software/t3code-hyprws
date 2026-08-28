@@ -44,8 +44,9 @@ import {
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
 } from "./environment.ts";
 import {
-  DpopFailureReason,
   AuthSessionId,
+  DpopFailureReason,
+  ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
@@ -125,6 +126,7 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "orchestration_thread_snapshot_failed",
   "orchestration_thread_bounded_snapshot_failed",
   "orchestration_thread_history_failed",
+  "thread_group_title_generation_failed",
   "internal_error",
 ]);
 export type EnvironmentInternalErrorReason = typeof EnvironmentInternalErrorReason.Type;
@@ -371,6 +373,11 @@ const EnvironmentProjectMutationErrors = [
   EnvironmentScopeRequiredError,
   EnvironmentInternalError,
 ] as const;
+const EnvironmentThreadGroupTitleGenerationErrors = [
+  EnvironmentScopeRequiredError,
+  EnvironmentResourceNotFoundError,
+  EnvironmentInternalError,
+] as const;
 
 export interface EnvironmentSessionPrincipalShape {
   readonly sessionId: AuthSessionId;
@@ -590,6 +597,21 @@ const EnvironmentOrchestrationThreadHistoryErrors = [
   EnvironmentInternalError,
 ] as const;
 
+export const ThreadGroupTitleGenerationInput = Schema.Struct({
+  projectId: ProjectId,
+  memberTitles: Schema.Array(TrimmedNonEmptyString).check(
+    Schema.isMinLength(2),
+    Schema.isMaxLength(50),
+  ),
+  previousTitle: Schema.optional(TrimmedNonEmptyString),
+});
+export type ThreadGroupTitleGenerationInput = typeof ThreadGroupTitleGenerationInput.Type;
+
+export const ThreadGroupTitleGenerationResult = Schema.Struct({
+  title: TrimmedNonEmptyString,
+});
+export type ThreadGroupTitleGenerationResult = typeof ThreadGroupTitleGenerationResult.Type;
+
 class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
   .add(
     HttpApiEndpoint.get("shellSnapshot", "/api/orchestration/shell", {
@@ -630,6 +652,14 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
       query: EnvironmentOrchestrationThreadHistoryQuery,
       success: OrchestrationV2ThreadHistoryPage,
       error: EnvironmentOrchestrationThreadHistoryErrors,
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("generateThreadGroupTitle", "/api/orchestration/thread-group-title", {
+      headers: OptionalBearerHeaders,
+      payload: ThreadGroupTitleGenerationInput,
+      success: ThreadGroupTitleGenerationResult,
+      error: EnvironmentThreadGroupTitleGenerationErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
