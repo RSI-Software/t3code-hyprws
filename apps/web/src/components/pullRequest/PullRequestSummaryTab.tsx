@@ -27,10 +27,12 @@ import {
   UsersIcon,
 } from "lucide-react";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option"; // fork-hook: web/pull-request-attachments-import
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { usePreparedConnection } from "~/state/session"; // fork-hook: web/pull-request-attachments-import
 import { cn } from "~/lib/utils";
 import { useOpenLink } from "~/browser/useOpenLink";
 import { RelativeTime } from "~/components/RelativeTime";
@@ -559,6 +561,7 @@ export function PullRequestSummaryTab({
   };
 
   const update = useAtomCommand(pullRequestEnvironment.update, { reportFailure: false });
+  const preparedConnection = usePreparedConnection(environmentId); // fork-hook: web/pull-request-attachments
   const updateComment = useAtomCommand(pullRequestEnvironment.updateComment, {
     reportFailure: false,
   });
@@ -954,6 +957,16 @@ export function PullRequestSummaryTab({
               completionScope={completionScope}
               threadRef={threadRef}
               label={`${capitalizeTerm(terminology.singular)} description`}
+              attachment={
+                // fork-hook: web/pull-request-attachments — the whole reference rides
+                // along (host included) exactly as trunk's editor consumer passes it.
+                detail.capabilities.attachments === true && Option.isSome(preparedConnection)
+                  ? {
+                      httpBaseUrl: preparedConnection.value.httpBaseUrl,
+                      reference,
+                    }
+                  : undefined
+              }
               placeholder={`Describe this ${terminology.singular}`}
               saving={descriptionSaving}
               onSave={(body) => void saveBody(body)}
