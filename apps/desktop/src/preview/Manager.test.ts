@@ -1252,10 +1252,10 @@ describe("PreviewManager", () => {
         yield* manager.preserveGuestZooms(() => {
           restoreOrder.push("embedder");
           expect(setZoomFactor).not.toHaveBeenCalled();
-          queueMicrotask(() => restoreOrder.push("next-task"));
+          queueMicrotask(() => restoreOrder.push("microtask"));
         });
 
-        expect(restoreOrder.slice(0, 2)).toEqual(["embedder", "guest"]);
+        expect(restoreOrder).toEqual(["embedder", "guest"]);
         expect(setZoomFactor).toHaveBeenCalledTimes(1);
         expect(setZoomFactor).toHaveBeenCalledWith(1.1);
       }),
