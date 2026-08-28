@@ -3,7 +3,8 @@ name: hyprws rebase report
 # Mirrors upstream/main onto the fork's main, uploads the fork-sync orientation,
 # then rebases the fork stack onto the newest upstream tag inside the clean
 # feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on; an unset
-# variable uses candidate mode. The bot writes only fork refs and fork issues.
+# variable uses candidate mode. Auto-rebase drops the checkout token before it
+# runs rebased code; the mirror PAT reaches only the push helper.
 
 on:
   push:
@@ -105,7 +106,28 @@ jobs:
         with:
           ref: hyprws
           fetch-depth: 0
-          persist-credentials: false
+
+      # checkout v6 stores its extraheader in a RUNNER_TEMP config reached through
+      # local includeIf entries. Remove both before any rebased code can run.
+      - name: Remove checkout credential
+        shell: bash
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          while read -r key credential_config; do
+            case "$credential_config" in
+              "$RUNNER_TEMP"/git-credentials-*.config)
+                git config --local --unset-all "$key"
+                rm -f -- "$credential_config"
+                ;;
+              /github/runner_temp/git-credentials-*.config)
+                git config --local --unset-all "$key"
+                ;;
+            esac
+          done < <(git config --local --get-regexp '^includeIf\.gitdir:' || true)
+
+          test -z "$(git config --show-origin --get-all http.https://github.com/.extraheader || true)"
+          test -z "$(git config --local --get-regexp '^includeIf\.gitdir:' | grep 'git-credentials-.*\.config' || true)"
+          ! compgen -G "$RUNNER_TEMP/git-credentials-*.config" > /dev/null
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
