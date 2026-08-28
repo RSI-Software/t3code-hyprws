@@ -5,6 +5,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import {
   ApprovalRequestId,
+  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+  ChildItemRenderDetail,
   CodexSettings,
   EventId,
   ProviderDriverKind,
@@ -48,6 +50,12 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+
+const encodeChildItemRenderDetailJson = Schema.encodeSync(
+  Schema.fromJsonString(ChildItemRenderDetail),
+);
+const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
+  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -547,13 +555,14 @@ const lifecycleLayer = it.layer(
   ),
 );
 
-function startLifecycleRuntime() {
+function startLifecycleRuntime(cwd?: string) {
   return Effect.gen(function* () {
     const adapter = yield* CodexAdapter;
     yield* adapter.startSession({
       provider: ProviderDriverKind.make("codex"),
       threadId: asThreadId("thread-1"),
       runtimeMode: "full-access",
+      ...(cwd ? { cwd } : {}),
     });
     const runtime = lifecycleRuntimeFactory.lastRuntime;
     NodeAssert.ok(runtime);
@@ -674,6 +683,110 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         NodeAssert.equal(event.payload.agentId, "child-thread-1");
         NodeAssert.equal(event.payload.timelineBypass, true);
         NodeAssert.equal(event.payload.detail?.length, 180);
+      }
+    }),
+  );
+
+  it.effect("normalizes bounded Codex child command results and file diffs", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime("/workspace/project");
+      const collectChildItem = (id: string, item: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          const eventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+          yield* runtime.emit({
+            id: asEventId(id),
+            kind: "notification",
+            provider: ProviderDriverKind.make("codex"),
+            createdAt: "2026-01-01T00:00:00.000Z",
+            method: "collabAgent/item",
+            threadId: asThreadId("thread-1"),
+            turnId: asTurnId("turn-1"),
+            payload: {
+              agentThreadId: "child-thread-1",
+              lifecycle: "item.completed",
+              item,
+            },
+          });
+          const event = yield* Fiber.join(eventFiber);
+          NodeAssert.equal(event._tag, "Some");
+          return event._tag === "Some" ? event.value : undefined;
+        });
+
+      const command = yield* collectChildItem("evt-child-command", {
+        type: "commandExecution",
+        id: "child-command-1",
+        command: "cat /home/alice/private.txt",
+        aggregatedOutput: `done\n${'\u0000\n"\\'.repeat(5_000)}`,
+      });
+      const fileChange = yield* collectChildItem("evt-child-file", {
+        type: "fileChange",
+        id: "child-file-1",
+        changes: [
+          {
+            path: "/workspace/project/src/example.ts",
+            kind: { type: "update" },
+            diff: "--- /home/alice/example.ts\n+++ src/example.ts\n+hello",
+          },
+          {
+            path: "/workspace/other/private.ts",
+            kind: { type: "add" },
+            diff: "+secret",
+          },
+        ],
+      });
+      const mcp = yield* collectChildItem("evt-child-mcp", {
+        type: "mcpToolCall",
+        id: "child-mcp-1",
+        status: "failed",
+        result: {
+          content: [{ type: "text", text: "MCP result" }],
+          structuredContent: { output: "structured result" },
+        },
+      });
+      const dynamic = yield* collectChildItem("evt-child-dynamic", {
+        type: "dynamicToolCall",
+        id: "child-dynamic-1",
+        status: "declined",
+        contentItems: [{ type: "inputText", text: "dynamic result" }],
+      });
+
+      if (command?.type === "item.completed") {
+        NodeAssert.equal(command.payload.renderDetail?.command, "cat [local path]");
+        NodeAssert.match(command.payload.renderDetail?.result ?? "", /^done\n/u);
+        NodeAssert.equal(command.payload.renderDetail?.truncated, true);
+        NodeAssert.ok(command.payload.renderDetail);
+        NodeAssert.ok(
+          childItemRenderDetailBytes(command.payload.renderDetail) <=
+            CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+        );
+      } else {
+        NodeAssert.fail("expected completed Codex child command");
+      }
+      if (fileChange?.type === "item.completed") {
+        NodeAssert.deepStrictEqual(fileChange.payload.renderDetail, {
+          changedFiles: [
+            {
+              path: "src/example.ts",
+              kind: "modified",
+              diff: "--- [local path]\n+++ src/example.ts\n+hello",
+            },
+          ],
+          truncated: true,
+        });
+      } else {
+        NodeAssert.fail("expected completed Codex child file change");
+      }
+      if (mcp?.type === "item.completed") {
+        NodeAssert.equal(mcp.payload.status, "failed");
+        NodeAssert.equal(mcp.payload.renderDetail?.result, "MCP result\nstructured result");
+      } else {
+        NodeAssert.fail("expected completed Codex child MCP call");
+      }
+      if (dynamic?.type === "item.completed") {
+        NodeAssert.equal(dynamic.payload.status, "declined");
+        NodeAssert.equal(dynamic.payload.renderDetail?.result, "dynamic result");
+      } else {
+        NodeAssert.fail("expected completed Codex child dynamic call");
       }
     }),
   );
