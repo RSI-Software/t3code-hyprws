@@ -93,6 +93,27 @@ it.layer(ScriptTestLayer)("update-release-package-versions", (it) => {
     }),
   );
 
+  it.effect("accepts stable and nightly fork release versions", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      for (const version of ["1.2.3-hyprws.4", "1.2.4-hyprws-nightly.20260829.17"]) {
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "update-fork-release-package-versions-",
+        });
+        yield* writePackageJsonFixtures(baseDir, "0.0.1");
+
+        const result = yield* updateReleasePackageVersions(version, { rootDir: baseDir });
+        const versions = yield* readReleaseVersions(baseDir);
+
+        assert.deepStrictEqual(result, { changed: true });
+        assert.deepStrictEqual(
+          [...versions.values()],
+          releasePackageFiles.map(() => version),
+        );
+      }
+    }),
+  );
+
   it.effect("returns changed=false when all versions already match", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
