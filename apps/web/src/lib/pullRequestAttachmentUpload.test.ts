@@ -130,6 +130,58 @@ describe("uploadPullRequestAttachment", () => {
     );
   });
 
+  it("announces publishing only once the bytes are staged", async () => {
+    const onPublish = vi.fn();
+    const upload = uploadPullRequestAttachment({
+      environmentId,
+      reference,
+      httpBaseUrl: "https://environment.test/",
+      file: new File([new Uint8Array([1])], "demo.png", { type: "image/png" }),
+      onProgress: () => {},
+      onPublish,
+    });
+    await vi.waitFor(() => expect(TestXmlHttpRequest.requests).toHaveLength(1));
+    expect(onPublish).not.toHaveBeenCalled();
+    TestXmlHttpRequest.requests[0]!.complete();
+
+    await expect(upload).resolves.toBe("https://github.com/user-attachments/assets/id");
+    expect(onPublish).toHaveBeenCalledTimes(1);
+    expect(mocks.runAtomCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      mocks.uploadAttachment,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("does not publish a staged file whose upload was cancelled", async () => {
+    const controller = new AbortController();
+    const upload = uploadPullRequestAttachment({
+      environmentId,
+      reference,
+      httpBaseUrl: "https://environment.test/",
+      file: new File([new Uint8Array([1])], "demo.png", { type: "image/png" }),
+      onProgress: () => {},
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(TestXmlHttpRequest.requests).toHaveLength(1));
+    controller.abort();
+
+    await expect(upload).rejects.toThrow();
+    expect(mocks.runAtomCommand).not.toHaveBeenCalledWith(
+      expect.anything(),
+      mocks.uploadAttachment,
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mocks.runAtomCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      mocks.removeUpload,
+      { environmentId, input: { attachmentId: "pending-id" } },
+      expect.anything(),
+    );
+  });
+
   it("releases the signed staging slot when the upload URL is invalid", async () => {
     await expect(
       uploadPullRequestAttachment({

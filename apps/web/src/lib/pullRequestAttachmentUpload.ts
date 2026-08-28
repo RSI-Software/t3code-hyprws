@@ -39,6 +39,8 @@ export async function uploadPullRequestAttachment(input: {
   readonly httpBaseUrl: string;
   readonly file: File;
   readonly onProgress: (progress: number) => void;
+  /** Staging is done and the environment is publishing to the host, which nothing can cancel. */
+  readonly onPublish?: () => void;
   readonly signal?: AbortSignal;
 }): Promise<string> {
   const mimeType = pullRequestAttachmentMimeType(input.file);
@@ -84,6 +86,7 @@ export async function uploadPullRequestAttachment(input: {
       input.signal?.removeEventListener("abort", abort);
     }
     if (input.signal?.aborted) throw new Error("Upload cancelled");
+    input.onPublish?.();
     const published = await runAtomCommand(
       appAtomRegistry,
       pullRequestEnvironment.uploadAttachment,

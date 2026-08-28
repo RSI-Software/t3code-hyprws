@@ -1,6 +1,6 @@
 import type { EnvironmentId, PullRequestRef } from "@t3tools/contracts";
 import { PaperclipIcon, XIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { uploadPullRequestAttachment } from "~/lib/pullRequestAttachmentUpload";
 import { cn } from "~/lib/utils";
@@ -67,6 +67,7 @@ export function PullRequestMarkdownEditor({
   const [preview, setPreview] = useState(false);
   const [upload, setUpload] = useState<
     | { readonly status: "uploading"; readonly file: File; readonly progress: number }
+    | { readonly status: "publishing"; readonly file: File }
     | { readonly status: "failed"; readonly file: File; readonly message: string }
     | null
   >(null);
@@ -83,8 +84,11 @@ export function PullRequestMarkdownEditor({
     setDraft(value);
     setUpload(null);
   }
+  // An upload still in flight when the subject changes, or the editor closes, must not land its
+  // insertion on words it was never started from.
+  useEffect(() => () => uploadAbortRef.current?.abort(), [value]);
   const empty = draft.trim().length === 0;
-  const uploading = upload?.status === "uploading";
+  const uploading = upload?.status === "uploading" || upload?.status === "publishing";
   const busy = saving || uploading;
 
   const uploadFile = async (file: File) => {
@@ -104,7 +108,9 @@ export function PullRequestMarkdownEditor({
         file,
         signal: controller.signal,
         onProgress: (progress) => setUpload({ status: "uploading", file, progress }),
+        onPublish: () => setUpload({ status: "publishing", file }),
       });
+      if (controller.signal.aborted) return;
       const inserted = insertPullRequestAttachment(draft, insertion, selectionStart, selectionEnd);
       setDraft(inserted.value);
       setUpload(null);
@@ -219,6 +225,10 @@ export function PullRequestMarkdownEditor({
                   <XIcon className="size-3" />
                 </Button>
               </>
+            ) : upload?.status === "publishing" ? (
+              <span aria-live="polite" className="min-w-0 truncate">
+                Publishing {upload.file.name}…
+              </span>
             ) : upload?.status === "failed" ? (
               <>
                 <span role="alert" className="min-w-0 truncate text-destructive">
@@ -232,11 +242,13 @@ export function PullRequestMarkdownEditor({
               <span>Paste or choose an image or video, up to 10 MB.</span>
             )}
           </div>
-          {upload?.status === "uploading" ? (
+          {uploading ? (
             <div className="h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
               <div
                 className="h-full bg-foreground"
-                style={{ width: `${upload.progress * 100}%` }}
+                style={{
+                  width: `${(upload.status === "uploading" ? upload.progress : 1) * 100}%`,
+                }}
               />
             </div>
           ) : null}
