@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -91,7 +92,7 @@ import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { isMacPlatform } from "~/lib/utils";
+import { isMacPlatform, randomUUID } from "~/lib/utils";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
@@ -100,7 +101,11 @@ import {
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  type SidebarThreadGroup,
+  useUiStateStore,
+} from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -115,6 +120,7 @@ import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
+import { threadGroupEnvironment } from "../state/threadGroups";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
@@ -129,6 +135,7 @@ import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animatePinnedLayoutChanges,
   buildBulkTitleRegenerationContextMenuItem,
+  buildSidebarThreadGroupLayout,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   formatSidebarRelativeTimeLabel,
@@ -136,6 +143,7 @@ import {
   hasUnseenCompletion,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
+  isSidebarThreadGroupDrop,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   orderThreadsByProjectPreference,
@@ -177,6 +185,7 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { SidebarThreadGroupHeader } from "./SidebarThreadGroup";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import {
@@ -759,6 +768,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // applied to the card root so the whole card drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
   sortable?: SortableThreadRowBag | undefined;
+  grouped?: boolean | undefined;
+  isGroupDropTarget?: boolean | undefined;
   // Compact wake countdown ("2h") for rows in the snoozed shelf.
   snoozeWakeLabelText: string | null;
   // When a snooze ended (timer or early wake); drives the Woke pill until
@@ -1449,6 +1460,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...(sortable?.listeners ?? {})}
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]",
+        props.grouped && "ml-3 border-l border-sidebar-border/70 pl-1.5",
+        props.isGroupDropTarget && "rounded-lg bg-primary/8 ring-1 ring-primary/45",
         sortable?.isDragging && "z-20 opacity-80",
       )}
     >
@@ -1799,7 +1812,12 @@ export default function Sidebar({
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threadOrderByProject = useUiStateStore((store) => store.threadOrderByProject);
-  const reorderProjectThreads = useUiStateStore((store) => store.reorderProjectThreads);
+  const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
+  const moveProjectThread = useUiStateStore((store) => store.moveProjectThread);
+  const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
+  const renameThreadGroupIfCurrent = useUiStateStore((store) => store.renameThreadGroupIfCurrent);
+  const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
+  const removeThreadGroup = useUiStateStore((store) => store.removeThreadGroup);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -1828,6 +1846,16 @@ export default function Sidebar({
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const generateThreadGroupTitle = useAtomCommand(threadGroupEnvironment.generateTitle, {
+    reportFailure: false,
+  });
+  const [groupDropTargetKey, setGroupDropTargetKey] = useState<string | null>(null);
+  const groupDropTargetKeyRef = useRef<string | null>(null);
+  const updateGroupDropTarget = useCallback((threadKey: string | null) => {
+    groupDropTargetKeyRef.current = threadKey;
+    setGroupDropTargetKey(threadKey);
+  }, []);
+  const [generatingGroupIds, setGeneratingGroupIds] = useState<ReadonlySet<string>>(new Set());
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
       toastManager.add({
@@ -2294,6 +2322,85 @@ export default function Sidebar({
     threadOrderByProject,
     threads,
   ]);
+  const activeThreadGroupLayout = useMemo(
+    () =>
+      buildSidebarThreadGroupLayout({
+        threads: activeThreads,
+        groupsByProject: threadGroupsByProject,
+        getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        getProjectKey: threadProjectOrderKey,
+      }),
+    [activeThreads, threadGroupsByProject],
+  );
+  const visibleActiveThreads = useMemo(
+    () =>
+      sidebarThreadSortOrder === "manual"
+        ? activeThreadGroupLayout.flatMap((item) =>
+            item.kind === "thread" ? [item.thread] : item.group.collapsed ? [] : item.threads,
+          )
+        : activeThreads,
+    [activeThreadGroupLayout, activeThreads, sidebarThreadSortOrder],
+  );
+
+  const requestThreadGroupTitle = useCallback(
+    async (input: {
+      readonly projectKey: string;
+      readonly groupId: string;
+      readonly members: readonly EnvironmentThreadShell[];
+      readonly expectedGroup: Pick<SidebarThreadGroup, "title" | "threadIds">;
+      readonly previousTitle?: string | undefined;
+    }) => {
+      const first = input.members[0];
+      if (
+        !first ||
+        input.members.length < 2 ||
+        input.members.some(
+          (thread) =>
+            thread.environmentId !== first.environmentId || thread.projectId !== first.projectId,
+        )
+      ) {
+        return;
+      }
+      const generatingKey = `${input.projectKey}\0${input.groupId}`;
+      setGeneratingGroupIds((current) => new Set(current).add(generatingKey));
+      try {
+        const result = await generateThreadGroupTitle({
+          environmentId: first.environmentId,
+          input: {
+            projectId: first.projectId,
+            memberTitles: input.members.map((thread) => thread.title),
+            ...(input.previousTitle === undefined ? {} : { previousTitle: input.previousTitle }),
+          },
+        });
+        if (result._tag === "Success") {
+          renameThreadGroupIfCurrent(
+            input.projectKey,
+            input.groupId,
+            input.expectedGroup,
+            result.value.title,
+          );
+          return;
+        }
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to name thread group",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      } finally {
+        setGeneratingGroupIds((current) => {
+          const next = new Set(current);
+          next.delete(generatingKey);
+          return next;
+        });
+      }
+    },
+    [generateThreadGroupTitle, renameThreadGroupIfCurrent],
+  );
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -2419,8 +2526,13 @@ export default function Sidebar({
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...pinnedThreads,
+      ...visibleActiveThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [pinnedThreads, renderedSettledThreads, visibleActiveThreads, visibleSnoozedThreads],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -2913,8 +3025,50 @@ export default function Sidebar({
     },
     [orderedPinnedThreads, reorderPinnedThread, reorderablePinnedKeys],
   );
+  const handleActiveDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      if (sidebarThreadSortOrder !== "manual" || event.over === null) {
+        updateGroupDropTarget(null);
+        return;
+      }
+      const activeKey = String(event.active.id);
+      const overKey = String(event.over.id);
+      if (activeKey === overKey) {
+        updateGroupDropTarget(null);
+        return;
+      }
+      const activeThread = activeThreads.find(
+        (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeKey,
+      );
+      const overThread = activeThreads.find(
+        (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === overKey,
+      );
+      if (!activeThread || !overThread) {
+        updateGroupDropTarget(null);
+        return;
+      }
+      const projectKey = threadProjectOrderKey(activeThread);
+      if (threadProjectOrderKey(overThread) !== projectKey) {
+        updateGroupDropTarget(null);
+        return;
+      }
+      const groups = threadGroupsByProject[projectKey] ?? [];
+      const activeGroup = groups.find((group) => group.threadIds.includes(activeKey));
+      const overGroup = groups.find((group) => group.threadIds.includes(overKey));
+      const grouping =
+        (activeGroup === undefined || activeGroup.id !== overGroup?.id) &&
+        isSidebarThreadGroupDrop({
+          activeRect: event.active.rect.current.translated,
+          overRect: event.over.rect,
+        });
+      updateGroupDropTarget(grouping ? overKey : null);
+    },
+    [activeThreads, sidebarThreadSortOrder, threadGroupsByProject, updateGroupDropTarget],
+  );
   const handleActiveDragEnd = useCallback(
     (event: DragEndEvent) => {
+      const intendedGroupTargetKey = groupDropTargetKeyRef.current;
+      updateGroupDropTarget(null);
       if (sidebarThreadSortOrder !== "manual") return;
       const activeKey = String(event.active.id);
       const overKey = event.over === null ? null : String(event.over.id);
@@ -2931,9 +3085,30 @@ export default function Sidebar({
       const projectThreadKeys = activeThreads
         .filter((thread) => threadProjectOrderKey(thread) === projectKey)
         .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
-      reorderProjectThreads(projectKey, projectThreadKeys, activeKey, overKey);
+      const mode = intendedGroupTargetKey === overKey ? "group" : "reorder";
+      const targetGroup = (threadGroupsByProject[projectKey] ?? []).find((group) =>
+        group.threadIds.includes(overKey),
+      );
+      const newGroup =
+        mode === "group" && !targetGroup ? { id: randomUUID(), title: "New group" } : undefined;
+      moveProjectThread(projectKey, projectThreadKeys, activeKey, overKey, mode, newGroup);
+      if (newGroup) {
+        void requestThreadGroupTitle({
+          projectKey,
+          groupId: newGroup.id,
+          members: [activeThread, overThread],
+          expectedGroup: { title: newGroup.title, threadIds: [activeKey, overKey] },
+        });
+      }
     },
-    [activeThreads, reorderProjectThreads, sidebarThreadSortOrder],
+    [
+      activeThreads,
+      moveProjectThread,
+      requestThreadGroupTitle,
+      sidebarThreadSortOrder,
+      threadGroupsByProject,
+      updateGroupDropTarget,
+    ],
   );
   // One snooze per thread at a time — same double-dispatch guard as settle.
   const snoozingThreadKeysRef = useRef(new Set<string>());
@@ -4012,6 +4187,10 @@ export default function Sidebar({
                     thread: EnvironmentThreadShell,
                     section: "pinned" | "active" | "snoozed" | "settled",
                     sortable?: SortableThreadRowBag,
+                    groupState?: {
+                      readonly grouped?: boolean;
+                      readonly isGroupDropTarget?: boolean;
+                    },
                   ) => {
                     const threadKey = scopedThreadKey(
                       scopeThreadRef(thread.environmentId, thread.id),
@@ -4058,6 +4237,8 @@ export default function Sidebar({
                         }
                         isPinned={thread.pinnedAt != null}
                         sortable={sortable}
+                        grouped={groupState?.grouped}
+                        isGroupDropTarget={groupState?.isGroupDropTarget}
                         snoozeWakeLabelText={
                           section === "snoozed" && thread.snoozedUntil != null
                             ? snoozeWakeLabel(thread.snoozedUntil, {
@@ -4189,6 +4370,8 @@ export default function Sidebar({
                           sensors={threadDndSensors}
                           collisionDetection={closestCenter}
                           modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                          onDragMove={handleActiveDragMove}
+                          onDragCancel={() => updateGroupDropTarget(null)}
                           onDragEnd={handleActiveDragEnd}
                         >
                           <SortableContext
@@ -4202,15 +4385,70 @@ export default function Sidebar({
                               aria-label="Active threads"
                               className="flex flex-col gap-px"
                             >
-                              {activeThreads.map((thread) => {
-                                const threadKey = scopedThreadKey(
-                                  scopeThreadRef(thread.environmentId, thread.id),
-                                );
-                                return (
-                                  <SortableThreadRow key={threadKey} id={threadKey}>
-                                    {(bag) => renderThreadRow(thread, "active", bag)}
-                                  </SortableThreadRow>
-                                );
+                              {activeThreadGroupLayout.flatMap((item) => {
+                                if (item.kind === "thread") {
+                                  const threadKey = scopedThreadKey(
+                                    scopeThreadRef(item.thread.environmentId, item.thread.id),
+                                  );
+                                  return [
+                                    <SortableThreadRow key={threadKey} id={threadKey}>
+                                      {(bag) =>
+                                        renderThreadRow(item.thread, "active", bag, {
+                                          isGroupDropTarget: groupDropTargetKey === threadKey,
+                                        })
+                                      }
+                                    </SortableThreadRow>,
+                                  ];
+                                }
+                                const generatingKey = `${item.projectKey}\0${item.group.id}`;
+                                const groupRows = item.group.collapsed
+                                  ? []
+                                  : item.threads.map((thread) => {
+                                      const threadKey = scopedThreadKey(
+                                        scopeThreadRef(thread.environmentId, thread.id),
+                                      );
+                                      return (
+                                        <SortableThreadRow key={threadKey} id={threadKey}>
+                                          {(bag) =>
+                                            renderThreadRow(thread, "active", bag, {
+                                              grouped: true,
+                                              isGroupDropTarget: groupDropTargetKey === threadKey,
+                                            })
+                                          }
+                                        </SortableThreadRow>
+                                      );
+                                    });
+                                return [
+                                  <SidebarThreadGroupHeader
+                                    key={`group:${generatingKey}`}
+                                    group={item.group}
+                                    memberCount={item.threads.length}
+                                    isGenerating={generatingGroupIds.has(generatingKey)}
+                                    onCollapsedChange={(collapsed) =>
+                                      setThreadGroupCollapsed(
+                                        item.projectKey,
+                                        item.group.id,
+                                        collapsed,
+                                      )
+                                    }
+                                    onRename={(title) =>
+                                      renameThreadGroup(item.projectKey, item.group.id, title)
+                                    }
+                                    onRegenerate={() =>
+                                      void requestThreadGroupTitle({
+                                        projectKey: item.projectKey,
+                                        groupId: item.group.id,
+                                        members: item.threads,
+                                        expectedGroup: item.group,
+                                        previousTitle: item.group.title,
+                                      })
+                                    }
+                                    onRemove={() =>
+                                      removeThreadGroup(item.projectKey, item.group.id)
+                                    }
+                                  />,
+                                  ...groupRows,
+                                ];
                               })}
                             </ul>
                           </SortableContext>
