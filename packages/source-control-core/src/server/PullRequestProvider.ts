@@ -301,6 +301,14 @@ export interface PullRequestProviderApi {
    */
   readonly readsPublicHostWithoutCheckout?: boolean;
 
+  readonly uploadAttachment?: (
+    input: ProviderRepositoryRef & {
+      readonly path: string;
+      readonly name: string;
+      readonly mimeType: string;
+    },
+  ) => Effect.Effect<string, PullRequestProviderError>;
+
   readonly getViewer: (input: {
     readonly cwd: string;
     readonly host?: string;
