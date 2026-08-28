@@ -143,6 +143,7 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
+import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import {
   GitHubIssueCliMissingError,
   GitHubIssueCliUnauthenticatedError,
@@ -535,6 +536,7 @@ export const WS_METHODS = {
   pullRequestsSetFilesViewed: "pullRequests.setFilesViewed",
   pullRequestsRunAction: "pullRequests.runAction",
   pullRequestsUpdate: "pullRequests.update",
+  ...pullRequestAttachmentRpcFork.methodNames, // fork-hook: upstream-fixes/pr-attachment-rpc-methods
   pullRequestsComment: "pullRequests.comment",
   pullRequestsUpdateComment: "pullRequests.updateComment",
   pullRequestsSubmitReview: "pullRequests.submitReview",
@@ -926,13 +928,13 @@ const GitHubIssueRpcError = Schema.Union([
   EnvironmentAuthorizationError,
 ]);
 
-export const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
+const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
   payload: GitHubIssueListInput,
   success: GitHubIssueListResult,
   error: GitHubIssueRpcError,
 });
 
-export const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
+const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
   payload: GitHubIssueRef,
   success: GitHubIssueDetail,
   error: GitHubIssueRpcError,
@@ -1894,6 +1896,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsSetFilesViewedRpc,
   WsPullRequestsRunActionRpc,
   WsPullRequestsUpdateRpc,
+  ...pullRequestAttachmentRpcFork.rpcs, // fork-hook: upstream-fixes/pr-attachment-rpc-group
   WsPullRequestsCommentRpc,
   WsPullRequestsUpdateCommentRpc,
   WsPullRequestsSubmitReviewRpc,
