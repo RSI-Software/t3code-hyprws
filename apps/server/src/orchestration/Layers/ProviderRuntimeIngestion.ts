@@ -17,6 +17,7 @@ import {
   type OrchestrationProposedPlan,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
+  type ProviderDriverKind,
   type ProviderRuntimeEvent,
   RuntimeRequestId,
 } from "@t3tools/contracts";
@@ -384,8 +385,12 @@ function requestKindFromCanonicalRequestType(
  * into the persisted activity payload. Identity fields ride on every row so
  * client folds survive activity retention; absent fields stay absent.
  */
-function taskLinkageActivityFields(payload: Record<string, unknown>): Record<string, unknown> {
+function taskLinkageActivityFields(
+  payload: Record<string, unknown>,
+  provider: ProviderDriverKind,
+): Record<string, unknown> {
   const fields: Record<string, unknown> = {
+    provider,
     // Server-stamped classification: persisted rows are self-describing, so
     // clients trust the stamp instead of re-deriving agent-vs-background
     // from taskType denylists and marker heuristics (legacy rows without a
@@ -429,12 +434,6 @@ export function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   taskTitle?: string,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  const maybeSequence = (() => {
-    const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
-    return eventWithSequence.sessionSequence !== undefined
-      ? { sequence: eventWithSequence.sessionSequence }
-      : {};
-  })();
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
@@ -466,7 +465,6 @@ export function runtimeEventToActivities(
             ...(event.payload.options ? { options: event.payload.options } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -490,7 +488,6 @@ export function runtimeEventToActivities(
             ...(event.payload.decision ? { decision: event.payload.decision } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -507,7 +504,6 @@ export function runtimeEventToActivities(
             message: truncateDetail(event.payload.message),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -527,7 +523,6 @@ export function runtimeEventToActivities(
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -547,7 +542,6 @@ export function runtimeEventToActivities(
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -567,7 +561,6 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -586,7 +579,6 @@ export function runtimeEventToActivities(
             ...(event.payload.responseMode ? { responseMode: event.payload.responseMode } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -604,7 +596,6 @@ export function runtimeEventToActivities(
             answers: event.payload.answers,
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -628,16 +619,18 @@ export function runtimeEventToActivities(
             ...(event.payload.description
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
 
     case "task.progress": {
-      const linkage = taskLinkageActivityFields(event.payload as Record<string, unknown>);
+      const linkage = taskLinkageActivityFields(
+        event.payload as Record<string, unknown>,
+        event.provider,
+      );
       // Usage and activity are independent latest-state streams. Keeping them
       // under separate stable ids prevents a command/reasoning update from
       // replacing the last known token count (and prevents a usage-only tick
@@ -687,7 +680,6 @@ export function runtimeEventToActivities(
                   ...identityLinkage,
                 },
                 turnId: toTurnId(event.turnId) ?? null,
-                ...maybeSequence,
               },
             ]
           : []),
@@ -707,7 +699,6 @@ export function runtimeEventToActivities(
                   typedUsage: event.payload.typedUsage,
                 },
                 turnId: toTurnId(event.turnId) ?? null,
-                ...maybeSequence,
               },
             ]
           : []),
@@ -736,10 +727,9 @@ export function runtimeEventToActivities(
             ...(event.payload.isBackgrounded !== undefined
               ? { isBackgrounded: event.payload.isBackgrounded }
               : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -773,7 +763,6 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -804,10 +793,9 @@ export function runtimeEventToActivities(
                 }
               : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -838,7 +826,6 @@ export function runtimeEventToActivities(
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -858,7 +845,6 @@ export function runtimeEventToActivities(
           summary: "Context window updated",
           payload,
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -900,7 +886,6 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         }),
       ];
     }
@@ -935,7 +920,6 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
@@ -970,7 +954,6 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
         },
       ];
     }
