@@ -450,11 +450,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     projectSettings.sources.defaultThreadEnvMode === "project"
       ? projectSettings.settings.defaultThreadEnvMode
       : undefined;
-  const defaultWorkspaceMode: WorkspaceMode = resolveDefaultThreadEnvMode({
+  const resolvedDefaultThreadEnvMode = resolveDefaultThreadEnvMode({
     projectSetting: projectThreadEnvMode,
     projectFile: t3ProjectFileDefaultMode,
     globalDefault: projectSettings.settings.defaultThreadEnvMode,
   });
+  // Mobile has no Worktrunk mode: a `worktrunk` default creates a plain
+  // worktree without hooks.
+  const defaultWorkspaceMode: WorkspaceMode =
+    resolvedDefaultThreadEnvMode === "local" ? "local" : "worktree";
   // While unsettled the resolved default is provisional. Nothing may write
   // it into the draft during that window (the auto-branch effect does), or
   // the frozen interim value beats the t3.json default once it loads.
