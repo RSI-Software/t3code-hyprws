@@ -180,6 +180,74 @@ afterEach(() => {
 });
 
 layer("GitHubPullRequestCli.layer", (it) => {
+  it("normalizes image output to the original file name", () => {
+    expect(
+      GitHubPullRequestCli.parseGitHubAttachmentUploadOutput({
+        stdout:
+          "![pending.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)\n",
+        name: "before ] after.png",
+        mimeType: "image/png",
+      }),
+    ).toBe(
+      "![before \\] after.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)",
+    );
+  });
+
+  it.effect("uses the pinned extension without forwarding an ambient session token", () =>
+    Effect.gen(function* () {
+      mockedExecute
+        .mockReturnValueOnce(Effect.succeed(output("gh-image 1.2.0\n")))
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              "https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456\n",
+            ),
+          ),
+        );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+
+      const insertion = yield* cli.uploadAttachment({
+        cwd: "/w",
+        repository: "acme/web",
+        host: "github.com",
+        path: "/tmp/demo.webm",
+        name: "demo.webm",
+        mimeType: "video/webm",
+      });
+
+      expect(insertion).toBe(
+        "https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456",
+      );
+      expect(callAt(0)).toMatchObject({
+        args: ["image", "--version"],
+        env: { GH_SESSION_TOKEN: undefined },
+      });
+      expect(callAt(1)).toMatchObject({
+        args: ["image", "--repo", "acme/web", "/tmp/demo.webm"],
+        env: { GH_SESSION_TOKEN: undefined },
+      });
+    }),
+  );
+
+  it.effect("refuses extension version drift before uploading bytes to GitHub", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output("gh-image 1.3.0\n")));
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const error = yield* Effect.flip(
+        cli.uploadAttachment({
+          cwd: "/w",
+          repository: "acme/web",
+          host: "github.com",
+          path: "/tmp/demo.png",
+          name: "demo.png",
+          mimeType: "image/png",
+        }),
+      );
+
+      expect(error._tag).toBe("GitHubAttachmentUploadError");
+      expect(mockedExecute).toHaveBeenCalledTimes(1);
+    }),
+  );
   it.effect("asks for one row more than the page, to probe for a next page", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(Effect.succeed(output(pullRequests(3, 1))));
