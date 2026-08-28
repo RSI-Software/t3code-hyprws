@@ -1,5 +1,8 @@
 import type { ForkRebaseFeasibility } from "./fork-rebase-feasibility.ts";
 
+// Rebase conflict handling: blocked-rebase issues and RSI bot resolution.
+export const BLOCKED_ISSUE_TRACKER = 217;
+
 export type RebaseMode = "off" | "candidate" | "on";
 
 export interface StableCandidate {
@@ -15,6 +18,7 @@ export interface StableCandidate {
 export interface BlockedIssue {
   readonly title: string;
   readonly label: "rebase-blocked";
+  readonly trackerNumber: number;
   readonly blockingSha: string;
   readonly blockingShortSha: string;
   readonly subject: string;
@@ -95,11 +99,19 @@ export const buildBlockedIssue = (plan: BlockedPlan): BlockedIssue | null => {
         `| ${inlineCode(conflict.path.replaceAll("|", "\\|"))} | ${conflict.hunks} | ${inlineCode(`${conflict.forkCommitShort} ${conflict.forkSubject.replaceAll("|", "\\|")}`)} | ${conflict.domain ?? "?"} |`,
     ),
     "",
+    `Parent: RSI-Software/t3code-hyprws#${BLOCKED_ISSUE_TRACKER}`,
+    "",
+    "<!-- gh-bot:relationships:start -->",
+    "Relationships: none (`--no-relationship`).",
+    '<!-- gh-bot:relationships {"v":2,"blockedBy":[],"blocking":[],"relatesTo":[],"noRelationship":true,"position":null} -->',
+    "<!-- gh-bot:relationships:end -->",
+    "",
     `<!-- blocking-sha:${first.sha} -->`,
   ].join("\n");
   return {
-    title: "hyprws auto-rebase is blocked",
+    title: `[📡#${BLOCKED_ISSUE_TRACKER}] hyprws auto-rebase is blocked at upstream ${first.shortSha}`,
     label: "rebase-blocked",
+    trackerNumber: BLOCKED_ISSUE_TRACKER,
     blockingSha: first.sha,
     blockingShortSha: first.shortSha,
     subject: first.subject,
