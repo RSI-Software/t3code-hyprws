@@ -54,6 +54,7 @@ const CAPABILITIES: PullRequestCapabilities = {
   stacks: true,
   stackActions: true,
   labels: true,
+  attachments: true,
   // Statuses and check runs land on the head commit itself and are read whole, so an empty list
   // after a push is CI that never started rather than a read that saw nothing.
   checksAlwaysReport: true,
@@ -690,6 +691,9 @@ export const make = Effect.gen(function* () {
           ...(input.body === undefined ? {} : { body: input.body }),
         })
         .pipe(Effect.mapError(fail("updateChangeRequest"))),
+
+    uploadAttachment: (input) =>
+      cli.uploadAttachment(input).pipe(Effect.mapError(fail("uploadAttachment"))),
 
     comment: (input) => cli.commentOnPullRequest(input).pipe(Effect.mapError(fail("comment"))),
 
