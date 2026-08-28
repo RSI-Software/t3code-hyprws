@@ -424,10 +424,11 @@ Upstream's workflows also target Blacksmith runners the fork does not have.
 
 ### Shape
 
-- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, the upstream-citation guard, and the desktop build on `hyprws`.
-- `.github/workflows/hyprws-release.yml` builds a Linux x64 AppImage from a `v*-hyprws.*` tag and publishes it.
+- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, the upstream-citation guard, and the desktop build on `hyprws` and stable candidate branches.
+- `.github/workflows/hyprws-release.yml` keeps human-cut `vX.Y.Z-hyprws.N` stable releases and adds six-hour `vX.Y.Z-hyprws-nightly.YYYYMMDD.N` prereleases from changed `hyprws` heads.
+- `scripts/fork-release-version.ts` resolves channel metadata and the previous tag within that channel.
 
-Both run on GitHub-hosted runners, which are free for a public repository.
+Both workflows run on GitHub-hosted runners, which are free for a public repository.
 
 The updater needs no code.
 `scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
@@ -443,13 +444,14 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 
 ### Rebase scan
 
-| Path                                          | Why it matters                                              |
-| --------------------------------------------- | ----------------------------------------------------------- |
-| `.github/workflows/ci.yml`                    | Copy new checks or setup steps into `hyprws-ci.yml`.        |
-| `.github/workflows/release.yml`               | Copy Linux build-step changes into `hyprws-release.yml`.    |
-| `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and the update feed resolution. |
-| `scripts/update-release-package-versions.ts`  | Release version alignment the fork workflow calls.          |
-| `package.json` `engines` and `packageManager` | Runner toolchain expectations.                              |
+| Path                                          | Why it matters                                                    |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                    | Copy new checks or setup steps into `hyprws-ci.yml`.              |
+| `.github/workflows/release.yml`               | Copy job-shape and Linux build changes into `hyprws-release.yml`. |
+| `scripts/resolve-nightly-release.ts`          | Shared next-patch helpers used by fork nightlies.                 |
+| `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and update-channel resolution.        |
+| `scripts/update-release-package-versions.ts`  | Stable and nightly release version alignment.                     |
+| `package.json` `engines` and `packageManager` | Runner toolchain expectations.                                    |
 
 ## workspace-files
 
