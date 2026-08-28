@@ -15,11 +15,11 @@ Set `tag=vX.Y.Z` to the chosen stable tag. The record is
 
 ## Gate 1 — Orient
 
-From a clean `hyprws` worktree, read the live refs and the fork's upstream-watch issues:
+Check the preconditions first, then read the live refs and the fork's upstream-watch issues. The
+`hyprws` worktree does not need to be clean; orientation reads `origin/hyprws`.
 
 ```bash
-git fetch upstream --tags
-git fetch origin
+vp run fork:preflight
 git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 3
 vp run fork:rebase-report --target "$tag"
 gh issue list --repo RSI-Software/t3code-hyprws --label upstream-watch --state open
@@ -104,7 +104,9 @@ First run the deterministic guard from the rehearsed branch:
 vp run fork:sync-gate --tag "$tag"
 ```
 
-A missing record, stale `expected_old`, or missing sanity mark blocks apply. If `origin/hyprws`
+It refuses on any unmet preflight precondition, and reads the published head from the fetch it just
+made. An unmet precondition, a missing record, a stale `expected_old`, or a missing sanity mark
+blocks apply. If `origin/hyprws`
 moved, fetch it, read the new commits, incorporate them through the drift procedure in
 [the rehearsal reference](references/rehearse.md), update the record, and repeat gates 3–4.
 
