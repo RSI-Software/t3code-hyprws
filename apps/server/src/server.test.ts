@@ -608,12 +608,13 @@ const buildAppUnderTest = (options?: {
       ...options?.layers?.zmuxSessionBinder,
     });
     const worktrunkHookRunnerLayer = Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
+      isWorktrunkWorktree: () => Effect.succeed(false),
       runCreateHooks: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
       runPreRemoveHook: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
       runPostRemoveHook: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
+        Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
       ...options?.layers?.worktrunkHookRunner,
     });
     const gitWorkflowLayer = GitWorkflowService.layer.pipe(

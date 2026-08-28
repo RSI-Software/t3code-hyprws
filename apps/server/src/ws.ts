@@ -1139,16 +1139,18 @@ const makeWsRpcLayer = (
                   notice: bindResult.notice,
                 });
               }
-              const hookResult = yield* worktrunkHookRunner.runCreateHooks({
-                projectCwd: bootstrap.prepareWorktree.projectCwd,
-                worktreePath: targetWorktreePath,
-              });
-              if (hookResult.status === "failed") {
-                yield* recordWorktrunkHookFailure({
-                  threadId: command.threadId,
+              if (bootstrap.prepareWorktree.worktrunk) {
+                const hookResult = yield* worktrunkHookRunner.runCreateHooks({
+                  projectCwd: bootstrap.prepareWorktree.projectCwd,
                   worktreePath: targetWorktreePath,
-                  result: hookResult,
                 });
+                if (hookResult.status === "failed") {
+                  yield* recordWorktrunkHookFailure({
+                    threadId: command.threadId,
+                    worktreePath: targetWorktreePath,
+                    result: hookResult,
+                  });
+                }
               }
               yield* dispatchFromClient({
                 type: "thread.meta.update",
