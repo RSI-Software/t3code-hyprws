@@ -29,12 +29,6 @@ const checkpointOrder = O.mapInput(
     cp.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER,
 );
 
-const activityOrder = O.combineAll<OrchestrationThreadActivity>([
-  O.mapInput(O.Number, (a) => a.sequence ?? Number.MAX_SAFE_INTEGER),
-  O.mapInput(O.String, (a) => a.createdAt),
-  O.mapInput(O.String, (a) => a.id),
-]);
-
 /**
  * Matches the validity rule in `deriveLatestContextWindowSnapshot` (and the
  * server's snapshot-side `dropStaleContextWindowActivities`): rows without a
@@ -572,7 +566,10 @@ export function applyThreadDetailEvent(
 
     // ── Activities ──────────────────────────────────────────────────
     case "thread.activity-appended": {
-      const activity = event.payload.activity;
+      const activity = {
+        ...event.payload.activity,
+        sequence: event.payload.activity.sequence ?? event.sequence,
+      };
       // A resolvable context-window update supersedes earlier resolvable ones
       // for the same turn: consumers only read the latest value (walking the
       // array backwards), and providers stream these updates continuously, so
@@ -594,7 +591,6 @@ export function applyThreadDetailEvent(
             ),
         ),
         Arr.append(activity),
-        Arr.sort(activityOrder),
       );
 
       return {
