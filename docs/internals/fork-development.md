@@ -354,18 +354,33 @@ label without a citation is not a watch; it is a forgotten issue.
 ## Releases
 
 The fork ships its own Linux desktop build, because an upstream release carries upstream code.
+Stable and nightly builds are separate release and desktop-update channels.
 
-A fork tag is `v<upstream version>-hyprws.<n>`, for example `v0.0.34-hyprws.1`.
-`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto.
+Stable tags keep the existing `v<upstream version>-hyprws.<n>` shape, for example
+`v0.0.34-hyprws.1`.
+`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto, and `<n>`
+counts up within one upstream version before restarting at 1 when that version changes.
+A maintainer cuts a stable by pushing that tag; a manual stable dispatch must also run from such a
+tag ref.
+Stable releases are normal GitHub releases on the `latest` desktop-update channel.
 
-`<n>` counts up within one upstream version and restarts at 1 when that version changes.
+Nightly tags are `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>`, where `X.Y.Z` is the next stable patch
+resolved from the desktop package metadata.
+`.github/workflows/hyprws-release.yml` checks `hyprws` every six hours and publishes a scheduled
+nightly only when its head differs from the newest nightly tag.
+A manual dispatch with `channel=nightly` always attempts a build, even when that commit already has a
+nightly.
+Nightlies are prereleases, never become GitHub's latest release, and use the `nightly` desktop-update
+channel.
+When a trunk rewrite leaves the previous channel tag on divergent history, the workflow omits that
+tag from release-note comparison.
 
-The release body names the exact upstream tag, so the base is never ambiguous.
+Every release body names its channel and the exact upstream base tag, so neither fact is ambiguous.
+The workflow builds one Linux x64 AppImage at the selected commit.
+The desktop updater reads its feed from the building repository, so a fork build updates only from
+fork releases on its selected channel.
 
-`.github/workflows/hyprws-release.yml` builds the AppImage and publishes a normal GitHub release, never a prerelease.
-The desktop updater reads its feed from the building repository, so a fork build updates from fork releases.
-
-[Fork sync](../operations/fork-sync.md) owns the release invariants and the runner setup.
+[Fork sync](../operations/fork-sync.md) owns the stable release invariants and runner setup.
 
 ## Implementation order
 

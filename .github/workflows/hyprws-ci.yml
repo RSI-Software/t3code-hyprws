@@ -11,9 +11,12 @@ on:
     types: [opened, synchronize, reopened, edited]
     branches:
       - hyprws
+      - "release/**"
   push:
     branches:
       - hyprws
+      - hyprws-next
+      - "release/**"
 
 concurrency:
   group: hyprws-ci-${{ github.event.pull_request.number || github.sha }}
