@@ -45,7 +45,10 @@ function render(recentEntries: Array<{ url: string; lastVisitedAt: number; title
     <PreviewEmptyState
       threadRef={threadRef}
       environmentId={environmentId}
+      projectBookmarks={[]}
+      globalBookmarks={[]}
       recentEntries={recentEntries}
+      onRemoveBookmark={() => undefined}
       onRemoveRecent={() => undefined}
       onOpenUrl={() => undefined}
     />,
@@ -72,6 +75,29 @@ describe("PreviewEmptyState", () => {
     const html = render([{ url: "https://myapp.test/", lastVisitedAt: 0 }]);
     expect(html).toContain("Recently used");
     expect(html).not.toContain("Local servers");
+  });
+
+  it("renders project and global bookmarks before recent history", () => {
+    mocks.servers = [];
+    const html = renderToStaticMarkup(
+      <PreviewEmptyState
+        threadRef={threadRef}
+        environmentId={environmentId}
+        projectBookmarks={[
+          { url: "https://project.test/docs", title: "Project docs", createdAt: 1 },
+        ]}
+        globalBookmarks={[{ url: "https://global.test/", title: "Global docs", createdAt: 2 }]}
+        recentEntries={[{ url: "https://recent.test/", lastVisitedAt: 3 }]}
+        onRemoveBookmark={() => undefined}
+        onRemoveRecent={() => undefined}
+        onOpenUrl={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Project bookmarks");
+    expect(html).toContain("Global bookmarks");
+    expect(html.indexOf("Project bookmarks")).toBeLessThan(html.indexOf("Global bookmarks"));
+    expect(html.indexOf("Global bookmarks")).toBeLessThan(html.indexOf("Recently used"));
   });
 
   it("keeps the original empty state when both groups are empty", () => {
