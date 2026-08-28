@@ -37,10 +37,8 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "iconPath",
       "scripts",
       "worktreeSubmodules",
-      "worktrunkHooks",
     ]);
     expect(schema.required).toBeUndefined();
-    expect(schema.properties.worktrunkHooks?.description).toContain("Worktrunk hooks");
     expect(schema.properties.iconPath?.description).toContain("Workspace-relative path");
     expect(schema.properties.defaultThreadEnvMode?.description).toContain("new threads start");
 
