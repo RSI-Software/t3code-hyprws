@@ -97,6 +97,32 @@ export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null,
   });
 }
 
+/**
+ * Uses an exact workspace checkout when one exists, otherwise uses the active GitHub project as
+ * the authenticated execution context for another repository on the same host.
+ */
+export function findProjectForGitHubLink(
+  projects: ReadonlyArray<EnvironmentProject>,
+  link: GitHubIssueLink,
+  preferredProjectId?: string,
+): EnvironmentProject | undefined {
+  const exact = findProjectForGitHubIssue(projects, link);
+  if (exact !== undefined || preferredProjectId === undefined) return exact;
+  return projects.find((project) => {
+    const identity = project.repositoryIdentity;
+    if (project.id !== preferredProjectId || identity?.provider !== "github") return false;
+    const host = pullRequestHostOf(identity, "github");
+    return (host === "github" ? "github.com" : host) === link.host.toLowerCase();
+  });
+}
+
+function linkedRepository(project: EnvironmentProject, repository: string): string {
+  const projectRepository = repositoryIdentityOf(project);
+  return projectRepository?.toLowerCase() === repository.toLowerCase()
+    ? projectRepository
+    : repository;
+}
+
 function shouldOpenPullRequestExternally(
   event: Pick<MouseEvent<HTMLElement>, "metaKey" | "ctrlKey"> &
     Partial<Pick<MouseEvent<HTMLElement>, "button">>,
@@ -152,11 +178,14 @@ export function useOpenChangeRequestLink(
                 Number(right.environmentId === primaryEnvironmentId) -
                 Number(left.environmentId === primaryEnvironmentId),
             );
-      const issueProject = findProjectForGitHubIssue(projects, parsedIssue);
+      const preferredProjectId = resolvedThreadRef
+        ? readThreadShell(resolvedThreadRef)?.projectId
+        : undefined;
+      const issueProject = findProjectForGitHubLink(projects, parsedIssue, preferredProjectId);
       if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
       event.preventDefault();
       event.stopPropagation();
-      const repository = issueProject.repositoryIdentity?.displayName ?? parsedIssue.repository;
+      const repository = linkedRepository(issueProject, parsedIssue.repository);
       if (resolvedThreadRef) {
         useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
           environmentId: issueProject.environmentId,
