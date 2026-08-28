@@ -17,6 +17,18 @@ vp run fork:delta --json    # the same ledger for tooling
 
 It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
 
+Each domain's **Rebase scan** table is checked the same way.
+
+```bash
+vp run fork:scan                    # every domain's scan against live upstream/main
+vp run fork:scan --target vX.Y.Z    # the same walk pinned to a release tag
+```
+
+A file is shared when the fork changed it above its upstream base and upstream changed it too on the
+way to the target, which is where a rebase merges two intents into one file. `fork:scan` fails when a
+domain's own commits change a shared file its scan table does not list, and fork CI runs it on every
+push. Every code span in a Path cell is one pattern: `*` stays inside a path segment, `**` spans them.
+
 ## Why the fork exists
 
 The fork carries a small set of independent domains that upstream T3 Code does not currently provide.
@@ -197,6 +209,8 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/window/hyprland.ts`                                     | Fork-only. The only place that speaks to the compositor.            |
 | `apps/desktop/src/updates/DesktopUpdates.ts`                              | Captures the session before `destroyAll`. Upstream edits this file. |
 | `apps/server/src/provider/providerSessionEnvironment.ts`                  | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
+| `apps/server/src/provider/Layers/*Adapter.ts`                             | Every adapter passes that identity into its runtime.                |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`          | Carries `projectId` on the provider session start input.            |
 | `apps/desktop/src/app/DesktopClerk.ts`                                    | Single-instance lock and deep-link forwarding.                      |
 | `apps/desktop/src/preview/Manager.ts`                                     | Preview namespacing by window.                                      |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                  | The bridge surface the web client gates on.                         |
@@ -207,9 +221,13 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/WindowProjectScopeToggle.tsx`                    | Shared project/all-project segmented control.                       |
 | `apps/web/src/components/pullRequest/pullRequestListRoute.ts`             | Search contract shared by the hub and project routes.               |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                       | Resolves Pull Requests navigation within the active window scope.   |
+| `apps/web/src/components/Sidebar.logic.ts`                                | `isProjectInSidebarScope`; upstream reworks this comparator.        |
+| `apps/web/src/components/Sidebar.logic.test.ts`                           | Fork scope cases sit beside upstream's ordering cases.              |
+| `docs/user/thread-sidebar.md`                                             | Documents the scoped sidebar on a page upstream also edits.         |
 | `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
 | `apps/web/src/components/preview/previewBridge.ts`                        | The retirement signal. Read it on every rebase.                     |
 | `apps/web/src/components/CommandPalette.tsx`                              | Entry point, and a busy upstream file.                              |
+| `apps/web/src/components/ChatMarkdown.tsx`                                | Shared with `github-issues`; neither domain owns it alone.          |
 
 ## github-issues
 
@@ -282,17 +300,19 @@ The upstream behavior must persist the selection and apply it on new and resumed
 
 ### Rebase scan
 
-| Path                                                              | Why it matters                                            |
-| ----------------------------------------------------------------- | --------------------------------------------------------- |
-| `apps/web/src/components/chat/ChatComposer.tsx`                   | Owns the composer control order.                          |
-| `apps/web/src/components/chat/TraitsPicker.tsx`                   | Splits root agents from model traits.                     |
-| `apps/web/src/components/chat/composerProviderState.tsx`          | Renders capability-driven composer controls.              |
-| `apps/server/src/provider/Layers/ClaudeProvider.ts`               | Discovers Claude agents.                                  |
-| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                | Applies Claude's `--agent` launch argument.               |
-| `apps/server/src/provider/Drivers/CodexAgents.ts`                 | Discovers and parses Codex agent definitions.             |
-| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`          | Layers Codex agent config and instructions onto a thread. |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`  | Restarts sessions when the root agent changes.            |
-| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts` | Own the generic provider-option contract.                 |
+| Path                                                                                                                                    | Why it matters                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `apps/web/src/components/chat/ChatComposer.tsx`                                                                                         | Owns the composer control order.                          |
+| `apps/web/src/components/chat/TraitsPicker.tsx`                                                                                         | Splits root agents from model traits.                     |
+| `apps/web/src/components/chat/composerProviderState.tsx`                                                                                | Renders capability-driven composer controls.              |
+| `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                     | Discovers Claude agents.                                  |
+| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                      | Applies Claude's `--agent` launch argument.               |
+| `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                       | Discovers and parses Codex agent definitions.             |
+| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                | Layers Codex agent config and instructions onto a thread. |
+| `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                      | Builds the Codex agent select descriptor.                 |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts` | Restarts sessions when the root agent changes.            |
+| `apps/server/package.json`, `pnpm-lock.yaml`                                                                                            | The `smol-toml` dependency the Codex parser needs.        |
+| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                       | Own the generic provider-option contract.                 |
 
 ## markdown-editing
 
@@ -343,6 +363,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
 - `scripts/fork-preflight.ts` with its `fork:preflight` alias, the precondition check every sync gate runs first.
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
+- `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
@@ -464,9 +485,9 @@ The domain retires when it is empty.
 
 ### Rebase scan
 
-| Path                   | Why it matters                                                     |
-| ---------------------- | ------------------------------------------------------------------ |
-| Each commit's own diff | A conflict usually means upstream fixed it differently; drop ours. |
+| Path                          | Why it matters                                                     |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `**` (each commit's own diff) | A conflict usually means upstream fixed it differently; drop ours. |
 
 ## zmux-estate
 
