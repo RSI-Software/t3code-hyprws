@@ -128,27 +128,33 @@ gh api -X PATCH repos/RSI-Software/t3code-hyprws \
   -f squash_merge_commit_message=COMMIT_MESSAGES
 ```
 
-### Recommended ruleset for `hyprws`
+### Applied rulesets
 
-Apply this policy manually in **Settings → Rules → Rulesets**; this repository does not apply or
-change it unattended:
+The rulesets tracked in RSI-Software/t3code-hyprws#220 are applied manually in
+**Settings → Rules → Rulesets** and are all `active`. This repository does not apply or change them
+unattended:
 
-- block deletion of `hyprws`;
-- require changes from people to arrive through a pull request;
-- require the `Check` status from the `hyprws CI` workflow; and
-- permit direct and force updates only for the automation actor that owns `HYPRWS_MIRROR_TOKEN`.
+- **`hyprws`:** targets `refs/heads/hyprws`; requires a pull request with 0 approvals and the status
+  checks `Check`, `Test`, `Test Server 1`, `Test Server 2`, and `Test Server 3`; repository
+  administrators have an always-allow bypass. The bot pushes with the administrator's PAT and must
+  force-push after a rebase, so this ruleset deliberately has no force-push rule.
+- **`main`:** targets `refs/heads/main`; requires a pull request and has the same always-allow
+  repository-administrator bypass. Only the mirror job writes this branch.
+- **`no trunk deletion`:** targets `refs/heads/hyprws` and `refs/heads/main`; blocks deletion and has
+  no bypass actors, so it binds administrators and the bot too.
+- **`stable tags`:** targets `refs/tags/v*-hyprws.*` and excludes `refs/tags/v*-hyprws-nightly.*`;
+  blocks deletion and updates and has no bypass actors.
 
-A bypass actor bypasses every rule in one GitHub ruleset. To keep deletion blocked even for the bot,
-use a separate no-bypass deletion ruleset, then put the pull-request, status-check, and force-push
-rules in a second ruleset whose sole bypass actor is the bot. Review the actor and status-check name
-in the UI before activating either ruleset. Do not grant an organization-wide team or every
-administrator the automation bypass.
+A direct non-bypass push to `hyprws` cannot be demonstrated because the repository has no non-admin
+collaborator, so the pull-request rule is documented as admin-only until one exists.
 
 ### Runners
 
 Both fork workflows run on `ubuntu-latest`.
 `hyprws-release.yml` publishes a nightly on every landing on `hyprws`; its six-hour schedule is a
-fallback that publishes only when the head differs from the newest nightly tag.
+fallback that publishes only when the head differs from the newest nightly tag. The release job
+keeps the newest 7 nightlies and deletes older releases with their tags; stable releases are never
+pruned.
 GitHub-hosted runners are free for a public repository, and pull requests from outside the org cost nothing.
 
 The rsi-ci pool was measured on 2026-08-23 and rejected.
