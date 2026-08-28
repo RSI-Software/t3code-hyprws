@@ -17,7 +17,11 @@
  * folding (completion can create an agent; a late start only fills
  * metadata).
  */
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import {
+  isProviderDriverKind,
+  type OrchestrationThreadActivity,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -63,6 +67,7 @@ export interface RuntimeSubagent {
   readonly role: string | null;
   readonly model: string | null;
   readonly effort: string | null;
+  readonly provider: ProviderDriverKind | null;
   readonly status: RuntimeSubagentStatus;
   readonly activationCount: number;
   readonly usage: SubagentUsage | null;
@@ -232,6 +237,7 @@ interface MutableAgent {
   role: string | null;
   model: string | null;
   effort: string | null;
+  provider: ProviderDriverKind | null;
   status: RuntimeSubagentStatus;
   activationCount: number;
   usage: SubagentUsage | null;
@@ -286,6 +292,7 @@ function getOrCreate(
     role: asString(payload.role) ?? null,
     model: asString(payload.model) ?? null,
     effort: asString(payload.effort) ?? null,
+    provider: isProviderDriverKind(payload.provider) ? payload.provider : null,
     status: "pending",
     activationCount: 0,
     usage: null,
@@ -322,6 +329,7 @@ function fillMetadata(agent: MutableAgent, payload: Record<string, unknown>): vo
   if (model) agent.model = model;
   const effort = asString(payload.effort);
   if (effort) agent.effort = effort;
+  if (isProviderDriverKind(payload.provider)) agent.provider = payload.provider;
   const parentAgentId = asString(payload.parentAgentId);
   if (parentAgentId) {
     agent.parentAgentId = parentAgentId;
