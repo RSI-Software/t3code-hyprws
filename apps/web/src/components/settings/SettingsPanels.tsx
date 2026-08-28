@@ -38,6 +38,8 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
@@ -512,9 +514,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
         ? ["Terminal session"]
         : []),
-      ...(settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks
-        ? ["Run Worktrunk hooks"]
-        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -600,7 +599,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.showIgnoredFiles,
       settings.timestampFormat,
       settings.terminalSessionMode,
-      settings.worktrunkHooks,
       settings.wordWrap,
       followSystem,
       theme,
@@ -675,7 +673,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
-      worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       showIgnoredFiles: DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles,
@@ -2367,14 +2364,16 @@ export function GeneralSettingsPanel() {
             <Select
               value={settings.defaultThreadEnvMode}
               onValueChange={(value) => {
-                if (value === "local" || value === "worktree") {
+                if (value === "local" || value === "worktree" || value === "worktrunk") {
                   updateSettings({ defaultThreadEnvMode: value });
                 }
               }}
             >
               <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
                 <SelectValue>
-                  {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+                  {settings.defaultThreadEnvMode === "local"
+                    ? "Local"
+                    : resolveEnvModeLabel(settings.defaultThreadEnvMode)}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -2384,12 +2383,15 @@ export function GeneralSettingsPanel() {
                 <SelectItem hideIndicator value="worktree">
                   New worktree
                 </SelectItem>
+                <SelectItem hideIndicator value="worktrunk">
+                  New worktrunk
+                </SelectItem>
               </SelectPopup>
             </Select>
           }
         />
 
-        {settings.defaultThreadEnvMode === "worktree" ? (
+        {isWorktreeEnvMode(settings.defaultThreadEnvMode) ? (
           <SettingsRow
             className="bg-muted/20 sm:pl-9"
             title={searchableSetting("start-from-origin").title}
@@ -2419,29 +2421,6 @@ export function GeneralSettingsPanel() {
             }
           />
         ) : null}
-
-        <SettingsRow
-          className="bg-muted/20 sm:pl-9"
-          title={searchableSetting("worktrunk-hooks").title}
-          description="Runs the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. Project settings and t3.json override this per project."
-          resetAction={
-            settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks ? (
-              <SettingResetButton
-                label="run worktrunk hooks"
-                onClick={() =>
-                  updateSettings({ worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.worktrunkHooks}
-              onCheckedChange={(checked) => updateSettings({ worktrunkHooks: Boolean(checked) })}
-              aria-label="Run Worktrunk hooks"
-            />
-          }
-        />
 
         <SettingsRow
           {...searchableSetting("add-project-starts-in")}
