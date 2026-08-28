@@ -82,6 +82,7 @@ import {
   codexUsageLimitMessage,
   mergeCodexRateLimits,
 } from "./codexUsageLimits.ts";
+import { extractChildItemResultText, makeChildItemRenderDetail } from "../childItemRenderDetail.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
 const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
@@ -827,6 +828,21 @@ function describeFileChanges(
   return remaining > 0 ? `${described.join("\n")}\n+${remaining} more` : described.join("\n");
 }
 
+function childItemRenderDetail(item: Record<string, unknown>, workspaceRoot?: string) {
+  const resultSource =
+    item.aggregatedOutput ??
+    (item.type === "mcpToolCall" ? (item.result ?? item.error) : undefined) ??
+    (item.type === "dynamicToolCall" ? item.contentItems : undefined);
+  const result = extractChildItemResultText(resultSource);
+  return makeChildItemRenderDetail({
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+    command: item.command,
+    ...(result.value ? { result: result.value } : {}),
+    ...(Array.isArray(item.changes) ? { changedFiles: item.changes } : {}),
+    truncated: result.truncated,
+  });
+}
+
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
   switch (method) {
     case "item/commandExecution/requestApproval":
@@ -1049,6 +1065,7 @@ function mapItemLifecycle(
 function mapCollabAgentEvent(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  workspaceRoot?: string,
 ): ReadonlyArray<ProviderRuntimeEvent> {
   const payload =
     typeof event.payload === "object" && event.payload !== null
@@ -1277,6 +1294,17 @@ function mapCollabAgentEvent(
       if (lifecycle && itemId) {
         const canonical = toCanonicalItemType(itemTypeRaw);
         const detail = itemDetail(canonical, item as CodexLifecycleItem);
+        const renderDetail = childItemRenderDetail(item, workspaceRoot);
+        const terminalStatus =
+          item.status === "failed" || item.status === "declined" ? item.status : undefined;
+        const status =
+          lifecycle === "item.started"
+            ? "inProgress"
+            : terminalStatus
+              ? terminalStatus
+              : lifecycle === "item.completed"
+                ? "completed"
+                : "inProgress";
         const providerItemId = ProviderItemId.make(itemId);
         const providerRefs = {
           ...base.providerRefs,
@@ -1290,11 +1318,12 @@ function mapCollabAgentEvent(
             type: lifecycle,
             payload: {
               itemType: canonical,
-              status: lifecycle === "item.completed" ? "completed" : "inProgress",
+              status,
               ...(itemTitle(canonical, item as CodexLifecycleItem)
                 ? { title: itemTitle(canonical, item as CodexLifecycleItem) }
                 : {}),
               ...(detail ? { detail: truncateActivityDetail(detail) } : {}),
+              ...(renderDetail ? { renderDetail } : {}),
               data: { item },
               agentId: agentThreadId,
               timelineBypass: true,
@@ -1340,9 +1369,10 @@ function mapCollabAgentEvent(
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
+  workspaceRoot?: string,
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "notification" && event.method.startsWith("collabAgent/")) {
-    return mapCollabAgentEvent(event, canonicalThreadId);
+    return mapCollabAgentEvent(event, canonicalThreadId, workspaceRoot);
   }
   if (event.kind === "error") {
     if (!event.message) {
@@ -2459,7 +2489,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }
             }
 
-            const mappedEvents = mapToRuntimeEvents(event, event.threadId).map((runtimeEvent) => {
+            const mappedEvents = mapToRuntimeEvents(event, event.threadId, cwd).map((runtimeEvent) => {
               if (runtimeEvent.type === "turn.completed" && runtimeEvent.turnId) {
                 return {
                   ...runtimeEvent,
