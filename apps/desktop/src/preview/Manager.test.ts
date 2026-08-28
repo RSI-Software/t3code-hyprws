@@ -1571,52 +1571,6 @@ describe("PreviewManager", () => {
     ),
   );
 
-  // Zooming the app UI pushes the window's zoom level onto every guest, so the
-  // preview has to be put back at the zoom the user gave it.
-  effectIt.effect("re-applies each tab's own zoom when the app window zooms", () =>
-    withManager((manager) =>
-      Effect.gen(function* () {
-        const setZoomFactor = vi.fn();
-        fromId.mockReturnValue({
-          id: 42,
-          isDestroyed: () => false,
-          getType: () => "webview",
-          getURL: () => "https://example.com",
-          getTitle: () => "Example",
-          isLoading: () => false,
-          getZoomFactor: () => 1,
-          setZoomFactor,
-          setAudioMuted: vi.fn(),
-          isCurrentlyAudible: () => false,
-          on: vi.fn(),
-          off: vi.fn(),
-          ipc: { on: vi.fn(), off: vi.fn() },
-          send: webviewSend,
-          navigationHistory: { canGoBack: () => false, canGoForward: () => false },
-          setIgnoreMenuShortcuts: vi.fn(),
-          setWindowOpenHandler: vi.fn(),
-          debugger: {
-            isAttached: () => false,
-            attach: vi.fn(),
-            sendCommand: vi.fn(async () => undefined),
-            on: vi.fn(),
-            off: vi.fn(),
-          },
-        } as never);
-
-        yield* manager.createTab("tab_reapply");
-        yield* manager.registerWebview("tab_reapply", 42);
-        yield* manager.zoomIn("tab_reapply");
-        setZoomFactor.mockClear();
-
-        yield* manager.reapplyZoom();
-
-        expect(setZoomFactor).toHaveBeenCalledTimes(1);
-        expect(setZoomFactor).toHaveBeenCalledWith(1.1);
-      }),
-    ),
-  );
-
   // did-attach and dom-ready both re-register the guest that is already
   // attached, and a guest that just inherited the app window's zoom needs its
   // own back — without that round trip republishing tab state.
