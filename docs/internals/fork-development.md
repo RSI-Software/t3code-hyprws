@@ -290,67 +290,66 @@ Fork branding and local workstation preferences belong in documentation or the d
 
 ## Syncing upstream
 
-### Guided stable-tag sync
+### Bot-first sync
 
-Run upstream stable-tag rebases through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md)
-skill. Its five gates keep the rewrite on a rehearsal branch, commit the record under
-[`docs/operations/fork-sync-records/`](../operations/fork-sync-records/), and stop before the human-only
-lease push and release.
+`hyprws` remains one linear fork stack, but the normal upstream sync is automated. The
+`hyprws rebase report` workflow uses the feasibility scan to select the newest upstream stable or
+nightly tag at or before the conflict-free boundary, replays the whole stack, verifies its commit
+messages and fork trailers, and publishes according to `HYPRWS_AUTO_REBASE`.
 
-Rebase the fork trunk onto upstream history.
-Do not merge `upstream/main` into `hyprws`, because repeated merge commits obscure the patch stack.
+The bot owns three supporting refs:
 
-Rebase onto a stable upstream tag, never onto an untagged commit and never onto a nightly.
-A tag is a state upstream chose to ship, the fork release takes its version from it, and the apply
-gate refuses anything that is not `vX.Y.Z`.
-When the fork needs a fix upstream has merged but not released, trial it in a worktree and take the
-stable tag that carries it.
+- `hyprws-previous`, the trunk head before an automatic rewrite;
+- `hyprws-next`, the verified stack produced in candidate mode; and
+- `release/vX.Y.Z-hyprws`, a create-only snapshot when the stack crosses stable upstream `vX.Y.Z`.
 
-[Fork sync](../operations/fork-sync.md) owns the invariants a sync must not break, and the
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns every command that runs one.
-The rebase itself happens on a disposable `rehearse/<tag>` branch cut from `origin/hyprws`, so the
-`hyprws` worktree is never rewritten in place and never needs to be clean.
+No person or feature lane moves those refs. The repository starts in candidate mode, so the bot
+publishes `hyprws-next` without rewriting trunk. In on mode it saves `hyprws-previous` and updates
+`hyprws` with an explicit expected-old lease. Off mode reports without publishing a candidate.
+[Fork sync](../operations/fork-sync.md) is the runbook for modes, setup, run interpretation, stable
+cuts, and feature-lane recovery.
 
-Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active domain.
-It names the upstream paths that would silently invalidate a domain, including the ones that would retire it outright.
+The bot never merges `upstream/main` into `hyprws`, targets an untagged commit, or interprets a clean
+textual rebase as permission to retire a fork patch. Stable and nightly tags are both upstream states
+chosen for release; stable fork tags remain a separate human action from a bot-owned release
+snapshot.
 
-A clean rebase is not evidence that a domain is still needed.
+### Human unblock
+
+A conflict beyond the clean boundary creates or updates the fork's `rebase-blocked` issue. Resolve it
+through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
+entry point. Its five gates orient on the newest selected upstream tag beyond the block, rehearse on
+`rehearse/<tag>`, scan every active domain, run focused checks, record human decisions and grounding,
+and stop before the human-only leased trunk push.
+
+Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
+domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
+first, then reapply the smallest fork behaviour at the new seam. Rerere output is a candidate, not
+proof; every reused resolution needs review and verification.
+
+No fork commit is skipped, squashed, reordered, or reworded during an unblock. When upstream may
+have made one obsolete, preserve a buildable result for rehearsal and key the human's keep, retire,
+or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
+semantic review.
+
+The final human push uses the full `expected_old` read by that rehearsal. A rejected lease means the
+published branch moved: fetch and inspect the drift, incorporate it into the rehearsal, and repeat
+the checks and human sanity gate. Never replace the lease with an unguarded force push or silently
+refresh it.
+
+Human sync records remain under
+[`docs/operations/fork-sync-records/`](../operations/fork-sync-records/). Automatic rewrites are
+recorded in immutable workflow run summaries instead of adding a commit to the stack on every sync.
 
 ### Upstream watch
 
-A fork bug that upstream already tracks is not fixed twice.
-It gets a fork issue labelled `upstream-watch` whose body cites the upstream issue or pull request in a
-code span, and that issue is re-read at the orient step of every sync.
+A fork bug that upstream already tracks is not fixed twice. It gets a fork issue labelled
+`upstream-watch` whose body cites the upstream item in a code span. `vp run fork:upstream-watch`
+resolves each citation against the selected rebase tag during a human unblock.
 
-`vp run fork:upstream-watch` is that re-read.
-It resolves each cited item against the rebase target and says whether the fix is already contained in it.
-The runbook's [orientation section](../operations/fork-sync.md#re-read-what-waits-on-upstream) owns the verdicts.
-
-The issue closes only once the upstream fix rides in a fork release and has been verified there, with the
-upstream merge commit and that release named in the closing comment.
-A watch label without a citation is not a watch; it is a forgotten issue.
-
-Run focused verification after resolving conflicts, including `vp run fork:delta --check`.
-Then a human publishes the rewritten branch with an explicit expected-old lease against the published
-head the sync read.
-
-The explicit lease refuses to overwrite remote work that appeared after the fetch.
-Never replace it with an unguarded force push or silently refresh a rejected lease.
-
-If the lease fails, fetch and inspect the new remote commits before deciding how to reconcile them.
-A rejected lease is evidence that the published branch changed, not an inconvenience to bypass.
-
-### Conflict policy
-
-Read the upstream change before choosing a resolution.
-Preserve upstream intent first, then reapply the smallest fork behavior on the new seam.
-
-Git rerere may replay a previous resolution, but its output is only a candidate.
-Review and verify every reused resolution because upstream behavior may have changed.
-
-When upstream makes a fork patch obsolete, retire it by exact subject through the human decision in
-[Fork delta](./fork-delta.md); a rebase never drops one on its own.
-When upstream moves the architecture, rebuild the behavior at the new boundary instead of preserving dead structure.
+The issue closes only after a fork release contains the upstream merge and the behaviour has been
+verified in that build. The closing comment names the upstream merge commit and fork release. A watch
+label without a citation is not a watch; it is a forgotten issue.
 
 ## Releases
 

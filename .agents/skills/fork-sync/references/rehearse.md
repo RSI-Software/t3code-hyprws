@@ -1,12 +1,13 @@
 # Rehearsal procedure
 
-A rehearsal is disposable Git topology but durable evidence. It runs only on `rehearse/<stable-tag>`
+A rehearsal is disposable Git topology but durable evidence. It runs only on `rehearse/<target-tag>`
 created from `origin/hyprws`; it never writes `hyprws`, `main`, a tag, or a remote ref.
 
 ## Before the rebase
 
-1. Confirm the target is exactly `vX.Y.Z`, resolve `<tag>^{commit}`, and record both the full target
-   SHA and `expected_old=$(git rev-parse origin/hyprws)`.
+1. Confirm the target is exactly `vX.Y.Z` or `vX.Y.Z-nightly.YYYYMMDD.<run>`, resolve
+   `<tag>^{commit}`, and record both the full target SHA and
+   `expected_old=$(git rev-parse origin/hyprws)`.
 2. Install with `vp i` in the rehearsal worktree.
 3. Read the feasibility conflicts, automerged overlap, each active domain's rebase scan, and open
    `upstream-watch` issues before changing a hunk.
@@ -73,5 +74,6 @@ The human reviews only `retire-candidate` and `human` rows, silent seams, and gr
 keep/retire/partial decision is keyed by exact commit subject and copied into the matching `Kept` or
 `Retired` section of `docs/internals/fork-delta.md`. Only the human writes the sanity login/date.
 
-The agent may run `vp run fork:sync-gate --tag <tag>` after that commit. It must stop before the
-lease push, tag push, or release command and hand the exact values to the human.
+For a stable target, the agent may run `vp run fork:sync-gate --tag <tag>` after that commit. For a
+nightly target, it must use `vp run fork:sync-gate --tag <tag> --allow-nightly`. It stops before the
+lease push and hands the exact values to the human.
