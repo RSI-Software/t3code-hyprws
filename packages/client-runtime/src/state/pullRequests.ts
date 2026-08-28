@@ -1398,6 +1398,18 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       }),
       (_registry, { input }) => updateEdit(input),
     ),
+    createAttachmentUploadUrl: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:pull-requests:create-attachment-upload-url",
+      tag: WS_METHODS.pullRequestsCreateAttachmentUploadUrl,
+      scheduler: commandScheduler,
+      concurrency: serialPerEnvironment,
+    }),
+    uploadAttachment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:pull-requests:upload-attachment",
+      tag: WS_METHODS.pullRequestsUploadAttachment,
+      scheduler: commandScheduler,
+      concurrency: serialPerEnvironment,
+    }),
     comment: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:comment",
       tag: WS_METHODS.pullRequestsComment,
