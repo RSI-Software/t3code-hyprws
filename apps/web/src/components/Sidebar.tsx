@@ -22,13 +22,13 @@ import {
   effectiveSnoozed,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
-import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
+import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
 import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
@@ -125,7 +125,7 @@ import {
   resolveThreadRouteFamily,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
-import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
+import { formatChatTimestampTooltip, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -136,6 +136,7 @@ import {
   buildBulkUnpinContextMenuItem,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
+  formatSidebarRelativeTimeLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
   isProjectInSidebarScope,
@@ -145,10 +146,12 @@ import {
   planPinnedReorder,
   reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
+  resolveCompletedTurnTiming,
   resolveSidebarThreadStatus,
   searchSidebarThreadsByTitle,
   shouldCreateNewThreadInCurrentProject,
   resolveWorkingStartedAt,
+  shouldShowSidebarDoneStatus,
   sortLogicalProjectsForSidebar,
   sortPinnedThreadsForSidebar,
   sortSettledThreadsForSidebar,
@@ -221,14 +224,9 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 
-function compactSidebarTimeLabel(label: string): string {
-  if (label === "just now") return "now";
-  return label.endsWith(" ago") ? label.slice(0, -4) : label;
-}
-
 function threadTimeLabel(thread: SidebarThreadSummary): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
-  return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+  return formatSidebarRelativeTimeLabel(timestamp);
 }
 
 // Settled rows read "how long ago did this wrap up", matching their sort
@@ -236,7 +234,7 @@ function threadTimeLabel(thread: SidebarThreadSummary): string {
 // disagree.
 function settledTimeLabel(thread: SidebarThreadSummary): string {
   const timestamp = resolveSettledThreadTimestamp(thread);
-  return timestamp === null ? "" : compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
+  return timestamp === null ? "" : formatSidebarRelativeTimeLabel(timestamp);
 }
 
 // Floats at the row's right edge, vertically centered, while the jump
@@ -266,11 +264,12 @@ function WorkingDuration(props: { startedAt: string | null }) {
     return () => window.clearInterval(id);
   }, [startedMs]);
   if (Number.isNaN(startedMs)) return null;
-  return (
-    <span className="font-mono tabular-nums">
-      {formatWorkingDurationLabel(Date.now() - startedMs)}
-    </span>
-  );
+  return <span className="tabular-nums">{formatWorkingDurationLabel(Date.now() - startedMs)}</span>;
+}
+
+function CompletedAge(props: { completedAt: string }) {
+  useNowMinute();
+  return <span className="tabular-nums">{formatSidebarRelativeTimeLabel(props.completedAt)}</span>;
 }
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new Map();
@@ -292,6 +291,7 @@ function SidebarThreadTooltip({
   showInstanceBadge,
   modelInstanceId,
   modelLabel,
+  timestampFormat,
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
@@ -308,6 +308,7 @@ function SidebarThreadTooltip({
   showInstanceBadge: boolean;
   modelInstanceId: string;
   modelLabel: string;
+  timestampFormat: TimestampFormat;
   branchMismatch: {
     threadBranch: string;
     currentBranch: string;
@@ -316,6 +317,7 @@ function SidebarThreadTooltip({
   terminalProcessCount: number;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
+  const completedTiming = resolveCompletedTurnTiming(thread);
   return (
     <TooltipPopup
       side="right"
@@ -402,6 +404,26 @@ function SidebarThreadTooltip({
               <CircleAlertIcon className="size-3 shrink-0 stroke-current" />
               <div className="min-w-0 truncate">Error occurred</div>
             </div>
+          ) : null}
+          {completedTiming ? (
+            <>
+              <div className="flex min-w-0 items-center gap-2">
+                <CircleCheckIcon
+                  aria-hidden
+                  className="size-3 shrink-0 stroke-emerald-600 dark:stroke-emerald-400"
+                />
+                <div className="min-w-0 truncate text-foreground/75">
+                  Done in {formatWorkingDurationLabel(completedTiming.durationMs)}
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <ClockIcon aria-hidden className="size-3 shrink-0 stroke-muted-foreground" />
+                <div className="min-w-0 truncate text-foreground/75">
+                  Completed{" "}
+                  {formatChatTimestampTooltip(completedTiming.completedAt, timestampFormat)}
+                </div>
+              </div>
+            </>
           ) : null}
         </div>
       </div>
@@ -878,6 +900,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // switching sidebars must not light up every historical thread as unread.
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  const completedTiming = resolveCompletedTurnTiming(thread);
+  const showDoneStatus = shouldShowSidebarDoneStatus({
+    status,
+    isUnread,
+    interactionMode: thread.interactionMode,
+    hasActionableProposedPlan: thread.hasActionableProposedPlan,
+    completedTiming,
+  });
   // A woken thread reappears at its original position (the sort is
   // deliberately static), so the pill has to carry the weight. Snoozing is
   // an explicit act, so the pill clears only when the user re-engages:
@@ -949,7 +979,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     icon: "woke" as const,
                     className: "text-amber-700 dark:text-amber-300",
                   }
-                : isUnread
+                : showDoneStatus
                   ? {
                       label: "Done",
                       icon: "done" as const,
@@ -1029,6 +1059,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       showInstanceBadge={showInstanceBadge}
       modelInstanceId={modelInstanceId}
       modelLabel={modelLabel}
+      timestampFormat={props.timestampFormat}
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
@@ -1587,6 +1618,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                             <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
                           </span>
                         ) : null}
+                        {topStatus.icon === "done" && completedTiming ? (
+                          <CompletedAge completedAt={completedTiming.completedAt} />
+                        ) : null}
                       </span>
                     )
                   ) : (
@@ -1742,6 +1776,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
+  timestampFormat: TimestampFormat;
   isHighlighted: boolean;
   isRouteActive: boolean;
   resultId: string;
@@ -1846,6 +1881,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
           showInstanceBadge={showInstanceBadge}
           modelInstanceId={modelInstanceId}
           modelLabel={modelLabel}
+          timestampFormat={props.timestampFormat}
           branchMismatch={branchMismatch}
           terminalStatus={terminalStatus}
           terminalProcessCount={runningTerminalIds.length}
@@ -4043,6 +4079,7 @@ export default function Sidebar({
                           providerEntriesByEnvironment.get(thread.environmentId) ??
                           EMPTY_PROVIDER_ENTRIES
                         }
+                        timestampFormat={timestampFormat}
                         isHighlighted={activeSearchResultIndex === index}
                         isRouteActive={routeThreadKey === threadKey}
                         resultId={`sidebar-thread-search-result-${index}`}
