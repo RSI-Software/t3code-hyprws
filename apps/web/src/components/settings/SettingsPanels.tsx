@@ -45,6 +45,7 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
+import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
@@ -570,9 +571,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.terminalSessionMode !== DEFAULT_UNIFIED_SETTINGS.terminalSessionMode
         ? ["Terminal session"]
         : []),
-      ...(settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks
-        ? ["Run Worktrunk hooks"]
-        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
         ? ["Default diff file state"]
@@ -687,7 +685,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
       settings.terminalSessionMode,
-      settings.worktrunkHooks,
       settings.wordWrap,
       followSystem,
       theme,
@@ -766,7 +763,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       terminalSessionMode: DEFAULT_UNIFIED_SETTINGS.terminalSessionMode,
-      worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
@@ -2907,29 +2903,6 @@ export function GeneralSettingsPanel() {
                 updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
               }
               aria-label="Start new worktrees from origin by default"
-            />
-          }
-        />
-        <SettingsRow
-          serverScoped
-          className="bg-muted/20 sm:pl-9"
-          title={searchableSetting("worktrunk-hooks").title}
-          description="Runs the project's Worktrunk hooks (.config/wt.toml) when a thread worktree is created or removed. Project settings and t3.json override this per project."
-          resetAction={
-            settings.worktrunkHooks !== DEFAULT_UNIFIED_SETTINGS.worktrunkHooks ? (
-              <SettingResetButton
-                label="run worktrunk hooks"
-                onClick={() =>
-                  updateSettings({ worktrunkHooks: DEFAULT_UNIFIED_SETTINGS.worktrunkHooks })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.worktrunkHooks}
-              onCheckedChange={(checked) => updateSettings({ worktrunkHooks: Boolean(checked) })}
-              aria-label="Run Worktrunk hooks"
             />
           }
         />
