@@ -29,16 +29,36 @@ const checkpointOrder = O.mapInput(
     cp.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER,
 );
 
-const activityOrder = O.combineAll<OrchestrationThreadActivity>([
-  O.mapInput(O.Number, (a) => a.sequence ?? Number.MAX_SAFE_INTEGER),
+const sequencedActivityOrder = O.combineAll<OrchestrationThreadActivity>([
+  O.mapInput(O.Number, (a) => a.sequence ?? 0),
   O.mapInput(O.String, (a) => a.createdAt),
   O.mapInput(O.String, (a) => a.id),
 ]);
 
+/**
+ * An activity without a `sequence` predates server-side sequencing, so it is
+ * older than anything sequenced rather than newer: every live append stamps a
+ * sequence above, which leaves the snapshot as the only source of unsequenced
+ * rows. Two unsequenced rows compare equal so a stable sort keeps the
+ * authoritative snapshot order the server sent them in, which no `createdAt`
+ * or id tiebreak can reconstruct once they share a timestamp.
+ */
+const activityOrder: O.Order<OrchestrationThreadActivity> = (self, that) => {
+  const selfUnsequenced = self.sequence === undefined || self.sequence === null;
+  const thatUnsequenced = that.sequence === undefined || that.sequence === null;
+  if (selfUnsequenced || thatUnsequenced) {
+    if (selfUnsequenced && thatUnsequenced) {
+      return 0;
+    }
+    return selfUnsequenced ? -1 : 1;
+  }
+  return sequencedActivityOrder(self, that);
+};
+
 // Per-array id index so the streaming append path can reject a re-delivered
 // id without rescanning the history. Only arrays this reducer produced are
 // indexed: presence also proves the array is activityOrder-sorted, which
-// snapshot-loaded arrays (DB order, null sequences first) are not.
+// snapshot-loaded arrays (DB order) are not.
 const activityIdIndex = new WeakMap<
   ReadonlyArray<OrchestrationThreadActivity>,
   Set<OrchestrationThreadActivity["id"]>
@@ -587,7 +607,10 @@ export function applyThreadDetailEvent(
 
     // ── Activities ──────────────────────────────────────────────────
     case "thread.activity-appended": {
-      const activity = event.payload.activity;
+      const activity = {
+        ...event.payload.activity,
+        sequence: event.payload.activity.sequence ?? event.sequence,
+      };
       // A resolvable context-window update supersedes earlier resolvable ones
       // for the same turn: consumers only read the latest value (walking the
       // array backwards), and providers stream these updates continuously, so
