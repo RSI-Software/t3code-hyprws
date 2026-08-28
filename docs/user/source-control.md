@@ -80,6 +80,11 @@ Open **Pull requests** to review changes and comments, request reviewers, check 
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
 
+On GitHub, paste or choose an image or video up to 10 MB while editing a pull request
+description. Uploads run on the server environment that owns the project and appear when that
+environment has the pinned `gh-image` extension and an active GitHub browser session. Install it
+there with `gh extension install drogers0/gh-image --pin v1.2.0`.
+
 GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
 supports approving waiting fork workflows and opening a revert pull request for a merged change.
 
