@@ -55,6 +55,9 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 | `candidate` | Publish the verified stack to `hyprws-next`; still create stable snapshots and issues, but do not rewrite `hyprws`. |
 | `on`        | Save the old trunk as `hyprws-previous`, then rewrite `hyprws` with an explicit expected-old lease.                 |
 
+In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
+commit and one for the bot-pushed rebased head.
+
 The repository intentionally starts in candidate mode. After reading a successful candidate run and
 preparing local lanes for recovery, enable automatic trunk rewrites with:
 
@@ -143,6 +146,8 @@ administrator the automation bypass.
 ### Runners
 
 Both fork workflows run on `ubuntu-latest`.
+`hyprws-release.yml` publishes a nightly on every landing on `hyprws`; its six-hour schedule is a
+fallback that publishes only when the head differs from the newest nightly tag.
 GitHub-hosted runners are free for a public repository, and pull requests from outside the org cost nothing.
 
 The rsi-ci pool was measured on 2026-08-23 and rejected.
