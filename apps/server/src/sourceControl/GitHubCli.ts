@@ -287,10 +287,19 @@ export class GitHubCli extends Context.Service<
       readonly timeoutMs?: number;
       /** Piped to the child's stdin, for payloads that must never appear in argv. */
       readonly stdin?: string;
+      /** Extra process environment. Undefined values deliberately remove inherited secrets. */
       readonly env?: NodeJS.ProcessEnv;
       readonly maxOutputBytes?: number;
       readonly rateLimitHost?: string;
       readonly allowReserve?: boolean;
+      /**
+       * The caller's own derived target host, for invocations whose argv cannot
+       * prove where they land — host-agnostic probes and extension subcommands
+       * that take an owner/name repository. The wrapper still refuses unless it
+       * names exactly the pinned credential's host; anything else must carry
+       * verifiable host-bearing arguments. // fork-hook: pull-requests/attachment-media-verified-host
+       */
+      readonly verifiedHost?: string;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
@@ -408,7 +417,11 @@ export const make = Effect.gen(function* () {
   const executeRaw: GitHubCli["Service"]["execute"] = Effect.fn("GitHubCli.executeRaw")(
     function* (input) {
       const credential = yield* PinnedGitHubCredential;
-      if (credential !== null && !targetsVerifiedHost(input.args, credential.host)) {
+      if (
+        credential !== null &&
+        !targetsVerifiedHost(input.args, credential.host) &&
+        input.verifiedHost !== credential.host // fork-hook: pull-requests/attachment-media-verified-host
+      ) {
         return yield* new GitHubCliCommandError({
           command: "gh",
           cwd: input.cwd,
