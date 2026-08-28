@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   PullRequestActionInput,
+  PullRequestAttachmentCreateUploadUrlInput,
   PullRequestCapabilities,
   PullRequestFilesViewedResult,
   PullRequestListInput,
@@ -19,6 +20,7 @@ const decodeReviewerRequest = Schema.decodeUnknownSync(PullRequestReviewerReques
 const decodeAction = Schema.decodeUnknownSync(PullRequestActionInput);
 const decodeSetFilesViewed = Schema.decodeUnknownSync(PullRequestSetFilesViewedInput);
 const decodeFilesViewed = Schema.decodeUnknownSync(PullRequestFilesViewedResult);
+const decodeAttachmentUpload = Schema.decodeUnknownSync(PullRequestAttachmentCreateUploadUrlInput);
 
 const LIST_RESULT: PullRequestListResult = {
   viewers: { "github.com": "bilal", "gitlab.com": "bilal.hassan" },
