@@ -55,6 +55,20 @@ jobs:
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
 
+      # A rebase scan is what the next sync reads before trusting an automerge,
+      # so a domain that changes a file upstream is changing too has to name it
+      # (docs/internals/fork-delta.md). Reuses the upstream remote the ledger
+      # step added. Advisory, not blocking: the only window with signal here is
+      # live upstream/main, and upstream landing a commit on a shared file is
+      # not the fault of the pull request under test. The blocking run is gates 3
+      # and 4 of the fork-sync skill, which scan against the new target tag while
+      # the fork still sits on the old one.
+      - name: Fork rebase scans (advisory)
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: vp run fork:scan --head "$HEAD_SHA"
+
       # A live `pingdotgg/t3code#N` or item URL in a fork body posts a backlink
       # on the upstream thread, and a bare `#N` the fork never issued resolves
       # there, so a citation must sit in a code span or a fence and a fork item
