@@ -110,6 +110,9 @@ import {
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   PullRequestActionInput,
+  PullRequestAttachmentCreateUploadUrlInput,
+  PullRequestAttachmentUploadInput,
+  PullRequestAttachmentUploadResult,
   PullRequestActivity,
   PullRequestCommentInput,
   PullRequestCommentUpdateInput,
@@ -362,6 +365,8 @@ export const WS_METHODS = {
   pullRequestsDiffFileContents: "pullRequests.diffFileContents",
   pullRequestsRunAction: "pullRequests.runAction",
   pullRequestsUpdate: "pullRequests.update",
+  pullRequestsCreateAttachmentUploadUrl: "pullRequests.createAttachmentUploadUrl",
+  pullRequestsUploadAttachment: "pullRequests.uploadAttachment",
   pullRequestsComment: "pullRequests.comment",
   pullRequestsUpdateComment: "pullRequests.updateComment",
   pullRequestsSubmitReview: "pullRequests.submitReview",
@@ -638,13 +643,13 @@ const GitHubIssueRpcError = Schema.Union([
   EnvironmentAuthorizationError,
 ]);
 
-export const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
+const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
   payload: GitHubIssueListInput,
   success: GitHubIssueListResult,
   error: GitHubIssueRpcError,
 });
 
-export const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
+const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
   payload: GitHubIssueRef,
   success: GitHubIssueDetail,
   error: GitHubIssueRpcError,
@@ -712,6 +717,21 @@ const WsPullRequestsRunActionRpc = Rpc.make(WS_METHODS.pullRequestsRunAction, {
 const WsPullRequestsUpdateRpc = Rpc.make(WS_METHODS.pullRequestsUpdate, {
   payload: PullRequestUpdateInput,
   success: Schema.Void,
+  error: PullRequestRpcError,
+});
+
+const WsPullRequestsCreateAttachmentUploadUrlRpc = Rpc.make(
+  WS_METHODS.pullRequestsCreateAttachmentUploadUrl,
+  {
+    payload: PullRequestAttachmentCreateUploadUrlInput,
+    success: AttachmentCreateUploadUrlResult,
+    error: PullRequestRpcError,
+  },
+);
+
+const WsPullRequestsUploadAttachmentRpc = Rpc.make(WS_METHODS.pullRequestsUploadAttachment, {
+  payload: PullRequestAttachmentUploadInput,
+  success: PullRequestAttachmentUploadResult,
   error: PullRequestRpcError,
 });
 
@@ -1260,6 +1280,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsDiffFileContentsRpc,
   WsPullRequestsRunActionRpc,
   WsPullRequestsUpdateRpc,
+  WsPullRequestsCreateAttachmentUploadUrlRpc,
+  WsPullRequestsUploadAttachmentRpc,
   WsPullRequestsCommentRpc,
   WsPullRequestsUpdateCommentRpc,
   WsPullRequestsSubmitReviewRpc,
