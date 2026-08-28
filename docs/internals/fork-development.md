@@ -293,7 +293,7 @@ Fork branding and local workstation preferences belong in documentation or the d
 ### Bot-first sync
 
 `hyprws` remains one linear fork stack, but the normal upstream sync is automated. The
-`hyprws rebase report` workflow uses the feasibility scan to select the newest upstream stable or
+`hyprws upstream sync` workflow uses the feasibility scan to select the newest upstream stable or
 nightly tag at or before the conflict-free boundary, replays the whole stack, verifies its commit
 messages and fork trailers, and publishes according to `HYPRWS_AUTO_REBASE`.
 
