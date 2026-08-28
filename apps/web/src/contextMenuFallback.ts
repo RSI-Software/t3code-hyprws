@@ -198,7 +198,7 @@ export function dismissContextMenu(): void {
 }
 
 /**
- * Imperative DOM-based context menu for non-Electron environments.
+ * Imperative DOM-based themed context menu for renderer environments.
  * Supports nested submenus and resolves with the clicked leaf item id.
  */
 export function showContextMenuFallback<T extends string>(
