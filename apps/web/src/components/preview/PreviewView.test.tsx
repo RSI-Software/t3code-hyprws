@@ -37,11 +37,13 @@ const mocks = vi.hoisted(() => ({
 
 const EMPTY_HISTORY: never[] = [];
 
-vi.mock("~/browserHistoryStore", () => ({
+vi.mock("~/browserHistoryStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/browserHistoryStore")>()),
   recordVisitForThread: mocks.recordVisitForThread,
   setTitleForThreadUrl: vi.fn(),
   removeUrlForThread: vi.fn(),
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT: 50,
+  useThreadBrowserProjectKey: () => null,
   useThreadRecentHistory: () => EMPTY_HISTORY,
 }));
 
