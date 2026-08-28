@@ -120,9 +120,10 @@ authenticated.
   candidates section marks commits whose patch is already upstream or whose changed hunks overlap
   or sit adjacent to upstream hunks, and carries forward Retired/Kept decisions by commit subject from the fork
   ledger. Pass `--target vX.Y.Z` to inspect a release and `--fetch` to refresh both remotes first.
-  `--check` performs a byte-for-byte comparison against the files on disk without writing. The
-  `hyprws-rebase-report.yml` run uploads a fresh pair on every `hyprws` push and on a schedule; the
-  report is never committed because it embeds the fork head.
+  `--check` performs a byte-for-byte comparison against the files on disk without writing, and a write
+  run that produces those same bytes prints `unchanged:` instead of `updated:` and leaves the file
+  alone. The `hyprws-rebase-report.yml` run uploads a fresh pair on every `hyprws` push and on a
+  schedule; the report is never committed because it embeds the fork head.
 - `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
   artifact under `.dump/runs/fork-rebase-report/<run-id>/`. Pass `--run <id>` to inspect a specific
   run. An existing run directory is reused because workflow artifacts are immutable.
