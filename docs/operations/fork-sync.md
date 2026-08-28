@@ -2,7 +2,7 @@
 
 > Runbook for `RSI-Software/t3code-hyprws`. Using T3 Code? See [docs/user](../user/).
 
-The `hyprws rebase report` workflow is the normal upstream-sync operator. It mirrors upstream, finds
+The `hyprws upstream sync` workflow is the normal upstream-sync operator. It mirrors upstream, finds
 the newest upstream release tag the fork can reach without a textual conflict, verifies a replay of
 the complete fork stack, and publishes the result according to the configured mode. A maintainer
 intervenes only to resolve a reported block, enable trunk rewrites, or cut a stable release.
@@ -104,7 +104,7 @@ gh label view release -R RSI-Software/t3code-hyprws
 
 ### Upstream workflows and merge settings
 
-Keep only `hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-rebase-report.yml` enabled. Upstream
+Keep only `hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-upstream-sync.yml` enabled. Upstream
 workflows remain in the tree unchanged but disabled, because they expect upstream secrets and
 runners.
 
@@ -174,13 +174,13 @@ The workflow passes them through when set and leaves the feature dark when they 
 
 ## Reading a bot run
 
-Open the latest `hyprws rebase report` run and read the **Auto-rebase** job summary, not only the
+Open the latest `hyprws upstream sync` run and read the **Auto-rebase** job summary, not only the
 green or red conclusion:
 
 ```bash
 repo=RSI-Software/t3code-hyprws
-gh run list --workflow hyprws-rebase-report.yml --limit 5 -R "$repo"
-run_id="$(gh run list --workflow hyprws-rebase-report.yml --limit 1 \
+gh run list --workflow hyprws-upstream-sync.yml --limit 5 -R "$repo"
+run_id="$(gh run list --workflow hyprws-upstream-sync.yml --limit 1 \
   -R "$repo" --json databaseId --jq '.[0].databaseId')"
 test -n "$run_id"
 gh run view "$run_id" -R "$repo"
