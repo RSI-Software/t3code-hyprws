@@ -1,18 +1,13 @@
 import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, expect, it, vi } from "@effect/vitest";
-import { ProjectId } from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
-import type { ProjectionProject } from "../persistence/Services/ProjectionProjects.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as WorktrunkHookRunner from "./WorktrunkHookRunner.ts";
 
 const successfulOutput: ProcessRunner.ProcessRunOutput = {
@@ -28,56 +23,48 @@ const successfulOutput: ProcessRunner.ProcessRunOutput = {
 
 const hookEnv = { PATH: "/usr/bin", KEEP_ME: "yes" };
 
+const configPath = "/repo/.config/wt.toml";
+const dotGitPath = "/repo/wt/.git";
+const markerPath = "/repo/.git/worktrees/wt/t3-worktrunk";
+const linkedWorktreeFiles = {
+  [configPath]: "",
+  [dotGitPath]: "gitdir: /repo/.git/worktrees/wt\n",
+};
+
+const missingFile = (path: string) =>
+  Effect.fail(
+    PlatformError.systemError({
+      _tag: "NotFound",
+      module: "FileSystem",
+      method: "readFileString",
+      pathOrDescriptor: path,
+    }),
+  );
+
+/**
+ * A fake filesystem of at most three files: the Worktrunk config, the linked
+ * worktree's `.git` file, and the marker. `writes` records marker writes.
+ */
 function makeLayer(input: {
   readonly run: ProcessRunner.ProcessRunner["Service"]["run"];
-  readonly settingsEnabled?: boolean;
-  readonly projectOverride?: boolean;
-  readonly projectRecordOverride?: boolean | null;
-  readonly configExists?: (path: string) => Effect.Effect<boolean>;
-  readonly load?: T3ProjectFileLoader.T3ProjectFileLoader["Service"]["load"];
+  readonly files?: Partial<Record<string, string>>;
+  readonly writes?: string[];
 }) {
-  const projectRow: ProjectionProject = {
-    projectId: ProjectId.make("project-hooks"),
-    title: "Hooks",
-    workspaceRoot: "/repo",
-    defaultModelSelection: null,
-    defaultThreadEnvMode: null,
-    worktrunkHooks: input.projectRecordOverride ?? null,
-    scripts: [],
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    deletedAt: null,
-  };
+  const files: Partial<Record<string, string>> = { ...(input.files ?? linkedWorktreeFiles) };
   return WorktrunkHookRunner.layer.pipe(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: input.run })),
     Layer.provide(
-      Layer.succeed(ProjectionProjectRepository, {
-        upsert: () => Effect.void,
-        getById: () => Effect.succeed(Option.none()),
-        listAll: () => Effect.succeed([projectRow]),
-        deleteById: () => Effect.void,
-      }),
-    ),
-    Layer.provide(
-      ServerSettings.ServerSettingsService.layerTest({
-        worktrunkHooks: input.settingsEnabled ?? true,
-      }),
-    ),
-    Layer.provide(
-      Layer.succeed(T3ProjectFileLoader.T3ProjectFileLoader, {
-        load:
-          input.load ??
-          (() =>
-            Effect.succeed(
-              input.projectOverride === undefined
-                ? Option.none()
-                : Option.some({ worktrunkHooks: input.projectOverride }),
-            )),
-      }),
-    ),
-    Layer.provide(
       FileSystem.layerNoop({
-        exists: input.configExists ?? (() => Effect.succeed(true)),
+        exists: (path) => Effect.succeed(files[path] !== undefined),
+        readFileString: (path) => {
+          const contents = files[path];
+          return contents === undefined ? missingFile(path) : Effect.succeed(contents);
+        },
+        writeFileString: (path, contents) =>
+          Effect.sync(() => {
+            files[path] = contents;
+            input.writes?.push(path);
+          }),
       }),
     ),
     Layer.provide(NodePath.layer),
@@ -113,105 +100,53 @@ const createInput: WorktrunkHookRunner.WorktrunkCreateHooksInput = {
 };
 
 describe("WorktrunkHookRunner", () => {
-  it.effect("applies a t3.json true override after the disabled server setting", () => {
-    const order: string[] = [];
-    const run = vi.fn(() =>
-      Effect.sync(() => {
-        order.push("binary");
-        return successfulOutput;
-      }),
-    );
+  it.effect("marks the worktree gitdir before running the create hooks", () => {
+    const writes: string[] = [];
+    const run = vi.fn(() => Effect.succeed(successfulOutput));
 
     return Effect.gen(function* () {
       const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
+      expect(yield* runner.isWorktrunkWorktree("/repo/wt")).toBe(false);
+
       const result = yield* runner.runCreateHooks(createInput);
 
       expect(result).toEqual({ status: "completed" });
-      expect(order).toEqual(["load", "config", "binary", "binary", "binary"]);
-    }).pipe(
-      Effect.provide(
-        makeLayer({
-          run,
-          settingsEnabled: false,
-          load: () =>
-            Effect.sync(() => {
-              order.push("load");
-              return Option.some({ worktrunkHooks: true });
-            }),
-          configExists: () =>
-            Effect.sync(() => {
-              order.push("config");
-              return true;
-            }),
-        }),
-      ),
-    );
+      expect(writes).toEqual([markerPath]);
+      expect(yield* runner.isWorktrunkWorktree("/repo/wt")).toBe(true);
+    }).pipe(Effect.provide(makeLayer({ run, writes })));
   });
 
-  it.effect("applies the project record override before t3.json and settings", () => {
+  it.effect("marks the worktree even when the hooks are skipped", () => {
+    const writes: string[] = [];
     const run = vi.fn(() => Effect.succeed(successfulOutput));
-    const exists = vi.fn(() => Effect.succeed(true));
-    const load = vi.fn(() => Effect.succeed(Option.some({ worktrunkHooks: true })));
 
     return Effect.gen(function* () {
       const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
       const result = yield* runner.runCreateHooks(createInput);
 
-      expect(result).toEqual({ status: "skipped", reason: "disabled" });
-      expect(load).not.toHaveBeenCalled();
-      expect(exists).not.toHaveBeenCalled();
+      expect(result).toEqual({ status: "skipped", reason: "missing-config" });
+      expect(writes).toEqual([markerPath]);
       expect(run).not.toHaveBeenCalled();
     }).pipe(
       Effect.provide(
-        makeLayer({
-          run,
-          configExists: exists,
-          load,
-          settingsEnabled: true,
-          projectRecordOverride: false,
-        }),
+        makeLayer({ run, writes, files: { [dotGitPath]: linkedWorktreeFiles[dotGitPath] } }),
       ),
     );
   });
 
-  it.effect("runs hooks when the project record turns them on over a false t3.json", () => {
-    const calls: ProcessRunner.ProcessRunInput[] = [];
-    const run = recordingRun(calls);
+  it.effect("treats a checkout without a gitdir file as a plain worktree", () => {
+    const writes: string[] = [];
+    const run = vi.fn(() => Effect.succeed(successfulOutput));
 
     return Effect.gen(function* () {
       const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
-      const result = yield* runner.runCreateHooks(createInput);
+      expect(yield* runner.isWorktrunkWorktree("/repo")).toBe(false);
+
+      const result = yield* runner.runCreateHooks({ projectCwd: "/repo", worktreePath: "/repo" });
 
       expect(result).toEqual({ status: "completed" });
-      expect(hookCalls(calls)).toHaveLength(2);
-    }).pipe(
-      Effect.provide(
-        makeLayer({
-          run,
-          settingsEnabled: false,
-          projectOverride: false,
-          projectRecordOverride: true,
-        }),
-      ),
-    );
-  });
-
-  it.effect("applies a t3.json false override before filesystem and binary gates", () => {
-    const run = vi.fn(() => Effect.succeed(successfulOutput));
-    const exists = vi.fn(() => Effect.succeed(true));
-
-    return Effect.gen(function* () {
-      const runner = yield* WorktrunkHookRunner.WorktrunkHookRunner;
-      const result = yield* runner.runCreateHooks(createInput);
-
-      expect(result).toEqual({ status: "skipped", reason: "disabled" });
-      expect(exists).not.toHaveBeenCalled();
-      expect(run).not.toHaveBeenCalled();
-    }).pipe(
-      Effect.provide(
-        makeLayer({ run, configExists: exists, settingsEnabled: true, projectOverride: false }),
-      ),
-    );
+      expect(writes).toEqual([]);
+    }).pipe(Effect.provide(makeLayer({ run, writes, files: { [configPath]: "" } })));
   });
 
   it.effect("skips before binary resolution when .config/wt.toml is missing", () => {
@@ -223,7 +158,7 @@ describe("WorktrunkHookRunner", () => {
 
       expect(result).toEqual({ status: "skipped", reason: "missing-config" });
       expect(run).not.toHaveBeenCalled();
-    }).pipe(Effect.provide(makeLayer({ run, configExists: () => Effect.succeed(false) })));
+    }).pipe(Effect.provide(makeLayer({ run, files: {} })));
   });
 
   it.effect("silently skips when wt is missing", () => {
