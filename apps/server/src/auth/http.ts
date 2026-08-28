@@ -17,12 +17,12 @@ import {
   EnvironmentRequestInvalidError,
   type EnvironmentRequestInvalidReason,
   EnvironmentResourceNotFoundError,
-  type EnvironmentResourceNotFoundReason,
   EnvironmentScopeRequiredError,
   EnvironmentAuthenticatedAuth,
   EnvironmentAuthenticatedPrincipal,
 } from "@t3tools/contracts";
 import type { AuthEnvironmentScope, DpopFailureReason } from "@t3tools/contracts";
+import type { ForkEnvironmentResourceNotFoundReason as EnvironmentResourceNotFoundReason } from "@t3tools/contracts"; // fork-hook: custom-agents/not-found-reason-type-import
 import { parseAllowedOAuthScope } from "@t3tools/shared/oauthScope";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as DateTime from "effect/DateTime";

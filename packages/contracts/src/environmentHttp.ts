@@ -31,9 +31,12 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ForkResourceNotFoundReason } from "./environmentHttp.fork.ts"; // fork-hook: custom-agents/not-found-reason-import
 import {
   ClientOrchestrationCommand,
   DispatchResult,
+  ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT,
+  OrchestrationAgentActivitySnapshot,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThreadDetailSnapshot,
@@ -67,6 +70,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "invalid_scope",
   "scope_not_granted",
   "invalid_command",
+  "invalid_agent_activity_cursor",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
 
@@ -94,6 +98,7 @@ export const EnvironmentInternalErrorReason = Schema.Literals([
   "client_session_revoke_failed",
   "orchestration_snapshot_failed",
   "orchestration_thread_snapshot_failed",
+  "orchestration_agent_activity_failed",
   "orchestration_dispatch_failed",
   "internal_error",
 ]);
@@ -193,12 +198,16 @@ export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInte
 
 export const EnvironmentResourceNotFoundReason = Schema.Literals(["thread_not_found"]);
 export type EnvironmentResourceNotFoundReason = typeof EnvironmentResourceNotFoundReason.Type;
+const ForkNotFoundReason = Schema.Union([
+  EnvironmentResourceNotFoundReason,
+  ForkResourceNotFoundReason,
+]); // fork-hook: custom-agents/not-found-reason
 
 export class EnvironmentResourceNotFoundError extends Schema.TaggedError<EnvironmentResourceNotFoundError>()(
   "EnvironmentResourceNotFoundError",
   {
     code: Schema.Literal("not_found"),
-    reason: EnvironmentResourceNotFoundReason,
+    reason: ForkNotFoundReason, // fork-hook: custom-agents/not-found-reason-field
     traceId: TrimmedNonEmptyString,
   },
   { httpApiStatus: 404 },
@@ -331,6 +340,10 @@ const EnvironmentOrchestrationThreadSnapshotErrors = [
   EnvironmentScopeRequiredError,
   EnvironmentResourceNotFoundError,
   EnvironmentInternalError,
+] as const;
+const EnvironmentOrchestrationAgentActivityErrors = [
+  EnvironmentRequestInvalidError,
+  ...EnvironmentOrchestrationThreadSnapshotErrors,
 ] as const;
 const EnvironmentOrchestrationDispatchErrors = [
   EnvironmentRequestInvalidError,
@@ -494,6 +507,11 @@ const EnvironmentOrchestrationThreadSnapshotParams = Schema.Struct({
   threadId: ThreadId,
 });
 
+const EnvironmentOrchestrationAgentActivityParams = Schema.Struct({
+  threadId: ThreadId,
+  agentId: TrimmedNonEmptyString,
+});
+
 // Query-string window for windowed thread snapshots (GET payloads must encode
 // to strings). Both fields optional: omitting them keeps the full-snapshot
 // behavior, so pagination stays opt-in per request.
@@ -501,6 +519,16 @@ const EnvironmentOrchestrationThreadSnapshotQuery = {
   reasoningMessages: Schema.optional(Schema.Literal("true")),
   turnLimit: Schema.optional(
     Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  ),
+  beforeCursor: Schema.optional(TrimmedNonEmptyString),
+};
+
+const EnvironmentOrchestrationAgentActivityQuery = {
+  limit: Schema.optional(
+    Schema.FiniteFromString.check(
+      Schema.isInt(),
+      Schema.isBetween({ minimum: 1, maximum: ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT }),
+    ),
   ),
   beforeCursor: Schema.optional(TrimmedNonEmptyString),
 };
@@ -528,6 +556,19 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
       success: OrchestrationThreadDetailSnapshot,
       error: EnvironmentOrchestrationThreadSnapshotErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "agentActivity",
+      "/api/orchestration/threads/:threadId/agents/:agentId/activities",
+      {
+        headers: OptionalBearerHeaders,
+        params: EnvironmentOrchestrationAgentActivityParams,
+        payload: EnvironmentOrchestrationAgentActivityQuery,
+        success: OrchestrationAgentActivitySnapshot,
+        error: EnvironmentOrchestrationAgentActivityErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
     HttpApiEndpoint.post("dispatch", "/api/orchestration/dispatch", {

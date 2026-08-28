@@ -5,6 +5,8 @@ import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 
 import {
+  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+  ChildItemRenderDetail,
   OrchestrationReadModel,
   ProviderDriverKind,
   ProviderRuntimeEvent,
@@ -35,6 +37,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
 import { it as effectIt } from "@effect/vitest";
@@ -66,6 +69,8 @@ import {
 import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
+import { projectAgentActivity } from "../AgentActivityProjection.ts";
+import { makeChildItemRenderDetail } from "../../provider/childItemRenderDetail.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -82,6 +87,11 @@ const asEventId = (value: string): EventId => EventId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+const encodeChildItemRenderDetailJson = Schema.encodeSync(
+  Schema.fromJsonString(ChildItemRenderDetail),
+);
+const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
+  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
