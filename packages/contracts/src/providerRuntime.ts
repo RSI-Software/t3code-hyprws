@@ -406,12 +406,47 @@ const TurnDiffUpdatedPayload = Schema.Struct({
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 
+export const CHILD_ITEM_RENDER_COMMAND_MAX_CHARS = 2_048;
+export const CHILD_ITEM_RENDER_RESULT_MAX_CHARS = 4_096;
+export const CHILD_ITEM_RENDER_DIFF_MAX_CHARS = 4_096;
+export const CHILD_ITEM_RENDER_PATH_MAX_CHARS = 256;
+export const CHILD_ITEM_RENDER_CHANGED_FILES_MAX_ITEMS = 12;
+export const CHILD_ITEM_RENDER_JSON_MAX_BYTES = 10 * 1_024;
+
+export const ChildItemRenderChangedFile = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(CHILD_ITEM_RENDER_PATH_MAX_CHARS)),
+  kind: Schema.optional(Schema.Literals(["added", "modified", "deleted"])),
+  diff: Schema.optional(Schema.String.check(Schema.isMaxLength(CHILD_ITEM_RENDER_DIFF_MAX_CHARS))),
+});
+export type ChildItemRenderChangedFile = typeof ChildItemRenderChangedFile.Type;
+
+/**
+ * Bounded provider-neutral fields needed to render attributed child work.
+ * Adapters construct this before provider-native lifecycle data is discarded.
+ */
+export const ChildItemRenderDetail = Schema.Struct({
+  command: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(CHILD_ITEM_RENDER_COMMAND_MAX_CHARS)),
+  ),
+  result: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(CHILD_ITEM_RENDER_RESULT_MAX_CHARS)),
+  ),
+  changedFiles: Schema.optional(
+    Schema.Array(ChildItemRenderChangedFile).check(
+      Schema.isMaxLength(CHILD_ITEM_RENDER_CHANGED_FILES_MAX_ITEMS),
+    ),
+  ),
+  truncated: Schema.Boolean,
+});
+export type ChildItemRenderDetail = typeof ChildItemRenderDetail.Type;
+
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   data: Schema.optional(Schema.Unknown),
+  renderDetail: Schema.optional(ChildItemRenderDetail),
   /**
    * Owning agent when this item ran inside a subagent (resolved from the
    * SDK's parent_tool_use_id). Clients re-home attributed items out of the
