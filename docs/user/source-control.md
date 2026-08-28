@@ -48,6 +48,11 @@ A turn's diff shows only that turn's own edits, commits, and conflict fixes—ex
   - GitHub, GitLab, and Azure DevOps support auto-merge; GitHub also supports approving fork workflows and opening revert PRs.
   - Azure DevOps comments must be edited on the host site; Bitbucket cannot reopen declined PRs.
 
+On GitHub, paste or choose an image or video up to 10 MB while editing a pull request
+description. Uploads run on the server environment that owns the project and appear when that
+environment has the pinned `gh-image` extension and an active GitHub browser session. Install it
+there with `gh extension install drogers0/gh-image --pin v1.2.0`.
+
 When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
 pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
 pull-request target, and creating a pull request still takes an explicit action.
