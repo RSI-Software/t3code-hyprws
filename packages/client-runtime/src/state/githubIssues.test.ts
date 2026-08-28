@@ -24,6 +24,7 @@ function result(updatedAt: string): GitHubIssueListResult {
         author: null,
         assignees: [],
         labels: [],
+        issueType: null,
         state: "open",
         createdAt: "2026-08-20T00:00:00Z",
         updatedAt,
