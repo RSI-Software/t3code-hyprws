@@ -9,6 +9,7 @@ import { isWebUrl } from "./browser/webUrl";
 import { requestConfirmDialog } from "./confirmDialog";
 import { dismissContextMenu, showContextMenuFallback } from "./contextMenuFallback";
 import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientPersistenceStorage";
+import { themedDesktopContextMenuFork } from "./localApi.fork"; // fork-hook: upstream-fixes/themed-context-menu-import
 
 let cachedApi: LocalApi | undefined;
 
@@ -78,6 +79,7 @@ export function createLocalApi(): LocalApi {
         writeBrowserClientSettings(settings);
       },
     },
+    ...themedDesktopContextMenuFork(), // fork-hook: upstream-fixes/themed-context-menu
   };
 }
 
