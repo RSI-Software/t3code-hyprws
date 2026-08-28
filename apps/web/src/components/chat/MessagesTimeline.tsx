@@ -142,6 +142,7 @@ import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
+import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation.fork"; // fork-hook: custom-agents/spawn-navigation-import
 import {
   buildAttachmentVideoAsset,
   buildAttachmentVideoPreview,
@@ -291,7 +292,7 @@ interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
   expandedSpawnEntryIds: ReadonlySet<string>;
-  onOpenAgents: () => void;
+  onOpenAgents: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   onCancelWorktreeSetup: (() => void) | null;
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
@@ -399,7 +400,7 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   agentPanelModel?: AgentPanelModel;
-  onOpenAgents?: () => void;
+  onOpenAgents?: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -4507,8 +4508,12 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry } = props;
-  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
-    use(TimelineRowCtx);
+  const {
+    agentPanelModel,
+    expandedSpawnEntryIds,
+    onToggleSpawnRow,
+    onOpenAgents: openAgentsPanel,
+  } = use(TimelineRowCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
@@ -4539,6 +4544,13 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     props.onToggleEntry?.(expanded);
     onToggleSpawnRow(workEntry.id, !expanded);
   };
+
+  const onOpenAgents = createAgentSpawnOpenHandler({
+    workflowId: spawn.workflowId,
+    agentTaskIds: spawn.agentTaskIds,
+    visibleAgentIds: agents.map((agent) => agent.id),
+    onOpenAgents: openAgentsPanel,
+  }); // fork-hook: custom-agents/spawn-open-handler
 
   return (
     <div className="flex flex-col">
