@@ -125,6 +125,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                         |
 | [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.                  |
 | [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                    |
+| [thread-ordering](#thread-ordering)   | Active | qol               | Upstream ships equivalent manual active-thread ordering.     |
 | [zmux-estate](#zmux-estate)           | Active | core              | Upstream terminals attach to an external session manager.    |
 | [worktrunk-hooks](#worktrunk-hooks)   | Active | core              | Upstream worktree lifecycle exposes create and remove hooks. |
 
@@ -452,6 +453,38 @@ explicitly trusted artifact links shared across worktrees.
 | `apps/web/src/components/settings/SettingsPanels.tsx` | Owns the web/desktop settings entry point.          |
 | `apps/mobile/src/features/files/**`                   | Applies the mobile device-local preference.         |
 | `apps/server/src/workspace/WorkspaceFileSystem.ts`    | Retains containment and trusted-link read behavior. |
+
+## thread-ordering
+
+### Need
+
+Operators need to keep active threads in their own priority order without pinning every thread or
+letting new activity reshuffle the list.
+
+### Shape
+
+- Web and desktop expose an explicit Manual thread-order mode beside the project filter.
+- Dragging is limited to active, unpinned threads in the same physical project.
+- The preference is client-local and overlays the existing automatic order, so new threads append
+  predictably and switching back to Automatic is lossless.
+- Pinned, snoozed, and settled ordering remains unchanged.
+
+### Retirement condition
+
+Delete this domain when an upstream release provides equivalent manual ordering for active threads
+without requiring the fork to migrate or discard saved order.
+
+### Rebase scan
+
+| Path                                              | Why it matters                                      |
+| ------------------------------------------------- | --------------------------------------------------- |
+| `packages/contracts/src/settings.ts`              | Carries the Manual sort option.                     |
+| `packages/client-runtime/src/state/threadSort.ts` | Defines Manual as preserving supplied order.        |
+| `apps/web/src/uiStateStore.ts`                    | Persists client-local per-project thread order.     |
+| `apps/web/src/components/Sidebar.logic.ts`        | Overlays per-project order without crossing groups. |
+| `apps/web/src/components/Sidebar.tsx`             | Owns the active-thread drag interaction.            |
+| `apps/web/src/components/LegacySidebar.tsx`       | Keeps the legacy sort control compatible.           |
+| `docs/user/thread-sidebar.md`                     | Documents the user-visible behavior.                |
 
 ## upstream-fixes
 
