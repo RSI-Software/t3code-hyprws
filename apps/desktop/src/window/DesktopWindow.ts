@@ -581,8 +581,8 @@ export const make = Effect.gen(function* () {
     });
 
     window.webContents.on("context-menu", (event, params) => {
-      event.preventDefault();
-
+      // Native menus own host-only actions; app action menus stay in the
+      // renderer so they retain T3's icons, hierarchy, and theme tokens.
       const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
 
       if (params.misspelledWord) {
@@ -618,14 +618,22 @@ export const make = Effect.gen(function* () {
         menuTemplate.push({ type: "separator" });
       }
 
-      menuTemplate.push(
-        { role: "cut", enabled: params.editFlags.canCut },
-        { role: "copy", enabled: params.editFlags.canCopy },
-        { role: "paste", enabled: params.editFlags.canPaste },
-        { role: "selectAll", enabled: params.editFlags.canSelectAll },
-      );
+      if (params.isEditable || params.selectionText.length > 0) {
+        menuTemplate.push(
+          { role: "cut", enabled: params.editFlags.canCut },
+          { role: "copy", enabled: params.editFlags.canCopy },
+          { role: "paste", enabled: params.editFlags.canPaste },
+          { role: "selectAll", enabled: params.editFlags.canSelectAll },
+        );
+      }
 
-      void runPromise(electronMenu.popupTemplate({ window, template: menuTemplate }));
+      if (menuTemplate.at(-1)?.type === "separator") {
+        menuTemplate.pop();
+      }
+      if (menuTemplate.length > 0) {
+        void runPromise(electronMenu.popupTemplate({ window, template: menuTemplate }));
+      }
+      event.preventDefault();
     });
 
     window.webContents.setWindowOpenHandler(({ url }) => {
