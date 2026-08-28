@@ -121,6 +121,15 @@ describe("routeCodexChildNotification", () => {
       "thread/tokenUsage/updated",
       "item/started",
       "item/completed",
+      "item/agentMessage/delta",
+      "item/reasoning/textDelta",
+      "item/reasoning/summaryTextDelta",
+      "item/reasoning/summaryPartAdded",
+      "item/commandExecution/outputDelta",
+      "item/commandExecution/terminalInteraction",
+      "item/fileChange/outputDelta",
+      "item/fileChange/patchUpdated",
+      "item/plan/delta",
       "thread/closed",
       "error",
     ]) {
@@ -129,13 +138,7 @@ describe("routeCodexChildNotification", () => {
   });
 
   it("drops only enumerated child chatter", () => {
-    for (const method of [
-      "item/agentMessage/delta",
-      "item/reasoning/textDelta",
-      "item/commandExecution/outputDelta",
-      "turn/plan/updated",
-      "thread/name/updated",
-    ]) {
+    for (const method of ["turn/plan/updated", "thread/name/updated"]) {
       assert.equal(routeCodexChildNotification(method), "drop", method);
     }
   });
