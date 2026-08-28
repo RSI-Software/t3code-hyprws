@@ -458,6 +458,7 @@ describe("OrchestrationEngine", () => {
           getThreadShellById: () => Effect.succeedNone,
           getThreadDetailById: () => Effect.succeedNone,
           getThreadDetailSnapshot: () => Effect.succeedNone,
+          getAgentActivitySnapshot: () => Effect.succeedNone, // fork-hook: custom-agents/agent-activity-snapshot-stub
           searchThreads: () => Effect.succeed({ matches: [] }),
         }),
       ),

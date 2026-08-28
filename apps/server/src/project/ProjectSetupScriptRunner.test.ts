@@ -54,6 +54,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
     getThreadDetailSnapshot: () => Effect.die("unused"),
+    getAgentActivitySnapshot: () => Effect.die("unused"),
     searchThreads: () => Effect.succeed({ matches: [] }),
   });
 
@@ -125,7 +126,7 @@ describe("ProjectSetupScriptRunner", () => {
       expect(write).toHaveBeenCalledWith({
         threadId: "thread-1",
         terminalId: "setup-default-setup",
-        data: "npm install\r",
+        data: "npm install && echo '[t3] setup script completed' || echo '[t3] setup script FAILED'\r",
       });
     }).pipe(
       Effect.provide(
