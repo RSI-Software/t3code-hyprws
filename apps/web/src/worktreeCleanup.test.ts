@@ -3,7 +3,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 import { makeThreadFixture } from "./test-fixtures";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "./worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+  getOrphanedWorktreePathsForThreads,
+  scopedWorktreePathKey,
+} from "./worktreeCleanup";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 
