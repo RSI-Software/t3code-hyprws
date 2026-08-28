@@ -2829,6 +2829,18 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "pull-requests",
             },
           ),
+        [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.pullRequestsCreateAttachmentUploadUrl,
+            pullRequests.createAttachmentUploadUrl(input),
+            { "rpc.aggregate": "pull-requests" },
+          ),
+        [WS_METHODS.pullRequestsUploadAttachment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.pullRequestsUploadAttachment,
+            pullRequests.uploadAttachment(input),
+            { "rpc.aggregate": "pull-requests" },
+          ),
         [WS_METHODS.pullRequestsComment]: (input) =>
           observeRpcEffect(
             WS_METHODS.pullRequestsComment,
