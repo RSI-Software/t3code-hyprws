@@ -57,6 +57,8 @@ const BROWSER_HISTORY_MAX_URL_LENGTH = 2048;
 const BROWSER_HISTORY_MAX_TITLE_LENGTH = 512;
 const MAX_VALID_DATE_MS = 8_640_000_000_000_000;
 
+export { BROWSER_HISTORY_MAX_TITLE_LENGTH }; // fork-hook: browser-bookmarks/history-title-length-export
+
 export function isValidHistoryTimestamp(value: unknown): value is number {
   return (
     typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= MAX_VALID_DATE_MS
@@ -544,6 +546,12 @@ export function useThreadRecentHistory(
       const entries = projectKey ? state.byProjectKey[projectKey] : undefined;
       return entries && entries.length > 0 ? entries.slice(0, limit) : EMPTY_HISTORY;
     }),
+  );
+}
+
+export function useThreadBrowserProjectKey(ref: ScopedThreadRef): string | null {
+  return useBrowserHistoryStore(
+    (state) => state.projectKeyByThreadKey[scopedThreadKey(ref)] ?? null,
   );
 }
 
