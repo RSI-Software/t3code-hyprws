@@ -119,8 +119,9 @@ A domain is a reason the fork exists, not a feature area of the app.
 
 ## Retired
 
-| Fork commit | Domain | Upstream replacement | Retired at |
-| ----------- | ------ | -------------------- | ---------- |
+| Fork commit                                            | Domain          | Upstream replacement                                                                                                                                                                                                                         | Retired at |
+| ------------------------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| fix(web): scope markdown actions to thread environment | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines `threadRef?.environmentId ?? explicitEnvironmentId ?? null` at the same binding in `apps/web/src/components/ChatMarkdown.tsx`, leaving `resolveChatMarkdownEnvironmentId` a redundant wrapper. | v0.0.35    |
 
 References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never
 live links. A retired-only subject must no longer be present in the fork stack; `fork:delta --check`
@@ -128,8 +129,9 @@ reports it as `retired but present` until the rebase drops it.
 
 ## Kept
 
-| Fork commit | Domain | Reason | Reviewed at |
-| ----------- | ------ | ------ | ----------- |
+| Fork commit                                       | Domain          | Reason                                                                                                                                                                                                                                                                                                 | Reviewed at |
+| ------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| refactor(web): add physical project sidebar scope | project-windows | `pingdotgg/t3code#8231` refactored the same `apps/web/src/components/Sidebar.logic.ts` comparator but still lists every project's threads; the fork's `isProjectInSidebarScope` is a separate export that survived the automerge intact and remains the only source of project-window sidebar scoping. | v0.0.35     |
 
 A kept reason documents the fork behaviour that the overlap signal did not replace. A subject in
 both Retired and Kept is a partial decision and remains in the active fork ledger.
