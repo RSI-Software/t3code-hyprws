@@ -1052,13 +1052,14 @@ describe("PreviewManager", () => {
   // The guest reports whatever zoom level Chromium handed it from the app
   // window, so the tab's own zoom is the source of truth in both directions:
   // asserted onto every guest, never read back off one.
-  effectIt.effect("keeps the tab's own zoom instead of the guest's reported zoom", () =>
+  effectIt.effect("keeps tab zoom authoritative while honoring guest wheel requests", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         let effectiveZoom = 0.9;
         let zoomReadable = true;
         let url = "https://example.com";
         const listeners = new Map<string, (...args: unknown[]) => void>();
+        const off = vi.fn();
         const setZoomFactor = vi.fn();
         fromId.mockReturnValue({
           id: 42,
@@ -1077,7 +1078,7 @@ describe("PreviewManager", () => {
           on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
             listeners.set(event, listener);
           }),
-          off: vi.fn(),
+          off,
           ipc: { on: vi.fn(), off: vi.fn() },
           send: webviewSend,
           navigationHistory: { canGoBack: () => false, canGoForward: () => false },
@@ -1103,6 +1104,20 @@ describe("PreviewManager", () => {
         expect(states.at(-1)?.zoomFactor).toBe(1);
         expect(setZoomFactor).toHaveBeenCalledWith(1);
 
+        const staleZoomChanged = listeners.get("zoom-changed");
+        setZoomFactor.mockClear();
+        staleZoomChanged?.({} as never, "in");
+        yield* settle(() => states.at(-1)?.zoomFactor === 1.1);
+
+        expect(setZoomFactor).toHaveBeenLastCalledWith(1.1);
+        expect(states.at(-1)?.zoomFactor).toBe(1.1);
+
+        staleZoomChanged?.({} as never, "out");
+        yield* settle(() => states.at(-1)?.zoomFactor === 1);
+
+        expect(setZoomFactor).toHaveBeenLastCalledWith(1);
+        expect(states.at(-1)?.zoomFactor).toBe(1);
+
         // An app zoom leaves the guest reporting the inherited level. Navigating
         // must not adopt it as the preview's zoom.
         effectiveZoom = 0.8;
@@ -1117,7 +1132,7 @@ describe("PreviewManager", () => {
         });
         expect(states.at(-1)?.zoomFactor).toBe(1);
 
-        // Only the preview's own zoom controls move it.
+        // Every preview zoom path commits through the tab-owned state.
         yield* manager.zoomIn("tab_zoom");
         expect(setZoomFactor).toHaveBeenCalledWith(1.1);
         expect(states.at(-1)?.zoomFactor).toBe(1.1);
@@ -1128,6 +1143,7 @@ describe("PreviewManager", () => {
 
         expect(states.at(-1)?.zoomFactor).toBe(1.1);
 
+        const replacementListeners = new Map<string, (...args: unknown[]) => void>();
         const replacementSetZoomFactor = vi.fn();
         fromId.mockReturnValue({
           id: 43,
@@ -1140,7 +1156,9 @@ describe("PreviewManager", () => {
           setZoomFactor: replacementSetZoomFactor,
           setAudioMuted: vi.fn(),
           isCurrentlyAudible: () => false,
-          on: vi.fn(),
+          on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+            replacementListeners.set(event, listener);
+          }),
           off: vi.fn(),
           ipc: { on: vi.fn(), off: vi.fn() },
           send: webviewSend,
@@ -1159,6 +1177,33 @@ describe("PreviewManager", () => {
 
         expect(replacementSetZoomFactor).toHaveBeenCalledWith(1.1);
         expect(states.at(-1)?.zoomFactor).toBe(1.1);
+
+        expect(off).toHaveBeenCalledWith("zoom-changed", staleZoomChanged);
+        replacementSetZoomFactor.mockClear();
+        staleZoomChanged?.({} as never, "in");
+        yield* settle(() => false);
+
+        expect(replacementSetZoomFactor).not.toHaveBeenCalled();
+        expect(states.at(-1)?.zoomFactor).toBe(1.1);
+
+        for (let index = 0; index < 20; index += 1) yield* manager.zoomIn("tab_zoom");
+        expect(states.at(-1)?.zoomFactor).toBe(5);
+        replacementSetZoomFactor.mockClear();
+        replacementListeners.get("zoom-changed")?.({} as never, "in");
+        yield* settle(() => false);
+        expect(replacementSetZoomFactor).not.toHaveBeenCalled();
+
+        for (let index = 0; index < 20; index += 1) yield* manager.zoomOut("tab_zoom");
+        expect(states.at(-1)?.zoomFactor).toBe(0.25);
+        replacementSetZoomFactor.mockClear();
+        replacementListeners.get("zoom-changed")?.({} as never, "out");
+        yield* settle(() => false);
+        expect(replacementSetZoomFactor).not.toHaveBeenCalled();
+
+        yield* manager.closeTab("tab_zoom");
+        replacementListeners.get("zoom-changed")?.({} as never, "in");
+        yield* settle(() => false);
+        expect(replacementSetZoomFactor).not.toHaveBeenCalled();
       }),
     ),
   );
