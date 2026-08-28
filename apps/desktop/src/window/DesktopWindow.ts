@@ -57,6 +57,7 @@ import {
 } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 import { installMainWindowRemoteRequestHeaderPolicy } from "./RemoteRequestHeaders.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -780,6 +781,7 @@ export const make = Effect.gen(function* () {
             enabled: params.editFlags.canSelectAll,
           },
         );
+        if (!trimAppContextMenuFork(menuTemplate, params, contents === window.webContents)) return; // fork-hook: upstream-fixes/themed-context-menu
 
         void runPromise(
           electronMenu.popupTemplate({
