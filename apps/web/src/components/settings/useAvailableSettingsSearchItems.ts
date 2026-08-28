@@ -13,10 +13,8 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentScope } from "~/state/session";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
-import {
-  filterAvailableSettingsSearchItems,
-  getThreadAutoSettlementSearchAvailability,
-} from "./settingsSearch";
+import { getThreadAutoSettlementSearchAvailability } from "./settingsSearch";
+import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
 
 /** Any environment whose server enables secret providers; gates the Secrets page, nav and search. */
 export function useHasSecretProvidersEnvironment() {
@@ -78,7 +76,7 @@ export function useAvailableSettingsSearchItems() {
   const wslSettingsRowVisible =
     isWslSettingsRowVisible({ state: desktopWsl.data, error: desktopWsl.error }) === true;
 
-  return filterAvailableSettingsSearchItems({
+  return filterAvailableGitHubIssueSettingsSearchItems({
     localEnvironmentDisabled,
     hasCloudPublicConfig: cloudPublicConfig,
     hasEnvironment,
@@ -93,5 +91,5 @@ export function useAvailableSettingsSearchItems() {
     hasTextGeneratorsEnvironment,
     hasPrimaryEnvironment: primaryEnvironmentId !== null,
     hasSecretProvidersEnvironment,
-  });
+  }); // fork-hook: github-issues/settings-search-items
 }
