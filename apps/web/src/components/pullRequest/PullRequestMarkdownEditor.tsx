@@ -1,5 +1,10 @@
 import { useState } from "react";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  PullRequestAttachmentBarFork,
+  usePullRequestAttachmentFork,
+  type PullRequestAttachmentTarget,
+} from "./PullRequestMarkdownEditor.fork"; // fork-hook: upstream-fixes/pr-editor-attachment-import
 
 import { cn } from "~/lib/utils";
 
@@ -25,6 +30,7 @@ export function PullRequestMarkdownEditor({
   label,
   saving,
   allowEmpty = false,
+  attachment,
   className,
   onSave,
   onCancel,
@@ -39,6 +45,8 @@ export function PullRequestMarkdownEditor({
   readonly saving: boolean;
   /** A description may be cleared, which is how one is removed; a remark may not be emptied. */
   readonly allowEmpty?: boolean;
+  /** fork-owned: present only for a connected, host-backed PR description. (upstream-shape debt) */
+  readonly attachment?: PullRequestAttachmentTarget | undefined;
   readonly className?: string | undefined;
   readonly onSave: (next: string) => void;
   readonly onCancel: () => void;
@@ -50,12 +58,19 @@ export function PullRequestMarkdownEditor({
   // words without being rebuilt — and saving would then write the first remark's text onto the
   // second. Different words mean a different subject, and the draft starts again from them.
   const [seed, setSeed] = useState(value);
+  const attachmentFork = usePullRequestAttachmentFork({
+    attachment,
+    environmentId,
+    value,
+    draft,
+    setDraft,
+  }); // fork-hook: upstream-fixes/pr-editor-attachment
   if (seed !== value) {
     setSeed(value);
     setDraft(value);
   }
   const empty = draft.trim().length === 0;
-  const saveDisabled = saving || (empty && !allowEmpty);
+  const saveDisabled = attachmentFork.busy || (empty && !allowEmpty);
 
   return (
     <div
@@ -73,7 +88,7 @@ export function PullRequestMarkdownEditor({
           if (!saveDisabled && !event.repeat) onSave(draft);
           return;
         }
-        if (event.key !== "Escape" || saving) return;
+        if (event.key !== "Escape" || attachmentFork.busy) return;
         event.preventDefault();
         onCancel();
       }}
@@ -82,7 +97,7 @@ export function PullRequestMarkdownEditor({
         aria-label="Markdown editor mode"
         variant="segmented"
         value={[preview ? "preview" : "write"]}
-        disabled={saving}
+        disabled={attachmentFork.busy}
         onValueChange={(next) => {
           const mode = next[0];
           if (mode === "write" || mode === "preview") setPreview(mode === "preview");
@@ -107,16 +122,25 @@ export function PullRequestMarkdownEditor({
       ) : (
         <Textarea
           autoFocus
-          disabled={saving}
+          disabled={attachmentFork.busy}
           value={draft}
           rows={6}
           placeholder={placeholder}
           aria-label={label}
           onChange={(event) => setDraft(event.target.value)}
+          {...attachmentFork.textareaProps} // fork-hook: upstream-fixes/pr-editor-attachment-textarea
         />
       )}
+      {/* fork-hook: upstream-fixes/pr-editor-attachment-bar */}
+      <PullRequestAttachmentBarFork
+        fork={attachmentFork}
+        attachment={attachment}
+        busy={attachmentFork.busy}
+        preview={preview}
+      />
+      {/* fork-hook-end */}
       <div className="flex justify-end gap-2">
-        <Button size="xs" variant="ghost" disabled={saving} onClick={onCancel}>
+        <Button size="xs" variant="ghost" disabled={attachmentFork.busy} onClick={onCancel}>
           Cancel
         </Button>
         <Button size="xs" variant="outline" disabled={saveDisabled} onClick={() => onSave(draft)}>
