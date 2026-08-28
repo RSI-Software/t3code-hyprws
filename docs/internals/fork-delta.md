@@ -104,7 +104,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | Domain                                | Status | Tiers present     | Retires when                                                 |
 | ------------------------------------- | ------ | ----------------- | ------------------------------------------------------------ |
 | [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                |
-| [github-issues](#github-issues)       | Active | core              | Upstream multi-environment Issues on web and desktop.        |
+| [github-issues](#github-issues)       | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.        |
 | [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.                 |
 | [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                   |
 | [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.      |
