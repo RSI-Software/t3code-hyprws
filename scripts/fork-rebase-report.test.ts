@@ -162,11 +162,59 @@ it("renders the accepted vertical split with two lanes and no node circles", () 
   assert.strictEqual(lines[6], "UPSTREAM".padEnd(60) + "HYPRWS");
   assert.strictEqual(
     lines[8],
-    "v0.0.34-nightly.20260823.1163 @ aaaaaaa".padEnd(60) + "fork base @ aaaaaaa",
+    "v0.0.34-nightly.20260823.1164 @ aaaaaaa".padEnd(60) + "fork base @ aaaaaaa",
   );
-  assert.ok(lines.some((line) => line.startsWith("v0.0.34-nightly.20260823.1164 @ aaaaaaa")));
   assert.ok(lines.some((line) => line.endsWith("origin/hyprws @ eeeeeee")));
   assert.notInclude(renderStateGraph(fixture), "○");
+});
+
+// A release run names the target tag, and upstream also tags that commit as a
+// nightly, so the same SHA reaches the ladder under three names.
+const targetTagFixture: ForkRebaseReport = {
+  ...fixture,
+  upstream: {
+    ...fixture.upstream,
+    ref: "v0.0.35",
+    sha: upstreamTagged.sha,
+    shortSha: upstreamTagged.shortSha,
+    releases: [
+      ...fixture.upstream.releases.slice(0, 2),
+      {
+        tag: "v0.0.35",
+        sha: upstreamTagged.sha,
+        shortSha: upstreamTagged.shortSha,
+        commitsSincePrevious: [upstreamTagged],
+      },
+      {
+        tag: "v0.0.35-nightly.20260827.1202",
+        sha: upstreamTagged.sha,
+        shortSha: upstreamTagged.shortSha,
+        commitsSincePrevious: [],
+      },
+    ],
+    unreleasedCommits: [],
+  },
+};
+
+it("ends the ladder once on the target tag and drops rungs carrying no commits", () => {
+  const graph = renderStateGraph(targetTagFixture);
+  const upstreamLane = graph
+    .split("\n")
+    .slice(8)
+    .map((row) => row.slice(0, 60).trimEnd());
+  assert.deepStrictEqual(upstreamLane, [
+    "v0.0.34-nightly.20260823.1164 @ aaaaaaa",
+    "        │",
+    "        │ 1 commit",
+    "        v",
+    "v0.0.35 @ bbbbbbb",
+    "",
+    "",
+    "",
+    "",
+  ]);
+  assert.notInclude(graph, "0 commits");
+  assert.notInclude(graph, "nightly.20260827.1202");
 });
 
 it("renders compact release dividers and changelogs on both sides", () => {
@@ -181,6 +229,16 @@ it("renders compact release dividers and changelogs on both sides", () => {
   assert.include(markdown, "feat(desktop): released fork change");
   assert.notInclude(markdown, "###");
   assert.strictEqual(markdown.endsWith("\n"), true);
+});
+
+it("reads the feasibility section before the state ladder", () => {
+  const markdown = renderMarkdown(fixture);
+  assert.ok(markdown.indexOf("## Feasibility") < markdown.indexOf("## State"));
+  assert.ok(markdown.indexOf("## State") < markdown.indexOf("```text"));
+  assert.ok(
+    markdown.indexOf("Feasibility: clean through") < markdown.indexOf("**Fast-forward boundary.**"),
+  );
+  assert.strictEqual(markdown.split("Feasibility: clean through").length - 1, 1);
 });
 
 it("encodes versioned, stable, ANSI-free JSON", () => {
@@ -230,6 +288,21 @@ interface GitFixture {
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" }).trim();
+
+const captureStdout = (body: () => void): string => {
+  const original = process.stdout.write;
+  const chunks: Array<string> = [];
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    body();
+  } finally {
+    process.stdout.write = original;
+  }
+  return chunks.join("");
+};
 
 const writeLines = (root: string, path: string, changes: Readonly<Record<number, string>> = {}) => {
   const lines = Array.from({ length: 36 }, (_, index) => changes[index + 1] ?? `line ${index + 1}`);
@@ -440,6 +513,34 @@ it("treats merge-tree exit codes above one as command errors", () => {
       ),
     MergeTreeError,
   );
+});
+
+it("writes the report once and reports unchanged outputs on a rerun", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    const args = ["--json-out", "report.json", "--markdown-out", "report.md"];
+    const first = captureStdout(() => {
+      assert.strictEqual(run(args, fixtureRepo.root), 0);
+    });
+    assert.deepStrictEqual(first.trimEnd().split("\n"), [
+      "updated: report.json",
+      "updated: report.md",
+    ]);
+
+    const markdownPath = NodePath.join(fixtureRepo.root, "report.md");
+    const writtenAt = NodeFS.statSync(markdownPath).mtimeMs;
+    const second = captureStdout(() => {
+      assert.strictEqual(run(args, fixtureRepo.root), 0);
+    });
+    assert.notInclude(second, "updated:");
+    assert.deepStrictEqual(second.trimEnd().split("\n"), [
+      "unchanged: report.json",
+      "unchanged: report.md",
+    ]);
+    assert.strictEqual(NodeFS.statSync(markdownPath).mtimeMs, writtenAt);
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
 });
 
 it("checks schema v3 output for default and explicit targets and detects a moved ref", () => {
