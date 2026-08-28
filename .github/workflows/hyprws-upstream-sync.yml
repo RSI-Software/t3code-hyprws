@@ -1,4 +1,4 @@
-name: hyprws rebase report
+name: hyprws upstream sync
 
 # Mirrors upstream/main onto the fork's main, uploads the fork-sync orientation,
 # then rebases the fork stack onto the newest upstream tag inside the clean
@@ -58,7 +58,7 @@ jobs:
           git push origin --tags
 
   generate:
-    name: Generate
+    name: Report
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

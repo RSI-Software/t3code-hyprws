@@ -164,7 +164,7 @@ authenticated.
   ledger. Pass `--target vX.Y.Z` to inspect a release and `--fetch` to refresh both remotes first.
   `--check` performs a byte-for-byte comparison against the files on disk without writing, and a write
   run that produces those same bytes prints `unchanged:` instead of `updated:` and leaves the file
-  alone. The `hyprws-rebase-report.yml` run uploads a fresh pair on every `hyprws` push and on a
+  alone. The `hyprws-upstream-sync.yml` run uploads a fresh pair on every `hyprws` push and on a
   schedule; the report is never committed because it embeds the fork head.
 - `vp run fork:rebase-report:artifact`: Downloads and validates the latest successful workflow
   artifact under `.dump/runs/fork-rebase-report/<run-id>/`. Pass `--run <id>` to inspect a specific
