@@ -366,8 +366,8 @@ Stable releases are normal GitHub releases on the `latest` desktop-update channe
 
 Nightly tags are `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>`, where `X.Y.Z` is the next stable patch
 resolved from the desktop package metadata.
-`.github/workflows/hyprws-release.yml` checks `hyprws` every six hours and publishes a scheduled
-nightly only when its head differs from the newest nightly tag.
+`.github/workflows/hyprws-release.yml` publishes a nightly on every landing on `hyprws`; its
+six-hour schedule is a fallback that publishes only when the head differs from the newest nightly tag.
 A manual dispatch with `channel=nightly` always attempts a build, even when that commit already has a
 nightly.
 Nightlies are prereleases, never become GitHub's latest release, and use the `nightly` desktop-update
