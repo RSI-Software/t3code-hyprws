@@ -122,6 +122,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import { agentActivityTestsFork } from "./server.agentActivity.fork.suite.ts"; // fork-hook: custom-agents/agent-activity-tests-import
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import {
   OrchestrationCommandInvariantError,
@@ -129,6 +130,7 @@ import {
 } from "./orchestration/Errors.ts";
 import { workspaceSymlinkTestsFork } from "./server.workspaceSymlinks.fork.suite.ts"; // fork-hook: upstream-fixes/workspace-symlink-tests-import
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
@@ -1072,6 +1074,7 @@ const buildAppUnderTest = (options?: {
           getThreadShellById: () => Effect.succeedNone,
           getThreadDetailById: () => Effect.succeedNone,
           getThreadDetailSnapshot: () => Effect.succeedNone,
+          getAgentActivitySnapshot: () => Effect.succeedNone, // fork-hook: custom-agents/agent-activity-snapshot-stub
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
           getEventReplayStats: ({ fromSequenceExclusive, toSequenceInclusive }) =>
             Effect.succeed({
@@ -1645,6 +1648,17 @@ const getAuthenticatedSessionCookieHeader = (credential = defaultDesktopBootstra
 
     return cookie.split(";")[0] ?? cookie;
   });
+
+export type AgentActivityHarnessFork = {
+  buildAppUnderTest: typeof buildAppUnderTest;
+  getAuthenticatedSessionCookieHeader: typeof getAuthenticatedSessionCookieHeader;
+  exchangeAccessToken: typeof exchangeAccessToken;
+  defaultDesktopBootstrapToken: typeof defaultDesktopBootstrapToken;
+  getHttpServerUrl: typeof getHttpServerUrl;
+  fetchEffect: typeof fetchEffect;
+  responseJsonEffect: typeof responseJsonEffect;
+  encodeTestJson: typeof encodeTestJson;
+}; // fork-hook: custom-agents/agent-activity-harness
 
 const getAuthenticatedBearerSessionToken = (credential = defaultDesktopBootstrapToken) =>
   Effect.gen(function* () {
@@ -5339,6 +5353,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(second.response.status, 200);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
+
+  agentActivityTestsFork(it, {
+    buildAppUnderTest,
+    getAuthenticatedSessionCookieHeader,
+    exchangeAccessToken,
+    defaultDesktopBootstrapToken,
+    getHttpServerUrl,
+    fetchEffect,
+    responseJsonEffect,
+    encodeTestJson,
+  }); // fork-hook: custom-agents/agent-activity-tests
 
   it.effect("accepts websocket rpc handshake with a bootstrapped browser session cookie", () =>
     Effect.gen(function* () {
