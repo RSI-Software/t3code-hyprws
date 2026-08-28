@@ -29,6 +29,40 @@ export function getOrphanedWorktreePathForThread(
   return isShared ? null : targetWorktreePath;
 }
 
+/**
+ * Worktrees that nothing would point at once every thread in `threadIds` is
+ * gone. A path only counts when every thread linked to it is inside the batch.
+ */
+export function getOrphanedWorktreePathsForThreads(
+  threads: ReadonlyArray<Pick<ThreadShell, "id" | "worktreePath">>,
+  threadIds: ReadonlySet<ThreadShell["id"]>,
+): ReadonlyArray<string> {
+  const survivingPaths = new Set<string>();
+  for (const thread of threads) {
+    if (threadIds.has(thread.id)) continue;
+    const path = thread.worktreePath?.trim();
+    if (path) survivingPaths.add(normalizeProjectPathForComparison(path));
+  }
+
+  const orphaned: string[] = [];
+  const seen = new Set<string>();
+  for (const thread of threads) {
+    if (!threadIds.has(thread.id)) continue;
+    const path = thread.worktreePath?.trim();
+    if (!path) continue;
+    const key = normalizeProjectPathForComparison(path);
+    if (survivingPaths.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    orphaned.push(path);
+  }
+  return orphaned;
+}
+
+/** The same path string can identify different worktrees in different environments. */
+export function scopedWorktreePathKey(environmentId: string, worktreePath: string): string {
+  return `${environmentId}:${worktreePath}`;
+}
+
 export function formatWorktreePathForDisplay(worktreePath: string): string {
   const trimmed = worktreePath.trim();
   if (!trimmed) {
