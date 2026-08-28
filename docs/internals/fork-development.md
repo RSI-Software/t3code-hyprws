@@ -300,25 +300,16 @@ lease push and release.
 Rebase the fork trunk onto upstream history.
 Do not merge `upstream/main` into `hyprws`, because repeated merge commits obscure the patch stack.
 
-Rebase onto an upstream tag, never onto an untagged commit.
-A tag is a state upstream chose to ship, and the fork release takes its version from it.
+Rebase onto a stable upstream tag, never onto an untagged commit and never onto a nightly.
+A tag is a state upstream chose to ship, the fork release takes its version from it, and the apply
+gate refuses anything that is not `vX.Y.Z`.
+When the fork needs a fix upstream has merged but not released, trial it in a worktree and take the
+stable tag that carries it.
 
-The default target is the newest stable `vX.Y.Z`.
-A nightly tag is also fine when the fork needs an upstream fix before the next stable release.
-
-Upstream names nightlies for the version they lead to, so the fork version stays monotonic either way.
-
-[Fork sync](../operations/fork-sync.md) is the step-by-step runbook an agent follows.
-The rules below are the ones that runbook must not break.
-
-Start from a clean `hyprws` worktree, capture the published head, and then rebase.
-
-```bash
-git fetch upstream --tags
-git fetch origin
-expected_old=$(git rev-parse origin/hyprws)
-git rebase vX.Y.Z
-```
+[Fork sync](../operations/fork-sync.md) owns the invariants a sync must not break, and the
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns every command that runs one.
+The rebase itself happens on a disposable `rehearse/<tag>` branch cut from `origin/hyprws`, so the
+`hyprws` worktree is never rewritten in place and never needs to be clean.
 
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active domain.
 It names the upstream paths that would silently invalidate a domain, including the ones that would retire it outright.
@@ -333,20 +324,15 @@ code span, and that issue is re-read at the orient step of every sync.
 
 `vp run fork:upstream-watch` is that re-read.
 It resolves each cited item against the rebase target and says whether the fix is already contained in it.
-The runbook's [orient step](../operations/fork-sync.md#re-read-what-waits-on-upstream) owns the verdicts.
+The runbook's [orientation section](../operations/fork-sync.md#re-read-what-waits-on-upstream) owns the verdicts.
 
 The issue closes only once the upstream fix rides in a fork release and has been verified there, with the
 upstream merge commit and that release named in the closing comment.
 A watch label without a citation is not a watch; it is a forgotten issue.
 
 Run focused verification after resolving conflicts, including `vp run fork:delta --check`.
-Then publish the rewritten branch with an explicit expected-old lease.
-
-```bash
-git push \
-  --force-with-lease=refs/heads/hyprws:"$expected_old" \
-  origin HEAD:hyprws
-```
+Then a human publishes the rewritten branch with an explicit expected-old lease against the published
+head the sync read.
 
 The explicit lease refuses to overwrite remote work that appeared after the fetch.
 Never replace it with an unguarded force push or silently refresh a rejected lease.
@@ -362,7 +348,8 @@ Preserve upstream intent first, then reapply the smallest fork behavior on the n
 Git rerere may replay a previous resolution, but its output is only a candidate.
 Review and verify every reused resolution because upstream behavior may have changed.
 
-When upstream makes a fork patch obsolete, drop the patch.
+When upstream makes a fork patch obsolete, retire it by exact subject through the human decision in
+[Fork delta](./fork-delta.md); a rebase never drops one on its own.
 When upstream moves the architecture, rebuild the behavior at the new boundary instead of preserving dead structure.
 
 ## Releases
@@ -370,16 +357,16 @@ When upstream moves the architecture, rebuild the behavior at the new boundary i
 The fork ships its own Linux desktop build, because an upstream release carries upstream code.
 
 A fork tag is `v<upstream version>-hyprws.<n>`, for example `v0.0.34-hyprws.1`.
-`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto, with any nightly suffix dropped.
+`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto.
 
 `<n>` counts up within one upstream version and restarts at 1 when that version changes.
 
-The release body names the exact upstream tag, so a nightly base is never ambiguous.
+The release body names the exact upstream tag, so the base is never ambiguous.
 
 `.github/workflows/hyprws-release.yml` builds the AppImage and publishes a normal GitHub release, never a prerelease.
 The desktop updater reads its feed from the building repository, so a fork build updates from fork releases.
 
-[Fork sync](../operations/fork-sync.md) owns the tagging steps and the runner setup.
+[Fork sync](../operations/fork-sync.md) owns the release invariants and the runner setup.
 
 ## Implementation order
 
