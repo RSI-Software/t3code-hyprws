@@ -5,10 +5,13 @@ import {
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
+  moveProjectThread,
   parsePersistedState,
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  renameThreadGroup,
+  renameThreadGroupIfCurrent,
   reorderProjectThreads,
   reorderProjects,
   resolveProjectExpanded,
@@ -23,6 +26,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     threadOrderByProject: {},
+    threadGroupsByProject: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -142,6 +146,125 @@ describe("uiStateStore pure functions", () => {
     ).toBe(initialState);
   });
 
+  it("creates, extends, moves, and dissolves visual thread groups", () => {
+    const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
+    const created = moveProjectThread(
+      makeUiState(),
+      "environment:project",
+      order,
+      "environment:c",
+      "environment:b",
+      "group",
+      { id: "group-1", title: "New group" },
+    );
+    expect(created.threadGroupsByProject["environment:project"]).toEqual([
+      {
+        id: "group-1",
+        title: "New group",
+        threadIds: ["environment:c", "environment:b"],
+        collapsed: false,
+      },
+    ]);
+
+    const extended = moveProjectThread(
+      created,
+      "environment:project",
+      created.threadOrderByProject["environment:project"] ?? order,
+      "environment:d",
+      "environment:b",
+      "group",
+    );
+    expect(extended.threadGroupsByProject["environment:project"]?.[0]?.threadIds).toEqual([
+      "environment:c",
+      "environment:d",
+      "environment:b",
+    ]);
+
+    const movedOut = moveProjectThread(
+      extended,
+      "environment:project",
+      extended.threadOrderByProject["environment:project"] ?? order,
+      "environment:c",
+      "environment:a",
+      "reorder",
+    );
+    expect(movedOut.threadGroupsByProject["environment:project"]?.[0]?.threadIds).toEqual([
+      "environment:d",
+      "environment:b",
+    ]);
+
+    const dissolved = moveProjectThread(
+      movedOut,
+      "environment:project",
+      movedOut.threadOrderByProject["environment:project"] ?? order,
+      "environment:d",
+      "environment:a",
+      "reorder",
+    );
+    expect(dissolved.threadGroupsByProject["environment:project"]).toEqual([]);
+  });
+
+  it("does not apply a generated title after the group changes", () => {
+    const projectKey = "environment:project";
+    const initial = makeUiState({
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            id: "group-1",
+            title: "New group",
+            threadIds: ["environment:a", "environment:b"],
+            collapsed: false,
+          },
+        ],
+      },
+    });
+    const expected = {
+      title: "New group",
+      threadIds: ["environment:a", "environment:b"],
+    };
+
+    const generated = renameThreadGroupIfCurrent(
+      initial,
+      projectKey,
+      "group-1",
+      expected,
+      "Generated name",
+    );
+    expect(generated.threadGroupsByProject[projectKey]?.[0]?.title).toBe("Generated name");
+
+    const manuallyRenamed = renameThreadGroup(initial, projectKey, "group-1", "Manual name");
+    expect(
+      renameThreadGroupIfCurrent(
+        manuallyRenamed,
+        projectKey,
+        "group-1",
+        expected,
+        "Late generated name",
+      ),
+    ).toBe(manuallyRenamed);
+
+    const membershipChanged = {
+      ...initial,
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            ...initial.threadGroupsByProject[projectKey]![0]!,
+            threadIds: ["environment:a", "environment:b", "environment:c"],
+          },
+        ],
+      },
+    };
+    expect(
+      renameThreadGroupIfCurrent(
+        membershipChanged,
+        projectKey,
+        "group-1",
+        expected,
+        "Late generated name",
+      ),
+    ).toBe(membershipChanged);
+  });
+
   it("stores explicit changed-file expansion choices", () => {
     const threadId = ThreadId.make("thread-1");
     const collapsed = setThreadChangedFilesExpanded(makeUiState(), threadId, "turn-1", false);
@@ -189,6 +312,16 @@ describe("parsePersistedState", () => {
         ],
         invalid: [] as string[],
       },
+      threadGroupsByProject: {
+        "environment:project-1": [
+          {
+            id: "group-1",
+            title: " Related work ",
+            threadIds: ["environment:thread-2", "environment:thread-1"],
+            collapsed: false,
+          },
+        ],
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -210,6 +343,16 @@ describe("parsePersistedState", () => {
       projectOrder: ["physical-b", "physical-a"],
       threadOrderByProject: {
         "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+      },
+      threadGroupsByProject: {
+        "environment:project-1": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["environment:thread-2", "environment:thread-1"],
+            collapsed: false,
+          },
+        ],
       },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
@@ -336,6 +479,7 @@ describe("uiStateStore persistence", () => {
       threadOrderByProject: {
         "environment:project-1": ["environment:thread-2", "environment:thread-1"],
       },
+      threadGroupsByProject: {},
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
