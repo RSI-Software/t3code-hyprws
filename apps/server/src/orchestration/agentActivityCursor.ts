@@ -22,9 +22,16 @@ export function encodeAgentActivityPageCursor(cursor: AgentActivityPageCursor): 
 }
 
 export function decodeAgentActivityPageCursor(encoded: string): AgentActivityPageCursor | null {
+  if (!/^[A-Za-z0-9_-]+$/u.test(encoded)) {
+    return null;
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    const decoded = Buffer.from(encoded, "base64url");
+    if (decoded.toString("base64url") !== encoded) {
+      return null;
+    }
+    parsed = JSON.parse(decoded.toString("utf8"));
   } catch {
     return null;
   }
@@ -54,4 +61,13 @@ export function decodeAgentActivityPageCursor(encoded: string): AgentActivityPag
     beforeCreatedAt: record.c,
     beforeActivityId: record.i,
   };
+}
+
+export function isAgentActivityPageCursorFor(
+  encoded: string,
+  threadId: ThreadId,
+  agentId: string,
+): boolean {
+  const cursor = decodeAgentActivityPageCursor(encoded);
+  return cursor !== null && cursor.threadId === threadId && cursor.agentId === agentId;
 }
