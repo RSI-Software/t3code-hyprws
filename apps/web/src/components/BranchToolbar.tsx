@@ -1,8 +1,10 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
 import {
   ChevronDownIcon,
   CloudIcon,
+  FolderCogIcon,
   FolderGit2Icon,
   FolderGitIcon,
   FolderIcon,
@@ -12,10 +14,6 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
-import { useEnvironmentSettings } from "../hooks/useSettings";
-import { useT3ProjectFileState } from "../hooks/useT3ProjectFileScripts";
-import { projectEnvironment } from "../state/projects";
-import { useAtomCommand } from "../state/use-atom-command";
 import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/entities";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import {
@@ -31,15 +29,10 @@ import {
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import {
-  BranchToolbarEnvModeSelector,
-  WORKTRUNK_HOOKS_LABEL,
-  type WorktrunkHooksControl,
-} from "./BranchToolbarEnvModeSelector";
+import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { Button } from "./ui/button";
 import {
   Menu,
-  MenuCheckboxItem,
   MenuGroup,
   MenuGroupLabel,
   MenuPopup,
@@ -62,6 +55,7 @@ interface BranchToolbarProps {
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   envLocked: boolean;
+  activeWorktrunk?: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
   availableEnvironments?: readonly EnvironmentOption[];
@@ -78,10 +72,10 @@ interface MobileRunContextSelectorProps {
   onEnvironmentChange: ((environmentId: EnvironmentId) => void) | undefined;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  activeWorktrunk: boolean;
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
-  worktrunkHooks: WorktrunkHooksControl | null;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -94,25 +88,27 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvironmentChange,
   effectiveEnvMode,
   activeWorktreePath,
+  activeWorktrunk,
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
-  worktrunkHooks,
 }: MobileRunContextSelectorProps) {
   const activeEnvironment = useMemo(
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
     [availableEnvironments, environmentId],
   );
   const WorkspaceIcon =
-    effectiveEnvMode === "worktree"
-      ? FolderGit2Icon
-      : activeWorktreePath
-        ? FolderGitIcon
-        : FolderIcon;
+    activeWorktrunk || effectiveEnvMode === "worktrunk"
+      ? FolderCogIcon
+      : effectiveEnvMode === "worktree"
+        ? FolderGit2Icon
+        : activeWorktreePath
+          ? FolderGitIcon
+          : FolderIcon;
   const workspaceLabel = envModeLocked
-    ? resolveLockedWorkspaceLabel(activeWorktreePath)
-    : effectiveEnvMode === "worktree"
-      ? resolveEnvModeLabel("worktree")
+    ? resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)
+    : isWorktreeEnvMode(effectiveEnvMode)
+      ? resolveEnvModeLabel(effectiveEnvMode)
       : resolveCurrentWorkspaceLabel(activeWorktreePath);
   const isLocked = envLocked || envModeLocked;
   const EnvironmentIcon = activeEnvironment?.isPrimary ? MonitorIcon : CloudIcon;
@@ -211,6 +207,12 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
               </span>
             </MenuRadioItem>
+            <MenuRadioItem disabled={envModeLocked} value="worktrunk">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <FolderCogIcon className="size-3" />
+                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktrunk")}</span>
+              </span>
+            </MenuRadioItem>
             {previousWorktreeLabel ? (
               <MenuRadioItem disabled={envModeLocked} value="previous-worktree">
                 <span className="flex min-w-0 items-center gap-1.5">
@@ -220,15 +222,6 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
               </MenuRadioItem>
             ) : null}
           </MenuRadioGroup>
-          {effectiveEnvMode === "worktree" && worktrunkHooks ? (
-            <MenuCheckboxItem
-              variant="switch"
-              checked={worktrunkHooks.enabled}
-              onCheckedChange={() => worktrunkHooks.onToggle()}
-            >
-              {WORKTRUNK_HOOKS_LABEL}
-            </MenuCheckboxItem>
-          ) : null}
         </MenuGroup>
       </MenuPopup>
     </Menu>
@@ -405,6 +398,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   startFromOrigin,
   onStartFromOriginChange,
   envLocked,
+  activeWorktrunk = false,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
   availableEnvironments,
@@ -435,34 +429,6 @@ export const BranchToolbar = memo(function BranchToolbar({
       draftThreadEnvMode: draftThread?.envMode,
     });
   const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
-
-  // Resolved the way the server gates hooks: project record, then t3.json,
-  // then the environment setting. The file query only runs while the picker
-  // can show the item.
-  const settings = useEnvironmentSettings(environmentId);
-  const t3File = useT3ProjectFileState(
-    environmentId,
-    !envModeLocked && effectiveEnvMode === "worktree" && activeProject
-      ? activeProject.workspaceRoot
-      : null,
-  );
-  const updateProject = useAtomCommand(projectEnvironment.update);
-  const worktrunkHooksEnabled =
-    activeProject?.worktrunkHooks ?? t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
-  const worktrunkHooks = useMemo<WorktrunkHooksControl | null>(
-    () =>
-      activeProject
-        ? {
-            enabled: worktrunkHooksEnabled,
-            onToggle: () =>
-              void updateProject({
-                environmentId: activeProject.environmentId,
-                input: { projectId: activeProject.id, worktrunkHooks: !worktrunkHooksEnabled },
-              }),
-          }
-        : null,
-    [activeProject, updateProject, worktrunkHooksEnabled],
-  );
 
   // "Previous worktree" hops a draft into the most recently active worktree
   // of this project — the "keep going where I just was" follow-up flow. Only
@@ -530,10 +496,10 @@ export const BranchToolbar = memo(function BranchToolbar({
           onEnvironmentChange={onEnvironmentChange}
           effectiveEnvMode={effectiveEnvMode}
           activeWorktreePath={activeWorktreePath}
+          activeWorktrunk={activeWorktrunk}
           onEnvModeChange={onEnvModeChange}
           previousWorktreeLabel={previousWorktreeLabel}
           onUsePreviousWorktree={onUsePreviousWorktree}
-          worktrunkHooks={worktrunkHooks}
         />
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -559,10 +525,10 @@ export const BranchToolbar = memo(function BranchToolbar({
               envLocked={envModeLocked}
               effectiveEnvMode={effectiveEnvMode}
               activeWorktreePath={activeWorktreePath}
+              activeWorktrunk={activeWorktrunk}
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               onUsePreviousWorktree={onUsePreviousWorktree}
-              worktrunkHooks={worktrunkHooks}
             />
           ) : null}
         </div>
