@@ -23,12 +23,14 @@ import {
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
+  resolveCompletedTurnTiming,
   resolveProjectStatusIndicator,
   resolveSidebarRowAccessibility,
   resolveSidebarThreadStatus,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   searchSidebarThreads,
+  shouldShowSidebarDoneStatus,
   formatWorkingDurationLabel,
   shouldClearThreadSelectionOnMouseDown,
   shouldRecedeSidebarThread,
@@ -341,10 +343,11 @@ describe("buildMultiSelectThreadContextMenuItems", () => {
 export function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
+  state?: OrchestrationLatestTurn["state"];
 }): OrchestrationLatestTurn {
   return {
     turnId: "turn-1" as never,
-    state: "completed",
+    state: overrides?.state ?? "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
     startedAt:
