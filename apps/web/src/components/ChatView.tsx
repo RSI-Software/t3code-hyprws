@@ -7120,6 +7120,15 @@ function ChatViewContent(props: ChatViewProps) {
       <GitHubIssueDetailPanel
         key={`${activeRightPanelSurface.environmentId}:${activeRightPanelSurface.projectId}:${activeRightPanelSurface.repository}#${activeRightPanelSurface.number}`}
         environmentId={activeRightPanelSurface.environmentId as EnvironmentId}
+        onSelectSubIssue={(child) => {
+          if (!activeThreadRef) return;
+          useRightPanelStore.getState().openGitHubIssue(activeThreadRef, {
+            environmentId: activeRightPanelSurface.environmentId,
+            projectId: activeRightPanelSurface.projectId,
+            repository: activeRightPanelSurface.repository,
+            number: child.number,
+          });
+        }}
         reference={{
           projectId: activeRightPanelSurface.projectId as ProjectId,
           repository: activeRightPanelSurface.repository,
