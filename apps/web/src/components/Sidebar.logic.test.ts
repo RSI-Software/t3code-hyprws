@@ -6,9 +6,16 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   archiveSelectedThreadEntries,
+  buildCreateThreadGroupContextMenuItem,
+  buildSidebarThreadGroupLayout,
+  buildSidebarThreadSortableItems,
+  buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
+  isSidebarThreadGroupDrop,
+  isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   resolveSidebarRowThreadId,
   isSidebarThreadWorking,
   orderItemsByPreferredIds,
