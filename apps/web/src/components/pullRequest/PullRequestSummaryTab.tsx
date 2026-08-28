@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
+import * as Option from "effect/Option"; // fork-hook: web/pull-request-attachments-import
 import {
   memo,
   useEffect,
@@ -39,6 +40,7 @@ import { m, type MessageResolver } from "~/i18n/messages";
 
 import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { usePreparedConnection } from "~/state/session"; // fork-hook: web/pull-request-attachments-import
 import { cn } from "~/lib/utils";
 import { useOpenLink } from "~/browser/useOpenLink";
 import { RelativeTime } from "~/components/RelativeTime";
@@ -634,6 +636,7 @@ export const PullRequestSummaryTab = memo(function PullRequestSummaryTab({
   };
 
   const update = useAtomCommand(pullRequestEnvironment.update, { reportFailure: false });
+  const preparedConnection = usePreparedConnection(environmentId); // fork-hook: web/pull-request-attachments
   const updateComment = useAtomCommand(pullRequestEnvironment.updateComment, {
     reportFailure: false,
   });
@@ -1057,6 +1060,17 @@ export const PullRequestSummaryTab = memo(function PullRequestSummaryTab({
                 "Describe this {term, select, mr {merge request} cr {change request} other {pull request}}",
                 { term: changeRequestTermKind(terminology) },
               )}
+              attachment={
+                // fork-hook: web/pull-request-attachments — the whole reference rides
+                // along (host included) exactly as trunk's editor consumer passes it.
+                detail.capabilities.attachments === true && Option.isSome(preparedConnection)
+                  ? {
+                      httpBaseUrl: preparedConnection.value.httpBaseUrl,
+                      reference,
+                    }
+                  : undefined
+              }
+
               saving={descriptionSaving}
               onSave={(body) => void saveBody(body)}
               onCancel={() => setBodyScope(null)}
