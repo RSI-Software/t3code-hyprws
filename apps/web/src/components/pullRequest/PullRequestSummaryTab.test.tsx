@@ -3,6 +3,11 @@ import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
+// fork-hook: web/pull-request-attachments — the fork adds the prepared-connection
+// attachment binding to the description editor; the tests here do not exercise it.
+vi.mock("~/state/session", () => ({
+  usePreparedConnection: () => ({ _tag: "None" }),
+}));
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
 vi.mock("~/state/pullRequests", () => ({ pullRequestEnvironment: {} }));
 vi.mock("~/browser/useOpenLink", () => ({ useOpenLink: () => vi.fn() }));
