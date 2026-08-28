@@ -142,6 +142,7 @@ import type { QueuedComposerMessage } from "../../queuedMessageStore";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
+import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";
 import {
   buildAttachmentVideoAsset,
   buildAttachmentVideoPreview,
@@ -298,7 +299,7 @@ interface TimelineRowSharedState {
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
   expandedSpawnEntryIds: ReadonlySet<string>;
-  onOpenAgents: () => void;
+  onOpenAgents: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   onCancelWorktreeSetup: (() => void) | null;
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
@@ -406,7 +407,7 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   agentPanelModel?: AgentPanelModel;
-  onOpenAgents?: () => void;
+  onOpenAgents?: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -4636,6 +4637,12 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     onToggleSpawnRow(workEntry.id, !expanded);
   };
 
+  const openTarget = resolveAgentSpawnOpenTarget({
+    workflowId: spawn.workflowId,
+    agentTaskIds: spawn.agentTaskIds,
+    visibleAgentIds: agents.map((agent) => agent.id),
+  });
+
   return (
     <div className="flex flex-col">
       <button
@@ -4658,7 +4665,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
           ))}
           <button
             type="button"
-            onClick={onOpenAgents}
+            onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}
             className="mt-1 self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground"
           >
             Open Agents panel ›
