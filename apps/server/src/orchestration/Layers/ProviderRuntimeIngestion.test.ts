@@ -7,8 +7,9 @@ import {
   OrchestrationReadModel,
   ProviderDriverKind,
   ProviderRuntimeEvent,
-  ProviderSession,
   ProviderInstanceId,
+  ProviderSession,
+  RuntimeItemId,
 } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
@@ -18,7 +19,6 @@ import {
   MessageId,
   type OrchestrationCommand,
   ProjectId,
-  ProviderItemId,
   type ServerSettings,
   ThreadId,
   TurnId,
@@ -47,7 +47,10 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
-import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
+import {
+  ProviderRuntimeIngestionLive,
+  runtimeEventToActivities,
+} from "./ProviderRuntimeIngestion.ts";
 import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
@@ -61,11 +64,77 @@ function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
 }
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
+const asItemId = (value: string): RuntimeItemId => RuntimeItemId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+
+describe("attributed item ingestion", () => {
+  it("folds live and replayed Codex and Claude child work identically", () => {
+    const makeClaudeEvent = (eventId: string): ProviderRuntimeEvent => ({
+      type: "item.completed",
+      eventId: asEventId(eventId),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: asThreadId("thread-1"),
+      itemId: asItemId("assistant-child-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Agent message",
+        detail: "child answer ".repeat(40),
+        agentId: "task-child-1",
+        timelineBypass: true,
+        data: { result: "unbounded child result ".repeat(100) },
+      },
+    });
+    const makeCodexEvent = (eventId: string): ProviderRuntimeEvent => ({
+      type: "item.updated",
+      eventId: asEventId(eventId),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: asThreadId("thread-1"),
+      itemId: asItemId("codex-child-1"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command",
+        detail: "command output ".repeat(40),
+        agentId: "codex-child-thread-1",
+        timelineBypass: true,
+        data: { item: { aggregatedOutput: "unbounded child output ".repeat(100) } },
+      },
+    });
+    const normalize = (event: ProviderRuntimeEvent) =>
+      runtimeEventToActivities(event).map(({ id: _id, ...activity }) => activity);
+
+    expect(normalize(makeClaudeEvent("evt-live-claude"))).toEqual(
+      normalize(makeClaudeEvent("evt-replay-claude")),
+    );
+    expect(normalize(makeCodexEvent("evt-live-codex"))).toEqual(
+      normalize(makeCodexEvent("evt-replay-codex")),
+    );
+    expect(normalize(makeClaudeEvent("evt-live-claude"))[0]).toMatchObject({
+      kind: "tool.completed",
+      payload: {
+        agentId: "task-child-1",
+        timelineBypass: true,
+        detail: expect.stringMatching(/^.{177}\.\.\.$/s),
+      },
+    });
+    expect(normalize(makeCodexEvent("evt-live-codex"))[0]).toMatchObject({
+      kind: "tool.updated",
+      payload: {
+        agentId: "codex-child-thread-1",
+        timelineBypass: true,
+        detail: expect.stringMatching(/^.{177}\.\.\.$/s),
+      },
+    });
+    expect(normalize(makeClaudeEvent("evt-live-claude"))[0]?.payload).not.toHaveProperty("data");
+    expect(normalize(makeCodexEvent("evt-live-codex"))[0]?.payload).not.toHaveProperty("data");
+  });
+});
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
