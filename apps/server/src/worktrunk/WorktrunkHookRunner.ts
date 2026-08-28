@@ -8,16 +8,21 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 
-import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
-import * as ServerSettings from "../serverSettings.ts";
 
 const HOOK_TIMEOUT = "5 minutes";
 
+/**
+ * Marker file T3 Code drops beside git's own `locked` marker in a linked
+ * worktree's gitdir (`.git/worktrees/<name>/`) when it creates the worktree in
+ * Worktrunk mode. Its presence is what makes the remove hooks run later, and
+ * `git worktree remove` deletes the directory with it.
+ */
+export const WORKTRUNK_MARKER_FILE = "t3-worktrunk";
+
 export type WorktrunkHookOperation = "pre-start" | "post-start" | "pre-remove" | "post-remove";
 
-export type WorktrunkHookSkipReason = "disabled" | "missing-config" | "missing-binary";
+export type WorktrunkHookSkipReason = "missing-config" | "missing-binary";
 
 export interface WorktrunkHookSkippedResult {
   readonly status: "skipped";
@@ -59,16 +64,19 @@ export interface WorktrunkPostRemoveHookInput {
 
 /**
  * Runs the project's Worktrunk lifecycle hooks around a worktree T3 Code
- * created itself, so the worktree matches one made with `wt switch --create`.
- * Every hook runs headless through `wt hook <type> --yes`; `pre-*` hooks block
- * and `post-start` returns once `wt` has detached its hooks, exactly as the
- * `wt` commands do. The project record, `t3.json`, settings, `.config/wt.toml`,
- * and the `wt` binary gate every call, in that order; a skipped hook leaves
- * upstream behaviour untouched.
+ * created in Worktrunk mode, so the worktree matches one made with
+ * `wt switch --create`. `runCreateHooks` marks the worktree first, and
+ * `isWorktrunkWorktree` reads that marker so removal runs the matching hooks
+ * only for a worktree that started this way. Every hook runs headless through
+ * `wt hook <type> --yes`; `pre-*` hooks block and `post-start` returns once
+ * `wt` has detached its hooks, exactly as the `wt` commands do. `.config/wt.toml`
+ * and the `wt` binary gate every call; a skipped hook leaves upstream
+ * behaviour untouched.
  */
 export class WorktrunkHookRunner extends Context.Service<
   WorktrunkHookRunner,
   {
+    readonly isWorktrunkWorktree: (worktreePath: string) => Effect.Effect<boolean>;
     readonly runCreateHooks: (
       input: WorktrunkCreateHooksInput,
     ) => Effect.Effect<WorktrunkHookResult>;
@@ -114,9 +122,6 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const processRunner = yield* ProcessRunner.ProcessRunner;
-  const projectFileLoader = yield* T3ProjectFileLoader.T3ProjectFileLoader;
-  const projectRepository = yield* ProjectionProjectRepository;
-  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const hostEnvironment = yield* HostProcessEnvironment;
   const env = stripInheritedTmuxEnv(hostEnvironment);
 
@@ -125,64 +130,47 @@ export const make = Effect.gen(function* () {
       Effect.as({ status: "skipped", reason } as const),
     );
 
-  // The project record's override wins over t3.json and settings. Hooks run
-  // against the project checkout, so the record is the one whose workspace
-  // root is that checkout; a group of checkouts each carries its own row.
-  const projectOverride = Effect.fn("WorktrunkHookRunner.projectOverride")(function* (
-    projectCwd: string,
+  // A linked worktree's `.git` is a file naming its gitdir under the main
+  // repository; that directory holds per-worktree state such as git's own
+  // `locked` marker, and it is where the Worktrunk marker lives.
+  const resolveMarkerPath = Effect.fn("WorktrunkHookRunner.resolveMarkerPath")(function* (
+    worktreePath: string,
   ) {
-    const projects = yield* projectRepository.listAll().pipe(
-      Effect.catch((error) =>
-        Effect.logDebug(
-          "Worktrunk hooks ignored the project override; projects could not be read",
-          {
-            projectCwd,
-            detail: error.message,
-          },
-        ).pipe(
-          Effect.as(
-            [] as ReadonlyArray<{
-              readonly workspaceRoot: string;
-              readonly deletedAt: string | null;
-              readonly worktrunkHooks?: boolean | null;
-            }>,
-          ),
-        ),
-      ),
-    );
-    const target = path.resolve(projectCwd);
-    for (const project of projects) {
-      if (project.deletedAt !== null || path.resolve(project.workspaceRoot) !== target) continue;
-      if (project.worktrunkHooks != null) return project.worktrunkHooks;
-    }
-    return undefined;
+    const contents = yield* fileSystem
+      .readFileString(path.join(worktreePath, ".git"))
+      .pipe(Effect.option);
+    if (Option.isNone(contents)) return null;
+    const match = /^gitdir:[ \t]*(.+?)[ \t]*$/m.exec(contents.value);
+    if (!match?.[1]) return null;
+    return path.join(path.resolve(worktreePath, match[1]), WORKTRUNK_MARKER_FILE);
   });
 
-  const checkEnabled = Effect.fn("WorktrunkHookRunner.checkEnabled")(function* (
-    projectCwd: string,
+  const isWorktrunkWorktree: WorktrunkHookRunner["Service"]["isWorktrunkWorktree"] = Effect.fn(
+    "WorktrunkHookRunner.isWorktrunkWorktree",
+  )(function* (worktreePath) {
+    const marker = yield* resolveMarkerPath(worktreePath);
+    if (marker === null) return false;
+    return yield* fileSystem.exists(marker).pipe(Effect.orElseSucceed(() => false));
+  });
+
+  const markWorktrunk = Effect.fn("WorktrunkHookRunner.markWorktrunk")(function* (
+    worktreePath: string,
   ) {
-    const override = yield* projectOverride(projectCwd);
-    if (override !== undefined) return override;
-    const settingsEnabled = yield* serverSettings.getSettings.pipe(
-      Effect.map((settings) => settings.worktrunkHooks),
-      Effect.catch((error) =>
-        Effect.logDebug("Worktrunk hooks disabled because settings could not be read", {
-          projectCwd,
-          detail: error.message,
-        }).pipe(Effect.as(false)),
-      ),
-    );
-    const projectFile = yield* projectFileLoader.load(projectCwd);
-    return Option.getOrUndefined(projectFile)?.worktrunkHooks ?? settingsEnabled;
+    const marker = yield* resolveMarkerPath(worktreePath);
+    const warn = (detail?: string) =>
+      Effect.logWarning("Worktrunk worktree could not be marked; remove hooks will not run", {
+        worktreePath,
+        ...(detail ? { detail } : {}),
+      });
+    if (marker === null) return yield* warn();
+    yield* fileSystem
+      .writeFileString(marker, "")
+      .pipe(Effect.catch((error) => warn(error.message)));
   });
 
   const gate = Effect.fn("WorktrunkHookRunner.gate")(function* (
     projectCwd: string,
   ): Effect.fn.Return<WorktrunkHookSkippedResult | null> {
-    if (!(yield* checkEnabled(projectCwd))) {
-      return yield* skipped("disabled", projectCwd);
-    }
-
     const configPath = path.join(projectCwd, ".config", "wt.toml");
     const hasConfig = yield* fileSystem.exists(configPath).pipe(Effect.orElseSucceed(() => false));
     if (!hasConfig) {
@@ -278,6 +266,9 @@ export const make = Effect.gen(function* () {
   const runCreateHooks: WorktrunkHookRunner["Service"]["runCreateHooks"] = Effect.fn(
     "WorktrunkHookRunner.runCreateHooks",
   )(function* (input) {
+    // Mark before gating so a later removal still runs its hooks once `wt`
+    // or the config shows up, as it would for a worktree `wt` created itself.
+    yield* markWorktrunk(input.worktreePath);
     const gateResult = yield* gate(input.projectCwd);
     if (gateResult) return gateResult;
 
@@ -337,7 +328,12 @@ export const make = Effect.gen(function* () {
     });
   });
 
-  return WorktrunkHookRunner.of({ runCreateHooks, runPreRemoveHook, runPostRemoveHook });
+  return WorktrunkHookRunner.of({
+    isWorktrunkWorktree,
+    runCreateHooks,
+    runPreRemoveHook,
+    runPostRemoveHook,
+  });
 });
 
 export const layer = Layer.effect(WorktrunkHookRunner, make);
