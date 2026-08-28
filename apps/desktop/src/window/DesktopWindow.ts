@@ -43,6 +43,7 @@ import {
 } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 
 const TITLEBAR_HEIGHT = 40;
 // Match --workspace-topbar-height in apps/web/src/index.css; native macOS buttons stay 14 points at any zoom.
@@ -597,6 +598,7 @@ export const make = Effect.gen(function* () {
           { role: "paste", enabled: params.editFlags.canPaste },
           { role: "selectAll", enabled: params.editFlags.canSelectAll },
         );
+        if (!trimAppContextMenuFork(menuTemplate, params, contents === window.webContents)) return; // fork-hook: upstream-fixes/themed-context-menu
 
         void runPromise(
           electronMenu.popupTemplate({
