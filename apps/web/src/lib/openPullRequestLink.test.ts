@@ -4,6 +4,7 @@ import {
   changeRequestRepositoryUrl,
   findProjectForChangeRequest,
   findProjectOnChangeRequestHost,
+  findProjectForGitHubLink,
   findProjectForGitHubIssue,
   gitHubPullRequestBrowserUrl,
   matchesLinkedPullRequestUrl,
