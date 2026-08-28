@@ -109,13 +109,20 @@ describe("ChatMarkdown GitHub links", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown
         cwd="/tmp/project"
-        text="[the issue](https://github.com/RSI-Software/t3code-hyprws/issues/167)"
+        text="[Each stable tag lands through a rehearsed rebase](https://github.com/RSI-Software/t3code-hyprws/issues/167)"
       />,
     );
 
     expect(html).toContain("RSI-Software/t3code-hyprws#167");
-    expect(html).toContain('aria-label="Open in issue panel"');
+    expect(html).toContain("Each stable tag lands through a rehearsed rebase");
+    expect(html).toContain('data-github-link-kind="issue"');
+    expect(html).toContain('title="Default: issue panel"');
+    expect(html).toContain('role="toolbar"');
+    expect(html).toContain('aria-label="Open in issue panel, default"');
     expect(html).toContain('aria-label="Open in external browser"');
+    expect(html.indexOf('aria-label="Open in external browser"')).toBeLessThan(
+      html.indexOf('aria-label="Open in issue panel, default"'),
+    );
   });
 
   it("does not offer a native panel for repository links", () => {
@@ -126,8 +133,11 @@ describe("ChatMarkdown GitHub links", () => {
       />,
     );
 
+    expect(html).toContain("RSI-Software/t3code-hyprws");
     expect(html).toContain("the repository");
-    expect(html).toContain('aria-label="Open in external browser"');
+    expect(html).toContain('data-github-link-kind="repository"');
+    expect(html).toContain('title="Default: external browser"');
+    expect(html).toContain('aria-label="Open in external browser, default"');
     expect(html).not.toContain('aria-label="Open in issue panel"');
     expect(html).not.toContain('aria-label="Open in pull request panel"');
   });
