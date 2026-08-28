@@ -16,10 +16,12 @@ import {
   TagIcon,
   UsersIcon,
 } from "lucide-react";
+import * as Option from "effect/Option";
 import { useRef, useState, type ReactNode } from "react";
 
 import { useAtomCommand } from "~/state/use-atom-command";
 import { pullRequestEnvironment } from "~/state/pullRequests";
+import { usePreparedConnection } from "~/state/session";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -463,6 +465,7 @@ export function PullRequestSummaryTab({
   };
 
   const update = useAtomCommand(pullRequestEnvironment.update, { reportFailure: false });
+  const preparedConnection = usePreparedConnection(environmentId);
   const updateComment = useAtomCommand(pullRequestEnvironment.updateComment, {
     reportFailure: false,
   });
@@ -659,6 +662,18 @@ export function PullRequestSummaryTab({
               cwd={detail.workspaceRoot}
               environmentId={environmentId}
               label="Pull request description"
+              attachment={
+                detail.capabilities.attachments === true && Option.isSome(preparedConnection)
+                  ? {
+                      httpBaseUrl: preparedConnection.value.httpBaseUrl,
+                      reference: {
+                        projectId: detail.projectId,
+                        repository: detail.repository,
+                        number: detail.number,
+                      },
+                    }
+                  : undefined
+              }
               placeholder="Describe this pull request"
               saving={bodySaving}
               onSave={(body) => void saveBody(body)}
