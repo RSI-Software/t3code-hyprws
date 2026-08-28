@@ -22,6 +22,9 @@ import { Tooltip, TooltipTrigger } from "~/components/ui/tooltip";
 import { SharedTooltipTrigger } from "~/components/ui/shared-tooltip";
 import { cn } from "~/lib/utils";
 
+import type { BrowserBookmarkScope } from "~/browserBookmarkStore";
+import { PreviewBookmarkMenu } from "./PreviewBookmarkMenu";
+
 interface Props {
   url: string;
   loading: boolean;
@@ -36,6 +39,10 @@ interface Props {
   onRefresh: () => void;
   onStopLoading: () => void;
   onSubmit: (url: string) => void;
+  bookmarkScope?: BrowserBookmarkScope | null | undefined;
+  bookmarkProjectAvailable?: boolean | undefined;
+  onBookmarkScopeChange?: ((scope: BrowserBookmarkScope) => void) | undefined;
+  onRemoveBookmark?: (() => void) | undefined;
   onOpenInBrowser?: (() => void) | undefined;
   onCapture?: ((record: boolean) => void) | undefined;
   captureDisabled?: boolean | undefined;
@@ -66,6 +73,10 @@ export function PreviewChromeRow({
   onRefresh,
   onStopLoading,
   onSubmit,
+  bookmarkScope = null,
+  bookmarkProjectAvailable = false,
+  onBookmarkScopeChange,
+  onRemoveBookmark,
   onOpenInBrowser,
   onCapture,
   captureDisabled,
@@ -199,10 +210,12 @@ export function PreviewChromeRow({
               }
             />
           </Tooltip>
-          {onOpenInBrowser && !inputFocused ? (
+          {/* fork-hook: browser-bookmarks/address-addon */}
+          {onOpenInBrowser || onBookmarkScopeChange ? (
             <InputGroupAddon align="inline-end">
-              {}
-              <span className="pointer-events-none flex opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:opacity-100">
+              <span className="flex gap-0.5">
+                {onOpenInBrowser && !inputFocused ? (
+                  <span className="pointer-events-none flex opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover/address:pointer-events-auto group-hover/address:opacity-100">
                 <SharedTooltipTrigger
                   render={
                     <Button
@@ -221,9 +234,20 @@ export function PreviewChromeRow({
                 >
                   <ExternalLink />
                 </SharedTooltipTrigger>
+                  </span>
+                ) : null}
+                {onBookmarkScopeChange && onRemoveBookmark ? (
+                  <PreviewBookmarkMenu
+                    scope={bookmarkScope}
+                    projectAvailable={bookmarkProjectAvailable}
+                    onScopeChange={onBookmarkScopeChange}
+                    onRemove={onRemoveBookmark}
+                  />
+                ) : null}
               </span>
             </InputGroupAddon>
           ) : null}
+          {/* fork-hook-end */}
         </InputGroup>
 
         {onPickElement ? (

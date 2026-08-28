@@ -29,3 +29,24 @@ Agents can open tabs, navigate, click, type, inspect accessibility snapshots, an
 - Toggle **Settings → Browser → Agent browser access** (per environment or project override; takes effect when the next agent session starts).
 - **Floating preview**: By default, agent-opened tabs float over chat, and closing the right panel floats its browser tab (**Settings → Browser → Auto-show floating preview**). Turn this off to open agent tabs in the right panel instead and to close the panel without a float.
 - **Take control**: Click **Take control** before interacting with an agent's tab, and release control when you want the agent to resume.
+
+# Browser bookmarks
+
+The desktop browser can keep frequently used pages close to the project where you use them or available everywhere in the same T3 Code profile.
+
+## Save a page
+
+Open a page, then select the star at the right of the address field. Choose one scope:
+
+- **Project bookmark** appears only while browsing from the current project.
+- **Global bookmark** appears from every project window that uses the same T3 Code profile.
+
+The star is filled when the current page is bookmarked. Open it again to move the bookmark between scopes or remove it.
+
+## Open a bookmark
+
+Open a new browser tab. Saved pages appear before Recently used and Local servers, with Project bookmarks first and Global bookmarks second. Select a bookmark to open it in the current tab.
+
+Empty bookmark sections stay hidden. Bookmarks persist across app restarts, and equivalent URL forms are kept as one bookmark.
+
+Global bookmarks are local to the current T3 Code profile. They do not sync to a different profile, server, or device.
