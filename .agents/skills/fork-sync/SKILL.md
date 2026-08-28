@@ -15,19 +15,24 @@ Set `tag=vX.Y.Z` to the chosen stable tag. The record is
 
 ## Gate 1 — Orient
 
-Check the preconditions first, then read the live refs and the fork's upstream-watch issues. The
-`hyprws` worktree does not need to be clean; orientation reads `origin/hyprws`.
+One command orients the whole gate. The preflight it runs fetches upstream tags, so list the
+candidates after it and orient against the one you pick. The `hyprws` worktree does not need to be
+clean; orientation reads `origin/hyprws`.
 
 ```bash
 vp run fork:preflight
 git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 3
-vp run fork:rebase-report --target "$tag"
-gh issue list --repo RSI-Software/t3code-hyprws --label upstream-watch --state open
+node scripts/fork-orient.ts --target "$tag"
 ```
 
-**Stop.** Show the human the stable target and SHA, current `origin/hyprws` SHA, feasibility
-summary, automerged overlap, and relevant `upstream-watch` issues. Continue only after the human
-confirms the target. The report is orientation, not permission to modify a ref.
+`node` is deliberate: Gate 1 runs in a worktree with no dependencies installed, and `vp run
+fork:orient` is the same command once `vp i` has run. Orientation proves the tag exists as a tag and
+is reachable from `upstream/main`; a version-shaped name is refused. It prints target, source, shared
+base, mirror currency, feasibility, automerged overlap, retire candidates, and an `upstream-watch`
+verdict per open issue against that tag.
+
+**Stop.** Show the human the Stop block the command printed. Continue only after the human confirms
+the target. The orientation is not permission to modify a ref.
 
 ## Gate 2 — Rehearse
 

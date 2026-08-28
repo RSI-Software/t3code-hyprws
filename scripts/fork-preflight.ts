@@ -227,6 +227,29 @@ export const runPreflight = (env: PreflightEnv): PreflightReport => {
 export const unmetChecks = (report: PreflightReport): ReadonlyArray<PreflightCheck> =>
   report.checks.filter((check) => !check.met);
 
+/**
+ * The preconditions Gate 1 needs. Orientation runs plain `node` against live
+ * refs, so it reports installed dependencies without requiring them; every
+ * later gate runs `vp` and requires the full set.
+ */
+export const GATE_ONE_CHECKS: ReadonlyArray<string> = [
+  CHECK_ORIGIN_REMOTE,
+  CHECK_UPSTREAM_REMOTE,
+  CHECK_RERERE,
+  CHECK_ORIGIN_FETCH,
+  CHECK_MIRROR,
+];
+
+/** Unmet checks the caller requires, out of the full set the report carries. */
+export const unmetRequired = (
+  report: PreflightReport,
+  required: ReadonlyArray<string>,
+): ReadonlyArray<PreflightCheck> =>
+  unmetChecks(report).filter((check) => required.includes(check.name));
+
+export const namedCheck = (report: PreflightReport, name: string): PreflightCheck | undefined =>
+  report.checks.find((check) => check.name === name);
+
 export const renderReport = (report: PreflightReport): string => {
   const lines = ["fork-sync preflight"];
   for (const check of report.checks) {
