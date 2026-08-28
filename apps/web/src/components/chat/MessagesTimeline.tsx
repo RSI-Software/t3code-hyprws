@@ -90,6 +90,7 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
+import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -193,7 +194,7 @@ interface TimelineRowSharedState {
   onToggleWorkEntry: (anchorKey: string) => void;
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
-  onOpenAgents: () => void;
+  onOpenAgents: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
 }
 
 interface TimelineRowActivityState {
@@ -269,7 +270,7 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   agentPanelModel?: AgentPanelModel;
-  onOpenAgents?: () => void;
+  onOpenAgents?: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   activeTurnStartedAt: string | null;
@@ -2607,10 +2608,16 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
       ? `${failed} failed`
       : "✓ completed";
 
+  const openTarget = resolveAgentSpawnOpenTarget({
+    workflowId: spawn.workflowId,
+    agentTaskIds: spawn.agentTaskIds,
+    visibleAgentIds: agents.map((agent) => agent.id),
+  });
+
   return (
     <button
       type="button"
-      onClick={onOpenAgents}
+      onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}
       className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
