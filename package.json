@@ -43,6 +43,7 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "fork:delta": "node scripts/fork-delta.ts",
     "fork:preflight": "node scripts/fork-preflight.ts",
+    "fork:orient": "node scripts/fork-orient.ts",
     "fork:sync-gate": "node scripts/fork-sync-gate.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
     "fork:rebase-report": "node scripts/fork-rebase-report.ts",
