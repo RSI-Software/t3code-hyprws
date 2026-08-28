@@ -26,6 +26,7 @@ const RIGHT_PANEL_KINDS = [
   "preview",
   "terminal",
   "pull-request",
+  "github-issues",
   "github-issue",
   "agents",
 ] as const;
@@ -44,6 +45,7 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
+  | { id: "github-issues"; kind: "github-issues" }
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -183,6 +185,8 @@ const singletonSurface = (
       return { id: "diff", kind };
     case "files":
       return { id: "files", kind };
+    case "github-issues":
+      return { id: "github-issues", kind };
     case "agents":
       return { id: "agents", kind };
   }
