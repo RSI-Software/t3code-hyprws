@@ -2,171 +2,111 @@
 
 > Runbook for `RSI-Software/t3code-hyprws`. Using T3 Code? See [docs/user](../user/).
 
-This is the agent-driven loop that keeps the fork trunk `hyprws` current and shipped.
-[Fork development](../internals/fork-development.md) owns the fork's rules; this page owns the
-invariants a sync must not break, what the orientation output means, failure handling, and the
-one-time repository setup.
+The `hyprws rebase report` workflow is the normal upstream-sync operator. It mirrors upstream, finds
+the newest upstream release tag the fork can reach without a textual conflict, verifies a replay of
+the complete fork stack, and publishes the result according to the configured mode. A maintainer
+intervenes only to resolve a reported block, enable trunk rewrites, or cut a stable release.
 
-Run it through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill, whose five
-gates stop for orientation, rehearsal, focused checks, human sanity, and human-only apply. The skill
-and its references hold every gate command; this page repeats none, so no step has two spellings.
-Commit each rehearsal record under [`docs/operations/fork-sync-records/`](./fork-sync-records/).
+[Fork development](../internals/fork-development.md) owns the repository discipline. The repo-local
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated human procedures for
+unblocking a rebase and cutting a stable release.
 
-`.agents/skills/fork-sync/` is the skill's only copy. `.claude/skills` is a tracked symlink to
-`.agents/skills`, so a Claude-scope load and the link above resolve to the same file; edit the
-`.agents` path.
+## Model
 
-## Invariants
+`hyprws` is the single fork trunk. Its upstream base is the newest stable or nightly upstream tag at
+or before the rebase report's conflict-free boundary; when stable and nightly tags point at the same
+position, stable wins the tie. The bot never merges upstream into the fork and never drops, squashes,
+reorders, or rewords a fork commit.
 
-These hold whichever gate is running. A gate that cannot satisfy one stops.
+On each scheduled, pushed, or manually dispatched run, the workflow:
 
-- **Rebase, never merge.** `hyprws` is rebased onto upstream history. Merging `upstream/main` into it
-  buries the patch stack under merge commits.
-- **The target is a stable upstream tag.** `vX.Y.Z`, never an untagged commit and never a nightly:
-  the apply gate refuses anything else. When the fork needs a fix upstream has merged but not
-  released, trial it in a worktree and take the stable tag that carries it.
-- **A sync runs from the fork checkout, never the `main` checkout.** `main` only mirrors upstream.
-- **The rewrite happens on `rehearse/<tag>`.** The rehearsal branch is created from `origin/hyprws`
-  and is disposable; nothing rebases the `hyprws` worktree in place. That worktree does not need to be
-  clean, and no gate requires it.
-- **`origin/main` matches `upstream/main` before a sync starts.** The preflight fetches both lanes and
-  refuses on a stale mirror, so orientation is never read against a lagging copy of upstream.
-- **`origin/hyprws` is fetched during the run that reads it.** Every lease is captured from the
-  published head this run proved, not from whatever an earlier unrelated fetch left behind.
-- **`git config rerere.enabled` is `true`.** A resolved conflict replays on the next sync.
-- **No fork commit is skipped, squashed, reordered, or reworded.** A commit upstream has made obsolete
-  is a `retire-candidate` for the human, resolved by exact subject in
-  [Fork delta](../internals/fork-delta.md); `git rebase --skip` never makes that decision.
-- **Verification is targeted.** `fork:delta --check`, a typecheck per touched package, and the tests
-  beside every touched file. Fork CI owns the full suite; a repo-wide run hides which seam failed.
-- **A rejected lease is evidence, never an inconvenience.** Read the commits that refused it and
-  incorporate them; never `--force` and never silently refresh.
-- **A fork release is `v<upstream version>-hyprws.<n>`.** `<upstream version>` is the `X.Y.Z` of the
-  target tag. `<n>` counts up within that version and restarts at 1 when the version changes, so a
-  fork-only change bumps `<n>` and a new upstream version restarts it. The workflow writes the exact
-  upstream tag into the release body.
-- **Only the release closes an `upstream-watch` issue.** It closes after the fork build that carries
-  the fix exists and the behavior has been verified in it.
+1. fast-forwards the fork's `main` mirror to `upstream/main`;
+2. generates the feasibility report and finds the newest clean upstream release tag;
+3. snapshots any newly crossed stable upstream tag on a create-only release branch;
+4. replays and verifies the whole fork stack on the selected tag;
+5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
+6. creates or updates stable-candidate and `rebase-blocked` issues.
 
-The preflight checks the checkable ones from live state and names each unmet one with its fix. The
-gates run it first and refuse rather than reporting a failure after they acted, so a precondition is
-never prose a reader is trusted to have satisfied.
+A run that has no newer clean release tag is a successful no-op. A conflict beyond the clean target
+does not prevent the bot from advancing to that target; the same run reports the next block for a
+human.
 
-## What the orientation means
+## Bot-owned refs
 
-Gate 1 prints target, source, shared base, mirror currency, feasibility, automerged overlap, retire
-candidates, and an `upstream-watch` verdict per open issue. This section is what that output means.
+Do not create, move, delete, or force-push these refs by hand:
 
-### The main mirror
+| Ref                     | Meaning                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| `hyprws-previous`       | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite. |
+| `hyprws-next`           | The verified candidate stack published while the repository is in candidate mode. |
+| `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.             |
 
-The `hyprws rebase report` workflow fast-forwards `origin/main` to `upstream/main` on every `hyprws`
-push, on a schedule, and on manual dispatch, so the two shas normally match.
-If they differ, upstream moved since the last run; dispatch the workflow or push the mirror yourself
-with `git push origin upstream/main:main`.
+A release snapshot never follows later trunk work. It is the immutable branch from which a human
+chooses a stable fork tag. If a snapshot already exists, the bot leaves it unchanged.
 
-The mirror job pushes with the `HYPRWS_MIRROR_TOKEN` repository secret, a fine-grained personal
-access token scoped to this repository with Contents and Workflows read/write. Upstream commits
-touch `.github/workflows`, which the default Actions token may never push. A run whose mirror job
-fails with a missing-secret error needs the secret recreated; a rejected push means `main` diverged
-and wants a human, never a force.
-That push is a fast-forward because nothing else ever writes `main`.
-If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
+## Auto-rebase modes
 
-### The report behind the orientation
+The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset variable means
+`candidate`.
 
-Orientation summarizes what `fork:rebase-report` derives. Run the report itself when you want the full
-detail on disk.
+| Value       | Behaviour                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `off`       | Mirror and report only. No candidate or trunk ref is rewritten; blocked issues are still upserted or closed.        |
+| `candidate` | Publish the verified stack to `hyprws-next`; still create stable snapshots and issues, but do not rewrite `hyprws`. |
+| `on`        | Save the old trunk as `hyprws-previous`, then rewrite `hyprws` with an explicit expected-old lease.                 |
 
-The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
-Its adjacent JSON file is the same versioned data for later automation.
-Both record the resolved source, live upstream target, shared base, every intervening release tag,
-commit groups, change-type totals, and read-only rebase feasibility.
-The `Feasibility:` line names how many upstream first-parent commits remain clean, while the detailed
-section identifies the first conflicting upstream commit, each conflict's introducing fork commit and
-trailers, and overlapping files that Git automerged. Treat the first conflict as the fast-forward
-boundary: the fork stack can advance automatically only through the preceding commit. Automerged
-overlap is still a semantic review surface, not proof that the fork behavior remains valid.
-They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
+The repository intentionally starts in candidate mode. After reading a successful candidate run and
+preparing local lanes for recovery, enable automatic trunk rewrites with:
 
-The report embeds the `origin/hyprws` head, so a committed copy is stale after every landed commit.
-The directory is gitignored; regenerate it rather than reading an older copy.
+```bash
+gh variable set HYPRWS_AUTO_REBASE --body on -R RSI-Software/t3code-hyprws
+```
 
-The same workflow then uploads a fresh pair as a seven-day artifact and prints the Markdown as the
-run summary. `fork:rebase-report:artifact` keeps each immutable run under
-`.dump/runs/fork-rebase-report/<run-id>/`. That artifact is a preview for readers without a checkout,
-never the input a gate reads.
+To return to report-only or candidate operation, set the same variable to `off` or `candidate`.
+Deleting it also restores the candidate default.
 
-### Re-read what waits on upstream
+## One-time repository setup
 
-Every fork issue labelled `upstream-watch` waits on an upstream issue or pull request, and orienting is
-where each one is re-read. Gate 1 sweeps twice: against `upstream/main` before the tag pick, and
-against the tag it orients on.
+### Bot token
 
-The two sweeps answer different questions and can disagree. A fix merged after the tag is `ready`
-against `upstream/main` and `pending-tag` against the tag, so only the tag-targeted sweep describes
-what a release built from that tag contains. Keep its output; the release gate closes from that sweep
-alone.
+Create a fine-grained personal access token owned by the automation actor, limited to
+`RSI-Software/t3code-hyprws`, with these repository permissions:
 
-The sweep lists every open `upstream-watch` issue and, for each upstream item its body cites, whether
-that item is merged and whether its merge commit is contained in the target. It pages the full open
-set rather than capping it, re-walks a multi-page set until two walks agree so an issue closing mid-walk
-cannot hide one behind the cursor, and fails loudly rather than reporting a list it had to truncate. It proves
-the label exists before it reports an empty sweep, so `No open upstream-watch issues` is evidence and
-not the shape of a renamed label. It reads
-GitHub and Git and writes nothing. It recognizes a citation only inside a code span, so the sweep
-itself can never fire a cross-reference on an upstream thread.
+- **Contents: Read and write** — mirror, candidate, snapshot, and leased trunk pushes;
+- **Workflows: Read and write** — mirrored upstream commits can change workflow files.
 
-A verdict is per citation; the issue takes the least advanced verdict among the citations that can
-still advance. `dropped` and `fix-uncited` are spent, so a watch that also cites the merged fix still
-reaches `ready`.
+Store it as the `HYPRWS_MIRROR_TOKEN` Actions secret. The command prompts for the token value:
 
-| Verdict       | Meaning                                                                                         | Action                                                                        |
-| ------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `ready`       | The merge commit is contained in the target.                                                    | The fix rides this rebase. Keep the watch open and close it at the release.   |
-| `pending-tag` | Merged upstream, but not in the target.                                                         | Take a newer tag when the fix is worth it, or leave the issue open.           |
-| `waiting`     | The upstream item is still open.                                                                | Leave it. Trial the pull request in a worktree when the fork needs it sooner. |
-| `dropped`     | Upstream will not fix it: the pull request closed unmerged, or the issue closed as not planned. | Decide the fork's own fix and drop the label.                                 |
-| `fix-uncited` | The upstream issue closed as completed and no fix is cited.                                     | Find the pull request that closed it and add it to the body as a code span.   |
-| `unresolved`  | The merge commit is not in the local object store.                                              | Re-run after the preflight's upstream fetch.                                  |
-| `uncited`     | The body cites no upstream item.                                                                | Nothing can resolve it; add the citation as a code span or drop the label.    |
+```bash
+gh secret set HYPRWS_MIRROR_TOKEN -R RSI-Software/t3code-hyprws
+```
 
-The `upstream-triage` skill applies the label whenever it decides the fork waits on upstream.
+The workflow uses its normal `GITHUB_TOKEN` with `issues: write` for labels and issues. Do not widen
+the personal access token for issue management.
 
-Orientation decides which watches ride the rebase; it never closes one.
-`ready` proves only that the target contains the merge commit, and the target is upstream code that no
-fork release has shipped yet. A watch closes at the release, where the build that carries the fix
-exists and the behavior can be verified in it.
+### Labels
 
-## The release
+The workflow force-creates `rebase-blocked` on every run. Its `--force` flag overwrites a drifted
+description with the workflow-owned text:
 
-The tag push starts `hyprws-release.yml`: checks, a Linux x64 AppImage build, then a GitHub release.
-The release is never a prerelease, because the desktop updater ignores prereleases.
+```bash
+gh label create rebase-blocked --force --color B60205 \
+  --description "The fork stack conflicts with newer upstream history" \
+  -R RSI-Software/t3code-hyprws
+```
 
-The release must list the `.AppImage` and `latest-linux.yml` assets. An installed fork build updates
-from that release, because the build derives its feed from the building repository.
+The `release` label must already exist before the first stable snapshot, because the workflow does
+not create it. This repository already has it; verify that it remains available:
 
-## Failure handling
+```bash
+gh label view release -R RSI-Software/t3code-hyprws
+```
 
-- **`fork:delta --check` fails.**
-  _A commit lost or never had a trailer; amend it in place with an interactive rebase before publishing._
-- **The build fails on a runner tool.**
-  _See the runner prerequisites below; the fix is a workflow step or an operator install, never a source change._
-- **The lease is rejected.**
-  _`origin/hyprws` moved; read the new commits and rehearse them in before pushing again, never `--force`._
-- **A fork commit no longer applies.**
-  _Rebuild it at the new seam, or record it as a retire candidate for the human; the decision is keyed by exact subject in [Fork delta](../internals/fork-delta.md)._
-- **The apply gate refuses.**
-  _An unmet precondition, a missing record, a stale `expected_old`, or an absent human sanity mark; fix the named cause and re-run the gate, never the push it guards._
+### Upstream workflows and merge settings
 
-## One-time setup
-
-These steps were run once when the fork trunk was created.
-Rerun a step when its state drifts, for example after a rebase adds an upstream workflow.
-
-### Upstream workflows
-
-Upstream's workflows register on the default branch as soon as GitHub indexes it.
-Every one of them targets Blacksmith runners or upstream secrets, so each is disabled, never edited or deleted.
+Keep only `hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-rebase-report.yml` enabled. Upstream
+workflows remain in the tree unchanged but disabled, because they expect upstream secrets and
+runners.
 
 ```bash
 gh workflow list --all --repo RSI-Software/t3code-hyprws
@@ -175,16 +115,7 @@ for workflow in ci.yml release.yml pr-size.yml pr-vouch.yml web-preview.yml depl
   mobile-eas-production.yml mobile-fingerprint-check.yml mobile-showcase-screenshots.yml; do
   gh workflow disable "$workflow" --repo RSI-Software/t3code-hyprws
 done
-```
 
-`hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-rebase-report.yml` are the only workflows that stay enabled.
-
-### Merge settings
-
-Landing onto `hyprws` is squash-only, so the stack stays linear.
-The squash subject and body come from the pull-request title and body, so the body ends with the trailer block; see the fork guide's landing section.
-
-```bash
 gh repo edit RSI-Software/t3code-hyprws \
   --enable-squash-merge --enable-rebase-merge=false --enable-merge-commit=false \
   --delete-branch-on-merge
@@ -192,6 +123,22 @@ gh api -X PATCH repos/RSI-Software/t3code-hyprws \
   -f squash_merge_commit_title=COMMIT_OR_PR_TITLE \
   -f squash_merge_commit_message=COMMIT_MESSAGES
 ```
+
+### Recommended ruleset for `hyprws`
+
+Apply this policy manually in **Settings → Rules → Rulesets**; this repository does not apply or
+change it unattended:
+
+- block deletion of `hyprws`;
+- require changes from people to arrive through a pull request;
+- require the `Check` status from the `hyprws CI` workflow; and
+- permit direct and force updates only for the automation actor that owns `HYPRWS_MIRROR_TOKEN`.
+
+A bypass actor bypasses every rule in one GitHub ruleset. To keep deletion blocked even for the bot,
+use a separate no-bypass deletion ruleset, then put the pull-request, status-check, and force-push
+rules in a second ruleset whose sole bypass actor is the bot. Review the actor and status-check name
+in the UI before activating either ruleset. Do not grant an organization-wide team or every
+administrator the automation bypass.
 
 ### Runners
 
@@ -224,3 +171,237 @@ The fork build leaves T3 Connect unconfigured unless these repository variables 
 - `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID`
 
 The workflow passes them through when set and leaves the feature dark when they are not.
+
+## Reading a bot run
+
+Open the latest `hyprws rebase report` run and read the **Auto-rebase** job summary, not only the
+green or red conclusion:
+
+```bash
+repo=RSI-Software/t3code-hyprws
+gh run list --workflow hyprws-rebase-report.yml --limit 5 -R "$repo"
+run_id="$(gh run list --workflow hyprws-rebase-report.yml --limit 1 \
+  -R "$repo" --json databaseId --jq '.[0].databaseId')"
+test -n "$run_id"
+gh run view "$run_id" -R "$repo"
+gh run view "$run_id" -R "$repo" --json url --jq .url
+```
+
+The summary emits exactly these top-level fields: mode, status, old head, base, target, rebased head,
+and stable-candidate count. Status is `off`, `no-op`, or `advanced`. When a block remains, a
+**Blocked beyond the clean window** block adds the first conflicting upstream commit, remaining
+upstream commit count, and newest later tag.
+
+The replay still verifies commit count and messages, the fork ledger, `vp check`, and typecheck
+before any push, but the summary does not itemise those checks. The conflict table and affected fork
+commits live in the `rebase-blocked` issue body, not in the run summary. If the run fails, inspect its
+failed step separately:
+
+```bash
+gh run view "$run_id" --log-failed -R "$repo"
+```
+
+In candidate mode, compare the summary's **Rebased head** with the published ref:
+
+```bash
+git fetch origin hyprws-next
+git rev-parse origin/hyprws-next
+```
+
+A green run with a `rebase-blocked` issue means the bot advanced as far as it safely could and then
+reported the next human task. It does not mean the entire upstream lane was clean.
+
+## Unblocking a `rebase-blocked` issue
+
+Open the single current blocked issue and read the blocking upstream commit, affected fork commits,
+domains, files, and newest upstream tag beyond the block:
+
+```bash
+repo=RSI-Software/t3code-hyprws
+blocked_issue="$(gh issue list --state open --label rebase-blocked -R "$repo" \
+  --json number --jq 'if length == 1 then .[0].number else error("expected one open rebase-blocked issue") end')"
+gh issue view "$blocked_issue" --comments -R "$repo"
+```
+
+Then invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
+point. The maintainer chooses the newest upstream stable or nightly tag past the reported block,
+rehearses the complete stack on `rehearse/<tag>`, preserves upstream intent while resolving each
+conflict, runs the fork scan and focused checks, records human decisions and grounding, and stops at
+the human-only apply boundary.
+
+The final trunk push always uses the `expected_old` captured from the same run:
+
+```bash
+git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
+```
+
+Never move a bot-owned ref as part of the unblock. After the leased push succeeds, comment with the
+resolved blocking SHA and target tag; that comment is the human resolution record. The push starts a
+new bot run. That run automatically closes every open `rebase-blocked` issue when no block remains,
+or updates the open issue when a later conflict remains.
+
+## Cut a stable release
+
+The bot opens one `release` issue per create-only stable snapshot. Start by listing those issues and
+choose the issue number for the version to release:
+
+```bash
+gh issue list --state open --label release \
+  -R RSI-Software/t3code-hyprws
+```
+
+Set `issue` to a number from that list. Derive the bot-owned snapshot, fetch it, and create a
+disposable worktree from the exact remote branch:
+
+```bash
+issue=<number>
+repo=RSI-Software/t3code-hyprws
+candidate="$(gh issue view "$issue" -R "$repo" --json title --jq '.title | capture("^Stable candidate (?<name>v[0-9]+\\.[0-9]+\\.[0-9]+-hyprws)$").name')"
+release_branch="release/$candidate"
+upstream_version="${candidate#v}"
+upstream_version="${upstream_version%-hyprws}"
+
+git fetch --tags origin \
+  "refs/heads/$release_branch:refs/remotes/origin/$release_branch"
+candidate_sha="$(git rev-parse "origin/$release_branch^{commit}")"
+wt switch --create "cut/$candidate" --base "origin/$release_branch"
+# Worktrunk has no path subcommand; copy the absolute path it prints above.
+worktree_path=<path printed by Worktrunk>
+cd "$worktree_path"
+```
+
+Verify the snapshot and derive the next tag. These repo-wide checks are an explicit stable-release
+gate exception to the targeted-check rule: they match the release workflow preflight before the
+human creates the tag.
+
+```bash
+test "$(git rev-parse HEAD)" = "$candidate_sha"
+vp i
+vp run fork:delta --check
+vp check
+vp run typecheck
+vp run test
+
+last_n="$(git tag --list "v${upstream_version}-hyprws.*" \
+  | sed -n "s/^v${upstream_version//./\\.}-hyprws\\.\([0-9][0-9]*\)$/\1/p" \
+  | sort -n | tail -n 1)"
+release_n="$(( ${last_n:-0} + 1 ))"
+release_tag="v${upstream_version}-hyprws.${release_n}"
+
+git fetch --no-tags origin \
+  "refs/heads/$release_branch:refs/remotes/origin/$release_branch"
+test "$(git rev-parse "origin/$release_branch^{commit}")" = "$candidate_sha"
+
+git ls-remote --exit-code --tags origin "refs/tags/$release_tag" \
+  && { echo "refusing to replace existing tag $release_tag" >&2; false; }
+```
+
+**Human-only publish.** The skill and agent stop before this block. The human creates the annotated
+tag at the verified snapshot SHA and pushes it create-only:
+
+```bash
+git tag -a "$release_tag" "$candidate_sha" \
+  -m "T3 Code hyprws ${release_tag#v}"
+git push origin "refs/tags/$release_tag"
+```
+
+After the tag push, return to the original checkout and let Worktrunk trash the disposable worktree
+and delete its tagged `cut/*` branch. Never remove the directory with `rm`:
+
+```bash
+cd -
+wt remove -D "cut/$candidate"
+```
+
+The tag push starts the stable channel of `hyprws-release.yml`. Find that exact run, watch it, and
+verify the published release contains an `.AppImage` and `latest-linux.yml`:
+
+```bash
+run_id=
+for attempt in $(seq 1 12); do
+  run_id="$(gh run list --workflow hyprws-release.yml --event push --limit 20 \
+    -R "$repo" --json databaseId,headBranch \
+    --jq "map(select(.headBranch == \"$release_tag\"))[0].databaseId // empty")"
+  test -n "$run_id" && break
+  sleep 5
+done
+test -n "$run_id"
+gh run watch "$run_id" -R "$repo"
+assets="$(gh release view "$release_tag" -R "$repo" --json assets \
+  --jq '.assets[].name')"
+printf '%s\n' "$assets"
+grep -Eq '\.AppImage$' <<<"$assets"
+grep -Fxq 'latest-linux.yml' <<<"$assets"
+run_url="$(gh run view "$run_id" -R "$repo" --json url --jq .url)"
+gh issue close "$issue" -R "$repo" --comment \
+  "Released \`$release_tag\` from \`$release_branch@$candidate_sha\`. Workflow: $run_url"
+```
+
+The issue close, immutable tag, workflow run, and GitHub release are the stable-cut record. Do not
+add a human sync record for an ordinary bot snapshot. An `upstream-watch` issue closes only after the
+released build carrying its fix has been installed or run and the behaviour verified.
+
+## Recovering local lanes after a rewrite
+
+Feature lanes must start from `hyprws`, never from `hyprws-next` or a bot-owned `release/*` snapshot.
+`hyprws-next` is an inspection ref: after the mode flips from candidate to on, it remains at the last
+candidate push and goes stale. Release snapshots are immutable release inputs, not development bases.
+
+`hyprws-previous` does not exist until the first on-mode run. For that first rewrite, copy the full
+old head from the **Auto-rebase** run summary and use it as the old boundary:
+
+```bash
+git fetch origin hyprws
+git rebase --onto origin/hyprws <old-head> <feature-branch>
+```
+
+After an on-mode run has published `hyprws-previous`, a feature branch based on the immediately
+previous trunk can use the bot-owned ref directly:
+
+```bash
+git fetch origin hyprws hyprws-previous
+git rebase --onto origin/hyprws origin/hyprws-previous <feature-branch>
+```
+
+Replace `<old-head>` with the summary's full old-head SHA and `<feature-branch>` with the branch
+printed by `git branch --show-current` in that feature worktree. Inspect the range first if the lane
+was not based on that old boundary; do not guess an `--onto` boundary. A lane mistakenly based on
+`hyprws-next` or `release/*` needs its actual merge base inspected and cannot use the generic recovery
+command safely.
+
+The canonical `hyprws` worktree carries no independent commits. Reset it to the published trunk:
+
+```bash
+git fetch origin hyprws
+git reset --hard origin/hyprws
+```
+
+Never run the hard reset in a feature worktree or a checkout with uncommitted work.
+
+## Failure handling
+
+- **Mirror fails:** recreate `HYPRWS_MIRROR_TOKEN` when the secret is missing or expired. A rejected
+  fast-forward means someone wrote to `main`; inspect it and never force the mirror.
+- **No clean target:** the run is report-only until an upstream release tag enters the clean window.
+  Do not target an untagged commit.
+- **Feasibility said clean but replay conflicts:** treat it as an automation bug. The bot aborts the
+  rebase and pushes nothing; do not resolve inside the workflow worktree.
+- **Replay verification fails:** the bot pushes nothing. Read the failed check and fix the fork or
+  automation through a pull request; never weaken the commit-message or ledger comparison.
+- **The `hyprws` lease is rejected:** remote work appeared after the bot read the old head. Inspect
+  the new commits and rerun from them; never replace the explicit lease with `--force` or silently
+  refresh it.
+- **A stable snapshot already exists:** it is immutable. Inspect the existing branch and issue; do
+  not force-update it. A corrected candidate needs an explicit maintainer decision and a new record.
+- **A blocked issue remains:** use the skill's unblock entry point. A clean automerge is still a
+  semantic review surface, and a fork commit is retired only by a recorded human decision.
+- **Stable release fails:** leave the candidate issue open, fix the workflow or runner, and rerun the
+  failed release. Do not move or replace the tag after a release has been published.
+
+## Version ordering caveat
+
+Semver precedence is global even though the updater separates channels. For example,
+`0.0.36-hyprws-nightly.20260828.1208` sorts above `0.0.35-hyprws.2`. That does not promote a nightly
+to stable: the desktop update-channel resolver keeps fork nightlies on the nightly feed and stable
+fork releases on the stable feed. Do not infer channel or release recency from one mixed semver sort;
+filter by the `-hyprws-nightly.` or `-hyprws.<n>` shape first.
