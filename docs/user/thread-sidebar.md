@@ -33,6 +33,13 @@ drag an unpinned thread to another position in the same project. The order is st
 browser or desktop installation. Choose **Automatic** to return to the normal active-thread order.
 Pinned, snoozed, and settled threads keep their own ordering rules.
 
+In **Manual** mode, drop a thread onto the middle of another active thread to group them. Drop more
+threads onto a group member to add them. Drag a member outside its group to remove it; a group
+disappears when fewer than two threads remain. Groups can be collapsed, renamed, regenerated, or
+dissolved from their header. Generated group names use the same title-generation setting as thread
+titles. Group names, membership, collapsed state, and order are stored on that browser or desktop
+installation. **Automatic** mode hides groups without deleting them.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list
