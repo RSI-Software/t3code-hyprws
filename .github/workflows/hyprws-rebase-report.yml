@@ -1,9 +1,9 @@
 name: hyprws rebase report
 
 # Mirrors upstream/main onto the fork's main and uploads a fresh rebase
-# orientation for docs/operations/fork-sync.md Step 0. The report embeds the
+# orientation for the fork-sync skill's gate 1. The report embeds the
 # origin/hyprws head, so it is never committed; every hyprws push and the
-# schedule refresh both, and Step 0 regenerates the report live when a rebase
+# schedule refresh both, and gate 1 regenerates the report live when a rebase
 # actually starts.
 
 on:
