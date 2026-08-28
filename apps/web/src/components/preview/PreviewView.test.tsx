@@ -58,6 +58,8 @@ vi.mock("~/browserHistoryStore", () => ({
   setTitleForThreadUrl: vi.fn(),
   removeUrlForThread: vi.fn(),
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT: 50,
+  normalizeHistoryUrl: (url: string) => url, // fork-hook: browser-bookmarks/history-url-mock
+  useThreadBrowserProjectKey: () => null,
   useThreadRecentHistory: () => EMPTY_HISTORY,
 }));
 
