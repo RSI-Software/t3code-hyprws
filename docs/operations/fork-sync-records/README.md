@@ -5,7 +5,7 @@ selected upstream tag, expected-old lease, conflicts and automerged overlap, for
 checks, grounding, and human sanity approval.
 
 Automatic bot rewrites do not add a record commit to `hyprws`. Their immutable evidence is the
-`hyprws rebase report` workflow run summary: source and target refs, mode, replay verification,
+`hyprws upstream sync` workflow run summary: source and target refs, mode, replay verification,
 stable snapshots, pushes, and any next conflict. See the [fork sync runbook](../fork-sync.md#reading-a-bot-run).
 
 Keep existing records and add a new `<target-tag>.md` record whenever a maintainer uses the

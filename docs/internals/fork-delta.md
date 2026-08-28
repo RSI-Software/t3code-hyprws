@@ -390,7 +390,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-preflight.ts` with its `fork:preflight` alias, the precondition check every sync gate runs first.
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
-- `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
+- `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-upstream-sync.yml`.
 - The bot-first sync model, bot-owned refs, human unblock, and stable-cut procedures in the
   [fork sync runbook](../operations/fork-sync.md) and repo-local
   [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill.
@@ -417,7 +417,7 @@ Retired with the fork.
 | `docs/internals/ci.md`                                        | Documents fork-specific CI and advisory scan behavior.                                     |
 | `scripts/*.ts` siblings                                       | The ledger script copies their Effect CLI shape.                                           |
 | `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts` | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection. |
-| `.github/workflows/hyprws-rebase-report.yml`                  | Owns bot mode, runner setup, and fork-local issue upserts.                                 |
+| `.github/workflows/hyprws-upstream-sync.yml`                  | Owns bot mode, runner setup, and fork-local issue upserts.                                 |
 | `.github/pull_request_template.md`                            | Carries the fork trailer block every squash body needs.                                    |
 
 ## distribution
