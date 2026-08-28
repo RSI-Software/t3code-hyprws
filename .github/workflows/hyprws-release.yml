@@ -1,41 +1,141 @@
 name: hyprws Release
 
-# Fork-only release for RSI-Software/t3code-hyprws: one Linux x64 AppImage per
-# v<upstream>-hyprws.<n> tag, published as a normal GitHub release so the
-# desktop updater (fed from GITHUB_REPOSITORY) picks it up. Upstream's
-# release.yml stays disabled on the fork; its Linux build entry is the
-# template for the build job below, so re-read it on every rebase
-# (docs/internals/fork-delta.md, distribution). No nightly channel, no cron.
+# Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
+# Stable tags keep the v<upstream>-hyprws.<n> flow. Scheduled and manually
+# dispatched nightlies publish v<next>-hyprws-nightly.<date>.<run> from hyprws.
+# Upstream release.yml stays disabled on the fork; mirror its job shape, setup,
+# and action versions here on every rebase (docs/internals/fork-delta.md).
 
 on:
   push:
     tags:
       - "v*-hyprws.*"
+      - "!v*-hyprws-nightly.*"
+  schedule:
+    # Off minute zero: GitHub delays scheduled runs most at the top of the hour.
+    - cron: "41 */6 * * *"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Fork release version (for example 0.0.34-hyprws.1)"
-        required: true
-        type: string
+      channel:
+        description: "Fork release channel"
+        required: false
+        default: nightly
+        type: choice
+        options:
+          - nightly
+          - stable
+
+# Push events are stable tags; schedules and dispatches share the nightly queue.
+# Preflight remains the only place that resolves the requested channel.
+concurrency:
+  group: hyprws-release-${{ github.event_name == 'push' && 'stable' || 'nightly' }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
+  check_changes:
+    name: Check for changes since last nightly
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - name: Checkout hyprws
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - id: check
+        name: Compare hyprws to last nightly tag
+        shell: bash
+        run: |
+          last_nightly_tag=$(git tag --list 'v*-hyprws-nightly.*' --sort=-creatordate | head -n 1)
+          if [[ -z "$last_nightly_tag" ]]; then
+            echo "No previous hyprws nightly tag found. Proceeding with release."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git merge-base --is-ancestor "$last_nightly_tag" HEAD; then
+            echo "$last_nightly_tag is not on the current hyprws history. Proceeding after trunk rewrite."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last_nightly_sha=$(git rev-parse "$last_nightly_tag^{commit}")
+          head_sha=$(git rev-parse HEAD)
+          if [[ "$last_nightly_sha" == "$head_sha" ]]; then
+            echo "No changes on hyprws since $last_nightly_tag. Skipping."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected on hyprws since $last_nightly_tag ($last_nightly_sha → $head_sha). Proceeding."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
   preflight:
     name: Preflight
+    needs: [check_changes]
+    if: |
+      !failure() && !cancelled() &&
+      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
+      release_channel: ${{ steps.release_channel.outputs.channel }}
       version: ${{ steps.release_meta.outputs.version }}
       tag: ${{ steps.release_meta.outputs.tag }}
       release_name: ${{ steps.release_meta.outputs.name }}
+      previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
+      is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
+      make_latest: ${{ steps.release_meta.outputs.make_latest }}
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
-      ref: ${{ github.sha }}
+      ref: ${{ steps.release_ref.outputs.sha }}
     steps:
+      - id: release_channel
+        name: Resolve and validate release channel
+        shell: bash
+        env:
+          DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            schedule)
+              channel=nightly
+              ;;
+            workflow_dispatch)
+              channel="${DISPATCH_CHANNEL:-nightly}"
+              ;;
+            push)
+              channel=stable
+              ;;
+            *)
+              echo "Unsupported release event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$channel" != "nightly" && "$channel" != "stable" ]]; then
+            echo "Invalid fork release channel: $channel" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$channel" == "stable" && ( "$GITHUB_REF_TYPE" != "tag" || ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-hyprws\.[0-9]+$ ) ]]; then
+            echo "workflow_dispatch channel=stable must run from a vX.Y.Z-hyprws.N tag ref." >&2
+            exit 1
+          fi
+
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ steps.release_channel.outputs.channel == 'nightly' && 'hyprws' || github.sha }}
           fetch-depth: 0
           sparse-checkout: |
             /*
@@ -52,27 +152,46 @@ jobs:
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
 
+      - id: release_ref
+        name: Resolve release commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - id: release_meta
         name: Resolve release version
         shell: bash
         env:
-          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_CHANNEL: ${{ steps.release_channel.outputs.channel }}
+          NIGHTLY_DATE: ${{ github.run_started_at }}
+          NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            raw="${DISPATCH_VERSION}"
+          if [[ "$RELEASE_CHANNEL" == "nightly" ]]; then
+            nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
+            node scripts/fork-release-version.ts \
+              --channel "$RELEASE_CHANNEL" \
+              --date "$nightly_date" \
+              --run-number "$NIGHTLY_RUN_NUMBER" \
+              --sha "$RELEASE_SHA" \
+              --github-output
           else
-            raw="${GITHUB_REF_NAME}"
+            node scripts/fork-release-version.ts \
+              --channel "$RELEASE_CHANNEL" \
+              --tag "$GITHUB_REF_NAME" \
+              --github-output
           fi
 
-          version="${raw#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-hyprws\.[0-9]+$ ]]; then
-            echo "Invalid fork release version: $raw (expected X.Y.Z-hyprws.N)" >&2
-            exit 1
+      - id: previous_tag
+        name: Keep previous release tag on current history
+        shell: bash
+        env:
+          PREVIOUS_TAG: ${{ steps.release_meta.outputs.previous_tag }}
+        run: |
+          previous_tag="$PREVIOUS_TAG"
+          if [[ -n "$previous_tag" ]] && ! git merge-base --is-ancestor "$previous_tag" HEAD; then
+            echo "$previous_tag is not on the current history. Omitting it after trunk rewrite."
+            previous_tag=
           fi
-
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "name=T3 Code hyprws v$version" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
 
       - name: Fork ledger
         run: |
@@ -80,13 +199,10 @@ jobs:
           git fetch --tags upstream main
           vp run fork:delta --check
 
-      # The fork stack sits on an upstream tag, stable or nightly. Name it in
-      # the release so a nightly base is never ambiguous.
       - id: upstream_base
         name: Resolve upstream base
         run: |
           base_commit="$(git merge-base HEAD upstream/main)"
-          # Nightlies can share a commit; name the newest tag on it.
           base="$(git tag --points-at "$base_commit" --sort=-v:refname | head -n 1)"
           if [[ -z "$base" ]]; then
             base="$(git describe --tags --abbrev=0 "$base_commit")"
@@ -106,10 +222,9 @@ jobs:
   build:
     name: Build Linux x64
     needs: preflight
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # T3 Connect stays unconfigured unless the fork sets these repository
-    # variables; the build does not require them.
     env:
       T3CODE_RELAY_URL: ${{ vars.T3CODE_RELAY_URL }}
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.T3CODE_CLERK_PUBLISHABLE_KEY }}
@@ -144,8 +259,6 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
-      # The Linux icon resize needs `magick` or `convert`. The hosted image
-      # ships ImageMagick; apt-get covers an image that drops it.
       - name: Install ImageMagick
         shell: bash
         run: |
@@ -191,6 +304,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [preflight, build]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -203,9 +317,8 @@ jobs:
           merge-multiple: true
           path: release-assets
 
-      # Never a prerelease: electron-updater skips prereleases, and a fork
-      # build must update from fork releases.
       - name: Publish release
+        if: needs.preflight.outputs.previous_tag != ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
@@ -213,10 +326,30 @@ jobs:
           name: ${{ needs.preflight.outputs.release_name }}
           body: |
             Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
+            Channel: `${{ needs.preflight.outputs.release_channel }}`
           generate_release_notes: true
-          prerelease: false
-          make_latest: true
-          # AppImage builds carry no .blockmap; only the bundle and its manifest.
+          previous_tag: ${{ needs.preflight.outputs.previous_tag }}
+          prerelease: ${{ needs.preflight.outputs.is_prerelease }}
+          make_latest: ${{ needs.preflight.outputs.make_latest }}
+          files: |
+            release-assets/*.AppImage
+            release-assets/*.yml
+          fail_on_unmatched_files: true
+          token: ${{ github.token }}
+
+      - name: Publish first release
+        if: needs.preflight.outputs.previous_tag == ''
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.ref }}
+          name: ${{ needs.preflight.outputs.release_name }}
+          body: |
+            Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
+            Channel: `${{ needs.preflight.outputs.release_channel }}`
+          generate_release_notes: true
+          prerelease: ${{ needs.preflight.outputs.is_prerelease }}
+          make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: |
             release-assets/*.AppImage
             release-assets/*.yml
