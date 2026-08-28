@@ -431,14 +431,21 @@ function layerTest(input: {
           prepareWebview: () => Effect.void,
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
+          // @ts-expect-error fork-hook: upstream-fixes/reapply-zoom-retired
           reapplyZoom: () =>
             Effect.sync(() => {
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
             }),
+          preserveGuestZooms: (updateEmbedderZoom) =>
+            Effect.sync(() => {
+              updateEmbedderZoom();
+              input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
+            }),
           forWindow: () =>
             Effect.succeed({
-              reapplyZoom: () =>
+              preserveGuestZooms: (updateEmbedderZoom: () => void) =>
                 Effect.sync(() => {
+                  updateEmbedderZoom();
                   input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
                 }),
             } as never),
