@@ -1,6 +1,6 @@
 # Rehearsal record
 
-Records live at `docs/operations/fork-sync-records/<stable-tag>.md` and are committed on the
+Records live at `docs/operations/fork-sync-records/<target-tag>.md` and are committed on the
 rehearsed stack. They are evidence carried into the next tag, not disposable agent notes.
 
 A record states what the rehearsal decided and what it proved. A section that only restates the
@@ -39,9 +39,9 @@ Use these sections in order.
 ## Header
 
 - Source: `origin/hyprws@<full-sha>`
-- Target: `<stable-tag>@<full-sha>`
+- Target: `<target-tag>@<full-sha>`
 - `expected_old`: `<full-sha>`
-- Rehearsal branch: `rehearse/<stable-tag>`
+- Rehearsal branch: `rehearse/<target-tag>`
 - Rebased head: `<full-sha>`
 - Stack size: `<count>` fork commits
 - Human sanity: absent
@@ -51,7 +51,7 @@ Gate 4 replaces `absent` with `<login> YYYY-MM-DD`. `expected_old` is the exact 
 before rehearsal and is never shortened. If the published head moves, the drift procedure updates
 both Source and `expected_old` after the new commits have been read and incorporated.
 
-`Stack size` is `git rev-list --count <stable-tag>..HEAD` at `Rebased head`. It counts the rehearsed
+`Stack size` is `git rev-list --count <target-tag>..HEAD` at `Rebased head`. It counts the rehearsed
 stack, which is what the conflicts, commit table, and checks are evidence about.
 
 One record states one stack size. Two counts may both be true at different heads, and the header
@@ -84,7 +84,7 @@ no rows under them record nothing.
 A zero-conflict replay still owes evidence that nothing was silently dropped. State it as a short
 list under `None.`:
 
-- `git rev-list --count <stable-tag>..HEAD`, and the pre-rebase stack size it equals.
+- `git rev-list --count <target-tag>..HEAD`, and the pre-rebase stack size it equals.
 - That every subject is byte-identical and in the same order.
 - That every full message, including every `Fork-Domain` and `Fork-Tier` trailer, is byte-identical.
 - The `git config rerere.enabled` state, so a cached resolution is ruled in or out.
