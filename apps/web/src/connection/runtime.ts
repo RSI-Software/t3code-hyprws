@@ -1,4 +1,5 @@
 import { Connection } from "@t3tools/client-runtime/connection";
+import { agentActivityLoaderLayer } from "@t3tools/client-runtime/state/orchestration";
 import { shellSnapshotLoaderLayer } from "@t3tools/client-runtime/state/shell";
 import { threadSnapshotLoaderLayer } from "@t3tools/client-runtime/state/threads";
 import { pullRequestDiffLoaderLayer } from "@t3tools/client-runtime/state/pull-requests";
@@ -18,6 +19,7 @@ const providedConnectionPlatformLayer = connectionPlatformLayer.pipe(
 );
 
 const snapshotLoaderLayer = Layer.mergeAll(
+  agentActivityLoaderLayer,
   threadSnapshotLoaderLayer,
   shellSnapshotLoaderLayer,
   pullRequestDiffLoaderLayer,
