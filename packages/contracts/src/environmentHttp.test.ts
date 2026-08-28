@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as Schema from "effect/Schema";
 
 import {
   EnvironmentAuthInvalidError,
@@ -7,6 +8,7 @@ import {
   EnvironmentRequestInvalidError,
   EnvironmentResourceNotFoundError,
   EnvironmentScopeRequiredError,
+  ThreadGroupTitleGenerationInput,
 } from "./environmentHttp.ts";
 
 const traceId = "trace-1";
