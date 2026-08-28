@@ -17,6 +17,12 @@ import {
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
+const agentsSurface = {
+  id: "agents",
+  kind: "agents",
+  selectedAgentId: null,
+  rosterFocusAgentId: null,
+} as const;
 
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
@@ -216,8 +222,6 @@ describe("rightPanelStore", () => {
 
     expect(store.openProactive(refA, completedDiff, revision)).toBe(true);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
-  });
-
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({
@@ -432,10 +436,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "diff",
-      surfaces: [
-        { id: "diff", kind: "diff" },
-        { id: "agents", kind: "agents" },
-      ],
+      surfaces: [{ id: "diff", kind: "diff" }, agentsSurface],
     });
   });
 
@@ -586,7 +587,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "agents",
-      surfaces: [{ id: "agents", kind: "agents" }],
+      surfaces: [agentsSurface],
     });
 
     useRightPanelStore.getState().openFile(refB, "conductor.json");
@@ -633,11 +634,11 @@ describe("rightPanelStore", () => {
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
     expect(
       selectSelectedRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
-    ).toEqual({ id: "agents", kind: "agents" });
+    ).toEqual(agentsSurface);
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: false,
       activeSurfaceId: "agents",
-      surfaces: [{ id: "agents", kind: "agents" }],
+      surfaces: [agentsSurface],
     });
   });
 
