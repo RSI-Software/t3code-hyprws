@@ -5,6 +5,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import {
   ApprovalRequestId,
+  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+  ChildItemRenderDetail,
   CodexSettings,
   EventId,
   ProviderDriverKind,
@@ -48,6 +50,12 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+
+const encodeChildItemRenderDetailJson = Schema.encodeSync(
+  Schema.fromJsonString(ChildItemRenderDetail),
+);
+const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
+  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -638,13 +646,14 @@ const lifecycleLayer = it.layer(
   ),
 );
 
-function startLifecycleRuntime() {
+function startLifecycleRuntime(cwd?: string) {
   return Effect.gen(function* () {
     const adapter = yield* CodexAdapter;
     yield* adapter.startSession({
       provider: ProviderDriverKind.make("codex"),
       threadId: asThreadId("thread-1"),
       runtimeMode: "full-access",
+      ...(cwd ? { cwd } : {}),
     });
     const runtime = lifecycleRuntimeFactory.lastRuntime;
     NodeAssert.ok(runtime);
