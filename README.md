@@ -86,6 +86,7 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 ## Documentation
 
 - [Install and first run](./docs/user/install.md)
+- [Browser bookmarks](./docs/user/browser.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Source control](./docs/user/source-control.md)
