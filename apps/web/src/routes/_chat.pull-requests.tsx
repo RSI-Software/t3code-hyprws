@@ -1967,6 +1967,7 @@ export function PullRequestsPage({
             onAddFiles={() => undefined}
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
+            onAddIssues={() => undefined}
             onAddAgents={() => undefined}
             onAddDevice={() => undefined}
             browserAvailable={false}
@@ -1975,6 +1976,7 @@ export function PullRequestsPage({
             filesAvailable={false}
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
+            issuesAvailable={false}
             agentsAvailable={false}
             deviceAvailable={false}
             liveAgentCount={0}

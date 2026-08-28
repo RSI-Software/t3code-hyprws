@@ -210,6 +210,26 @@ describe("GitHubIssuesPage", () => {
     expect(mocks.listTargets.at(-1)?.map((target) => target.environmentId)).toEqual([environment1]);
   });
 
+  it("renders the project-scoped list without page chrome in a right panel", () => {
+    const html = renderToStaticMarkup(
+      <GitHubIssuesPage
+        forcedProjectRef={forcedProjectRef}
+        search={baseSearch}
+        onNavigate={() => undefined}
+        variant="panel"
+      />,
+    );
+
+    expect(html).toContain("project menu");
+    expect(html).not.toContain('aria-label="Refresh GitHub issues"');
+    expect(mocks.listTargets.at(-1)).toEqual([
+      {
+        environmentId: environment1,
+        input: expect.objectContaining({ projectId: "project-1" }),
+      },
+    ]);
+  });
+
   it("shows unavailable when a selected environment is missing from the catalog", () => {
     const html = renderToStaticMarkup(
       <GitHubIssuesPage
