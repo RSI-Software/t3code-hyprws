@@ -37,6 +37,7 @@ import {
   FILE_REVISIONS_CACHE_CAPACITY,
   MAX_FILE_REVISION_PATHS,
 } from "./pullRequestViewedFiles.ts";
+import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
 
 function project(input: {
   readonly id: string;
@@ -401,6 +402,7 @@ function makeService(input: {
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
+  readonly attachmentStore?: Partial<PullRequestAttachmentStore["Service"]>;
 }) {
   // Built into the test's own scope rather than provided call by call: the marks store owns a
   // database, and `Effect.provide` would close it the moment the service was handed back.
@@ -408,6 +410,12 @@ function makeService(input: {
     Layer.build(
       Layer.mergeAll(
         Layer.succeed(PullRequestProviderRegistry, fromProviders(input.providers)),
+        Layer.mock(PullRequestAttachmentStore)({
+          createUploadUrl: () => Effect.die("unused"),
+          resolvePendingPath: () => null,
+          deletePending: () => Effect.void,
+          ...input.attachmentStore,
+        }),
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
           resolveLink: () => undefined,
           resolveHandle:
