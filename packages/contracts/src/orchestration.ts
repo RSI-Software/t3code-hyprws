@@ -701,6 +701,47 @@ export const OrchestrationThreadDetailSnapshot = Schema.Struct({
 });
 export type OrchestrationThreadDetailSnapshot = typeof OrchestrationThreadDetailSnapshot.Type;
 
+export const ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT = 50;
+export const ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT = 100;
+
+/**
+ * Bounded child-work row returned by the authenticated agent-detail read.
+ * `truncated` covers both size caps and security redaction, so clients never
+ * mistake an intentionally partial payload for the persisted source row.
+ */
+export const OrchestrationAgentActivity = Schema.Struct({
+  id: EventId,
+  tone: OrchestrationThreadActivityTone,
+  kind: TrimmedNonEmptyString,
+  summary: TrimmedNonEmptyString,
+  payload: Schema.Unknown,
+  turnId: Schema.NullOr(TurnId),
+  sequence: Schema.optional(NonNegativeInt),
+  createdAt: IsoDateTime,
+  truncated: Schema.Boolean,
+});
+export type OrchestrationAgentActivity = typeof OrchestrationAgentActivity.Type;
+
+export const OrchestrationAgentActivityWindow = Schema.Struct({
+  limit: Schema.optionalKey(
+    PositiveInt.check(Schema.isLessThanOrEqualTo(ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT)),
+  ),
+  beforeCursor: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type OrchestrationAgentActivityWindow = typeof OrchestrationAgentActivityWindow.Type;
+
+/**
+ * Durable activity backfill for one server-owned child identity. Live rows
+ * continue over the existing per-thread subscription; `threadSequence` lets
+ * clients coalesce refreshes after applying the corresponding live event.
+ */
+export const OrchestrationAgentActivitySnapshot = Schema.Struct({
+  agentId: TrimmedNonEmptyString,
+  activities: Schema.Array(OrchestrationAgentActivity),
+  page: OrchestrationThreadDetailPage,
+});
+export type OrchestrationAgentActivitySnapshot = typeof OrchestrationAgentActivitySnapshot.Type;
+
 export const ProjectCreateCommand = Schema.Struct({
   type: Schema.Literal("project.create"),
   commandId: CommandId,
