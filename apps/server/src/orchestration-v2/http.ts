@@ -37,6 +37,7 @@ import {
   projectIdentitiesDigest,
 } from "./ShellStream.ts";
 import { boundedSnapshotResponseFields } from "./ThreadStream.ts";
+import { makeThreadGroupTitleHandlerFork } from "./ThreadGroupTitles.ts"; // fork-hook: thread-ordering/group-title-handler-import
 import { projectThreadProjectionForWire } from "./WireProjection.ts";
 
 const isInvalidThreadHistoryCursorError = Schema.is(InvalidThreadHistoryCursorError);
@@ -63,6 +64,7 @@ export const layer = HttpApiBuilder.group(
     const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
     const projectStore = yield* ProjectStore.ProjectStoreV2;
     const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
+    const generateThreadGroupTitleFork = makeThreadGroupTitleHandlerFork(projectStore); // fork-hook: thread-ordering/group-title-handler
 
     const enrichProjectShells = Effect.fn("http.orchestration.enrichProjectShells")(
       (projects: ReadonlyArray<OrchestrationProjectShell>) =>
@@ -182,6 +184,7 @@ export const layer = HttpApiBuilder.group(
     );
 
     return handlers
+      .handle("generateThreadGroupTitle", generateThreadGroupTitleFork) // fork-hook: thread-ordering/group-title-handle
       .handle(
         "shellSnapshot",
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {

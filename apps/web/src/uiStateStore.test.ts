@@ -5,13 +5,18 @@ import {
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
+  moveProjectThread,
   parsePersistedState,
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  renameThreadGroup,
+  renameThreadGroupIfCurrent,
+  reorderProjectThreads,
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
+  setThreadGroupMembership,
   type UiState,
 } from "./uiStateStore";
 
@@ -20,6 +25,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKeys: [],
+    threadOrderByProject: {},
+    threadGroupsByProject: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -102,6 +109,25 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
+      threadOrderByProject: {
+        "environment:project-1": [
+          "environment:thread-2",
+          "",
+          "environment:thread-1",
+          "environment:thread-2",
+        ],
+        invalid: [] as string[],
+      },
+      threadGroupsByProject: {
+        "environment:project-1": [
+          {
+            id: "group-1",
+            title: " Related work ",
+            threadIds: ["environment:thread-2", "environment:thread-1"],
+            collapsed: false,
+          },
+        ],
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -121,6 +147,19 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      threadOrderByProject: {
+        "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+      },
+      threadGroupsByProject: {
+        "environment:project-1": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["environment:thread-2", "environment:thread-1"],
+            collapsed: false,
+          },
+        ],
+      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -226,6 +265,10 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      threadOrderByProject: {
+        "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+      },
+      threadGroupsByProject: {},
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
