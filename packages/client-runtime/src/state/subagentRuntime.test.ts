@@ -96,6 +96,71 @@ describe("foldSubagentActivities", () => {
     expect(agent.completedAt).not.toBeNull();
   });
 
+  it("folds the provider across the full task lifecycle", () => {
+    const [agent] = fold([
+      activity("task.started", { taskId: "provider-lifecycle", provider: "codex" }),
+      activity("task.progress", {
+        taskId: "provider-lifecycle",
+        provider: "codex",
+        summary: "Working",
+      }),
+      activity("task.updated", {
+        taskId: "provider-lifecycle",
+        provider: "codex",
+        status: "waiting",
+      }),
+      activity("task.completed", {
+        taskId: "provider-lifecycle",
+        provider: "codex",
+        status: "completed",
+      }),
+    ]);
+
+    expect(agent?.provider).toBe("codex");
+  });
+
+  it("reconstructs provider from a retained terminal row", () => {
+    const [agent] = fold([
+      activity("task.completed", {
+        taskId: "provider-reconstructed",
+        provider: "claudeAgent",
+        status: "completed",
+      }),
+    ]);
+
+    expect(agent?.provider).toBe("claudeAgent");
+  });
+
+  it("keeps legacy provider unknown", () => {
+    const [agent] = fold([
+      activity("task.started", { taskId: "legacy-provider", taskType: "local_agent" }),
+    ]);
+
+    expect(agent?.provider).toBeNull();
+  });
+
+  it("ignores a malformed provider", () => {
+    const [agent] = fold([
+      activity("task.started", { taskId: "bad-provider", provider: "not a provider!" }),
+    ]);
+
+    expect(agent?.provider).toBeNull();
+  });
+
+  it("does not erase a known provider when a later row is missing or malformed", () => {
+    const [agent] = fold([
+      activity("task.started", { taskId: "sticky-provider", provider: "codex" }),
+      activity("task.progress", {
+        taskId: "sticky-provider",
+        provider: "bad provider!",
+        summary: "Still working",
+      }),
+      activity("task.updated", { taskId: "sticky-provider", status: "waiting" }),
+    ]);
+
+    expect(agent?.provider).toBe("codex");
+  });
+
   it("progress can create an agent when its start row aged out of retention", () => {
     const agents = fold([
       activity("task.progress", {

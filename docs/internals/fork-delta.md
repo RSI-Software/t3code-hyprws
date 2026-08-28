@@ -213,6 +213,7 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/window/WindowIdentity.ts`                               | Fork-only. A conflict means upstream added its own identity model.  |
 | `apps/desktop/src/window/DesktopWindowSession.ts`                         | Fork-only. The manifest that carries windows across an update.      |
 | `apps/desktop/src/window/hyprland.ts`                                     | Fork-only. The only place that speaks to the compositor.            |
+| `apps/desktop/src/backend/DesktopBackendPool.test.ts`                     | Covers the shared backend pool lifecycle used by project windows.   |
 | `apps/desktop/src/updates/DesktopUpdates.ts`                              | Captures the session before `destroyAll`. Upstream edits this file. |
 | `apps/server/src/provider/providerSessionEnvironment.ts`                  | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
 | `apps/server/src/provider/Layers/*Adapter.ts`                             | Every adapter passes that identity into its runtime.                |
@@ -234,6 +235,10 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/ChatView.tsx`                                    | Starts and navigates threads within project-window scope.           |
 | `apps/web/src/components/Sidebar.logic.ts`                                | `isProjectInSidebarScope`; upstream reworks this comparator.        |
 | `apps/web/src/components/Sidebar.logic.test.ts`                           | Fork scope cases sit beside upstream's ordering cases.              |
+| `apps/web/src/components/Sidebar.tsx`                                     | Applies the active project-window scope to the shared sidebar.      |
+| `apps/web/src/composerDraftStore.ts`                                      | Persists drafts within project-window thread scope.                 |
+| `apps/web/src/composerDraftStore.test.ts`                                 | Covers project-scoped draft restoration.                            |
+| `apps/web/src/hooks/useHandleNewThread.ts`                                | Starts new threads inside the active project window.                |
 | `docs/user/thread-sidebar.md`                                             | Documents the scoped sidebar on a page upstream also edits.         |
 | `docs/user/keybindings.md`                                                | Documents project-window keyboard entry points.                     |
 | `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
@@ -311,6 +316,11 @@ Project definitions can override personal Codex definitions with the same name a
 Selections persist in `modelSelection.options` and restore with the provider binding.
 Changing the root agent restarts the provider session before the next turn.
 
+The Agents panel also folds provider-native Codex and Claude child work into one roster. Selecting
+a child opens a read-only detail surface backed by authenticated, paginated activity history and
+the existing live thread stream. Provider-owned child identity remains server-side; unsupported
+providers report that detail is unavailable instead of presenting an inert row.
+
 ### Retirement condition
 
 Delete this domain when upstream can discover and select provider-native main-thread agents for Claude and Codex.
@@ -318,26 +328,33 @@ The upstream behavior must persist the selection and apply it on new and resumed
 
 ### Rebase scan
 
-| Path                                                                                                                                    | Why it matters                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `apps/web/src/components/chat/ChatComposer.tsx`                                                                                         | Owns the composer control order.                          |
-| `apps/web/src/components/chat/TraitsPicker.tsx`                                                                                         | Splits root agents from model traits.                     |
-| `apps/web/src/components/chat/composerProviderState.tsx`                                                                                | Renders capability-driven composer controls.              |
-| `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                     | Discovers Claude agents.                                  |
-| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                      | Applies Claude's `--agent` launch argument.               |
-| `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`                                                                                 | Covers Claude agent discovery and launch behavior.        |
-| `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                       | Discovers and parses Codex agent definitions.             |
-| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                       | Applies Codex agent selection at the adapter boundary.    |
-| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                                  | Covers Codex agent selection and session behavior.        |
-| `apps/server/src/provider/Layers/CodexCollabWire.test.ts`                                                                               | Covers Codex custom-agent collaboration wire behavior.    |
-| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                | Layers Codex agent config and instructions onto a thread. |
-| `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                      | Builds the Codex agent select descriptor.                 |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts` | Restarts sessions when the root agent changes.            |
-| `apps/server/src/server.test.ts`                                                                                                        | Covers custom-agent behavior through server seams.        |
-| `apps/server/package.json`, `pnpm-lock.yaml`                                                                                            | The `smol-toml` dependency the Codex parser needs.        |
-| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                       | Own the generic provider-option contract.                 |
-| `packages/contracts/src/orchestration.ts`                                                                                               | Carries selected agent options through orchestration.     |
-| `docs/user/providers-codex.md`                                                                                                          | Documents Codex custom-agent selection.                   |
+| Path                                                                                                                                                                                                                                                                                                                                             | Why it matters                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| `apps/web/src/components/chat/ChatComposer.tsx`                                                                                                                                                                                                                                                                                                  | Owns the composer control order.                          |
+| `apps/web/src/components/chat/TraitsPicker.tsx`                                                                                                                                                                                                                                                                                                  | Splits root agents from model traits.                     |
+| `apps/web/src/components/chat/composerProviderState.tsx`                                                                                                                                                                                                                                                                                         | Renders capability-driven composer controls.              |
+| `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                                                                                                                                                                                                                              | Discovers Claude agents.                                  |
+| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                                                                                                                                                                                                                               | Applies Claude's `--agent` launch argument.               |
+| `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`                                                                                                                                                                                                                                                                                          | Covers Claude agent discovery and launch behavior.        |
+| `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                                                                                                                                                                                                                                | Discovers and parses Codex agent definitions.             |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                                                                                                                                                                                                                                | Applies Codex agent selection at the adapter boundary.    |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                                                                                                                                                                                                                                           | Covers Codex agent selection and session behavior.        |
+| `apps/server/src/provider/Layers/CodexCollabWire.test.ts`                                                                                                                                                                                                                                                                                        | Covers Codex custom-agent collaboration wire behavior.    |
+| `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                                                                                                                                                                                                                         | Layers Codex agent config and instructions onto a thread. |
+| `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                                                                                                                                                                                                                               | Builds the Codex agent select descriptor.                 |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts`                                                                                                                                                                                                          | Restarts sessions when the root agent changes.            |
+| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts`, `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.activity.test.ts`                                                                                                                                                                                             | Stamps child-owned provider activity for reconstruction.  |
+| `apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts`                                                                                                                                                                                                                                                                               | Covers custom-agent orchestration behavior.               |
+| `apps/server/src/orchestration/ActivityPayloadProjection.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`, `apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts`                                                                                                                                                    | Keeps snapshot and live activity projections ordered.     |
+| `apps/server/src/server.test.ts`                                                                                                                                                                                                                                                                                                                 | Covers custom-agent behavior through server seams.        |
+| `apps/server/package.json`, `pnpm-lock.yaml`                                                                                                                                                                                                                                                                                                     | The `smol-toml` dependency the Codex parser needs.        |
+| `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                                                                                                                                                                                                                                | Own the generic provider-option contract.                 |
+| `docs/user/providers-codex.md`                                                                                                                                                                                                                                                                                                                   | Documents Codex custom-agent selection.                   |
+| `packages/contracts/src/orchestration.ts`, `packages/contracts/src/environmentHttp.ts`                                                                                                                                                                                                                                                           | Carry agent selection and bounded child activity pages.   |
+| `packages/client-runtime/src/state/orchestration.ts`, `packages/client-runtime/src/state/threadReducer.ts`, `packages/client-runtime/src/state/subagentRuntime.ts`, `packages/client-runtime/src/state/subagentRuntime.test.ts`, `packages/client-runtime/src/state/subagentDetail.ts`, `packages/client-runtime/src/state/agentActivityHttp.ts` | Load, sequence, and merge retained/live child activity.   |
+| `apps/mobile/src/lib/threadActivity.ts`, `apps/mobile/src/lib/threadActivity.test.ts`                                                                                                                                                                                                                                                            | Preserve snapshot order before sequenced live activity.   |
+| `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/AgentsPanel.tsx`, `apps/web/src/components/AgentDetailPanel.tsx`                                                                                                                                                                                                                | Own the roster and read-only child inspector.             |
+| `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                                                                                                                                                                                           | Persist selection and route spawn cards.                  |
 
 ## markdown-editing
 
@@ -455,6 +472,7 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | `.github/workflows/release.yml`               | Copy job-shape and Linux build changes into `hyprws-release.yml`. |
 | `scripts/resolve-nightly-release.ts`          | Shared next-patch helpers used by fork nightlies.                 |
 | `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and update-channel resolution.        |
+| `scripts/build-desktop-artifact.test.ts`      | Covers desktop artifact and update-channel behavior.              |
 | `scripts/update-release-package-versions.ts`  | Stable and nightly release version alignment.                     |
 | `package.json` `engines` and `packageManager` | Runner toolchain expectations.                                    |
 
@@ -479,16 +497,17 @@ explicitly trusted artifact links shared across worktrees.
 
 ### Rebase scan
 
-| Path                                                  | Why it matters                                      |
-| ----------------------------------------------------- | --------------------------------------------------- |
-| `apps/server/src/workspace/WorkspaceEntries.ts`       | Combines the normal index with ignored VCS paths.   |
-| `apps/server/src/vcs/GitVcsDriver.ts`                 | Lists ignored paths through Git's native rules.     |
-| `packages/contracts/src/project.ts`                   | Carries the optional listing request.               |
-| `packages/contracts/src/settings.ts`                  | Persists the client-local preference.               |
-| `apps/web/src/components/files/FileBrowserPanel.tsx`  | Owns the file-tree toolbar toggle.                  |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | Owns the web/desktop settings entry point.          |
-| `apps/mobile/src/features/files/**`                   | Applies the mobile device-local preference.         |
-| `apps/server/src/workspace/WorkspaceFileSystem.ts`    | Retains containment and trusted-link read behavior. |
+| Path                                                        | Why it matters                                      |
+| ----------------------------------------------------------- | --------------------------------------------------- |
+| `apps/server/src/workspace/WorkspaceEntries.ts`             | Combines the normal index with ignored VCS paths.   |
+| `apps/server/src/vcs/GitVcsDriver.ts`                       | Lists ignored paths through Git's native rules.     |
+| `packages/contracts/src/project.ts`                         | Carries the optional listing request.               |
+| `packages/contracts/src/settings.ts`                        | Persists the client-local preference.               |
+| `apps/web/src/components/files/FileBrowserPanel.tsx`        | Owns the file-tree toolbar toggle.                  |
+| `apps/web/src/components/settings/SettingsPanels.tsx`       | Owns the web/desktop settings entry point.          |
+| `apps/mobile/src/features/files/**`                         | Applies the mobile device-local preference.         |
+| `apps/mobile/src/features/settings/SettingsRouteScreen.tsx` | Exposes the preference in mobile settings.          |
+| `apps/server/src/workspace/WorkspaceFileSystem.ts`          | Retains containment and trusted-link read behavior. |
 
 ## thread-ordering
 
@@ -525,6 +544,7 @@ without requiring the fork to migrate or discard saved order.
 | `packages/client-runtime/src/state/threadSort.ts`    | Defines Manual as preserving supplied order.        |
 | `apps/web/src/uiStateStore.ts`                       | Persists client-local per-project thread order.     |
 | `apps/web/src/components/Sidebar.logic.ts`           | Overlays per-project order without crossing groups. |
+| `apps/web/src/components/Sidebar.logic.test.ts`      | Covers manual ordering beside upstream grouping.    |
 | `apps/web/src/components/Sidebar.tsx`                | Owns the active-thread drag interaction.            |
 | `apps/web/src/components/SidebarThreadGroup.tsx`     | Renders group headers and name controls.            |
 | `packages/contracts/src/environmentHttp.ts`          | Types remote-safe group title generation.           |
@@ -632,6 +652,7 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `packages/shared/src/threadEnvMode.ts`                        | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.  |
 | `apps/server/src/ws.ts`                                       | Thread bootstrap worktree create; the create hooks run before the setup script.       |
 | `apps/server/src/server.test.ts`                              | Covers worktrunk lifecycle behavior through server seams.                             |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`  | Shares durable activity sequencing with worktrunk-owned thread projection changes.    |
 | `packages/contracts/src/git.ts`                               | `worktrunk` on the local status result.                                               |
 | `apps/server/src/git/GitWorkflowService.ts`                   | Status carries the marker; on remove it decides the pre-remove and post-remove calls. |
 | `apps/web/src/components/BranchToolbar.logic.ts`              | `EnvMode`, its labels, and every worktree-shaped resolver.                            |
@@ -639,6 +660,8 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/web/src/components/BranchToolbar.tsx`                   | Mobile-width Workspace menu; the same third item.                                     |
 | `apps/web/src/components/ChatView.tsx`                        | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.      |
 | `apps/web/src/components/ChatView.logic.ts`                   | Shares worktree-shaped thread-start logic with the worktrunk mode.                    |
+| `apps/web/src/composerDraftStore.ts`                          | Keeps worktrunk-backed drafts aligned with thread startup.                            |
+| `apps/web/src/lib/chatThreadActions.ts`                       | Routes worktrunk thread actions through the shared startup path.                      |
 | `apps/web/src/components/settings/SettingsPanels.tsx`         | New threads select; a busy upstream file.                                             |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`   | Project Workspace select.                                                             |
 | `apps/mobile/src/features/threads/new-task-flow-provider.tsx` | Maps a `worktrunk` default to `worktree`.                                             |
