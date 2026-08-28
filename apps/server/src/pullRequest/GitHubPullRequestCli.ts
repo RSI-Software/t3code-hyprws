@@ -273,6 +273,9 @@ const DIFF_TIMEOUT_MS = 60_000;
 /** Pierre expansion is for source files, not blobs large enough to stall a review surface. */
 const DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const GITHUB_IMAGE_EXTENSION_VERSION = "gh-image 1.2.0";
+/** 1.3.0 uploads under the `gh` token's account before the browser session, so the pin is exact. */
+const GITHUB_IMAGE_INSTALL_HINT =
+  "Install it on the server with `gh extension install drogers0/gh-image --pin v1.2.0`.";
 const ATTACHMENT_UPLOAD_TIMEOUT_MS = 5 * 60_000;
 const ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES = 4_096;
 const GITHUB_ATTACHMENT_URL_PATTERN =
@@ -284,7 +287,7 @@ const GITHUB_IMAGE_MARKDOWN = new RegExp(
 );
 
 function markdownImageAlt(name: string): string {
-  return name.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+  return name.replace(/\\/g, "\\\\").replace(/[[\]]/g, "\\$&");
 }
 
 export function parseGitHubAttachmentUploadOutput(input: {
@@ -1895,6 +1898,17 @@ export const make = Effect.gen(function* () {
           maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
         })
         .pipe(
+          // `gh` exits non-zero on an unknown subcommand, which is what a missing extension is.
+          Effect.catchTag("GitHubCliCommandError", (cause) =>
+            Effect.fail(
+              new GitHubAttachmentUploadError({
+                command: "gh",
+                cwd: input.cwd,
+                detail: `The gh-image extension is not installed. ${GITHUB_IMAGE_INSTALL_HINT}`,
+                cause,
+              }),
+            ),
+          ),
           Effect.flatMap((version) =>
             version.stdout.trim() === GITHUB_IMAGE_EXTENSION_VERSION
               ? Effect.void
@@ -1902,7 +1916,7 @@ export const make = Effect.gen(function* () {
                   new GitHubAttachmentUploadError({
                     command: "gh",
                     cwd: input.cwd,
-                    detail: `Expected ${GITHUB_IMAGE_EXTENSION_VERSION}; received ${version.stdout.trim() || "no version"}.`,
+                    detail: `Expected ${GITHUB_IMAGE_EXTENSION_VERSION}; received ${version.stdout.trim() || "no version"}. ${GITHUB_IMAGE_INSTALL_HINT}`,
                   }),
                 ),
           ),

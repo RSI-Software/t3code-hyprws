@@ -185,11 +185,11 @@ layer("GitHubPullRequestCli.layer", (it) => {
       GitHubPullRequestCli.parseGitHubAttachmentUploadOutput({
         stdout:
           "![pending.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)\n",
-        name: "before ] after.png",
+        name: "before [ mid ] after.png",
         mimeType: "image/png",
       }),
     ).toBe(
-      "![before \\] after.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)",
+      "![before \\[ mid \\] after.png](https://github.com/user-attachments/assets/2f8c1a90-1b2c-4d5e-8f90-abcdef123456)",
     );
   });
 
@@ -245,6 +245,39 @@ layer("GitHubPullRequestCli.layer", (it) => {
       );
 
       expect(error._tag).toBe("GitHubAttachmentUploadError");
+      assert(error._tag === "GitHubAttachmentUploadError");
+      expect(error.detail).toContain("received gh-image 1.3.0");
+      expect(error.detail).toContain("gh extension install drogers0/gh-image --pin v1.2.0");
+      expect(mockedExecute).toHaveBeenCalledTimes(1);
+    }),
+  );
+
+  it.effect("names the missing extension and how to install it", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(
+        Effect.fail(
+          new GitHubCli.GitHubCliCommandError({
+            command: "gh",
+            cwd: "/w",
+            cause: new Error('unknown command "image" for "gh"'),
+          }),
+        ),
+      );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const error = yield* Effect.flip(
+        cli.uploadAttachment({
+          cwd: "/w",
+          repository: "acme/web",
+          host: "github.com",
+          path: "/tmp/demo.png",
+          name: "demo.png",
+          mimeType: "image/png",
+        }),
+      );
+
+      assert(error._tag === "GitHubAttachmentUploadError");
+      expect(error.detail).toContain("gh-image extension is not installed");
+      expect(error.detail).toContain("gh extension install drogers0/gh-image --pin v1.2.0");
       expect(mockedExecute).toHaveBeenCalledTimes(1);
     }),
   );
