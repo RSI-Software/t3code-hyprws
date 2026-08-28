@@ -51,6 +51,7 @@ const CAPABILITIES: PullRequestCapabilities = {
   stacks: true,
   stackActions: true,
   labels: true,
+  attachments: true,
 };
 
 /**
@@ -608,6 +609,9 @@ export const make = Effect.gen(function* () {
           ...(input.body === undefined ? {} : { body: input.body }),
         })
         .pipe(Effect.mapError(fail("updateChangeRequest"))),
+
+    uploadAttachment: (input) =>
+      cli.uploadAttachment(input).pipe(Effect.mapError(fail("uploadAttachment"))),
 
     comment: (input) => cli.commentOnPullRequest(input).pipe(Effect.mapError(fail("comment"))),
 
