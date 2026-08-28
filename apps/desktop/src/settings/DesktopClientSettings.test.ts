@@ -47,6 +47,8 @@ const clientSettings: ClientSettings = {
   fontSizePrompt: 14,
   fontSizeTerminal: 12,
   fontSmoothing: true,
+  githubChangeRequestOpenMode: "native",
+  githubLinkOpenMode: "external",
   glassOpacity: 80,
   onboardingCompletedAt: null,
   panelAnimationDurationMs: 0,
