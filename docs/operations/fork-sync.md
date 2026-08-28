@@ -110,10 +110,22 @@ that carries the fix exists and the behavior can be verified in it.
 
 ## Preconditions
 
-- `upstream` points at `pingdotgg/t3code` and `origin` at `RSI-Software/t3code-hyprws`.
-- The `hyprws` worktree is clean and `vp run fork:delta --check` passes before you start.
+`vp run fork:preflight` checks these from live state and names each unmet one with its fix. The gates
+run it first and refuse rather than reporting a failure after they acted, so a precondition is never
+prose a reader is trusted to have satisfied.
+
+- `origin` points at `RSI-Software/t3code-hyprws` and `upstream` at `pingdotgg/t3code`.
 - `git config rerere.enabled` is `true`, so a resolved conflict replays on the next sync.
-- The one-time setup below has been completed.
+- `origin/hyprws` was fetched during this run, so every lease is read against the published head
+  rather than against whatever the last unrelated fetch left behind.
+- `origin/main` matches `upstream/main`, so the mirror is current.
+- Dependencies are installed in the worktree the gates run from.
+
+The `hyprws` worktree does not need to be clean, and no gate requires it: orientation reads
+`origin/hyprws` and the rehearsal runs on its own branch.
+
+`vp run fork:delta --check` must pass before you start, and the one-time setup below must be
+complete.
 
 ## Step 1: Pick the target
 
