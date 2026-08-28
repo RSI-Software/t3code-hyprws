@@ -46,6 +46,7 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import type { ComposerSubmissionIntent } from "../composer-logic";
 import type { TimelineEntry } from "../session-logic";
@@ -526,53 +527,6 @@ export function buildRunningThreadTurnInterruptInput(
   return buildThreadTurnInterruptInput(thread);
 }
 
-/**
- * Maps each user message to the checkpoint turn count a revert should target.
- * Returns `previous` when the result is unchanged: streaming text deltas
- * rebuild `timelineEntries` per token, and the timeline row projection only
- * reuses rows while this Map keeps its identity.
- */
-export function buildRevertTurnCountByUserMessageId(
-  input: {
-    supportsConversationRollback: boolean;
-    timelineEntries: ReadonlyArray<TimelineEntry>;
-    turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
-    inferredCheckpointTurnCountByTurnId: Readonly<Record<string, number | undefined>>;
-  },
-  previous: Map<MessageId, number> | null = null,
-): Map<MessageId, number> {
-  const byUserMessageId = new Map<MessageId, number>();
-  const entryCount = input.supportsConversationRollback ? input.timelineEntries.length : 0;
-  for (let index = 0; index < entryCount; index += 1) {
-    const entry = input.timelineEntries[index];
-    if (!entry || entry.kind !== "message" || entry.message.role !== "user") {
-      continue;
-    }
-
-    for (let nextIndex = index + 1; nextIndex < input.timelineEntries.length; nextIndex += 1) {
-      const nextEntry = input.timelineEntries[nextIndex];
-      if (!nextEntry || nextEntry.kind !== "message") {
-        continue;
-      }
-      if (nextEntry.message.role === "user") {
-        break;
-      }
-      const summary = input.turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
-      if (!summary) {
-        continue;
-      }
-      const turnCount =
-        summary.checkpointTurnCount ?? input.inferredCheckpointTurnCountByTurnId[summary.turnId];
-      if (typeof turnCount !== "number") {
-        break;
-      }
-      byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
-      break;
-    }
-  }
-  return previous !== null && shallow(previous, byUserMessageId) ? previous : byUserMessageId;
-}
-
 export function shouldAutoFocusComposerOnThreadChange(activeThreadId: string | null): boolean {
   return activeThreadId !== null;
 }
@@ -727,7 +681,7 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
     envMode: input.envMode,
     branch: input.branch,
     worktreePath: null,
-    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    startFromOrigin: isWorktreeEnvMode(input.envMode) && input.startFromOrigin,
   };
 }
 

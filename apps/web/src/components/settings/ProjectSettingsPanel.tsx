@@ -529,7 +529,6 @@ function ProjectDetail({
         defaultModelSelection: ModelSelection | null;
         defaultThreadEnvMode: ThreadEnvMode | null;
         autoPull: boolean;
-        worktrunkHooks: boolean | null;
         faviconPath: string | null;
         projectIcon: ProjectIconOverride | null;
       }>,
@@ -692,14 +691,6 @@ function ProjectDetail({
   const setAutoPull = (enabled: boolean | undefined) =>
     setBooleanOverride("projectAutoPullOverrides", enabled);
 
-  // ----- Worktrunk hooks -----
-  const storedWorktrunkHooks = representative.worktrunkHooks ?? null;
-  const setWorktrunkHooks = useCallback(
-    (enabled: boolean | null) =>
-      void updateAllMembers({ worktrunkHooks: enabled }, "Failed to update Worktrunk hooks"),
-    [updateAllMembers],
-  );
-
   // ----- project icon -----
   const [faviconPickerOpen, setFaviconPickerOpen] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -755,9 +746,6 @@ function ProjectDetail({
   // repo's t3.json value when present, otherwise the global setting.
   const inheritedEnvMode = t3File.file?.defaultThreadEnvMode ?? scriptSettings.defaultThreadEnvMode;
   const inheritedEnvModeSource = t3File.file?.defaultThreadEnvMode != null ? "t3.json" : "global";
-  const inheritedWorktrunkHooks = t3File.file?.worktrunkHooks ?? settings.worktrunkHooks;
-  const inheritedWorktrunkHooksSource =
-    t3File.file?.worktrunkHooks !== undefined ? "t3.json" : "global";
   const importableScripts = useMemo(
     () =>
       t3File.scripts.filter(
@@ -1137,7 +1125,7 @@ function ProjectDetail({
               <Select
                 value={storedEnvMode ?? "inherit"}
                 onValueChange={(value) => {
-                  if (value === "worktree" || value === "local") {
+                  if (value === "worktree" || value === "worktrunk" || value === "local") {
                     setDefaultThreadEnvMode(value);
                   } else if (value === "inherit") {
                     setDefaultThreadEnvMode(null);
@@ -1160,6 +1148,7 @@ function ProjectDetail({
                       : `Default (${inheritedEnvModeSource}: ${resolveEnvModeLabel(inheritedEnvMode).toLowerCase()})`}
                   </SelectItem>
                   <SelectItem value="worktree">{resolveEnvModeLabel("worktree")}</SelectItem>
+                  <SelectItem value="worktrunk">{resolveEnvModeLabel("worktrunk")}</SelectItem>
                   <SelectItem value="local">{resolveEnvModeLabel("local")}</SelectItem>
                 </SelectPopup>
               </Select>
