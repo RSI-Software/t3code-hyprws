@@ -4,6 +4,7 @@ import {
   animatePinnedLayoutChanges,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
+  buildSidebarThreadGroupLayout,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   filterSidebarProjectScopeItems,
@@ -16,6 +17,7 @@ import {
   getProjectSortTimestamp,
   hasUnseenCompletion,
   isContextMenuPointerDown,
+  isSidebarThreadGroupDrop,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
@@ -58,6 +60,57 @@ import {
   type Project,
   type Thread,
 } from "../types";
+
+describe("sidebar thread groups", () => {
+  const threads = [
+    { id: "thread-a", projectKey: "project-a" },
+    { id: "thread-b", projectKey: "project-a" },
+    { id: "thread-c", projectKey: "project-a" },
+  ];
+
+  it("renders each visible group once at its first member", () => {
+    expect(
+      buildSidebarThreadGroupLayout({
+        threads,
+        groupsByProject: {
+          "project-a": [
+            {
+              id: "group-1",
+              title: "Related work",
+              threadIds: ["thread-b", "thread-c"],
+              collapsed: false,
+            },
+          ],
+        },
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.projectKey,
+      }),
+    ).toEqual([
+      { kind: "thread", thread: threads[0] },
+      {
+        kind: "group",
+        projectKey: "project-a",
+        group: {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["thread-b", "thread-c"],
+          collapsed: false,
+        },
+        threads: [threads[1], threads[2]],
+      },
+    ]);
+  });
+
+  it("only treats the center of a row as a grouping drop target", () => {
+    const overRect = { top: 100, bottom: 200 };
+    expect(isSidebarThreadGroupDrop({ activeRect: { top: 130, bottom: 170 }, overRect })).toBe(
+      true,
+    );
+    expect(isSidebarThreadGroupDrop({ activeRect: { top: 80, bottom: 110 }, overRect })).toBe(
+      false,
+    );
+  });
+});
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 
