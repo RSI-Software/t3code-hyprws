@@ -116,6 +116,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
+import type { SidebarThreadGroup } from "../uiStateStore"; // fork-hook: thread-ordering/sidebar-thread-group-import
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -178,6 +179,7 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
+  buildSidebarThreadGroupLayout,
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
@@ -915,6 +917,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectScopeItems: lookupProjectScopeItems,
   } = useSidebarLookups();
   const delegatedUnderParent = useDelegatedUnderParent();
+  const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1378,6 +1381,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
+  const activeThreadGroupLayout = buildSidebarThreadGroupLayout({
+    threads: activeThreads,
+    groupsByProject: threadGroupsByProject,
+    getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    getProjectKey: threadProjectOrderKey,
+  }); // fork-hook: thread-ordering/group-layout
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
