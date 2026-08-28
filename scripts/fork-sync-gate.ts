@@ -14,6 +14,7 @@ import {
 
 const RECORD_DIRECTORY = "docs/operations/fork-sync-records";
 const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
+const NIGHTLY_TAG = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
 const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
 const HUMAN_SANITY =
   /^- Human sanity: (?<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})) (?<date>\d{4}-\d{2}-\d{2})\s*$/m;
@@ -22,6 +23,7 @@ export class UsageError extends Error {}
 
 export interface GateOptions {
   readonly tag: string;
+  readonly allowNightly: boolean;
 }
 
 export interface GateDependencies {
@@ -33,13 +35,32 @@ const systemDependencies: GateDependencies = {
 };
 
 export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
-  if (argv.length !== 2 || argv[0] !== "--tag" || !argv[1]) {
-    throw new UsageError("expected --tag <stable-tag>");
+  let tag: string | null = null;
+  let allowNightly = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--allow-nightly") {
+      if (allowNightly) throw new UsageError("duplicate option: --allow-nightly");
+      allowNightly = true;
+      continue;
+    }
+    if (argument !== "--tag" || tag !== null) {
+      throw new UsageError("expected --tag <tag> [--allow-nightly]");
+    }
+    const value = argv[index + 1];
+    if (!value || value.startsWith("-")) throw new UsageError("missing value for --tag");
+    tag = value;
+    index += 1;
   }
-  if (!STABLE_TAG.test(argv[1])) {
-    throw new UsageError(`tag must be stable vX.Y.Z: ${argv[1]}`);
+  if (tag === null) throw new UsageError("expected --tag <tag> [--allow-nightly]");
+  if (!STABLE_TAG.test(tag) && !(allowNightly && NIGHTLY_TAG.test(tag))) {
+    throw new UsageError(
+      allowNightly
+        ? `tag must be vX.Y.Z or vX.Y.Z-nightly.YYYYMMDD.N: ${tag}`
+        : `tag must be stable vX.Y.Z: ${tag}`,
+    );
   }
-  return { tag: argv[1] };
+  return { tag, allowNightly };
 };
 
 const isCalendarDate = (value: string): boolean => {
