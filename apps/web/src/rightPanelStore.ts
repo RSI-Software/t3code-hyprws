@@ -96,7 +96,12 @@ export type RightPanelSurface =
       repository: string;
       number: number;
     }
-  | { id: "agents"; kind: "agents" };
+  | {
+      id: "agents";
+      kind: "agents";
+      selectedAgentId: string | null;
+      rosterFocusAgentId: string | null;
+    };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -104,7 +109,8 @@ const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
 // v14 adds GitHub issue surfaces.
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+// v15 gives the singleton Agents surface thread-local drill-down state.
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -163,6 +169,13 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     target: { environmentId: string; projectId: string; repository: string; number: number },
   ) => void;
+  openAgents: (
+    ref: ScopedThreadRef,
+    target?: {
+      readonly selectedAgentId?: string | null;
+      readonly rosterFocusAgentId?: string | null;
+    },
+  ) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -208,7 +221,7 @@ const singletonSurface = (
     case "github-issues":
       return { id: "github-issues", kind };
     case "agents":
-      return { id: "agents", kind };
+      return { id: "agents", kind, selectedAgentId: null, rosterFocusAgentId: null };
     case "device":
       return { id: "device", kind };
   }
@@ -330,6 +343,17 @@ const upsertSurface = (
     ? current.surfaces
     : [...current.surfaces, surface],
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
+});
+
+const replaceSurface = (
+  current: ThreadRightPanelState,
+  surface: RightPanelSurface,
+): ThreadRightPanelState => ({
+  isOpen: true,
+  surfaces: current.surfaces.some((entry) => entry.id === surface.id)
+    ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+    : [...current.surfaces, surface],
+  activeSurfaceId: surface.id,
 });
 
 const updateThread = (
@@ -468,6 +492,24 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         return [];
                       }
                       return [githubIssueSurface(surface)];
+                    }
+                    if (surface.kind === "agents") {
+                      return [
+                        {
+                          id: "agents",
+                          kind: "agents",
+                          selectedAgentId:
+                            "selectedAgentId" in surface &&
+                            typeof surface.selectedAgentId === "string"
+                              ? surface.selectedAgentId
+                              : null,
+                          rosterFocusAgentId:
+                            "rosterFocusAgentId" in surface &&
+                            typeof surface.rosterFocusAgentId === "string"
+                              ? surface.rosterFocusAgentId
+                              : null,
+                        },
+                      ];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -649,6 +691,17 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
             upsertSurface(current, githubIssueSurface(target)),
+          ),
+        })),
+      openAgents: (ref, target) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            replaceSurface(current, {
+              id: "agents",
+              kind: "agents",
+              selectedAgentId: target?.selectedAgentId ?? null,
+              rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
+            }),
           ),
         })),
       /**
