@@ -27,9 +27,12 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a release tag
 A file is shared when the fork changed it above its upstream base and upstream changed it too on the
 way to the target, which is where a rebase merges two intents into one file. `fork:scan` fails when a
 domain's own commits change a shared file its scan table does not list. Fork CI runs it on every push
-against live `upstream/main` as an advisory step; the blocking run is gates 3 and 4 of the fork-sync
-skill, pinned to the rebase target tag. Every code span in a Path cell is one pattern: `*` stays
-inside a path segment, `**` spans them.
+against live `upstream/main` as an advisory step. The automated sync verifies the replay against its
+selected clean tag; when a conflict needs a person, gates 3 and 4 of the
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) unblock flow run the blocking scan against the
+human-selected target. The [fork sync runbook](../operations/fork-sync.md) connects the feasibility
+boundary, bot run summary, blocked issue, and human rehearsal. Every code span in a Path cell is one
+pattern: `*` stays inside a path segment, `**` spans them.
 
 ## Why the fork exists
 
@@ -390,6 +393,9 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
+- The bot-first sync model, bot-owned refs, human unblock, and stable-cut procedures in the
+  [fork sync runbook](../operations/fork-sync.md) and repo-local
+  [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
 - The fork trailer section of `.github/pull_request_template.md`.
