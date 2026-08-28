@@ -248,6 +248,7 @@ function makeTestLayer(input: {
   readonly environmentEnv?: Record<string, string | undefined>;
   readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
   readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
