@@ -7,6 +7,7 @@ This is a living glossary for T3 Code. It explains what common terms mean in thi
 ## Table of contents
 
 - [Project and workspace](#project-and-workspace)
+- [Fork synchronization](#fork-synchronization)
 - [Thread timeline](#thread-timeline)
 - [Orchestration](#orchestration)
 - [Provider runtime](#provider-runtime)
@@ -27,6 +28,40 @@ The root filesystem path for a project. In [the orchestration model][1], it is t
 #### Worktree
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live behind the VCS driver contract in `apps/server/src/vcs/VcsDriver.ts`, implemented by [GitVcsDriverCore.ts][3].
+
+### Fork synchronization
+
+#### `hyprws-previous`
+
+The bot-owned branch that records the published `hyprws` head immediately before an automatic trunk
+rewrite. A local feature lane based on that old trunk can use it as the old boundary for
+`git rebase --onto`. People do not move or delete this ref. See [Fork sync][25].
+
+#### `hyprws-next`
+
+The bot-owned branch carrying the newest verified rebase candidate while `HYPRWS_AUTO_REBASE` is in
+candidate mode. It lets maintainers inspect the result without rewriting `hyprws`. It is not a
+feature base or a stable release branch. See [Fork sync][25].
+
+#### `release/vX.Y.Z-hyprws`
+
+A bot-owned, create-only branch that snapshots the fork stack rebased onto stable upstream `vX.Y.Z`.
+A human cuts `vX.Y.Z-hyprws.<n>` stable tags from this exact branch. Later trunk work never moves the
+snapshot. See [Fork sync][25].
+
+#### `rebase-blocked`
+
+The fork issue label for the first upstream commit beyond the bot's conflict-free boundary. The issue
+records the blocking commit, affected fork commits and domains, conflict files, remaining upstream
+commits, and the newest release tag beyond the block. A maintainer resolves it through the
+`fork-sync` skill's unblock entry point.
+
+#### Nightly channel
+
+The prerelease update channel for tags shaped
+`vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>`. Nightlies are built automatically from `hyprws` and remain
+separate from stable `vX.Y.Z-hyprws.<n>` releases in the desktop updater, even when a mixed semver
+sort places a newer-version nightly above the latest stable.
 
 ### Thread timeline
 
@@ -183,3 +218,4 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 [22]: ../../apps/server/src/checkpointing/Utils.ts
 [23]: ../../apps/server/src/checkpointing/Diffs.ts
 [24]: ./overview.md
+[25]: ../operations/fork-sync.md
