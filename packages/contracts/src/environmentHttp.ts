@@ -69,6 +69,7 @@ export const EnvironmentRequestInvalidReason = Schema.Literals([
   "invalid_scope",
   "scope_not_granted",
   "invalid_command",
+  "invalid_agent_activity_cursor",
 ]);
 export type EnvironmentRequestInvalidReason = typeof EnvironmentRequestInvalidReason.Type;
 
@@ -338,6 +339,10 @@ const EnvironmentOrchestrationThreadSnapshotErrors = [
   EnvironmentResourceNotFoundError,
   EnvironmentInternalError,
 ] as const;
+const EnvironmentOrchestrationAgentActivityErrors = [
+  EnvironmentRequestInvalidError,
+  ...EnvironmentOrchestrationThreadSnapshotErrors,
+] as const;
 const EnvironmentOrchestrationDispatchErrors = [
   EnvironmentRequestInvalidError,
   EnvironmentScopeRequiredError,
@@ -558,7 +563,7 @@ export class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestr
         params: EnvironmentOrchestrationAgentActivityParams,
         payload: EnvironmentOrchestrationAgentActivityQuery,
         success: OrchestrationAgentActivitySnapshot,
-        error: EnvironmentOrchestrationThreadSnapshotErrors,
+        error: EnvironmentOrchestrationAgentActivityErrors,
       },
     ).middleware(EnvironmentAuthenticatedAuth),
   )

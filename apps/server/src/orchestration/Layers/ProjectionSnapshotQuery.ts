@@ -3511,6 +3511,14 @@ pending_approval_requests AS (
             window.beforeCursor === undefined
               ? null
               : decodeAgentActivityPageCursor(window.beforeCursor);
+          if (
+            window.beforeCursor !== undefined &&
+            (decodedCursor === null ||
+              decodedCursor.threadId !== threadId ||
+              decodedCursor.agentId !== agentId)
+          ) {
+            return Option.none();
+          }
           const cursor =
             decodedCursor?.threadId === threadId && decodedCursor.agentId === agentId
               ? decodedCursor
