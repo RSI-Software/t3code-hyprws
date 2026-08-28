@@ -134,13 +134,19 @@ export function GitHubDestinationLink({
             </span>
           </>
         ) : null}
-        <span
-          className="ml-auto inline-grid size-[22px] shrink-0 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-3.5"
-          title={`Default: ${defaultName}`}
-          aria-hidden
-        >
-          <DestinationIcon destination={preferredDestination} target={linkTarget} />
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className="ml-auto inline-grid size-[22px] shrink-0 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-3.5"
+                aria-hidden
+              />
+            }
+          >
+            <DestinationIcon destination={preferredDestination} target={linkTarget} />
+          </TooltipTrigger>
+          <TooltipPopup side="top">Default: {defaultName}</TooltipPopup>
+        </Tooltip>
       </a>
       <span
         className={cn(

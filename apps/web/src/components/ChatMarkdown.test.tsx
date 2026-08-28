@@ -116,7 +116,7 @@ describe("ChatMarkdown GitHub links", () => {
     expect(html).toContain("RSI-Software/t3code-hyprws#167");
     expect(html).toContain("Each stable tag lands through a rehearsed rebase");
     expect(html).toContain('data-github-link-kind="issue"');
-    expect(html).toContain('title="Default: issue panel"');
+    expect(html).toContain('aria-label="Open RSI-Software/t3code-hyprws#167 in issue panel"');
     expect(html).toContain('role="toolbar"');
     expect(html).toContain('aria-label="Open in issue panel, default"');
     expect(html).toContain('aria-label="Open in external browser"');
@@ -136,7 +136,7 @@ describe("ChatMarkdown GitHub links", () => {
     expect(html).toContain("RSI-Software/t3code-hyprws");
     expect(html).toContain("the repository");
     expect(html).toContain('data-github-link-kind="repository"');
-    expect(html).toContain('title="Default: external browser"');
+    expect(html).toContain('aria-label="Open RSI-Software/t3code-hyprws in external browser"');
     expect(html).toContain('aria-label="Open in external browser, default"');
     expect(html).not.toContain('aria-label="Open in issue panel"');
     expect(html).not.toContain('aria-label="Open in pull request panel"');
