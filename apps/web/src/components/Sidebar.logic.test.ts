@@ -219,7 +219,7 @@ function makeLatestRun(overrides?: {
       overrides?.completedAt !== undefined ? overrides.completedAt : "2026-03-09T10:05:00.000Z",
   };
 }
-export { makeLatestTurn }; // fork-hook: multi-window/sidebar-latest-turn-export
+export { makeLatestRun }; // fork-hook: upstream-fixes/sidebar-latest-run-export
 
 describe("orderItemsByPreferredIds", () => {
   it("resolves legacy preference aliases without materializing project state", () => {
