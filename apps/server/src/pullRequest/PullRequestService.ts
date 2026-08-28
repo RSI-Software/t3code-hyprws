@@ -624,17 +624,10 @@ export const make = Effect.gen(function* () {
         if (!match) {
           return Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" }));
         }
-        // The repository travels through the client, so it is checked against the project's
-        // own remote rather than being handed to a provider verbatim.
-        if (match.repository.toLowerCase() !== ref.repository.trim().toLowerCase()) {
-          return Effect.fail(
-            new PullRequestOperationError({
-              operation: "resolveRepository",
-              detail: "The change request does not belong to the selected project.",
-            }),
-          );
-        }
-        return Effect.succeed(match);
+        // The selected project supplies the provider, host, credentials, and working directory.
+        // The repository remains part of the reference so a native panel can read another
+        // repository on that same authenticated host.
+        return Effect.succeed({ ...match, repository: ref.repository.trim() });
       }),
     );
 
