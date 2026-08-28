@@ -19,6 +19,7 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveCompletedTurnTiming,
+  orderThreadsByProjectPreference,
   resolveProjectStatusIndicator,
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
@@ -870,6 +871,46 @@ describe("sortThreadsForSidebar", () => {
     ]);
 
     expect(sorted.map((thread) => thread.id)).toEqual(["newest", "stale-stamp"]);
+  });
+});
+
+describe("orderThreadsByProjectPreference", () => {
+  it("reorders within each project without moving project slots", () => {
+    const threads = [
+      { id: "a-1", project: "a" },
+      { id: "b-1", project: "b" },
+      { id: "a-2", project: "a" },
+      { id: "b-2", project: "b" },
+    ];
+
+    expect(
+      orderThreadsByProjectPreference({
+        threads,
+        preferredIdsByProject: {
+          a: ["a-2", "a-1"],
+          b: ["b-2", "b-1"],
+        },
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.project,
+      }).map((thread) => thread.id),
+    ).toEqual(["a-2", "b-2", "a-1", "b-1"]);
+  });
+
+  it("appends new threads in their automatic order", () => {
+    const threads = [
+      { id: "new", project: "a" },
+      { id: "saved-1", project: "a" },
+      { id: "saved-2", project: "a" },
+    ];
+
+    expect(
+      orderThreadsByProjectPreference({
+        threads,
+        preferredIdsByProject: { a: ["saved-2", "saved-1"] },
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.project,
+      }).map((thread) => thread.id),
+    ).toEqual(["saved-2", "saved-1", "new"]);
   });
 });
 

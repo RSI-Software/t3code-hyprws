@@ -32,6 +32,42 @@ export const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
 export const animatePinnedLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
+export function orderThreadsByProjectPreference<T>(input: {
+  threads: readonly T[];
+  preferredIdsByProject: Readonly<Record<string, readonly string[]>>;
+  getId: (thread: T) => string;
+  getProjectKey: (thread: T) => string;
+}): T[] {
+  const threadsByProject = new Map<string, T[]>();
+  for (const thread of input.threads) {
+    const projectKey = input.getProjectKey(thread);
+    const projectThreads = threadsByProject.get(projectKey);
+    if (projectThreads) {
+      projectThreads.push(thread);
+    } else {
+      threadsByProject.set(projectKey, [thread]);
+    }
+  }
+
+  const orderedByProject = new Map(
+    [...threadsByProject].map(([projectKey, projectThreads]) => [
+      projectKey,
+      orderItemsByPreferredIds({
+        items: projectThreads,
+        preferredIds: input.preferredIdsByProject[projectKey] ?? [],
+        getId: input.getId,
+      }),
+    ]),
+  );
+  const nextIndexByProject = new Map<string, number>();
+  return input.threads.map((thread) => {
+    const projectKey = input.getProjectKey(thread);
+    const nextIndex = nextIndexByProject.get(projectKey) ?? 0;
+    nextIndexByProject.set(projectKey, nextIndex + 1);
+    return orderedByProject.get(projectKey)?.[nextIndex] ?? thread;
+  });
+}
+
 type SidebarProject = {
   id: string;
   title: string;
