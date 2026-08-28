@@ -1,10 +1,9 @@
 name: hyprws rebase report
 
-# Mirrors upstream/main onto the fork's main and uploads a fresh rebase
-# orientation for the fork-sync skill's gate 1. The report embeds the
-# origin/hyprws head, so it is never committed; every hyprws push and the
-# schedule refresh both, and gate 1 regenerates the report live when a rebase
-# actually starts.
+# Mirrors upstream/main onto the fork's main, uploads the fork-sync orientation,
+# then rebases the fork stack onto the newest upstream tag inside the clean
+# feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on; an unset
+# variable uses candidate mode. The bot writes only fork refs and fork issues.
 
 on:
   push:
@@ -18,8 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: hyprws-rebase-report
-  cancel-in-progress: true
+  group: hyprws-rebase
+  cancel-in-progress: false
 
 jobs:
   # Upstream commits touch .github/workflows, which GITHUB_TOKEN may never push,
@@ -91,3 +90,115 @@ jobs:
             docs/internals/generated/fork-rebase-report.md
           if-no-files-found: error
           retention-days: 7
+
+  rebase:
+    name: Auto-rebase
+    needs: [mirror, generate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase fork stack
+        id: rebase
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          REBASE_MODE: ${{ vars.HYPRWS_AUTO_REBASE || 'candidate' }}
+        run: |
+          set +e
+          vp run fork:auto-rebase --fetch --mode "$REBASE_MODE" --github-output \
+            --summary "$RUNNER_TEMP/fork-auto-rebase.md" \
+            --issue-json "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
+            2> >(tee "$RUNNER_TEMP/fork-auto-rebase-error.log" >&2)
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "status=hard-failure" >> "$GITHUB_OUTPUT"
+            exit "$code"
+          fi
+
+      - name: Summarize auto-rebase
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/fork-auto-rebase.md" ]; then
+            cat "$RUNNER_TEMP/fork-auto-rebase.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            failure=$(tail -n 1 "$RUNNER_TEMP/fork-auto-rebase-error.log" 2>/dev/null || echo "unknown failure")
+            printf 'Auto-rebase failed: `%s`. See the Rebase fork stack step.\n' "$failure" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upsert blocked issue
+        if: ${{ always() && (steps.rebase.outputs.status == 'blocked' || steps.rebase.outputs.status == 'clear' || steps.rebase.outputs.status == 'stable-candidate') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
+        run: |
+          gh label create rebase-blocked --color B60205 \
+            --description "The fork stack conflicts with newer upstream history" --force
+          if [ "$(jq -r '.blocked == null' "$ISSUE_JSON")" = "true" ]; then
+            gh issue list --label rebase-blocked --state open --limit 100 \
+              --json number --jq '.[].number' | while read -r number; do
+                [ -z "$number" ] || gh issue close "$number" \
+                  --comment "The current auto-rebase scan has no blocking upstream commit."
+              done
+            exit 0
+          fi
+
+          number=$(gh issue list --label rebase-blocked --state open --limit 100 \
+            --json number --jq '.[0].number // empty')
+          jq -r '.blocked.body' "$ISSUE_JSON" > "$RUNNER_TEMP/rebase-blocked.md"
+          if [ -z "$number" ]; then
+            gh issue create --title "$(jq -r '.blocked.title' "$ISSUE_JSON")" \
+              --label rebase-blocked --body-file "$RUNNER_TEMP/rebase-blocked.md"
+            exit 0
+          fi
+
+          sha=$(jq -r '.blocked.blockingSha' "$ISSUE_JSON")
+          gh issue view "$number" --json body,comments \
+            --jq '[.body, (.comments[].body)] | join("\n")' > "$RUNNER_TEMP/rebase-blocked-history.md"
+          if ! grep -Fq -- "<!-- blocking-sha:$sha -->" "$RUNNER_TEMP/rebase-blocked-history.md"; then
+            gh issue comment "$number" --body-file "$RUNNER_TEMP/rebase-blocked.md"
+          fi
+
+      - name: Open stable candidate issues
+        if: ${{ always() && (steps.rebase.outputs.status == 'stable-candidate' || steps.rebase.outputs.stable_status == 'stable-candidate') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
+        run: |
+          jq -c '.stableCandidates[]' "$ISSUE_JSON" | while read -r candidate; do
+            title=$(jq -r '.title' <<< "$candidate")
+            marker=$(jq -r '.marker' <<< "$candidate")
+            matches=$(gh issue list --label release --state all --limit 1000 --json number,body)
+            if [ -n "$(jq -r --arg marker "$marker" '.[] | select(.body | contains($marker)) | .number' <<< "$matches" | head -1)" ]; then
+              continue
+            fi
+            jq -r '.body' <<< "$candidate" > "$RUNNER_TEMP/stable-candidate.md"
+            gh issue create --title "$title" --label release \
+              --body-file "$RUNNER_TEMP/stable-candidate.md"
+          done
