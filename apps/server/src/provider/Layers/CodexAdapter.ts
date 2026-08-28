@@ -13,6 +13,7 @@ import {
   type CodexSettings,
   ProviderDriverKind,
   type ProviderEvent,
+  ProviderItemId,
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
@@ -42,6 +43,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
+import { truncateActivityDetail } from "../../activityDetail.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { withProviderSessionIdentity } from "../providerSessionEnvironment.ts";
 
@@ -732,8 +734,43 @@ function mapCollabAgentEvent(
           ? (payload.item as Record<string, unknown>)
           : undefined;
       const itemTypeRaw = typeof item?.type === "string" ? item.type : undefined;
-      if (!itemTypeRaw) {
+      if (!item || !itemTypeRaw) {
         return [];
+      }
+      const lifecycle =
+        payload.lifecycle === "item.started" ||
+        payload.lifecycle === "item.updated" ||
+        payload.lifecycle === "item.completed"
+          ? payload.lifecycle
+          : undefined;
+      const itemId = typeof item.id === "string" ? item.id : undefined;
+      if (lifecycle && itemId) {
+        const canonical = toCanonicalItemType(itemTypeRaw);
+        const detail = itemDetail(canonical, item as CodexLifecycleItem);
+        const providerItemId = ProviderItemId.make(itemId);
+        const providerRefs = {
+          ...base.providerRefs,
+          providerItemId,
+        };
+        return [
+          {
+            ...base,
+            itemId: asRuntimeItemId(providerItemId),
+            providerRefs,
+            type: lifecycle,
+            payload: {
+              itemType: canonical,
+              status: lifecycle === "item.completed" ? "completed" : "inProgress",
+              ...(itemTitle(canonical, item as CodexLifecycleItem)
+                ? { title: itemTitle(canonical, item as CodexLifecycleItem) }
+                : {}),
+              ...(detail ? { detail: truncateActivityDetail(detail) } : {}),
+              data: { item },
+              agentId: agentThreadId,
+              timelineBypass: true,
+            },
+          },
+        ];
       }
       // A loose summary from the raw item: the child stream is untyped at
       // this boundary (synthetic event payload), so read best-effort fields
