@@ -26,8 +26,10 @@ vp run fork:scan --target vX.Y.Z    # the same walk pinned to a release tag
 
 A file is shared when the fork changed it above its upstream base and upstream changed it too on the
 way to the target, which is where a rebase merges two intents into one file. `fork:scan` fails when a
-domain's own commits change a shared file its scan table does not list, and fork CI runs it on every
-push. Every code span in a Path cell is one pattern: `*` stays inside a path segment, `**` spans them.
+domain's own commits change a shared file its scan table does not list. Fork CI runs it on every push
+against live `upstream/main` as an advisory step; the blocking run is gates 3 and 4 of the fork-sync
+skill, pinned to the rebase target tag. Every code span in a Path cell is one pattern: `*` stays
+inside a path segment, `**` spans them.
 
 ## Why the fork exists
 
