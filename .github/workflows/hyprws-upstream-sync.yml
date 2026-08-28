@@ -194,8 +194,13 @@ jobs:
             --json number --jq '.[0].number // empty')
           jq -r '.blocked.body' "$ISSUE_JSON" > "$RUNNER_TEMP/rebase-blocked.md"
           if [ -z "$number" ]; then
-            gh issue create --title "$(jq -r '.blocked.title' "$ISSUE_JSON")" \
-              --label rebase-blocked --body-file "$RUNNER_TEMP/rebase-blocked.md"
+            issue_url=$(gh issue create --title "$(jq -r '.blocked.title' "$ISSUE_JSON")" \
+              --label rebase-blocked --body-file "$RUNNER_TEMP/rebase-blocked.md")
+            tracker=$(jq -r '.blocked.trackerNumber' "$ISSUE_JSON")
+            parent_id=$(gh api "repos/$GH_REPO/issues/$tracker" --jq .node_id)
+            gh api graphql \
+              -f query='mutation($parent: ID!, $child: String!) { addSubIssue(input: { issueId: $parent, subIssueUrl: $child }) { issue { id } } }' \
+              -f parent="$parent_id" -f child="$issue_url"
             exit 0
           fi
 
