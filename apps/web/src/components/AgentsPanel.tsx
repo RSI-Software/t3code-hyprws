@@ -21,14 +21,18 @@ import {
   formatSubagentModelLabel,
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { EnvironmentId, OrchestrationThreadActivity, ThreadId } from "@t3tools/contracts";
+import { ArrowLeft, Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { AgentDetailPanel } from "./AgentDetailPanel";
+import { resolveAgentPanelSelection, workflowContainsAgent } from "./AgentsPanel.logic";
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
+
+const EMPTY_AGENT_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = [];
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -137,8 +141,16 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
   );
 }
 
-/** Flat, non-interactive agent status line. No unfold. */
-function AgentRow({ agent }: { agent: RuntimeSubagent }) {
+/** Fixed-height roster row. Native button semantics provide pointer, Enter, and Space. */
+function AgentRow({
+  agent,
+  onSelect,
+  buttonRef,
+}: {
+  agent: RuntimeSubagent;
+  onSelect: (agent: RuntimeSubagent) => void;
+  buttonRef?: (node: HTMLButtonElement | null) => void;
+}) {
   const visuals = STATUS_VISUALS[agent.status];
   const activity = agentActivityText(agent);
   const modelLabel = formatSubagentModelLabel(agent.model, agent.effort);
@@ -154,7 +166,12 @@ function AgentRow({ agent }: { agent: RuntimeSubagent }) {
   ].filter((value): value is string => value !== null);
 
   return (
-    <div className="grid h-[3.875rem] grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1">
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={() => onSelect(agent)}
+      className="grid h-[3.875rem] w-full grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+    >
       <span className="col-start-1 row-start-1 flex items-center">
         <StatusDot status={agent.status} />
       </span>
@@ -186,7 +203,7 @@ function AgentRow({ agent }: { agent: RuntimeSubagent }) {
         {metadata.join(" · ")}
       </span>
       <span className="sr-only">{visuals.label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -317,11 +334,18 @@ function WorkflowScriptView({
 function PhaseSection({
   phase,
   defaultOpen = false,
+  focusAgentId,
+  onSelectAgent,
+  registerAgentRow,
 }: {
   phase: AgentPanelWorkflowGroup["phases"][number];
   defaultOpen?: boolean;
+  focusAgentId: string | null;
+  onSelectAgent: (agent: RuntimeSubagent) => void;
+  registerAgentRow: (agentId: string, node: HTMLButtonElement | null) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen || phase.state === "running");
+  const containsFocus = phase.members.some((member) => member.id === focusAgentId);
+  const [open, setOpen] = useState(defaultOpen || phase.state === "running" || containsFocus);
   const previousState = useRef(phase.state);
 
   useEffect(() => {
@@ -330,6 +354,10 @@ function PhaseSection({
     }
     previousState.current = phase.state;
   }, [phase.state]);
+
+  useEffect(() => {
+    if (containsFocus) setOpen(true);
+  }, [containsFocus]);
 
   return (
     <div>
@@ -368,7 +396,16 @@ function PhaseSection({
           </span>
         ) : null}
       </button>
-      {open ? phase.members.map((member) => <AgentRow key={member.id} agent={member} />) : null}
+      {open
+        ? phase.members.map((member) => (
+            <AgentRow
+              key={member.id}
+              agent={member}
+              onSelect={onSelectAgent}
+              buttonRef={(node) => registerAgentRow(member.id, node)}
+            />
+          ))
+        : null}
     </div>
   );
 }
@@ -378,12 +415,18 @@ function ExpandedWorkflowSection({
   group,
   environmentId,
   threadId,
+  focusAgentId,
   onCollapse,
+  onSelectAgent,
+  registerAgentRow,
 }: {
   group: AgentPanelWorkflowGroup;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
+  focusAgentId: string | null;
   onCollapse: () => void;
+  onSelectAgent: (agent: RuntimeSubagent) => void;
+  registerAgentRow: (agentId: string, node: HTMLButtonElement | null) => void;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
   const members = workflowMembers(group);
@@ -420,10 +463,11 @@ function ExpandedWorkflowSection({
           {settled}/{members.length} settled
         </span>
         <Button
+          ref={members.length > 0 ? (node) => registerAgentRow(group.workflow.id, node) : undefined}
           size="icon-micro"
           variant="ghost-muted"
           onClick={onCollapse}
-          aria-label="Collapse workflow"
+          aria-label={`Collapse ${group.workflow.workflowName ?? group.workflow.title} workflow`}
         >
           <ChevronDown aria-hidden className="size-3" />
         </Button>
@@ -438,13 +482,29 @@ function ExpandedWorkflowSection({
         />
       ) : null}
       {group.phases.map((phase) => (
-        <PhaseSection key={phase.index} phase={phase} defaultOpen={!workflowIsLive(group)} />
+        <PhaseSection
+          key={phase.index}
+          phase={phase}
+          defaultOpen={!workflowIsLive(group)}
+          focusAgentId={focusAgentId}
+          onSelectAgent={onSelectAgent}
+          registerAgentRow={registerAgentRow}
+        />
       ))}
       {group.unphasedMembers.map((member) => (
-        <AgentRow key={member.id} agent={member} />
+        <AgentRow
+          key={member.id}
+          agent={member}
+          onSelect={onSelectAgent}
+          buttonRef={(node) => registerAgentRow(member.id, node)}
+        />
       ))}
       {group.phases.length === 0 && group.unphasedMembers.length === 0 ? (
-        <AgentRow agent={group.workflow} />
+        <AgentRow
+          agent={group.workflow}
+          onSelect={onSelectAgent}
+          buttonRef={(node) => registerAgentRow(group.workflow.id, node)}
+        />
       ) : null}
     </section>
   );
@@ -502,21 +562,80 @@ function WorkflowSection({
   group,
   environmentId,
   threadId,
+  focusAgentId,
+  onSelectAgent,
+  registerAgentRow,
 }: {
   group: AgentPanelWorkflowGroup;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
+  focusAgentId: string | null;
+  onSelectAgent: (agent: RuntimeSubagent) => void;
+  registerAgentRow: (agentId: string, node: HTMLButtonElement | null) => void;
 }) {
-  const [open, setOpen] = useState(() => workflowIsLive(group));
+  const containsFocus = workflowContainsAgent(group, focusAgentId);
+  const [open, setOpen] = useState(() => workflowIsLive(group) || containsFocus);
+
+  useEffect(() => {
+    if (containsFocus) setOpen(true);
+  }, [containsFocus]);
+
   return open ? (
     <ExpandedWorkflowSection
       group={group}
       environmentId={environmentId}
       threadId={threadId}
+      focusAgentId={focusAgentId}
       onCollapse={() => setOpen(false)}
+      onSelectAgent={onSelectAgent}
+      registerAgentRow={registerAgentRow}
     />
   ) : (
     <CollapsedWorkflowSection group={group} onExpand={() => setOpen(true)} />
+  );
+}
+
+function MissingAgentDetail({ agentId, onBack }: { agentId: string; onBack: () => void }) {
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => backButtonRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onBack();
+      }}
+    >
+      <header className="flex items-center gap-2 border-b border-border/60 px-2 py-2">
+        <Button
+          ref={backButtonRef}
+          size="icon-sm"
+          variant="ghost-muted"
+          onClick={onBack}
+          aria-label="Back to agents"
+        >
+          <ArrowLeft aria-hidden className="size-4" />
+        </Button>
+        <h2 className="truncate text-sm font-medium">Agent activity</h2>
+        <span className="ml-auto rounded-sm border border-border/60 px-1.5 py-0.5 text-[.65rem] text-muted-foreground">
+          Read only
+        </span>
+      </header>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <Bot aria-hidden className="size-5 text-muted-foreground/60" />
+        <p className="text-sm font-medium">Agent activity is not available yet</p>
+        <p className="max-w-72 text-xs text-muted-foreground">
+          Waiting for this child to appear in the roster. It may not have arrived yet or its roster
+          row may no longer be retained.
+        </p>
+        <code className="max-w-72 break-all text-[.65rem] text-muted-foreground/70">{agentId}</code>
+      </div>
+    </div>
   );
 }
 
@@ -524,60 +643,165 @@ export function AgentsPanel({
   model,
   environmentId = null,
   threadId = null,
+  liveActivities = EMPTY_AGENT_ACTIVITIES,
+  selectedAgentId = null,
+  rosterFocusAgentId = null,
+  onSelectionChange,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
+  liveActivities?: ReadonlyArray<OrchestrationThreadActivity>;
+  selectedAgentId?: string | null;
+  rosterFocusAgentId?: string | null;
+  onSelectionChange?: (selectedAgentId: string | null, rosterFocusAgentId: string | null) => void;
 }) {
-  if (!model.hasAgents) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-        <Bot aria-hidden className="size-6 text-muted-foreground/60" />
-        <p className="text-sm font-medium">No agents yet</p>
-        <p className="max-w-56 text-xs text-muted-foreground">
-          When this thread spawns subagents or runs a workflow, they show up here with live status,
-          activity, and token usage.
-        </p>
-      </div>
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const rosterFallbackRef = useRef<HTMLDivElement>(null);
+  const restoreRosterFallbackRef = useRef(false);
+  const fulfilledFocusRef = useRef<string | null>(null);
+  const selection = useMemo(
+    () => resolveAgentPanelSelection(model, selectedAgentId),
+    [model, selectedAgentId],
+  );
+  const pendingFocusAgentId = selection.kind === "roster" ? rosterFocusAgentId : null;
+  const firstRosterFocusAgentId =
+    model.workflows[0]?.workflow.id ?? model.directAgents[0]?.id ?? null;
+  const fulfillRosterFocus = useCallback(
+    (agentId: string, row: HTMLButtonElement | undefined) => {
+      if (
+        pendingFocusAgentId !== agentId ||
+        fulfilledFocusRef.current === agentId ||
+        row === undefined
+      ) {
+        return;
+      }
+      row.scrollIntoView({ block: "nearest" });
+      row.focus();
+      if (document.activeElement !== row) return;
+      fulfilledFocusRef.current = agentId;
+      onSelectionChange?.(null, null);
+    },
+    [onSelectionChange, pendingFocusAgentId],
+  );
+  const registerAgentRow = useCallback(
+    (agentId: string, node: HTMLButtonElement | null) => {
+      if (node) {
+        rowRefs.current.set(agentId, node);
+        fulfillRosterFocus(agentId, node);
+      } else {
+        rowRefs.current.delete(agentId);
+      }
+    },
+    [fulfillRosterFocus],
+  );
+
+  useEffect(() => {
+    if (rosterFocusAgentId === null) fulfilledFocusRef.current = null;
+  }, [rosterFocusAgentId]);
+
+  useEffect(() => {
+    if (pendingFocusAgentId === null) return;
+    const frame = requestAnimationFrame(() =>
+      fulfillRosterFocus(pendingFocusAgentId, rowRefs.current.get(pendingFocusAgentId)),
     );
-  }
+    return () => cancelAnimationFrame(frame);
+  }, [fulfillRosterFocus, pendingFocusAgentId]);
+
+  useEffect(() => {
+    if (selection.kind !== "roster" || !restoreRosterFallbackRef.current) return;
+    restoreRosterFallbackRef.current = false;
+    const frame = requestAnimationFrame(() => rosterFallbackRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [selection.kind]);
+
+  const returnFromMissingAgent = useCallback(() => {
+    if (firstRosterFocusAgentId !== null) {
+      onSelectionChange?.(null, firstRosterFocusAgentId);
+      return;
+    }
+    restoreRosterFallbackRef.current = true;
+    onSelectionChange?.(null, null);
+  }, [firstRosterFocusAgentId, onSelectionChange]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-2 p-2">
-          {model.workflows.map((group) => (
-            <WorkflowSection
-              key={group.workflow.id}
-              group={group}
-              environmentId={environmentId}
-              threadId={threadId}
-            />
-          ))}
-          {model.directAgents.length > 0 ? (
-            <section>
-              <div className="px-1.5 pt-1 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
-                Direct spawns
+    <div className="h-full min-h-0">
+      <div
+        ref={rosterFallbackRef}
+        hidden={selection.kind !== "roster"}
+        className="h-full min-h-0 outline-none"
+        tabIndex={-1}
+        aria-label="Agents roster"
+      >
+        {!model.hasAgents ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+            <Bot aria-hidden className="size-6 text-muted-foreground/60" />
+            <p className="text-sm font-medium">No agents yet</p>
+            <p className="max-w-56 text-xs text-muted-foreground">
+              When this thread spawns subagents or runs a workflow, they show up here with live
+              status, activity, and token usage.
+            </p>
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col">
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="flex flex-col gap-2 p-2">
+                {model.workflows.map((group) => (
+                  <WorkflowSection
+                    key={group.workflow.id}
+                    group={group}
+                    environmentId={environmentId}
+                    threadId={threadId}
+                    focusAgentId={pendingFocusAgentId}
+                    onSelectAgent={(agent) => onSelectionChange?.(agent.id, null)}
+                    registerAgentRow={registerAgentRow}
+                  />
+                ))}
+                {model.directAgents.length > 0 ? (
+                  <section>
+                    <div className="px-1.5 pt-1 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
+                      Direct spawns
+                    </div>
+                    {model.directAgents.map((agent) => (
+                      <AgentRow
+                        key={agent.id}
+                        agent={agent}
+                        onSelect={(selected) => onSelectionChange?.(selected.id, null)}
+                        buttonRef={(node) => registerAgentRow(agent.id, node)}
+                      />
+                    ))}
+                  </section>
+                ) : null}
               </div>
-              {model.directAgents.map((agent) => (
-                <AgentRow key={agent.id} agent={agent} />
-              ))}
-            </section>
-          ) : null}
-        </div>
-      </ScrollArea>
-      <footer className="flex items-center justify-between border-t border-border/60 px-3 py-1.5 font-mono text-[.7rem] text-muted-foreground">
-        <span className="flex items-center gap-2">
-          {model.runningCount + model.waitingCount > 0 ? (
-            <span className="text-info-foreground">
-              ● {model.runningCount + model.waitingCount} working
-            </span>
-          ) : null}
-          {model.idleCount > 0 ? <span>{model.idleCount} idle</span> : null}
-          {model.settledCount > 0 ? <span>{model.settledCount} settled</span> : null}
-        </span>
-        <span className="tabular-nums">Σ {formatSubagentTokenCount(model.totalTokens)} tok</span>
-      </footer>
+            </ScrollArea>
+            <footer className="flex items-center justify-between border-t border-border/60 px-3 py-1.5 font-mono text-[.7rem] text-muted-foreground">
+              <span className="flex items-center gap-2">
+                {model.runningCount + model.waitingCount > 0 ? (
+                  <span className="text-info-foreground">
+                    ● {model.runningCount + model.waitingCount} working
+                  </span>
+                ) : null}
+                {model.idleCount > 0 ? <span>{model.idleCount} idle</span> : null}
+                {model.settledCount > 0 ? <span>{model.settledCount} settled</span> : null}
+              </span>
+              <span className="tabular-nums">
+                Σ {formatSubagentTokenCount(model.totalTokens)} tok
+              </span>
+            </footer>
+          </div>
+        )}
+      </div>
+      {selection.kind === "detail" ? (
+        <AgentDetailPanel
+          agent={selection.agent}
+          environmentId={environmentId}
+          threadId={threadId}
+          liveActivities={liveActivities}
+          onBack={() => onSelectionChange?.(null, selection.agent.id)}
+        />
+      ) : selection.kind === "missing" ? (
+        <MissingAgentDetail agentId={selection.agentId} onBack={returnFromMissingAgent} />
+      ) : null}
     </div>
   );
 }

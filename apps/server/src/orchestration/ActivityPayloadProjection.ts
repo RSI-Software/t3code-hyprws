@@ -397,6 +397,23 @@ export function projectActivityPayload(
 }
 
 /**
+ * Full thread snapshots are already returned in activity order, while live
+ * activity events carry the authoritative sequence on their event envelope.
+ * Do not repeat that sequence on every projected snapshot row: the bounded
+ * child-activity endpoint retains it for durable/live reconciliation.
+ */
+function omitRedundantActivitySequence(
+  activity: OrchestrationThreadActivity,
+): OrchestrationThreadActivity {
+  const projected = projectActivityPayload(activity);
+  if (projected.sequence === undefined) {
+    return projected;
+  }
+  const { sequence: _sequence, ...withoutSequence } = projected;
+  return withoutSequence;
+}
+
+/**
  * Matches the validity rule in the web client's
  * `deriveLatestContextWindowSnapshot`: rows without a finite, non-negative
  * `usedTokens` are skipped during its backward walk, so they must not shadow
@@ -551,7 +568,7 @@ export function projectThreadDetailSnapshot(
       ...snapshot.thread,
       activities: dropSupersededToolUpdatedActivities(
         dropStaleContextWindowActivities(snapshot.thread.activities),
-      ).map(projectActivityPayload),
+      ).map(omitRedundantActivitySequence),
     },
   };
 }
