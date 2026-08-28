@@ -10,6 +10,8 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  renameThreadGroup,
+  renameThreadGroupIfCurrent,
   reorderProjectThreads,
   reorderProjects,
   resolveProjectExpanded,
@@ -200,6 +202,67 @@ describe("uiStateStore pure functions", () => {
       "reorder",
     );
     expect(dissolved.threadGroupsByProject["environment:project"]).toEqual([]);
+  });
+
+  it("does not apply a generated title after the group changes", () => {
+    const projectKey = "environment:project";
+    const initial = makeUiState({
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            id: "group-1",
+            title: "New group",
+            threadIds: ["environment:a", "environment:b"],
+            collapsed: false,
+          },
+        ],
+      },
+    });
+    const expected = {
+      title: "New group",
+      threadIds: ["environment:a", "environment:b"],
+    };
+
+    const generated = renameThreadGroupIfCurrent(
+      initial,
+      projectKey,
+      "group-1",
+      expected,
+      "Generated name",
+    );
+    expect(generated.threadGroupsByProject[projectKey]?.[0]?.title).toBe("Generated name");
+
+    const manuallyRenamed = renameThreadGroup(initial, projectKey, "group-1", "Manual name");
+    expect(
+      renameThreadGroupIfCurrent(
+        manuallyRenamed,
+        projectKey,
+        "group-1",
+        expected,
+        "Late generated name",
+      ),
+    ).toBe(manuallyRenamed);
+
+    const membershipChanged = {
+      ...initial,
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            ...initial.threadGroupsByProject[projectKey]![0]!,
+            threadIds: ["environment:a", "environment:b", "environment:c"],
+          },
+        ],
+      },
+    };
+    expect(
+      renameThreadGroupIfCurrent(
+        membershipChanged,
+        projectKey,
+        "group-1",
+        expected,
+        "Late generated name",
+      ),
+    ).toBe(membershipChanged);
   });
 
   it("stores explicit changed-file expansion choices", () => {

@@ -100,7 +100,11 @@ import {
   buildSidebarProjectSnapshots,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  type SidebarThreadGroup,
+  useUiStateStore,
+} from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -1798,6 +1802,7 @@ export default function Sidebar({
   const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
   const moveProjectThread = useUiStateStore((store) => store.moveProjectThread);
   const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
+  const renameThreadGroupIfCurrent = useUiStateStore((store) => store.renameThreadGroupIfCurrent);
   const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
   const removeThreadGroup = useUiStateStore((store) => store.removeThreadGroup);
   const threads = useThreadShells();
@@ -2280,6 +2285,7 @@ export default function Sidebar({
       readonly projectKey: string;
       readonly groupId: string;
       readonly members: readonly EnvironmentThreadShell[];
+      readonly expectedGroup: Pick<SidebarThreadGroup, "title" | "threadIds">;
       readonly previousTitle?: string | undefined;
     }) => {
       const first = input.members[0];
@@ -2305,7 +2311,12 @@ export default function Sidebar({
           },
         });
         if (result._tag === "Success") {
-          renameThreadGroup(input.projectKey, input.groupId, result.value.title);
+          renameThreadGroupIfCurrent(
+            input.projectKey,
+            input.groupId,
+            input.expectedGroup,
+            result.value.title,
+          );
           return;
         }
         if (!isAtomCommandInterrupted(result)) {
@@ -2326,7 +2337,7 @@ export default function Sidebar({
         });
       }
     },
-    [generateThreadGroupTitle, renameThreadGroup],
+    [generateThreadGroupTitle, renameThreadGroupIfCurrent],
   );
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
@@ -3024,6 +3035,7 @@ export default function Sidebar({
           projectKey,
           groupId: newGroup.id,
           members: [activeThread, overThread],
+          expectedGroup: { title: newGroup.title, threadIds: [activeKey, overKey] },
         });
       }
     },
@@ -4333,6 +4345,7 @@ export default function Sidebar({
                                         projectKey: item.projectKey,
                                         groupId: item.group.id,
                                         members: item.threads,
+                                        expectedGroup: item.group,
                                         previousTitle: item.group.title,
                                       })
                                     }

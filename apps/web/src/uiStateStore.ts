@@ -577,6 +577,27 @@ export function renameThreadGroup(
   };
 }
 
+export function renameThreadGroupIfCurrent(
+  state: UiState,
+  projectKey: string,
+  groupId: string,
+  expected: Pick<SidebarThreadGroup, "title" | "threadIds">,
+  title: string,
+): UiState {
+  const group = (state.threadGroupsByProject[projectKey] ?? []).find(
+    (candidate) => candidate.id === groupId,
+  );
+  if (
+    !group ||
+    group.title !== expected.title ||
+    group.threadIds.length !== expected.threadIds.length ||
+    expected.threadIds.some((threadId) => !group.threadIds.includes(threadId))
+  ) {
+    return state;
+  }
+  return renameThreadGroup(state, projectKey, groupId, title);
+}
+
 export function setThreadGroupCollapsed(
   state: UiState,
   projectKey: string,
@@ -630,6 +651,12 @@ interface UiStateStore extends UiState {
     newGroup?: { readonly id: string; readonly title: string },
   ) => void;
   renameThreadGroup: (projectKey: string, groupId: string, title: string) => void;
+  renameThreadGroupIfCurrent: (
+    projectKey: string,
+    groupId: string,
+    expected: Pick<SidebarThreadGroup, "title" | "threadIds">,
+    title: string,
+  ) => void;
   setThreadGroupCollapsed: (projectKey: string, groupId: string, collapsed: boolean) => void;
   removeThreadGroup: (projectKey: string, groupId: string) => void;
 }
@@ -675,6 +702,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     ),
   renameThreadGroup: (projectKey, groupId, title) =>
     set((state) => renameThreadGroup(state, projectKey, groupId, title)),
+  renameThreadGroupIfCurrent: (projectKey, groupId, expected, title) =>
+    set((state) => renameThreadGroupIfCurrent(state, projectKey, groupId, expected, title)),
   setThreadGroupCollapsed: (projectKey, groupId, collapsed) =>
     set((state) => setThreadGroupCollapsed(state, projectKey, groupId, collapsed)),
   removeThreadGroup: (projectKey, groupId) =>
