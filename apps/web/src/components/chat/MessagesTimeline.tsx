@@ -106,6 +106,7 @@ import { Button } from "../ui/button";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
+import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";
 import {
   buildAttachmentVideoAsset,
   buildExpandedImagePreview,
@@ -214,7 +215,7 @@ interface TimelineRowSharedState {
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
   workGroupViewState: WorkGroupViewState;
   agentPanelModel: AgentPanelModel;
-  onOpenAgents: () => void;
+  onOpenAgents: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
 }
 
 interface TimelineRowActivityState {
@@ -302,7 +303,7 @@ interface MessagesTimelineProps {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   agentPanelModel?: AgentPanelModel;
-  onOpenAgents?: () => void;
+  onOpenAgents?: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;
   isWorking: boolean;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -3122,10 +3123,16 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   const status =
     live && livePhase ? `${livePhase.title} · ${livePhase.activeCount} working` : summary.status;
 
+  const openTarget = resolveAgentSpawnOpenTarget({
+    workflowId: spawn.workflowId,
+    agentTaskIds: spawn.agentTaskIds,
+    visibleAgentIds: agents.map((agent) => agent.id),
+  });
+
   return (
     <button
       type="button"
-      onClick={onOpenAgents}
+      onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}
       className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[.8125rem] transition hover:bg-accent/50"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
