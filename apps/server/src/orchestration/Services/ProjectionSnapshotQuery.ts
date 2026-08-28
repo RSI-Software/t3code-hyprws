@@ -16,6 +16,7 @@ import type {
   OrchestrationProject,
   OrchestrationProjectShell,
   OrchestrationReadModel,
+  OrchestrationAgentActivityWindow,
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
   OrchestrationShellSnapshot,
@@ -23,6 +24,7 @@ import type {
   OrchestrationThreadActivity,
   OrchestrationThreadDetailSnapshot,
   OrchestrationThreadDetailWindow,
+  OrchestrationThreadDetailPage,
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
@@ -71,6 +73,12 @@ export interface ProjectionThreadDetailQuery {
    * the activity query. Omit this option to preserve the full detail response.
    */
   readonly activityKinds?: ReadonlyArray<string>;
+}
+
+export interface ProjectionAgentActivitySnapshot {
+  readonly agentId: string;
+  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly page: OrchestrationThreadDetailPage;
 }
 
 /**
@@ -256,6 +264,17 @@ export interface ProjectionSnapshotQueryShape {
     threadId: ThreadId,
     window?: OrchestrationThreadDetailWindow,
   ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
+
+  /**
+   * Read one server-owned child identity from its parent thread activity
+   * stream. Missing threads and ids that are not members of the thread both
+   * return None so the HTTP boundary cannot leak cross-thread identities.
+   */
+  readonly getAgentActivitySnapshot: (
+    threadId: ThreadId,
+    agentId: string,
+    window: OrchestrationAgentActivityWindow,
+  ) => Effect.Effect<Option.Option<ProjectionAgentActivitySnapshot>, ProjectionRepositoryError>;
 }
 
 /**
