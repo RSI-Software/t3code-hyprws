@@ -587,16 +587,43 @@ const pluralizedCommits = (count: number, qualifier?: string): string => {
   return `${count}${qualifier ? ` ${qualifier}` : ""} ${suffix}`;
 };
 
+interface GraphEdge {
+  readonly count: number;
+  readonly qualifier?: string;
+}
+
 interface GraphNode {
   readonly label: string;
-  readonly incoming?: string;
+  readonly incoming?: GraphEdge;
 }
+
+// A rung reached by no commits is another name for the rung above it: a nightly
+// alias of the same commit, or the target ref once its own tag already sits
+// there. The later name wins and inherits the edge that reached the pair, so the
+// ladder names each commit once and ends on the target.
+export const collapseAliasNodes = (nodes: ReadonlyArray<GraphNode>): ReadonlyArray<GraphNode> =>
+  nodes.reduce<Array<GraphNode>>((kept, node) => {
+    const previous = kept.at(-1);
+    if (previous === undefined || node.incoming === undefined || node.incoming.count > 0) {
+      kept.push(node);
+      return kept;
+    }
+    kept[kept.length - 1] = {
+      label: node.label,
+      ...(previous.incoming === undefined ? {} : { incoming: previous.incoming }),
+    };
+    return kept;
+  }, []);
 
 const graphRows = (nodes: ReadonlyArray<GraphNode>): ReadonlyArray<string> => {
   const rows: Array<string> = [];
-  for (const [index, node] of nodes.entries()) {
+  for (const [index, node] of collapseAliasNodes(nodes).entries()) {
     if (index > 0) {
-      rows.push("        │", `        │ ${node.incoming ?? ""}`, "        v");
+      const incoming =
+        node.incoming === undefined
+          ? ""
+          : pluralizedCommits(node.incoming.count, node.incoming.qualifier);
+      rows.push("        │", `        │ ${incoming}`, "        v");
     }
     rows.push(node.label);
   }
@@ -611,15 +638,13 @@ const upstreamGraphNodes = (report: ForkRebaseReport): ReadonlyArray<GraphNode> 
   for (const release of report.upstream.releases) {
     nodes.push({
       label: `${release.tag} @ ${release.shortSha}`,
-      ...(nodes.length === 0
-        ? {}
-        : { incoming: pluralizedCommits(release.commitsSincePrevious.length) }),
+      ...(nodes.length === 0 ? {} : { incoming: { count: release.commitsSincePrevious.length } }),
     });
   }
   if (nodes.length === 0) nodes.push({ label: `upstream base @ ${report.sharedBase.shortSha}` });
   nodes.push({
     label: `${report.upstream.ref} @ ${report.upstream.shortSha}`,
-    incoming: pluralizedCommits(report.upstream.unreleasedCommits.length, "untagged"),
+    incoming: { count: report.upstream.unreleasedCommits.length, qualifier: "untagged" },
   });
   return nodes;
 };
@@ -628,11 +653,11 @@ const hyprwsGraphNodes = (report: ForkRebaseReport): ReadonlyArray<GraphNode> =>
   { label: `fork base @ ${report.sharedBase.shortSha}` },
   ...report.hyprws.releases.map((release) => ({
     label: `${release.tag} @ ${release.shortSha}`,
-    incoming: pluralizedCommits(release.commitsSincePrevious.length),
+    incoming: { count: release.commitsSincePrevious.length },
   })),
   {
     label: `${report.hyprws.ref} @ ${report.hyprws.shortSha}`,
-    incoming: pluralizedCommits(report.hyprws.unreleasedCommits.length, "unreleased"),
+    incoming: { count: report.hyprws.unreleasedCommits.length, qualifier: "unreleased" },
   },
 ];
 
@@ -746,7 +771,14 @@ export const renderRetireCandidates = (report: ForkRebaseReport): ReadonlyArray<
 
 const renderFeasibility = (report: ForkRebaseReport): ReadonlyArray<string> => {
   const { ffBoundary, conflicts, overlap } = report.feasibility;
-  const lines: Array<string> = ["## Feasibility", "", "**Fast-forward boundary.**", ""];
+  const lines: Array<string> = [
+    "## Feasibility",
+    "",
+    feasibilitySummary(report),
+    "",
+    "**Fast-forward boundary.**",
+    "",
+  ];
   if (ffBoundary.firstConflict === null) {
     lines.push(
       `The fork stack merges cleanly through all ${ffBoundary.upstreamCommitCount} upstream commits.`,
@@ -852,15 +884,13 @@ export const renderMarkdown = (report: ForkRebaseReport): string => {
         : ""
     }`,
     "",
-    "## State",
+    ...renderFeasibility(report),
     "",
-    feasibilitySummary(report),
+    "## State",
     "",
     "```text",
     renderStateGraph(report),
     "```",
-    "",
-    ...renderFeasibility(report),
     "",
     ...renderRetireCandidates(report),
     "",
@@ -915,6 +945,15 @@ const writeAtomically = (path: string, contents: string): void => {
   NodeFS.renameSync(temporary, path);
 };
 
+interface ReportOutput {
+  readonly relative: string;
+  readonly path: string;
+  readonly contents: string;
+}
+
+const isOnDisk = (output: ReportOutput): boolean =>
+  NodeFS.existsSync(output.path) && NodeFS.readFileSync(output.path, "utf8") === output.contents;
+
 const fetchRef = (git: GitReader, ref: string): void => {
   const remote = remoteFromRef(ref);
   if (remote === null) throw new UsageError(`--fetch requires a remote-tracking ref: ${ref}`);
@@ -945,7 +984,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       NodeFS.readFileSync(NodePath.join(root, "docs/internals/fork-delta.md"), "utf8"),
     );
     const report = buildReport(git, options.source, options.target, retirementLedger);
-    const outputs = [
+    const outputs: ReadonlyArray<ReportOutput> = [
       {
         relative: options.jsonOut,
         path: resolveOutput(root, options.jsonOut),
@@ -959,11 +998,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     ];
 
     if (options.check) {
-      const stale = outputs.filter(
-        (output) =>
-          !NodeFS.existsSync(output.path) ||
-          NodeFS.readFileSync(output.path, "utf8") !== output.contents,
-      );
+      const stale = outputs.filter((output) => !isOnDisk(output));
       if (stale.length > 0) {
         for (const output of stale) process.stderr.write(`stale: ${output.relative}\n`);
         process.stderr.write(`run: ${updateCommand(options)}\n`);
@@ -974,6 +1009,12 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     }
 
     for (const output of outputs) {
+      // Unchanged refs render byte-identical output; leave the file and its
+      // mtime alone so `updated:` only ever reports a real change.
+      if (isOnDisk(output)) {
+        process.stdout.write(`unchanged: ${output.relative}\n`);
+        continue;
+      }
       writeAtomically(output.path, output.contents);
       process.stdout.write(`updated: ${output.relative}\n`);
     }
