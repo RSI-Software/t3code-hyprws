@@ -16,6 +16,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { readProjects, useProjects } from "../state/entities";
+import { readThreadShell } from "../state/entities"; // fork-hook: github-issues/open-pull-request-link-thread-shell-import
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
@@ -154,6 +155,32 @@ export function findProjectOnChangeRequestHost(
   });
 }
 
+/**
+ * Uses an exact workspace checkout when one exists, otherwise uses the active GitHub project as
+ * the authenticated execution context for another repository on the same host.
+ */
+export function findProjectForGitHubLink(
+  projects: ReadonlyArray<EnvironmentProject>,
+  link: GitHubIssueLink,
+  preferredProjectId?: string,
+): EnvironmentProject | undefined {
+  const exact = findProjectForGitHubIssue(projects, link);
+  if (exact !== undefined || preferredProjectId === undefined) return exact;
+  return projects.find((project) => {
+    const identity = project.repositoryIdentity;
+    if (project.id !== preferredProjectId || identity?.provider !== "github") return false;
+    const host = pullRequestHostOf(identity, "github");
+    return (host === "github" ? "github.com" : host) === link.host.toLowerCase();
+  });
+}
+
+function linkedRepository(project: EnvironmentProject, repository: string): string {
+  const projectRepository = repositoryIdentityOf(project);
+  return projectRepository?.toLowerCase() === repository.toLowerCase()
+    ? projectRepository
+    : repository;
+}
+
 export function shouldOpenPullRequestExternally(
   event: Pick<MouseEvent<HTMLElement>, "metaKey" | "ctrlKey"> &
     Partial<Pick<MouseEvent<HTMLElement>, "button">>,
@@ -200,11 +227,14 @@ export function useOpenChangeRequestLink(
                 Number(right.environmentId === primaryEnvironmentId) -
                 Number(left.environmentId === primaryEnvironmentId),
             );
-      const issueProject = findProjectForGitHubIssue(projects, parsedIssue);
+      const preferredProjectId = resolvedThreadRef
+        ? readThreadShell(resolvedThreadRef)?.projectId
+        : undefined;
+      const issueProject = findProjectForGitHubLink(projects, parsedIssue, preferredProjectId);
       if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
       event.preventDefault();
       event.stopPropagation();
-      const repository = issueProject.repositoryIdentity?.displayName ?? parsedIssue.repository;
+      const repository = linkedRepository(issueProject, parsedIssue.repository);
       if (resolvedThreadRef) {
         useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
           environmentId: issueProject.environmentId,
@@ -257,6 +287,9 @@ export function useOpenChangeRequestLink(
                 Number(left.environmentId === primaryEnvironmentId),
             );
     const exactProject = findProjectForChangeRequest(projects, parsed);
+    const preferredProjectId = resolvedThreadRef
+      ? readThreadShell(resolvedThreadRef)?.projectId
+      : undefined;
     const project =
       exactProject ??
       (resolvedPanelRef
@@ -268,7 +301,8 @@ export function useOpenChangeRequestLink(
             ),
             parsed,
           )
-        : undefined);
+        : undefined) ??
+      findProjectForGitHubLink(projects, parsed, preferredProjectId);
     if (project === undefined || !reads(project.environmentId)) return false;
     const repository =
       serverConfigs.get(project.environmentId)?.environment.capabilities.threadPullRequests === true
@@ -287,6 +321,8 @@ export function useOpenChangeRequestLink(
           .threadPullRequests === true
           ? { host: parsed.authority ?? parsed.host }
           : {}),
+        // The identity's own spelling, not the one read out of the URL: the panel asks the
+        // provider for this repository, while matching a link only ever compares lower case.
         repository,
         url: targetUrl,
         number: parsed.number,
