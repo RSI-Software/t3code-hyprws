@@ -3837,10 +3837,16 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef],
   );
-  const addAgentsSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "agents");
-  }, [activeThreadRef]);
+  const addAgentsSurface = useCallback(
+    (selectedAgentId: string | null = null, rosterFocusAgentId: string | null = null) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openAgents(activeThreadRef, {
+        selectedAgentId,
+        rosterFocusAgentId,
+      });
+    },
+    [activeThreadRef],
+  );
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -7797,6 +7803,10 @@ export default function ChatView(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
+        liveActivities={threadActivities}
+        selectedAgentId={renderedRightPanelSurface.selectedAgentId}
+        rosterFocusAgentId={renderedRightPanelSurface.rosterFocusAgentId}
+        onSelectionChange={addAgentsSurface}
       />
     ) : (renderedRightPanelSurface?.kind === "files" ||
         renderedRightPanelSurface?.kind === "file") &&

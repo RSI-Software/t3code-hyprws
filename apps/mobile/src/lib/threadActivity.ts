@@ -1799,7 +1799,8 @@ function liveToolActivitySummary(activity: ThreadFeedActivity, presentTense: boo
 }
 
 /**
- * Sorts activities into lifecycle order. `derivePendingApprovals` and
+ * Preserves the server-authoritative snapshot order, then sorts live events
+ * by their stream sequence. `derivePendingApprovals` and
  * `derivePendingUserInputs` both expect this ordering; sorting once and
  * passing the result to both avoids re-sorting the full activity history
  * per derivation.
@@ -1807,7 +1808,18 @@ function liveToolActivitySummary(activity: ThreadFeedActivity, presentTense: boo
 export function sortThreadActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  return Arr.sort(activities, activityOrder);
+  const snapshotActivities: OrchestrationThreadActivity[] = [];
+  const liveActivities: OrchestrationThreadActivity[] = [];
+
+  for (const activity of activities) {
+    if (activity.sequence === undefined) {
+      snapshotActivities.push(activity);
+    } else {
+      liveActivities.push(activity);
+    }
+  }
+
+  return [...snapshotActivities, ...Arr.sort(liveActivities, activityOrder)];
 }
 
 export function derivePendingApprovals(
