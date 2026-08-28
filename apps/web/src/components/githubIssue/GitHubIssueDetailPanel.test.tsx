@@ -1,7 +1,21 @@
-import { DraftId, type ComposerThreadDraftState } from "../../composerDraftStore";
+import type { GitHubSubIssue } from "@t3tools/contracts";
+import { Children, isValidElement, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { githubIssueHandoffPrompt, seedGitHubIssueDraftIfEmpty } from "./GitHubIssueDetailPanel";
+import { DraftId, type ComposerThreadDraftState } from "../../composerDraftStore";
+
+import {
+  GitHubSubIssueRow,
+  githubIssueHandoffPrompt,
+  seedGitHubIssueDraftIfEmpty,
+} from "./GitHubIssueDetailPanel";
+
+const child: GitHubSubIssue = {
+  number: 42,
+  title: "Keep the parent tab",
+  state: "open",
+  url: "https://github.com/acme/web/issues/42",
+};
 
 const emptyDraft: ComposerThreadDraftState = {
   prompt: "",
@@ -62,5 +76,33 @@ describe("GitHub issue handoff", () => {
       }),
     ).toBe(false);
     expect(setPrompt).not.toHaveBeenCalled();
+  });
+});
+
+describe("GitHub sub-issue row", () => {
+  it("keeps in-app navigation separate from the GitHub link", () => {
+    const onSelect = vi.fn();
+    const row = GitHubSubIssueRow({ child, repository: "acme/web", onSelect });
+    expect(isValidElement(row)).toBe(true);
+
+    const [button, externalLink] = Children.toArray(
+      (row as ReactElement<{ children: ReactElement[] }>).props.children,
+    );
+    expect(isValidElement(button)).toBe(true);
+    expect((button as ReactElement).type).toBe("button");
+    (button as ReactElement<{ onClick: () => void }>).props.onClick();
+    expect(onSelect).toHaveBeenCalledWith(child);
+
+    expect(isValidElement(externalLink)).toBe(true);
+    expect((externalLink as ReactElement<{ "aria-label": string }>).props["aria-label"]).toBe(
+      "Open issue #42 on GitHub",
+    );
+  });
+
+  it("opens a foreign-repository child directly on GitHub", () => {
+    const row = GitHubSubIssueRow({ child, repository: "acme/api", onSelect: vi.fn() });
+    expect(isValidElement(row)).toBe(true);
+    expect((row as ReactElement).type).toBe("a");
+    expect((row as ReactElement<{ href: string }>).props.href).toBe(child.url);
   });
 });
