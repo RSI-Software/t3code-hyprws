@@ -121,7 +121,7 @@ describe("GitHubIssueService", () => {
         "--limit",
         "2",
         "--json",
-        "number,title,url,author,assignees,labels,state,createdAt,updatedAt",
+        "number,title,url,author,assignees,labels,issueType,state,createdAt,updatedAt,comments,reactionGroups",
         "--search",
         "websocket sort:updated-desc",
       ]);
