@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   changeRequestRepositoryUrl,
   findProjectForChangeRequest,
+  findProjectForGitHubLink,
   findProjectForGitHubIssue,
   matchesLinkedPullRequestUrl,
   openPullRequestLink,
@@ -359,6 +360,62 @@ describe("findProjectForGitHubIssue", () => {
         repository: "pingdotgg/t3code",
         number: 1,
       }),
+    ).toBeUndefined();
+  });
+});
+
+describe("findProjectForGitHubLink", () => {
+  const project = (id: string, identity: Record<string, unknown>) =>
+    ({ id, repositoryIdentity: identity }) as never;
+
+  it("uses the active GitHub project for another repository on the same host", () => {
+    const projects = [
+      project("p1", {
+        canonicalKey: "github.com/RSI-Software/t3code-hyprws",
+        provider: "github",
+        owner: "RSI-Software",
+        name: "t3code-hyprws",
+      }),
+    ];
+
+    expect(
+      findProjectForGitHubLink(
+        projects,
+        { host: "github.com", repository: "pingdotgg/t3code", number: 6540 },
+        "p1",
+      ),
+    ).toBe(projects[0]);
+  });
+
+  it("does not borrow credentials from another host or provider", () => {
+    const projects = [
+      project("github", {
+        canonicalKey: "github.com/acme/repo",
+        provider: "github",
+        owner: "acme",
+        name: "repo",
+      }),
+      project("gitlab", {
+        canonicalKey: "gitlab.com/acme/repo",
+        provider: "gitlab",
+        owner: "acme",
+        name: "repo",
+      }),
+    ];
+
+    expect(
+      findProjectForGitHubLink(
+        projects,
+        { host: "github.acme.test", repository: "other/repo", number: 1 },
+        "github",
+      ),
+    ).toBeUndefined();
+    expect(
+      findProjectForGitHubLink(
+        projects,
+        { host: "gitlab.com", repository: "other/repo", number: 1 },
+        "gitlab",
+      ),
     ).toBeUndefined();
   });
 });
