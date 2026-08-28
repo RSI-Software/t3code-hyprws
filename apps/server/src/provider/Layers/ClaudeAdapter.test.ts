@@ -2174,6 +2174,156 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("persists bounded child assistant text under task_id without a synthetic turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const itemEventFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) => event.type === "item.completed" && event.payload.agentId === "task-child-text",
+        ),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      // Replay can deliver the completed child snapshot before task_started.
+      // Buffer by tool-use id, then publish with task_id as the durable agent id.
+      harness.query.emit({
+        type: "assistant",
+        parent_tool_use_id: "toolu_child_text",
+        message: {
+          id: "assistant-child-text",
+          model: "claude-sonnet-5[1m]",
+          content: [{ type: "text", text: "child answer ".repeat(40) }],
+        },
+        uuid: "assistant-child-text-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-child-text",
+        description: "Text agent",
+        task_type: "local_agent",
+        tool_use_id: "toolu_child_text",
+        uuid: "task-child-text-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+
+      const itemEvent = yield* Fiber.join(itemEventFiber);
+      assert.equal(itemEvent._tag, "Some");
+      if (itemEvent._tag !== "Some" || itemEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.equal(itemEvent.value.itemId, "assistant-child-text");
+      assert.equal(itemEvent.value.turnId, undefined);
+      assert.equal(itemEvent.value.payload.itemType, "assistant_message");
+      assert.equal(itemEvent.value.payload.agentId, "task-child-text");
+      assert.equal(itemEvent.value.payload.parentToolUseId, "toolu_child_text");
+      assert.equal(itemEvent.value.payload.timelineBypass, true);
+      assert.equal(itemEvent.value.payload.detail?.length, 180);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("keeps every child tool lifecycle row attributed and off the parent timeline", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const toolEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            (event.type === "item.started" ||
+              event.type === "item.updated" ||
+              event.type === "item.completed") &&
+            event.payload.agentId === "task-child-tool",
+        ),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-child-tool",
+        description: "Tool agent",
+        task_type: "local_agent",
+        tool_use_id: "toolu_child_agent",
+        uuid: "task-child-tool-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "stream_event",
+        parent_tool_use_id: "toolu_child_agent",
+        uuid: "child-tool-start",
+        session_id: "sdk-session",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "child-tool-1",
+            name: "Read",
+            input: { file_path: "src/example.ts" },
+          },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "user",
+        parent_tool_use_id: "toolu_child_agent",
+        uuid: "child-tool-result",
+        session_id: "sdk-session",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "child-tool-1",
+              content: "file contents",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+
+      const events = Array.from(yield* Fiber.join(toolEventsFiber));
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ["item.started", "item.updated", "item.completed"],
+      );
+      for (const event of events) {
+        if (
+          event.type !== "item.started" &&
+          event.type !== "item.updated" &&
+          event.type !== "item.completed"
+        ) {
+          continue;
+        }
+        assert.equal(event.itemId, "child-tool-1");
+        assert.equal(event.payload.agentId, "task-child-tool");
+        assert.equal(event.payload.parentToolUseId, "toolu_child_agent");
+        assert.equal(event.payload.timelineBypass, true);
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("closes the session when the Claude stream aborts after a turn starts", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
