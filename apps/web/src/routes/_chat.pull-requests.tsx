@@ -1960,6 +1960,7 @@ export function PullRequestsPage({
             onAddFiles={() => undefined}
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
+            onAddIssues={() => undefined}
             onAddAgents={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
@@ -1967,6 +1968,7 @@ export function PullRequestsPage({
             filesAvailable={false}
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
+            issuesAvailable={false}
             agentsAvailable={false}
             liveAgentCount={0}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
