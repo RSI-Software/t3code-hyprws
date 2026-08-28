@@ -240,6 +240,20 @@ export class GitHubSubjectScopeError extends Schema.TaggedErrorClass<GitHubSubje
   }
 }
 
+export class GitHubAttachmentUploadError extends Schema.TaggedErrorClass<GitHubAttachmentUploadError>()(
+  "GitHubAttachmentUploadError",
+  {
+    command: Schema.Literal("gh"),
+    cwd: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `GitHub CLI failed in uploadAttachment: ${this.detail}`;
+  }
+}
+
 export type GitHubPullRequestCliError =
   | GitHubCli.GitHubCliError
   | GitHubPullRequestReadError
@@ -249,6 +263,7 @@ export type GitHubPullRequestCliError =
   | GitHubDiffFileContentsUnavailableError
   | GitHubRepositorySelectorError
   | GitHubSubjectScopeError
+  | GitHubAttachmentUploadError
   | SourceControlRateLimit.SourceControlRateLimitPausedError
   | GitHubViewerLoginUnavailableError;
 
@@ -257,6 +272,36 @@ const DIFF_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const DIFF_TIMEOUT_MS = 60_000;
 /** Pierre expansion is for source files, not blobs large enough to stall a review surface. */
 const DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
+export const GITHUB_IMAGE_EXTENSION_VERSION = "gh-image 1.2.0";
+/** 1.3.0 uploads under the `gh` token's account before the browser session, so the pin is exact. */
+const GITHUB_IMAGE_INSTALL_HINT =
+  "Install it on the server with `gh extension install drogers0/gh-image --pin v1.2.0`.";
+const ATTACHMENT_UPLOAD_TIMEOUT_MS = 5 * 60_000;
+const ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES = 4_096;
+const GITHUB_ATTACHMENT_URL_PATTERN =
+  "https://github.com/user-attachments/assets/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const GITHUB_ATTACHMENT_URL = new RegExp(`^${GITHUB_ATTACHMENT_URL_PATTERN}$`, "i");
+const GITHUB_IMAGE_MARKDOWN = new RegExp(
+  `^!\\[[^\\r\\n]*\\]\\((${GITHUB_ATTACHMENT_URL_PATTERN})\\)$`,
+  "i",
+);
+
+function markdownImageAlt(name: string): string {
+  return name.replace(/\\/g, "\\\\").replace(/[[\]]/g, "\\$&");
+}
+
+export function parseGitHubAttachmentUploadOutput(input: {
+  readonly stdout: string;
+  readonly name: string;
+  readonly mimeType: string;
+}): string | null {
+  const output = input.stdout.trim();
+  if (input.mimeType.startsWith("image/")) {
+    const url = GITHUB_IMAGE_MARKDOWN.exec(output)?.[1];
+    return url ? `![${markdownImageAlt(input.name)}](${url})` : null;
+  }
+  return GITHUB_ATTACHMENT_URL.test(output) ? output : null;
+}
 
 /** A search-free fallback may scan older rows for local filters, but never the whole repository. */
 const PULL_REQUEST_FALLBACK_MAX_ROWS = 1_000;
@@ -546,6 +591,15 @@ export class GitHubPullRequestCli extends Context.Service<
       readonly title?: string | undefined;
       readonly body?: string | undefined;
     }) => Effect.Effect<void, GitHubPullRequestCliError>;
+
+    readonly uploadAttachment: (input: {
+      readonly cwd: string;
+      readonly repository: string;
+      readonly host: string;
+      readonly path: string;
+      readonly name: string;
+      readonly mimeType: string;
+    }) => Effect.Effect<string, GitHubPullRequestCliError>;
 
     /**
      * Rewrites a remark. `commentId` is trusted to be whatever node it names, so it is confirmed
@@ -1824,6 +1878,75 @@ export const make = Effect.gen(function* () {
           }),
         ),
       ),
+
+    uploadAttachment: (input) => {
+      if (input.host !== "github.com") {
+        return Effect.fail(
+          new GitHubAttachmentUploadError({
+            command: "gh",
+            cwd: input.cwd,
+            detail: "Attachments through gh image are supported only on github.com.",
+          }),
+        );
+      }
+      const cleanEnvironment = { GH_SESSION_TOKEN: undefined };
+      return github
+        .execute({
+          cwd: input.cwd,
+          args: ["image", "--version"],
+          env: cleanEnvironment,
+          maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
+        })
+        .pipe(
+          // `gh` exits non-zero on an unknown subcommand, which is what a missing extension is.
+          Effect.catchTag("GitHubCliCommandError", (cause) =>
+            Effect.fail(
+              new GitHubAttachmentUploadError({
+                command: "gh",
+                cwd: input.cwd,
+                detail: `The gh-image extension is not installed. ${GITHUB_IMAGE_INSTALL_HINT}`,
+                cause,
+              }),
+            ),
+          ),
+          Effect.flatMap((version) =>
+            version.stdout.trim() === GITHUB_IMAGE_EXTENSION_VERSION
+              ? Effect.void
+              : Effect.fail(
+                  new GitHubAttachmentUploadError({
+                    command: "gh",
+                    cwd: input.cwd,
+                    detail: `Expected ${GITHUB_IMAGE_EXTENSION_VERSION}; received ${version.stdout.trim() || "no version"}. ${GITHUB_IMAGE_INSTALL_HINT}`,
+                  }),
+                ),
+          ),
+          Effect.flatMap(() =>
+            github.execute({
+              cwd: input.cwd,
+              args: ["image", "--repo", input.repository, input.path],
+              env: cleanEnvironment,
+              timeoutMs: ATTACHMENT_UPLOAD_TIMEOUT_MS,
+              maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
+            }),
+          ),
+          Effect.flatMap((result) => {
+            const insertion = parseGitHubAttachmentUploadOutput({
+              stdout: result.stdout,
+              name: input.name,
+              mimeType: input.mimeType,
+            });
+            return insertion
+              ? Effect.succeed(insertion)
+              : Effect.fail(
+                  new GitHubAttachmentUploadError({
+                    command: "gh",
+                    cwd: input.cwd,
+                    detail: "gh image returned an invalid attachment URL.",
+                  }),
+                );
+          }),
+        );
+    },
 
     updateComment: (input) =>
       subjectBelongsToPullRequest({

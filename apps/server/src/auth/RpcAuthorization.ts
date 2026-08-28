@@ -60,6 +60,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.pullRequestsDiffFileContents]: AuthOrchestrationReadScope,
   [WS_METHODS.pullRequestsRunAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsUpdate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: AuthOrchestrationOperateScope,
+  [WS_METHODS.pullRequestsUploadAttachment]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsComment]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsUpdateComment]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsSubmitReview]: AuthOrchestrationOperateScope,
