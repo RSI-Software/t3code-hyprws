@@ -432,7 +432,7 @@ Upstream's workflows also target Blacksmith runners the fork does not have.
 ### Shape
 
 - `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, the upstream-citation guard, and the desktop build on `hyprws` and stable candidate branches.
-- `.github/workflows/hyprws-release.yml` keeps human-cut `vX.Y.Z-hyprws.N` stable releases and adds six-hour `vX.Y.Z-hyprws-nightly.YYYYMMDD.N` prereleases from changed `hyprws` heads.
+- `.github/workflows/hyprws-release.yml` keeps human-cut `vX.Y.Z-hyprws.N` stable releases and publishes a `vX.Y.Z-hyprws-nightly.YYYYMMDD.N` prerelease on every `hyprws` landing, with a six-hour changed-head check as fallback.
 - `scripts/fork-release-version.ts` resolves channel metadata and the previous tag within that channel.
 
 Both workflows run on GitHub-hosted runners, which are free for a public repository.
