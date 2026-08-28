@@ -38,6 +38,7 @@ import {
 import { useTimelineRewind } from "./chat/useTimelineRewind";
 import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
+import { useIssuesPanelActionsFork } from "./chat/useRightPanelActions.fork"; // fork-hook: github-issues/add-issues-surface-import
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { useComposerResume } from "./chat/useComposerResume";
@@ -3444,6 +3445,11 @@ export default function ChatView(props: ChatViewProps) {
     (files: Parameters<ChatComposerHandle["addDroppedFiles"]>[0]) =>
       composerRef.current?.addDroppedFiles(files),
   );
+  const issuesPanelActionsFork = useIssuesPanelActionsFork(
+    activeThreadRef,
+    activeProject,
+    serverConfig?.environment.capabilities,
+  ); // fork-hook: github-issues/add-issues-surface
   const addDroppedFoldersToComposer = useStableCallback(
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
       composerRef.current?.addDroppedFolders(folders),
@@ -4300,6 +4306,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
+          {...issuesPanelActionsFork} // fork-hook: github-issues/issues-launcher-props
           onAddDevice={addDeviceSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
