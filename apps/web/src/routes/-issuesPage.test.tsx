@@ -11,7 +11,11 @@ const mocks = vi.hoisted(() => ({
   }>,
   shellEnvironmentIds: [] as EnvironmentId[],
   listTargets: [] as Array<ReadonlyArray<{ environmentId: EnvironmentId; input: unknown }>>,
-  scopeToggleProps: null as null | { readonly onNavigate: (scope: "all" | undefined) => void },
+  projectMenuProps: null as null | {
+    readonly value: string;
+    readonly windowProjectKey: string | null;
+    readonly onValueChange: (value: string) => void;
+  },
 }));
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
@@ -41,6 +45,19 @@ vi.mock("../state/entities", () => ({
         name: "one",
         displayName: "owner/one",
         canonicalKey: "github.com/owner/one",
+      },
+    },
+    {
+      id: "project-2",
+      environmentId: "environment-2",
+      title: "Project Two",
+      workspaceRoot: "/workspace/two",
+      repositoryIdentity: {
+        provider: "github",
+        owner: "owner",
+        name: "two",
+        displayName: "owner/two",
+        canonicalKey: "github.com/owner/two",
       },
     },
   ],
@@ -82,10 +99,11 @@ vi.mock("../components/githubIssue/GitHubIssueEmptyState", () => ({
   GitHubIssueEmptyState: ({ title, description }: { title: string; description: string }) =>
     `${title}: ${description}`,
 }));
-vi.mock("../components/WindowProjectScopeToggle", () => ({
-  WindowProjectScopeToggle: (props: NonNullable<typeof mocks.scopeToggleProps>) => {
-    mocks.scopeToggleProps = props;
-    return "This project";
+vi.mock("../components/githubIssue/GitHubIssueProjectMenu", () => ({
+  ALL_PROJECTS_VALUE: "__all__",
+  GitHubIssueProjectMenu: (props: NonNullable<typeof mocks.projectMenuProps>) => {
+    mocks.projectMenuProps = props;
+    return `project menu: ${props.value}`;
   },
 }));
 
@@ -93,6 +111,9 @@ import type { IssuesSearch } from "../components/githubIssue/githubIssueRouteSea
 import { GitHubIssuesPage } from "./_chat.issues";
 
 const environment1 = EnvironmentId.make("environment-1");
+const environment2 = EnvironmentId.make("environment-2");
+const projectKey = (environmentId: EnvironmentId, projectId: string) =>
+  JSON.stringify([environmentId, projectId]);
 const forcedProjectRef = scopeProjectRef(environment1, ProjectId.make("project-1"));
 const baseSearch: IssuesSearch = { state: "open" };
 
@@ -109,15 +130,17 @@ describe("GitHubIssuesPage", () => {
     mocks.environments = [capable(environment1, "One")];
     mocks.shellEnvironmentIds.length = 0;
     mocks.listTargets.length = 0;
-    mocks.scopeToggleProps = null;
+    mocks.projectMenuProps = null;
   });
 
-  it("forces project identity, hides the hub picker, and retains scope=all", () => {
+  it("defaults a project window to its own project and can still reach another", () => {
+    mocks.environments = [capable(environment1, "One"), capable(environment2, "Two")];
     const navigations: Array<(previous: IssuesSearch) => IssuesSearch> = [];
+    // A stale hub filter in the URL must not survive a window that is scoped to itself.
     const search: IssuesSearch = {
       ...baseSearch,
-      projectId: ProjectId.make("hub-project"),
-      environmentId: EnvironmentId.make("environment-2"),
+      projectId: ProjectId.make("project-2"),
+      environmentId: environment2,
     };
     const html = renderToStaticMarkup(
       <GitHubIssuesPage
@@ -127,8 +150,9 @@ describe("GitHubIssuesPage", () => {
       />,
     );
 
-    expect(html).toContain("This project");
-    expect(html).not.toContain("Filter GitHub issues by project");
+    expect(mocks.projectMenuProps?.windowProjectKey).toBe(projectKey(environment1, "project-1"));
+    expect(mocks.projectMenuProps?.value).toBe(projectKey(environment1, "project-1"));
+    expect(html).toContain("project menu");
     expect(mocks.listTargets.at(-1)).toEqual([
       {
         environmentId: environment1,
@@ -136,9 +160,39 @@ describe("GitHubIssuesPage", () => {
       },
     ]);
 
-    mocks.scopeToggleProps?.onNavigate("all");
+    mocks.projectMenuProps?.onValueChange(projectKey(environment2, "project-2"));
     const next = navigations[0]?.(search);
-    expect(next).toMatchObject({ state: "open", scope: "all" });
+    expect(next).toMatchObject({
+      state: "open",
+      scope: "all",
+      projectId: "project-2",
+      environmentId: environment2,
+    });
+  });
+
+  it("returns a project window to itself, dropping the project filter", () => {
+    mocks.environments = [capable(environment1, "One"), capable(environment2, "Two")];
+    const navigations: Array<(previous: IssuesSearch) => IssuesSearch> = [];
+    const search: IssuesSearch = {
+      ...baseSearch,
+      scope: "all",
+      projectId: ProjectId.make("project-2"),
+      environmentId: environment2,
+    };
+    renderToStaticMarkup(
+      <GitHubIssuesPage
+        forcedProjectRef={forcedProjectRef}
+        search={search}
+        onNavigate={(update) => navigations.push(update)}
+      />,
+    );
+
+    expect(mocks.projectMenuProps?.value).toBe(projectKey(environment2, "project-2"));
+
+    mocks.projectMenuProps?.onValueChange(projectKey(environment1, "project-1"));
+    const next = navigations[0]?.(search);
+    expect(next).toMatchObject({ state: "open" });
+    expect(next).not.toHaveProperty("scope");
     expect(next).not.toHaveProperty("projectId");
     expect(next).not.toHaveProperty("environmentId");
   });
@@ -154,7 +208,6 @@ describe("GitHubIssuesPage", () => {
 
     expect(html).not.toContain("Connecting to the environment");
     expect(mocks.listTargets.at(-1)?.map((target) => target.environmentId)).toEqual([environment1]);
-    expect(mocks.shellEnvironmentIds).toEqual([]);
   });
 
   it("shows unavailable when a selected environment is missing from the catalog", () => {
