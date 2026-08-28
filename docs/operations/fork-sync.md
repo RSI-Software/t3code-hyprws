@@ -14,14 +14,13 @@ Every step is scriptable; the only human inputs are conflict decisions and a ref
 
 ## Step 0: Orient the rebase
 
-Fetch both lanes, confirm the `main` mirror is current, and generate the orientation report from live refs:
+`vp run fork:orient --target vX.Y.Z` is the whole step. It fetches both lanes, confirms the `main`
+mirror is current, proves the tag, and prints the orientation with its Stop block. The
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the exact command.
 
-```bash
-git fetch upstream --tags
-git fetch origin
-git rev-parse origin/main upstream/main
-vp run fork:rebase-report
-```
+The rest of this section is what that output means.
+
+### The main mirror
 
 The `hyprws rebase report` workflow fast-forwards `origin/main` to `upstream/main` on every `hyprws`
 push, on a schedule, and on manual dispatch, so the two shas normally match.
@@ -35,6 +34,11 @@ fails with a missing-secret error needs the secret recreated; a rejected push me
 and wants a human, never a force.
 That push is a fast-forward because nothing else ever writes `main`.
 If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
+
+### The report behind the orientation
+
+`fork:orient` summarizes what `vp run fork:rebase-report` derives. Run the report itself when you
+want the full detail on disk.
 
 The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
 Its adjacent JSON file is the same versioned data for later automation.
@@ -72,6 +76,8 @@ where each one is re-read. Sweep them before you pick a target, then again again
 vp run fork:upstream-watch                  # against upstream/main, to pick a target
 vp run fork:upstream-watch --target vX.Y.Z  # against the tag you picked
 ```
+
+`fork:orient` runs the tag-targeted sweep, so Gate 1 and this step read the same verdicts.
 
 The two sweeps answer different questions and can disagree. A fix merged after the tag is `ready`
 against `upstream/main` and `pending-tag` against the tag, so only the tag-targeted sweep describes
