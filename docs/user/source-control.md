@@ -71,6 +71,10 @@ Issues are read-only in T3 Code: commenting, closing, labeling, and assigning re
 
 - Rewrite a pull request's title and description from the review itself, in Markdown, with a
   preview before you save
+- On GitHub, paste or choose an image or video up to 10 MB while editing a pull request
+  description. Uploads run on the server environment that owns the project and appear when that
+  environment has the pinned `gh-image` extension and an active GitHub browser session. Install
+  it there with `gh extension install drogers0/gh-image --pin v1.2.0`.
 - Rewrite your own comments the same way, wherever they are shown
 - Works on GitHub, GitLab, and Bitbucket. Azure DevOps takes a new title and description; its
   comments stay read-only here, as they already were

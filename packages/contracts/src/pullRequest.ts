@@ -392,6 +392,11 @@ export const PullRequestCapabilities = Schema.Struct({
    * what every server before this one was.
    */
   edit: Schema.optional(PullRequestEditCapabilities),
+  /**
+   * The host can publish a file as a durable attachment for pull-request markdown. Optional for
+   * version skew: a server that says nothing about attachments offers no upload affordance.
+   */
+  attachments: Schema.optional(Schema.Boolean),
 });
 export type PullRequestCapabilities = typeof PullRequestCapabilities.Type;
 
@@ -842,6 +847,49 @@ export const PullRequestUpdateInput = Schema.Struct({
   body: Schema.optional(Schema.String.check(Schema.isMaxLength(65_536))),
 });
 export type PullRequestUpdateInput = typeof PullRequestUpdateInput.Type;
+
+export const PULL_REQUEST_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const PULL_REQUEST_ATTACHMENT_MIME_TYPES = [
+  "image/png",
+  "image/gif",
+  "image/jpeg",
+  "image/svg+xml",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+] as const;
+export const PullRequestAttachmentMimeType = Schema.Literals(PULL_REQUEST_ATTACHMENT_MIME_TYPES);
+export type PullRequestAttachmentMimeType = typeof PullRequestAttachmentMimeType.Type;
+
+const PullRequestAttachmentFile = {
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: PullRequestAttachmentMimeType,
+} as const;
+
+/** Mint a short-lived route that stages one browser-selected file on the project environment. */
+export const PullRequestAttachmentCreateUploadUrlInput = Schema.Struct({
+  ...PullRequestRef.fields,
+  ...PullRequestAttachmentFile,
+  sizeBytes: NonNegativeInt.check(
+    Schema.isGreaterThanOrEqualTo(1),
+    Schema.isLessThanOrEqualTo(PULL_REQUEST_ATTACHMENT_MAX_BYTES),
+  ),
+});
+export type PullRequestAttachmentCreateUploadUrlInput =
+  typeof PullRequestAttachmentCreateUploadUrlInput.Type;
+
+/** Publish a staged file to the host and return the text inserted into the markdown editor. */
+export const PullRequestAttachmentUploadInput = Schema.Struct({
+  ...PullRequestRef.fields,
+  ...PullRequestAttachmentFile,
+  attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+});
+export type PullRequestAttachmentUploadInput = typeof PullRequestAttachmentUploadInput.Type;
+
+export const PullRequestAttachmentUploadResult = Schema.Struct({
+  insertion: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+});
+export type PullRequestAttachmentUploadResult = typeof PullRequestAttachmentUploadResult.Type;
 
 /**
  * A remark already posted, rewritten by whoever wrote it. The kind travels beside the id because
