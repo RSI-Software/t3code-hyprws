@@ -20,6 +20,7 @@ import {
   deriveThreadFeedPresentation,
   isPendingUserInputOptionSelected,
   setPendingUserInputCustomAnswer,
+  sortThreadActivities,
   togglePendingUserInputOptionSelection,
   workEntryRowLabel,
   type ThreadFeedActivity,
@@ -234,6 +235,162 @@ describe("pending user input answers", () => {
     { selectedOptionValues: ["  choice  "] },
   ])("requires an offered value for a choice-only question: %j", (draft) => {
     expect(buildPendingUserInputAnswers([nativeQuestion], { choice: draft })).toBeNull();
+  });
+});
+
+describe("pending approvals", () => {
+  it.each([{}, { requestType: "unknown" }])(
+    "exposes legacy OpenCode approvals without a known request kind: %j",
+    (legacyPayload) => {
+      const requested = makeActivity({
+        id: EventId.make("approval-legacy"),
+        kind: "approval.requested",
+        summary: "Approval requested",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        payload: { requestId: "per-legacy", detail: "*", ...legacyPayload },
+      });
+
+      expect(derivePendingApprovals([requested])).toEqual([
+        {
+          requestId: "per-legacy",
+          requestKind: "command",
+          createdAt: requested.createdAt,
+          detail: "*",
+        },
+      ]);
+    },
+  );
+
+  it.each(["tool_user_input", "auth_tokens_refresh"])(
+    "does not turn %s into an approval",
+    (requestType) => {
+      const activity = makeActivity({
+        id: EventId.make("approval-non-approval"),
+        kind: "approval.requested",
+        summary: "Approval requested",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        payload: { requestId: "not-an-approval", requestType },
+      });
+
+      expect(derivePendingApprovals([activity])).toEqual([]);
+    },
+  );
+
+  it.each(["approval.resolved", "provider.approval.respond.failed"])(
+    "removes legacy approvals after %s",
+    (kind) => {
+      const requested = makeActivity({
+        id: EventId.make("approval-legacy-open"),
+        kind: "approval.requested",
+        summary: "Approval requested",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        payload: { requestId: "per-legacy", requestType: "unknown" },
+      });
+      const resolved = makeActivity({
+        id: EventId.make("approval-legacy-resolved"),
+        kind,
+        summary: "Approval resolved",
+        createdAt: "2026-08-24T00:00:01.000Z",
+        payload: {
+          requestId: "per-legacy",
+          detail: "Unknown pending permission request: per-legacy",
+        },
+      });
+
+      expect(derivePendingApprovals([requested, resolved])).toEqual([]);
+    },
+  );
+
+  it("keeps app access approvals and persistence choices from remote environments", () => {
+    const options = [
+      { decision: "decline", label: "Decline" },
+      { decision: "acceptAlways", label: "Always allow Safari" },
+      { decision: "accept", label: "Approve" },
+    ];
+    const activity = makeActivity({
+      id: EventId.make("approval-safari"),
+      kind: "approval.requested",
+      summary: "App access approval requested",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      payload: {
+        requestId: "req-safari",
+        requestType: "mcp_elicitation_approval",
+        detail: "Allow ChatGPT to use Safari?",
+        appName: "Safari",
+        options,
+      },
+    });
+
+    expect(derivePendingApprovals([activity])).toEqual([
+      {
+        requestId: "req-safari",
+        requestKind: "mcp-elicitation",
+        createdAt: "2026-08-24T00:00:00.000Z",
+        detail: "Allow ChatGPT to use Safari?",
+        appName: "Safari",
+        options,
+      },
+    ]);
+  });
+
+  it("removes an app access approval after a remote client rejects it", () => {
+    const requested = makeActivity({
+      id: EventId.make("approval-safari-open"),
+      kind: "approval.requested",
+      summary: "App access approval requested",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      payload: { requestId: "req-safari", requestKind: "mcp-elicitation" },
+    });
+    const resolved = makeActivity({
+      id: EventId.make("approval-safari-resolved"),
+      kind: "approval.resolved",
+      summary: "Approval resolved",
+      createdAt: "2026-08-24T00:00:01.000Z",
+      payload: { requestId: "req-safari", decision: "decline" },
+    });
+
+    expect(derivePendingApprovals([requested, resolved])).toEqual([]);
+  });
+
+  it("preserves snapshot order before sorting sequenced live activities", () => {
+    const requested = makeActivity({
+      id: EventId.make("z-approval-requested"),
+      kind: "approval.requested",
+      summary: "Approval requested",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      payload: { requestId: "req-snapshot", requestKind: "command" },
+    });
+    const resolved = makeActivity({
+      id: EventId.make("a-approval-resolved"),
+      kind: "approval.resolved",
+      summary: "Approval resolved",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      payload: { requestId: "req-snapshot", decision: "accept" },
+    });
+    const laterLive = makeActivity({
+      id: EventId.make("live-later"),
+      kind: "runtime.warning",
+      summary: "Later live activity",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      sequence: 12,
+    });
+    const earlierLive = makeActivity({
+      id: EventId.make("live-earlier"),
+      kind: "runtime.warning",
+      summary: "Earlier live activity",
+      createdAt: "2026-08-24T00:00:00.000Z",
+      sequence: 11,
+    });
+
+    const sorted = sortThreadActivities([requested, resolved, laterLive, earlierLive]);
+
+    expect(sorted.map((activity) => activity.id)).toEqual([
+      "z-approval-requested",
+      "a-approval-resolved",
+      "live-earlier",
+      "live-later",
+    ]);
+    expect(derivePendingApprovals(sorted)).toEqual([]);
   });
 });
 
