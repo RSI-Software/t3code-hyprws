@@ -10,6 +10,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
 import { projectAgentActivitySnapshot } from "./AgentActivityProjection.ts";
+import { isAgentActivityPageCursorFor } from "./agentActivityCursor.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
@@ -95,6 +96,16 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.agentActivity")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          if (
+            args.payload.beforeCursor !== undefined &&
+            !isAgentActivityPageCursorFor(
+              args.payload.beforeCursor,
+              args.params.threadId,
+              args.params.agentId,
+            )
+          ) {
+            return yield* failEnvironmentInvalidRequest("invalid_agent_activity_cursor");
+          }
           const snapshot = yield* projectionSnapshotQuery
             .getAgentActivitySnapshot(args.params.threadId, args.params.agentId, {
               limit: args.payload.limit ?? ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT,
