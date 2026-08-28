@@ -21,6 +21,9 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/in
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
+import type { BrowserBookmarkScope } from "~/browserBookmarkStore";
+import { PreviewBookmarkMenu } from "./PreviewBookmarkMenu";
+
 interface Props {
   url: string;
   loading: boolean;
@@ -34,6 +37,10 @@ interface Props {
   onForward: () => void;
   onRefresh: () => void;
   onSubmit: (url: string) => void;
+  bookmarkScope?: BrowserBookmarkScope | null | undefined;
+  bookmarkProjectAvailable?: boolean | undefined;
+  onBookmarkScopeChange?: ((scope: BrowserBookmarkScope) => void) | undefined;
+  onRemoveBookmark?: (() => void) | undefined;
   /** When provided, renders an "Open in browser" affordance to the right. */
   onOpenInBrowser?: (() => void) | undefined;
   onCapture?: ((record: boolean) => void) | undefined;
@@ -73,6 +80,10 @@ export function PreviewChromeRow({
   onForward,
   onRefresh,
   onSubmit,
+  bookmarkScope = null,
+  bookmarkProjectAvailable = false,
+  onBookmarkScopeChange,
+  onRemoveBookmark,
   onOpenInBrowser,
   onCapture,
   captureDisabled,
@@ -173,11 +184,6 @@ export function PreviewChromeRow({
                 <InputGroupInput
                   ref={inputRef}
                   value={inputFocused ? draft : url}
-                  className={cn(
-                    onOpenInBrowser &&
-                      !inputFocused &&
-                      "group-hover/address:pe-7 transition-[padding]",
-                  )}
                   onChange={(event) => setDraft(event.target.value)}
                   onFocus={() => {
                     setDraft(url);
@@ -204,27 +210,36 @@ export function PreviewChromeRow({
               }
             />
           </Tooltip>
-          {onOpenInBrowser && !inputFocused ? (
-            <InputGroupAddon
-              align="inline-end"
-              className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100"
-            >
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={onOpenInBrowser}
-                      aria-label="Open in system browser"
-                      type="button"
-                    />
-                  }
-                >
-                  <ExternalLink />
-                </TooltipTrigger>
-                <TooltipPopup>Open in system browser</TooltipPopup>
-              </Tooltip>
+          {onOpenInBrowser || onBookmarkScopeChange ? (
+            <InputGroupAddon align="inline-end" className="gap-0.5">
+              {onOpenInBrowser && !inputFocused ? (
+                <span className="pointer-events-none w-0 overflow-hidden opacity-0 transition-[width,opacity] group-hover/address:pointer-events-auto group-hover/address:w-6 group-hover/address:opacity-100">
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={onOpenInBrowser}
+                          aria-label="Open in system browser"
+                          type="button"
+                        />
+                      }
+                    >
+                      <ExternalLink />
+                    </TooltipTrigger>
+                    <TooltipPopup>Open in system browser</TooltipPopup>
+                  </Tooltip>
+                </span>
+              ) : null}
+              {onBookmarkScopeChange && onRemoveBookmark ? (
+                <PreviewBookmarkMenu
+                  scope={bookmarkScope}
+                  projectAvailable={bookmarkProjectAvailable}
+                  onScopeChange={onBookmarkScopeChange}
+                  onRemove={onRemoveBookmark}
+                />
+              ) : null}
             </InputGroupAddon>
           ) : null}
         </InputGroup>
