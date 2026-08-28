@@ -2123,6 +2123,7 @@ export default function Sidebar({
     reorderActiveThread,
     archiveThread,
     deleteThread,
+    collectOrphanedWorktreePathsForThreads,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -2389,12 +2390,7 @@ export default function Sidebar({
         matches: (item, query) =>
           projectScopeFilter.contains(item, query, (candidate) => candidate.label),
       }),
-    [
-      effectiveProjectScopeKey,
-      projectScopeFilter,
-      projectScopeItems,
-      projectScopeMenuState.query,
-    ],
+    [effectiveProjectScopeKey, projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
   );
   const scopedProjectGroup =
     forcedProjectGroup ??
@@ -3953,18 +3949,56 @@ export default function Sidebar({
         );
         if (confirmed._tag === "Failure" || !confirmed.value) return;
       }
-      const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
-        entries: threadKeys.map((threadKey) => ({ threadKey })),
-        delete: async ({ threadKey }, deletedThreadKeys) => {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (!thread) return null;
-          return deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
-            deletedThreadKeys,
-          });
-        },
+      const deleteTargets = threadKeys.flatMap((threadKey) => {
+        const thread = threadByKeyRef.current.get(threadKey);
+        return thread
+          ? [{ threadKey, threadRef: scopeThreadRef(thread.environmentId, thread.id) }]
+          : [];
       });
-      if (firstFailure !== null) {
-        const firstError = squashAtomCommandFailure(firstFailure);
+      const orphanedWorktreePathKeys = collectOrphanedWorktreePathsForThreads(
+        deleteTargets.map(({ threadRef }) => threadRef),
+      );
+      let worktreeBatch: { decision: "delete" | "keep"; pathKeys: ReadonlySet<string> } = {
+        decision: "keep",
+        pathKeys: orphanedWorktreePathKeys,
+      };
+      if (orphanedWorktreePathKeys.size > 0) {
+        const confirmedWorktrees = await settlePromise(() =>
+          api.dialogs.confirm(
+            [
+              "Delete the worktrees too?",
+              orphanedWorktreePathKeys.size === 1
+                ? "There is 1 worktree linked only to the threads you're deleting."
+                : `There are ${orphanedWorktreePathKeys.size} worktrees linked only to the threads you're deleting.`,
+            ].join("\n"),
+            { variant: "destructive" },
+          ),
+        );
+        if (confirmedWorktrees._tag === "Failure") return;
+        worktreeBatch = {
+          decision: confirmedWorktrees.value ? "delete" : "keep",
+          pathKeys: orphanedWorktreePathKeys,
+        };
+      }
+      // Grown as deletions actually land, never seeded with the whole batch:
+      // orphaned-worktree detection must only discount threads that are
+      // really gone, or the first delete would treat still-alive batch mates
+      // as deleted and remove a worktree they still point at.
+      const deletedThreadKeys = new Set<string>();
+      let firstError: unknown = null;
+      for (const { threadKey, threadRef } of deleteTargets) {
+        const result = await deleteThread(threadRef, {
+          deletedThreadKeys,
+          worktreeBatch,
+        });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) break;
+          firstError ??= squashAtomCommandFailure(result);
+          continue;
+        }
+        deletedThreadKeys.add(threadKey);
+      }
+      if (firstError !== null) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -3986,6 +4020,7 @@ export default function Sidebar({
       attemptUnpin,
       clearSelection,
       confirmThreadDelete,
+      collectOrphanedWorktreePathsForThreads,
       deleteThread,
       markThreadUnread,
       performSnooze,

@@ -1104,6 +1104,9 @@ interface SidebarProjectItemProps {
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
+  collectOrphanedWorktreePathsForThreads: ReturnType<
+    typeof useThreadActions
+  >["collectOrphanedWorktreePathsForThreads"];
   threadJumpLabelByKey: ReadonlyMap<string, string>;
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
@@ -1125,6 +1128,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     handleNewThread,
     archiveThread,
     deleteThread,
+    collectOrphanedWorktreePathsForThreads,
     threadJumpLabelByKey,
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
@@ -1944,13 +1948,45 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         if (!confirmed) return;
       }
 
-      const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
-        entries: selectedThreadEntries,
-        delete: ({ threadRef }, deletedThreadKeys) =>
-          deleteThread(threadRef, { deletedThreadKeys }),
-      });
-      if (firstFailure !== null) {
-        const firstError = squashAtomCommandFailure(firstFailure);
+      const orphanedWorktreePathKeys = collectOrphanedWorktreePathsForThreads(
+        selectedThreadEntries.map(({ threadRef }) => threadRef),
+      );
+      let worktreeBatch: { decision: "delete" | "keep"; pathKeys: ReadonlySet<string> } = {
+        decision: "keep",
+        pathKeys: orphanedWorktreePathKeys,
+      };
+      if (orphanedWorktreePathKeys.size > 0) {
+        const confirmedWorktrees = await api.dialogs.confirm(
+          [
+            "Delete the worktrees too?",
+            orphanedWorktreePathKeys.size === 1
+              ? "There is 1 worktree linked only to the threads you're deleting."
+              : `There are ${orphanedWorktreePathKeys.size} worktrees linked only to the threads you're deleting.`,
+          ].join("\n"),
+          { variant: "destructive" },
+        );
+        worktreeBatch = {
+          decision: confirmedWorktrees ? "delete" : "keep",
+          pathKeys: orphanedWorktreePathKeys,
+        };
+      }
+
+      // Only discount batch members after their deletions succeed.
+      const deletedThreadKeys = new Set<string>();
+      let firstError: unknown = null;
+      for (const { threadKey, threadRef } of selectedThreadEntries) {
+        const result = await deleteThread(threadRef, {
+          deletedThreadKeys,
+          worktreeBatch,
+        });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) break;
+          firstError ??= squashAtomCommandFailure(result);
+          continue;
+        }
+        deletedThreadKeys.add(threadKey);
+      }
+      if (firstError !== null) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -1971,6 +2007,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       appSettingsConfirmThreadDelete,
       archiveThread,
       clearSelection,
+      collectOrphanedWorktreePathsForThreads,
       deleteThread,
       markThreadUnread,
       removeFromSelection,
@@ -2867,6 +2904,9 @@ interface SidebarProjectsContentProps {
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
+  collectOrphanedWorktreePathsForThreads: ReturnType<
+    typeof useThreadActions
+  >["collectOrphanedWorktreePathsForThreads"];
   sortedProjects: readonly SidebarProjectSnapshot[];
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
@@ -2909,6 +2949,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleNewThread,
     archiveThread,
     deleteThread,
+    collectOrphanedWorktreePathsForThreads,
     sortedProjects,
     expandedThreadListsByProject,
     activeRouteProjectKey,
@@ -3060,6 +3101,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         handleNewThread={handleNewThread}
                         archiveThread={archiveThread}
                         deleteThread={deleteThread}
+                        collectOrphanedWorktreePathsForThreads={
+                          collectOrphanedWorktreePathsForThreads
+                        }
                         threadJumpLabelByKey={threadJumpLabelByKey}
                         attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                         expandThreadListForProject={expandThreadListForProject}
@@ -3093,6 +3137,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 handleNewThread={handleNewThread}
                 archiveThread={archiveThread}
                 deleteThread={deleteThread}
+                collectOrphanedWorktreePathsForThreads={collectOrphanedWorktreePathsForThreads}
                 threadJumpLabelByKey={threadJumpLabelByKey}
                 attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                 expandThreadListForProject={expandThreadListForProject}
@@ -3152,7 +3197,8 @@ export default function LegacySidebar({
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
   const updateSettings = useUpdateClientSettings();
   const handleNewThread = useNewThreadHandler();
-  const { archiveThread, deleteThread } = useThreadActions();
+  const { archiveThread, deleteThread, collectOrphanedWorktreePathsForThreads } =
+    useThreadActions();
   const { isMobile, setOpenMobile } = useSidebar();
   const routeTarget = useParams({
     strict: false,
@@ -3805,6 +3851,7 @@ export default function LegacySidebar({
         handleNewThread={handleNewThread}
         archiveThread={archiveThread}
         deleteThread={deleteThread}
+        collectOrphanedWorktreePathsForThreads={collectOrphanedWorktreePathsForThreads}
         sortedProjects={sortedProjects}
         expandedThreadListsByProject={expandedThreadListsByProject}
         activeRouteProjectKey={activeRouteProjectKey}
