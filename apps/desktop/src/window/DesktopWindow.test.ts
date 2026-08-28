@@ -244,11 +244,12 @@ function layerTest(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
-  readonly previewMainWindowSets?: Electron.BrowserWindow[]; // fork-hook: multi-window/preview-main-window-sets
-  readonly previewBrowserSessionRequests?: number[]; // fork-hook: multi-window/preview-browser-session-requests
-  readonly environmentEnv?: Record<string, string | undefined>; // fork-hook: multi-window/environment-env-input
-  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[]; // fork-hook: multi-window/restore-entries-input
-  readonly workspaceMoves?: { key: string; workspace: string }[]; // fork-hook: multi-window/workspace-moves-input
+  readonly previewMainWindowSets?: Electron.BrowserWindow[];
+  readonly previewBrowserSessionRequests?: number[];
+  readonly environmentEnv?: Record<string, string | undefined>;
+  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
+  readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
