@@ -61,9 +61,11 @@ export function seedGitHubIssueDraftIfEmpty(
 
 export function GitHubIssueDetailPanel({
   environmentId,
+  onSelectSubIssue,
   reference,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly onSelectSubIssue: (child: GitHubSubIssue) => void;
   readonly reference: GitHubIssueRef;
 }) {
   const query = useEnvironmentQuery(
@@ -77,6 +79,7 @@ export function GitHubIssueDetailPanel({
         error={query.error}
         loading={query.isPending}
         onRetry={query.refresh}
+        onSelectSubIssue={onSelectSubIssue}
       />
     </div>
   );
@@ -116,10 +119,7 @@ export function GitHubIssueDetailContent({
   readonly handoffPromptTemplate?: string;
   readonly loading: boolean;
   readonly onRetry: () => void;
-  /**
-   * Opens a child of this issue in the same panel. Absent where the panel has no list behind it —
-   * the right-panel tab — and there a child is a link to GitHub instead.
-   */
+  /** Opens a same-repository child in the surface that owns this detail view. */
   readonly onSelectSubIssue?: (child: GitHubSubIssue) => void;
 }) {
   const newThread = useNewThreadHandler();
@@ -313,7 +313,7 @@ function gitHubSubIssueRepository(url: string): string | null {
   return SUB_ISSUE_REPOSITORY.exec(url)?.[1] ?? null;
 }
 
-function GitHubSubIssueRow({
+export function GitHubSubIssueRow({
   child,
   repository,
   onSelect,
@@ -337,21 +337,37 @@ function GitHubSubIssueRow({
       <span className="shrink-0 text-muted-foreground text-xs tabular-nums">#{child.number}</span>
     </>
   );
-  const className =
-    "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  const actionClassName =
+    "flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
   if (onSelect === undefined || !sameRepository) {
     return (
-      <a href={child.url} target="_blank" rel="noreferrer noopener" className={className}>
+      <a
+        href={child.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className={cn(actionClassName, "w-full")}
+      >
         {inner}
         <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
       </a>
     );
   }
   return (
-    <button type="button" className={className} onClick={() => onSelect(child)}>
-      {inner}
-    </button>
+    <div className="flex items-center">
+      <button type="button" className={actionClassName} onClick={() => onSelect(child)}>
+        {inner}
+      </button>
+      <Button
+        render={<a href={child.url} target="_blank" rel="noreferrer noopener" />}
+        size="icon-sm"
+        variant="ghost"
+        className="mr-1 shrink-0 text-muted-foreground"
+        aria-label={`Open issue #${child.number} on GitHub`}
+      >
+        <ExternalLinkIcon className="size-3.5" />
+      </Button>
+    </div>
   );
 }
 
