@@ -20,6 +20,7 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 import { formatRelativeTimeLabel } from "../timestampFormat";
+import type { SidebarThreadGroup } from "../uiStateStore";
 
 const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
@@ -309,6 +310,64 @@ export function planSidebarThreadDrop(input: {
       };
     }
   }
+}
+
+export type SidebarThreadGroupLayoutItem<T> =
+  | { readonly kind: "thread"; readonly thread: T }
+  | {
+      readonly kind: "group";
+      readonly projectKey: string;
+      readonly group: SidebarThreadGroup;
+      readonly threads: readonly T[];
+    };
+
+export function buildSidebarThreadGroupLayout<T>(input: {
+  readonly threads: readonly T[];
+  readonly groupsByProject: Readonly<Record<string, readonly SidebarThreadGroup[]>>;
+  readonly getId: (thread: T) => string;
+  readonly getProjectKey: (thread: T) => string;
+}): SidebarThreadGroupLayoutItem<T>[] {
+  const visibleById = new Map(input.threads.map((thread) => [input.getId(thread), thread]));
+  const groupByThreadId = new Map<
+    string,
+    { readonly projectKey: string; readonly group: SidebarThreadGroup; readonly threads: T[] }
+  >();
+  for (const [projectKey, groups] of Object.entries(input.groupsByProject)) {
+    for (const group of groups) {
+      const threads = input.threads.filter(
+        (thread) =>
+          input.getProjectKey(thread) === projectKey &&
+          group.threadIds.includes(input.getId(thread)),
+      );
+      if (threads.length < 2) continue;
+      const entry = { projectKey, group, threads };
+      for (const threadId of group.threadIds) {
+        if (visibleById.has(threadId)) groupByThreadId.set(threadId, entry);
+      }
+    }
+  }
+
+  const emittedGroups = new Set<string>();
+  return input.threads.flatMap((thread): SidebarThreadGroupLayoutItem<T>[] => {
+    const entry = groupByThreadId.get(input.getId(thread));
+    if (!entry) return [{ kind: "thread", thread }];
+    const groupKey = `${entry.projectKey}\0${entry.group.id}`;
+    if (emittedGroups.has(groupKey)) return [];
+    emittedGroups.add(groupKey);
+    return [{ kind: "group", ...entry }];
+  });
+}
+
+export function isSidebarThreadGroupDrop(input: {
+  readonly activeRect: { readonly top: number; readonly bottom: number } | null;
+  readonly overRect: { readonly top: number; readonly bottom: number } | null;
+}): boolean {
+  if (!input.activeRect || !input.overRect) return false;
+  const center = (input.activeRect.top + input.activeRect.bottom) / 2;
+  const height = input.overRect.bottom - input.overRect.top;
+  return (
+    center >= input.overRect.top + height * 0.3 && center <= input.overRect.bottom - height * 0.3
+  );
 }
 
 /** Project a drop's lifecycle fields before sorting its destination. Reusing

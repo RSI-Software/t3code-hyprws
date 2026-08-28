@@ -66,6 +66,13 @@ If dragging is unavailable for one environment, update the T3 Code server runnin
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
+In **Manual** mode, drop a thread onto the middle of another active thread to group them. Drop more
+threads onto a group member to add them. Drag a member outside its group to remove it; a group
+disappears when fewer than two threads remain. Groups can be collapsed, renamed, regenerated, or
+dissolved from their header. Generated group names use the same title-generation setting as thread
+titles. Group names, membership, collapsed state, and order are stored on that browser or desktop
+installation. **Automatic** mode hides groups without deleting them.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list
