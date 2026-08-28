@@ -17,7 +17,6 @@ import {
   isThreadRoutePathname,
   isThreadRouteSnapshotAuthoritative,
   resolveActiveThreadRouteRef,
-  resolveThreadRouteFamily,
   resolveThreadRouteRenderState,
   resolveThreadRouteTarget,
 } from "./threadRoutes";
