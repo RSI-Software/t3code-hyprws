@@ -3,22 +3,59 @@
 > Runbook for `RSI-Software/t3code-hyprws`. Using T3 Code? See [docs/user](../user/).
 
 This is the agent-driven loop that keeps the fork trunk `hyprws` current and shipped.
-[Fork development](../internals/fork-development.md) owns the rules; this page owns the steps.
+[Fork development](../internals/fork-development.md) owns the fork's rules; this page owns the
+invariants a sync must not break, what the orientation output means, failure handling, and the
+one-time repository setup.
 
 Run it through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill, whose five
-gates stop for orientation, rehearsal, focused checks, human sanity, and human-only apply. Commit each
-rehearsal record under [`docs/operations/fork-sync-records/`](./fork-sync-records/).
+gates stop for orientation, rehearsal, focused checks, human sanity, and human-only apply. The skill
+and its references hold every gate command; this page repeats none, so no step has two spellings.
+Commit each rehearsal record under [`docs/operations/fork-sync-records/`](./fork-sync-records/).
 
-Run it from the `hyprws` worktree, never from the `main` checkout.
-Every step is scriptable; the only human inputs are conflict decisions and a refused lease.
+`.agents/skills/fork-sync/` is the skill's only copy. `.claude/skills` is a tracked symlink to
+`.agents/skills`, so a Claude-scope load and the link above resolve to the same file; edit the
+`.agents` path.
 
-## Step 0: Orient the rebase
+## Invariants
 
-`vp run fork:orient --target vX.Y.Z` is the whole step. It fetches both lanes, confirms the `main`
-mirror is current, proves the tag, and prints the orientation with its Stop block. The
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the exact command.
+These hold whichever gate is running. A gate that cannot satisfy one stops.
 
-The rest of this section is what that output means.
+- **Rebase, never merge.** `hyprws` is rebased onto upstream history. Merging `upstream/main` into it
+  buries the patch stack under merge commits.
+- **The target is a stable upstream tag.** `vX.Y.Z`, never an untagged commit and never a nightly:
+  the apply gate refuses anything else. When the fork needs a fix upstream has merged but not
+  released, trial it in a worktree and take the stable tag that carries it.
+- **A sync runs from the fork checkout, never the `main` checkout.** `main` only mirrors upstream.
+- **The rewrite happens on `rehearse/<tag>`.** The rehearsal branch is created from `origin/hyprws`
+  and is disposable; nothing rebases the `hyprws` worktree in place. That worktree does not need to be
+  clean, and no gate requires it.
+- **`origin/main` matches `upstream/main` before a sync starts.** The preflight fetches both lanes and
+  refuses on a stale mirror, so orientation is never read against a lagging copy of upstream.
+- **`origin/hyprws` is fetched during the run that reads it.** Every lease is captured from the
+  published head this run proved, not from whatever an earlier unrelated fetch left behind.
+- **`git config rerere.enabled` is `true`.** A resolved conflict replays on the next sync.
+- **No fork commit is skipped, squashed, reordered, or reworded.** A commit upstream has made obsolete
+  is a `retire-candidate` for the human, resolved by exact subject in
+  [Fork delta](../internals/fork-delta.md); `git rebase --skip` never makes that decision.
+- **Verification is targeted.** `fork:delta --check`, a typecheck per touched package, and the tests
+  beside every touched file. Fork CI owns the full suite; a repo-wide run hides which seam failed.
+- **A rejected lease is evidence, never an inconvenience.** Read the commits that refused it and
+  incorporate them; never `--force` and never silently refresh.
+- **A fork release is `v<upstream version>-hyprws.<n>`.** `<upstream version>` is the `X.Y.Z` of the
+  target tag. `<n>` counts up within that version and restarts at 1 when the version changes, so a
+  fork-only change bumps `<n>` and a new upstream version restarts it. The workflow writes the exact
+  upstream tag into the release body.
+- **Only the release closes an `upstream-watch` issue.** It closes after the fork build that carries
+  the fix exists and the behavior has been verified in it.
+
+The preflight checks the checkable ones from live state and names each unmet one with its fix. The
+gates run it first and refuse rather than reporting a failure after they acted, so a precondition is
+never prose a reader is trusted to have satisfied.
+
+## What the orientation means
+
+Gate 1 prints target, source, shared base, mirror currency, feasibility, automerged overlap, retire
+candidates, and an `upstream-watch` verdict per open issue. This section is what that output means.
 
 ### The main mirror
 
@@ -37,8 +74,8 @@ If it is rejected, someone committed to `main`; stop and inspect before forcing 
 
 ### The report behind the orientation
 
-`fork:orient` summarizes what `vp run fork:rebase-report` derives. Run the report itself when you
-want the full detail on disk.
+Orientation summarizes what `fork:rebase-report` derives. Run the report itself when you want the full
+detail on disk.
 
 The generated Markdown under `docs/internals/generated/` is the human and agent orientation.
 Its adjacent JSON file is the same versioned data for later automation.
@@ -49,40 +86,26 @@ section identifies the first conflicting upstream commit, each conflict's introd
 trailers, and overlapping files that Git automerged. Treat the first conflict as the fast-forward
 boundary: the fork stack can advance automatically only through the preceding commit. Automerged
 overlap is still a semantic review surface, not proof that the fork behavior remains valid.
-Use `--target vX.Y.Z` to inspect a specific release instead of the live upstream tip.
 They contain no wall-clock timestamp, so unchanged refs reproduce identical files.
 
 The report embeds the `origin/hyprws` head, so a committed copy is stale after every landed commit.
-The directory is gitignored; regenerate it here rather than reading an older copy.
+The directory is gitignored; regenerate it rather than reading an older copy.
 
 The same workflow then uploads a fresh pair as a seven-day artifact and prints the Markdown as the
-run summary. That artifact is a preview for readers without a checkout, not the rebase input; Step 0 is.
-
-Download and validate a run when you need one:
-
-```bash
-vp run fork:rebase-report:artifact
-```
-
-The command keeps each immutable run under `.dump/runs/fork-rebase-report/<run-id>/`. Use
-`--run <id>` to inspect a particular manual or scheduled run.
+run summary. `fork:rebase-report:artifact` keeps each immutable run under
+`.dump/runs/fork-rebase-report/<run-id>/`. That artifact is a preview for readers without a checkout,
+never the input a gate reads.
 
 ### Re-read what waits on upstream
 
 Every fork issue labelled `upstream-watch` waits on an upstream issue or pull request, and orienting is
-where each one is re-read. Sweep them before you pick a target, then again against the tag you picked:
-
-```bash
-vp run fork:upstream-watch                  # against upstream/main, to pick a target
-vp run fork:upstream-watch --target vX.Y.Z  # against the tag you picked
-```
-
-`fork:orient` runs the tag-targeted sweep, so Gate 1 and this step read the same verdicts.
+where each one is re-read. Gate 1 sweeps twice: against `upstream/main` before the tag pick, and
+against the tag it orients on.
 
 The two sweeps answer different questions and can disagree. A fix merged after the tag is `ready`
 against `upstream/main` and `pending-tag` against the tag, so only the tag-targeted sweep describes
-what a release built from that tag contains. Keep its output; [Step 5](#step-5-tag-and-release) closes
-from that sweep alone.
+what a release built from that tag contains. Keep its output; the release gate closes from that sweep
+alone.
 
 The sweep lists every open `upstream-watch` issue and, for each upstream item its body cites, whether
 that item is merged and whether its merge commit is contained in the target. It pages the full open
@@ -97,132 +120,30 @@ A verdict is per citation; the issue takes the least advanced verdict among the 
 still advance. `dropped` and `fix-uncited` are spent, so a watch that also cites the merged fix still
 reaches `ready`.
 
-| Verdict       | Meaning                                                                                         | Action                                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ready`       | The merge commit is contained in the target.                                                    | The fix rides this rebase. Keep the watch open and close it at [Step 5](#step-5-tag-and-release). |
-| `pending-tag` | Merged upstream, but not in the target.                                                         | Take a newer tag when the fix is worth it, or leave the issue open.                               |
-| `waiting`     | The upstream item is still open.                                                                | Leave it. Trial the pull request in a worktree when the fork needs it sooner.                     |
-| `dropped`     | Upstream will not fix it: the pull request closed unmerged, or the issue closed as not planned. | Decide the fork's own fix and drop the label.                                                     |
-| `fix-uncited` | The upstream issue closed as completed and no fix is cited.                                     | Find the pull request that closed it and add it to the body as a code span.                       |
-| `unresolved`  | The merge commit is not in the local object store.                                              | Re-run after `git fetch upstream --tags`.                                                         |
-| `uncited`     | The body cites no upstream item.                                                                | Nothing can resolve it; add the citation as a code span or drop the label.                        |
+| Verdict       | Meaning                                                                                         | Action                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `ready`       | The merge commit is contained in the target.                                                    | The fix rides this rebase. Keep the watch open and close it at the release.   |
+| `pending-tag` | Merged upstream, but not in the target.                                                         | Take a newer tag when the fix is worth it, or leave the issue open.           |
+| `waiting`     | The upstream item is still open.                                                                | Leave it. Trial the pull request in a worktree when the fork needs it sooner. |
+| `dropped`     | Upstream will not fix it: the pull request closed unmerged, or the issue closed as not planned. | Decide the fork's own fix and drop the label.                                 |
+| `fix-uncited` | The upstream issue closed as completed and no fix is cited.                                     | Find the pull request that closed it and add it to the body as a code span.   |
+| `unresolved`  | The merge commit is not in the local object store.                                              | Re-run after the preflight's upstream fetch.                                  |
+| `uncited`     | The body cites no upstream item.                                                                | Nothing can resolve it; add the citation as a code span or drop the label.    |
 
 The `upstream-triage` skill applies the label whenever it decides the fork waits on upstream.
 
-This step decides which watches ride the rebase; it never closes one.
+Orientation decides which watches ride the rebase; it never closes one.
 `ready` proves only that the target contains the merge commit, and the target is upstream code that no
-fork release has shipped yet. A watch closes at [Step 5](#step-5-tag-and-release), where the release
-that carries the fix exists and the behavior can be verified in it.
+fork release has shipped yet. A watch closes at the release, where the build that carries the fix
+exists and the behavior can be verified in it.
 
-## Preconditions
+## The release
 
-`vp run fork:preflight` checks these from live state and names each unmet one with its fix. The gates
-run it first and refuse rather than reporting a failure after they acted, so a precondition is never
-prose a reader is trusted to have satisfied.
-
-- `origin` points at `RSI-Software/t3code-hyprws` and `upstream` at `pingdotgg/t3code`.
-- `git config rerere.enabled` is `true`, so a resolved conflict replays on the next sync.
-- `origin/hyprws` was fetched during this run, so every lease is read against the published head
-  rather than against whatever the last unrelated fetch left behind.
-- `origin/main` matches `upstream/main`, so the mirror is current.
-- Dependencies are installed in the worktree the gates run from.
-
-The `hyprws` worktree does not need to be clean, and no gate requires it: orientation reads
-`origin/hyprws` and the rehearsal runs on its own branch.
-
-`vp run fork:delta --check` must pass before you start, and the one-time setup below must be
-complete.
-
-## Step 1: Pick the target
-
-Rebase onto an upstream tag, never onto an untagged commit.
-
-```bash
-git tag --list 'v*' --sort=-v:refname | grep -v nightly | head -n 3
-git tag --list 'v*-nightly*' --sort=-v:refname | head -n 3
-```
-
-Take the newest stable `vX.Y.Z` by default.
-Take the newest nightly when the fork needs an upstream fix that has not reached a stable release.
-Nightlies are tagged from `upstream/main` several times a day, so the tip is rarely far from one.
-
-## Step 2: Rebase
-
-```bash
-expected_old=$(git rev-parse origin/hyprws)
-git rebase vX.Y.Z
-```
-
-Resolve conflicts with the [conflict policy](../internals/fork-development.md#conflict-policy).
-Read the upstream change first, then reapply the smallest fork behavior on the new seam.
-
-A rerere replay is a candidate, not a resolution; review every reused hunk.
-When upstream has made a fork commit obsolete, drop it with `git rebase --skip` and say so in the next commit.
-
-## Step 3: Scan and verify
-
-Walk the rebase scan for every active domain in [Fork delta](../internals/fork-delta.md).
-A clean rebase is not evidence that a domain is still needed.
-
-Then run what fork CI will run:
-
-```bash
-vp run fork:delta --check
-vp check
-vp run typecheck
-vp run build:desktop
-```
-
-Run the tests for every package a conflict touched, with `vp run --filter <package> test`.
-Fix forward with `git commit --fixup` and an autosquash rebase, so each fork commit stays self-contained.
-
-## Step 4: Publish with a lease
-
-```bash
-git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
-```
-
-A rejected lease means `origin/hyprws` moved during the sync.
-Fetch and read the new commits, rebase them onto the new stack, then push with a lease captured after that read.
-
-Never refresh the lease without reading what it refused.
-
-## Step 5: Tag and release
-
-A fork release is `v<upstream version>-hyprws.<n>`.
-`<upstream version>` is the `X.Y.Z` of the tag from step 1, nightly suffix dropped.
-`<n>` counts up within that version and restarts at 1 when the version changes.
-
-A stack on `v0.0.34-nightly.20260823.1164` therefore releases as `v0.0.34-hyprws.1`.
-The workflow writes the exact upstream tag into the release body.
-
-```bash
-git tag v0.0.34-hyprws.1
-git push origin v0.0.34-hyprws.1
-```
-
-The tag starts `hyprws-release.yml`: checks, a Linux x64 AppImage build, then a GitHub release.
+The tag push starts `hyprws-release.yml`: checks, a Linux x64 AppImage build, then a GitHub release.
 The release is never a prerelease, because the desktop updater ignores prereleases.
 
-Watch it with `gh run watch` and verify the release lists the `.AppImage` and `latest-linux.yml`.
-An installed fork build updates from that release, because the build derives its feed from the building repository.
-
-Bump `<n>` for a fork-only change or a newer nightly on the same upstream version.
-A new upstream version always restarts the suffix.
-
-### Close what the release shipped
-
-Every watch that [Step 0](#step-0-orient-the-rebase)'s **tag-targeted** sweep called `ready` is now in
-a published fork build. That sweep, `vp run fork:upstream-watch --target <the tag this release builds>`,
-is the only candidate set. Do not close from the `upstream/main` sweep beside it: a fix merged after the
-tag is `ready` there and `pending-tag` against the tag, so that set can name a merge this release does
-not carry. Re-run the tag-targeted sweep if you no longer have its output.
-
-Install or run the build, verify the reported behavior is actually fixed, and close the issue naming
-the upstream merge commit and this fork release. A watch whose behavior is still broken stays open with
-what you saw; the upstream fix landing is not the same claim as the fork working.
-
-This is the only step that closes an `upstream-watch` issue.
+The release must list the `.AppImage` and `latest-linux.yml` assets. An installed fork build updates
+from that release, because the build derives its feed from the building repository.
 
 ## Failure handling
 
@@ -231,9 +152,11 @@ This is the only step that closes an `upstream-watch` issue.
 - **The build fails on a runner tool.**
   _See the runner prerequisites below; the fix is a workflow step or an operator install, never a source change._
 - **The lease is rejected.**
-  _Step 4 covers it; do not use `--force`._
+  _`origin/hyprws` moved; read the new commits and rehearse them in before pushing again, never `--force`._
 - **A fork commit no longer applies.**
-  _Rebuild it at the new seam or drop it; record the decision in the commit or in Fork delta._
+  _Rebuild it at the new seam, or record it as a retire candidate for the human; the decision is keyed by exact subject in [Fork delta](../internals/fork-delta.md)._
+- **The apply gate refuses.**
+  _An unmet precondition, a missing record, a stale `expected_old`, or an absent human sanity mark; fix the named cause and re-run the gate, never the push it guards._
 
 ## One-time setup
 
