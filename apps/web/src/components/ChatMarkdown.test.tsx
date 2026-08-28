@@ -104,6 +104,35 @@ describe("ChatMarkdown file option chips", () => {
   });
 });
 
+describe("ChatMarkdown GitHub links", () => {
+  it("renders issue links as repository-qualified destination controls", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text="[the issue](https://github.com/RSI-Software/t3code-hyprws/issues/167)"
+      />,
+    );
+
+    expect(html).toContain("RSI-Software/t3code-hyprws#167");
+    expect(html).toContain('aria-label="Open in issue panel"');
+    expect(html).toContain('aria-label="Open in external browser"');
+  });
+
+  it("does not offer a native panel for repository links", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text="[the repository](https://github.com/RSI-Software/t3code-hyprws)"
+      />,
+    );
+
+    expect(html).toContain("the repository");
+    expect(html).toContain('aria-label="Open in external browser"');
+    expect(html).not.toContain('aria-label="Open in issue panel"');
+    expect(html).not.toContain('aria-label="Open in pull request panel"');
+  });
+});
+
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("uses the browser when it is the only available primary action", () => {
     expect(
