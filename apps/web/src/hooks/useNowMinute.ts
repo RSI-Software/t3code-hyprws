@@ -1,10 +1,9 @@
 import { useSyncExternalStore } from "react";
 
-/** Minute-quantized clock ("YYYY-MM-DDTHH:MM") for settled-state resolution.
-    One module-level timer feeds every consumer through useSyncExternalStore,
-    so all surfaces resolving effectiveSettled against it (sidebar partition,
-    composer banner) share a single value by construction and tick on UTC
-    minute boundaries together. */
+/** Minute-quantized clock ("YYYY-MM-DDTHH:MM") for settled-state resolution
+    and relative sidebar labels. One module-level timer feeds every consumer
+    through useSyncExternalStore, so all minute-based surfaces share a single
+    value and tick on UTC minute boundaries together. */
 
 function currentMinute(): string {
   return new Date().toISOString().slice(0, 16);
