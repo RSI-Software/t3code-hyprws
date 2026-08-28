@@ -42,6 +42,7 @@ import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
+  ArrowUpDownIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -113,7 +114,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -153,6 +154,7 @@ import {
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
+  orderThreadsByProjectPreference,
   planPinnedReorder,
   reduceSidebarProjectScopeMenuState,
   resolveAdjacentThreadId,
@@ -208,6 +210,7 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
@@ -229,6 +232,12 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 
+function threadProjectOrderKey(thread: {
+  readonly environmentId: string;
+  readonly projectId: string;
+}): string {
+  return `${thread.environmentId}:${thread.projectId}`;
+}
 function threadTimeLabel(thread: SidebarThreadSummary): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
   return formatSidebarRelativeTimeLabel(timestamp);
@@ -499,19 +508,19 @@ function SnoozePopoverButton(props: {
   );
 }
 
-// Subset of useSortable applied to a pinned card's root <li>. Listeners go
+// Subset of useSortable applied to a thread card's root <li>. Listeners go
 // on the whole card (no dedicated handle): the pointer sensor's distance
 // constraint keeps plain clicks working, and we skip dnd-kit's aria
 // attributes since there is no keyboard sensor and the card body already
 // carries its own button semantics.
-type SortablePinnedRowBag = Pick<
+type SortableThreadRowBag = Pick<
   ReturnType<typeof useSortable>,
   "listeners" | "setNodeRef" | "transform" | "transition" | "isDragging"
 >;
 
-function SortablePinnedThreadRow(props: {
+function SortableThreadRow(props: {
   id: string;
-  children: (bag: SortablePinnedRowBag) => ReactNode;
+  children: (bag: SortableThreadRowBag) => ReactNode;
 }) {
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.id,
@@ -778,10 +787,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // rows. The marker can unpin the thread when the server supports pinning.
   pinningSupported: boolean;
   isPinned: boolean;
-  // Present only on pinned cards whose server supports reordering: dnd-kit
-  // sortable bag applied to the card root so the whole card drags (the
+  // Present only on cards that support reordering: dnd-kit sortable bag
+  // applied to the card root so the whole card drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
-  sortable?: SortablePinnedRowBag | undefined;
+  sortable?: SortableThreadRowBag | undefined;
   // Compact wake countdown ("2h") for rows in the snoozed shelf.
   snoozeWakeLabelText: string | null;
   // When a snooze ended (timer or early wake); drives the Woke pill until
@@ -1171,7 +1180,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // a useful hierarchy nor a reliable hover cue. Status now lives in the row
   // content; surface is reserved for interaction (hover, multi-select, route).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none",
+    "group/sidebar-row relative w-full overflow-hidden rounded-md text-left outline-none select-none",
+    props.sortable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
     props.isActive
       ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected
@@ -1873,6 +1883,8 @@ export default function Sidebar({
     [allProjects, forcedProjectRef],
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const threadOrderByProject = useUiStateStore((store) => store.threadOrderByProject);
+  const reorderProjectThreads = useUiStateStore((store) => store.reorderProjectThreads);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -1880,6 +1892,8 @@ export default function Sidebar({
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
+  const updateClientSettings = useUpdateClientSettings();
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const {
@@ -2370,7 +2384,15 @@ export default function Sidebar({
           )
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       ),
-      activeThreads: sortThreadsForSidebar(active),
+      activeThreads:
+        sidebarThreadSortOrder === "manual"
+          ? orderThreadsByProjectPreference({
+              threads: sortThreadsForSidebar(active),
+              preferredIdsByProject: threadOrderByProject,
+              getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+              getProjectKey: threadProjectOrderKey,
+            })
+          : sortThreadsForSidebar(active),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -2380,7 +2402,15 @@ export default function Sidebar({
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    nowMinute,
+    scopedProjectKeys,
+    serverConfigs,
+    sidebarThreadSortOrder,
+    snoozeWakeTick,
+    threadOrderByProject,
+    threads,
+  ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -2835,7 +2865,7 @@ export default function Sidebar({
   // win) and ANY membership change (new pin, unpin, snooze/wake) also
   // release it: the override can't say where members it never saw belong,
   // and holding it would launder a stale order into later drags.
-  const pinnedDndSensors = useSensors(
+  const threadDndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
   const [optimisticPinnedOrder, setOptimisticPinnedOrder] = useState<{
@@ -2999,6 +3029,28 @@ export default function Sidebar({
       })();
     },
     [orderedPinnedThreads, reorderPinnedThread, reorderablePinnedKeys],
+  );
+  const handleActiveDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (sidebarThreadSortOrder !== "manual") return;
+      const activeKey = String(event.active.id);
+      const overKey = event.over === null ? null : String(event.over.id);
+      if (overKey === null || activeKey === overKey) return;
+      const activeThread = activeThreads.find(
+        (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeKey,
+      );
+      const overThread = activeThreads.find(
+        (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === overKey,
+      );
+      if (!activeThread || !overThread) return;
+      const projectKey = threadProjectOrderKey(activeThread);
+      if (threadProjectOrderKey(overThread) !== projectKey) return;
+      const projectThreadKeys = activeThreads
+        .filter((thread) => threadProjectOrderKey(thread) === projectKey)
+        .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+      reorderProjectThreads(projectKey, projectThreadKeys, activeKey, overKey);
+    },
+    [activeThreads, reorderProjectThreads, sidebarThreadSortOrder],
   );
   // One snooze per thread at a time — same double-dispatch guard as settle.
   const snoozingThreadKeysRef = useRef(new Set<string>());
@@ -4027,6 +4079,38 @@ export default function Sidebar({
                     <TooltipPopup side="right">Project settings</TooltipPopup>
                   </Tooltip>
                 ) : null}
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <SidebarMenuButton
+                        size="icon"
+                        type="button"
+                        className="shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                        aria-label="Sort threads"
+                        title="Sort threads"
+                      />
+                    }
+                  >
+                    <ArrowUpDownIcon />
+                  </MenuTrigger>
+                  <MenuPopup align="end" className="min-w-36">
+                    <MenuRadioGroup
+                      value={sidebarThreadSortOrder === "manual" ? "manual" : "automatic"}
+                      onValueChange={(value) => {
+                        updateClientSettings({
+                          sidebarThreadSortOrder: value === "manual" ? "manual" : "updated_at",
+                        });
+                      }}
+                    >
+                      <MenuRadioItem value="automatic" closeOnClick>
+                        Automatic
+                      </MenuRadioItem>
+                      <MenuRadioItem value="manual" closeOnClick>
+                        Manual
+                      </MenuRadioItem>
+                    </MenuRadioGroup>
+                  </MenuPopup>
+                </Menu>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -4136,7 +4220,7 @@ export default function Sidebar({
                   const renderThreadRow = (
                     thread: EnvironmentThreadShell,
                     section: "pinned" | "active" | "snoozed" | "settled",
-                    sortable?: SortablePinnedRowBag,
+                    sortable?: SortableThreadRowBag,
                   ) => {
                     const threadKey = scopedThreadKey(
                       scopeThreadRef(thread.environmentId, thread.id),
@@ -4268,7 +4352,7 @@ export default function Sidebar({
                     pinnedThreads.length > 0 ? (
                       <li key="pinned-dnd" className="list-none">
                         <DndContext
-                          sensors={pinnedDndSensors}
+                          sensors={threadDndSensors}
                           collisionDetection={closestCenter}
                           modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
                           onDragEnd={handlePinnedDragEnd}
@@ -4294,9 +4378,9 @@ export default function Sidebar({
                                   return renderThreadRow(thread, "pinned");
                                 }
                                 return (
-                                  <SortablePinnedThreadRow key={threadKey} id={threadKey}>
+                                  <SortableThreadRow key={threadKey} id={threadKey}>
                                     {(bag) => renderThreadRow(thread, "pinned", bag)}
-                                  </SortablePinnedThreadRow>
+                                  </SortableThreadRow>
                                 );
                               })}
                             </ul>
@@ -4315,8 +4399,45 @@ export default function Sidebar({
                       />,
                     );
                   }
-                  for (const thread of activeThreads) {
-                    items.push(renderThreadRow(thread, "active"));
+                  if (sidebarThreadSortOrder === "manual" && activeThreads.length > 0) {
+                    items.push(
+                      <li key="active-dnd" className="list-none">
+                        <DndContext
+                          sensors={threadDndSensors}
+                          collisionDetection={closestCenter}
+                          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                          onDragEnd={handleActiveDragEnd}
+                        >
+                          <SortableContext
+                            items={activeThreads.map((thread) =>
+                              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                            )}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <ul
+                              role="list"
+                              aria-label="Active threads"
+                              className="flex flex-col gap-px"
+                            >
+                              {activeThreads.map((thread) => {
+                                const threadKey = scopedThreadKey(
+                                  scopeThreadRef(thread.environmentId, thread.id),
+                                );
+                                return (
+                                  <SortableThreadRow key={threadKey} id={threadKey}>
+                                    {(bag) => renderThreadRow(thread, "active", bag)}
+                                  </SortableThreadRow>
+                                );
+                              })}
+                            </ul>
+                          </SortableContext>
+                        </DndContext>
+                      </li>,
+                    );
+                  } else {
+                    for (const thread of activeThreads) {
+                      items.push(renderThreadRow(thread, "active"));
+                    }
                   }
                   // Snoozed shelf: between the inbox and Settled — out of the
                   // way, never gone. The header always renders while anything
