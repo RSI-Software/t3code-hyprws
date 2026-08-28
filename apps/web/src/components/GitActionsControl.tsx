@@ -34,6 +34,7 @@ import {
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 import {
@@ -1124,7 +1125,8 @@ export default function GitActionsControl({
   );
   const isSelectingWorktreeBase =
     !activeServerThread &&
-    activeDraftThread?.envMode === "worktree" &&
+    activeDraftThread !== null &&
+    isWorktreeEnvMode(activeDraftThread.envMode) &&
     activeDraftThread.worktreePath === null;
 
   useEffect(() => {

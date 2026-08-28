@@ -502,6 +502,10 @@ describe("resolveLockedWorkspaceLabel", () => {
   it("uses a shorter label for an attached worktree", () => {
     expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Worktree");
   });
+
+  it("names a worktrunk worktree", () => {
+    expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a", true)).toBe("Worktrunk");
+  });
 });
 
 describe("deriveLocalBranchNameFromRemoteRef", () => {

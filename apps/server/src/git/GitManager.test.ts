@@ -40,7 +40,6 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
-import * as WorktrunkHookRunner from "../worktrunk/WorktrunkHookRunner.ts";
 import * as GitManager from "./GitManager.ts";
 
 interface FakeGhScenario {
@@ -623,7 +622,6 @@ function makeManager(input?: {
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
   zmuxSessionBinder?: Partial<ZmuxSessionBinder.ZmuxSessionBinder["Service"]>;
-  worktrunkHookRunner?: Partial<WorktrunkHookRunner.WorktrunkHookRunner["Service"]>;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -669,15 +667,6 @@ function makeManager(input?: {
       resolve: () => Effect.succeed({ status: "disabled" as const }),
       unbind: () => Effect.succeed({ status: "disabled" as const }),
       ...input?.zmuxSessionBinder,
-    }),
-    Layer.mock(WorktrunkHookRunner.WorktrunkHookRunner)({
-      runCreateHooks: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
-      runPreRemoveHook: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
-      runPostRemoveHook: () =>
-        Effect.succeed({ status: "skipped" as const, reason: "disabled" as const }),
-      ...input?.worktrunkHookRunner,
     }),
     vcsDriverLayer,
     serverSettingsLayer,
@@ -3682,8 +3671,6 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       yield* runGit(repoDir, ["checkout", "main"]);
 
       const setupCalls: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput[] = [];
-      const hookCalls: WorktrunkHookRunner.WorktrunkCreateHooksInput[] = [];
-      const callOrder: string[] = [];
       const { manager } = yield* makeManager({
         ghScenario: {
           pullRequest: {
@@ -3698,17 +3685,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         setupScriptRunner: {
           runForThread: (setupInput) =>
             Effect.sync(() => {
-              callOrder.push("setup");
               setupCalls.push(setupInput);
               return { status: "no-script" as const };
-            }),
-        },
-        worktrunkHookRunner: {
-          runCreateHooks: (hookInput) =>
-            Effect.sync(() => {
-              callOrder.push("hooks");
-              hookCalls.push(hookInput);
-              return { status: "completed" as const };
             }),
         },
       });
@@ -3721,13 +3699,6 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       expect(result.worktreePath).not.toBeNull();
-      expect(callOrder).toEqual(["hooks", "setup"]);
-      expect(hookCalls).toEqual([
-        {
-          projectCwd: repoDir,
-          worktreePath: result.worktreePath as string,
-        },
-      ]);
       expect(setupCalls).toHaveLength(1);
       expect(setupCalls[0]).toEqual({
         threadId: "thread-pr-setup",
