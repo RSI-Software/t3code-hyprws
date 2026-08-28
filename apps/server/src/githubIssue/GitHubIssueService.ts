@@ -60,8 +60,8 @@ export class GitHubIssueService extends Context.Service<
   }
 >()("t3/githubIssue/GitHubIssueService") {}
 
-function cliRepository(project: GitHubProject): string {
-  return `${project.host}/${project.repository}`;
+function cliRepository(project: GitHubProject, repository = project.repository): string {
+  return `${project.host}/${repository}`;
 }
 
 function authCommandForHost(host: string): string {
@@ -207,13 +207,11 @@ export const make = Effect.gen(function* () {
   const detail: GitHubIssueService["Service"]["detail"] = Effect.fn("GitHubIssueService.detail")(
     function* (input) {
       const projects = yield* workspaceProjects(input.projectId);
-      const project = projects.find(
-        (candidate) => candidate.repository.toLowerCase() === input.repository.toLowerCase(),
-      );
+      const project = projects[0];
       if (project === undefined) {
         return yield* new GitHubIssueOperationErrorClass({
           operation: "detail",
-          detail: "This issue does not belong to the selected project.",
+          detail: "The selected project cannot read GitHub issues.",
         });
       }
       const output = yield* cli
@@ -224,7 +222,7 @@ export const make = Effect.gen(function* () {
             "view",
             String(input.number),
             "--repo",
-            cliRepository(project),
+            cliRepository(project, input.repository),
             "--json",
             ISSUE_DETAIL_FIELDS,
           ],
@@ -239,7 +237,7 @@ export const make = Effect.gen(function* () {
         projectId: project.project.id,
         projectTitle: project.project.title,
         workspaceRoot: project.project.workspaceRoot,
-        repository: project.repository,
+        repository: input.repository,
         commentCount: issue.comments.length,
       };
     },
