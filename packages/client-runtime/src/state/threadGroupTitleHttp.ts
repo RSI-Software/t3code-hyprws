@@ -11,6 +11,7 @@ import { HttpClient } from "effect/unstable/http";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
+import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 
@@ -22,6 +23,7 @@ export const fetchEnvironmentThreadGroupTitle = Effect.fn(
   readonly prepared: PreparedConnection;
   readonly request: ThreadGroupTitleGenerationInput;
   readonly signer: Option.Option<ManagedRelayDpopSigner["Service"]>;
+  readonly remoteAuthorization?: Option.Option<RemoteEnvironmentAuthorization["Service"]>;
   readonly timeoutMs?: number;
 }) {
   return yield* executeAuthenticatedEnvironmentHttpRequest({
@@ -54,9 +56,10 @@ export const threadGroupTitleLoaderLayer: Layer.Layer<
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
     const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
+    const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
     return ThreadGroupTitleLoader.of({
       generate: (prepared, request) =>
-        fetchEnvironmentThreadGroupTitle({ prepared, request, signer }).pipe(
+        fetchEnvironmentThreadGroupTitle({ prepared, request, signer, remoteAuthorization }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
         ),
     });
