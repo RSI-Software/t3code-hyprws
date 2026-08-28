@@ -13,6 +13,7 @@ import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { encodeAgentActivityPageCursor } from "../agentActivityCursor.ts";
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
@@ -119,6 +120,27 @@ projectionSnapshotLayer("ProjectionSnapshotQuery agent activity", (it) => {
         { limit: 2 },
       );
       assert.isTrue(Option.isNone(missingThread));
+      const malformedCursor = yield* snapshotQuery.getAgentActivitySnapshot(
+        ThreadId.make("thread-1"),
+        "agent-1",
+        { limit: 2, beforeCursor: "not-a-cursor" },
+      );
+      assert.isTrue(Option.isNone(malformedCursor));
+      const foreignCursor = yield* snapshotQuery.getAgentActivitySnapshot(
+        ThreadId.make("thread-1"),
+        "agent-1",
+        {
+          limit: 2,
+          beforeCursor: encodeAgentActivityPageCursor({
+            threadId: ThreadId.make("thread-1"),
+            agentId: "other-agent",
+            beforeSequence: 4,
+            beforeCreatedAt: "2026-08-28T00:00:04.000Z",
+            beforeActivityId: "activity-4",
+          }),
+        },
+      );
+      assert.isTrue(Option.isNone(foreignCursor));
     }),
   );
 });
