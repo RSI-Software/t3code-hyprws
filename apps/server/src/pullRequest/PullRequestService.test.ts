@@ -20,6 +20,7 @@ import {
 } from "./PullRequestProvider.ts";
 import { PullRequestProviderRegistry, fromProviders } from "./PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./PullRequestService.ts";
+import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
 
 function project(input: {
   readonly id: string;
@@ -153,11 +154,18 @@ function makeService(input: {
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
+  readonly attachmentStore?: Partial<PullRequestAttachmentStore["Service"]>;
 }) {
   return PullRequestService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
         Layer.succeed(PullRequestProviderRegistry, fromProviders(input.providers)),
+        Layer.mock(PullRequestAttachmentStore)({
+          createUploadUrl: () => Effect.die("unused"),
+          resolvePendingPath: () => null,
+          deletePending: () => Effect.void,
+          ...input.attachmentStore,
+        }),
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
           resolveHandle:
             input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
@@ -3230,6 +3238,121 @@ it.effect("sends only the words a rewrite carries", () =>
       { title: undefined, body: "" },
       { title: "Both", body: "at once" },
     ]);
+  }),
+);
+
+it.effect("stages and publishes an attachment through the selected project's provider", () =>
+  Effect.gen(function* () {
+    const staged: Array<{ name: string; mimeType: string; sizeBytes: number }> = [];
+    const published: Array<{
+      cwd: string;
+      repository: string;
+      host: string;
+      path: string;
+      name: string;
+      mimeType: string;
+    }> = [];
+    const deleted: Array<string> = [];
+    const reference = { projectId: "p1" as ProjectId, repository: "acme/web", number: 1 };
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
+      providers: [
+        fakeProvider("github", {
+          capabilities: {
+            ...fakeProvider("github").capabilities,
+            attachments: true,
+          },
+          uploadAttachment: (input) => {
+            published.push(input);
+            return Effect.succeed("![demo.png](https://github.com/user-attachments/assets/id)");
+          },
+        }),
+      ],
+      attachmentStore: {
+        createUploadUrl: (input) => {
+          staged.push(input);
+          return Effect.succeed({
+            attachmentId: "pending-id",
+            relativeUrl: "/api/attachments/upload?token=signed",
+            expiresAt: 123,
+          });
+        },
+        resolvePendingPath: (attachmentId) =>
+          attachmentId === "pending-id" ? "/staged/pending-id.png" : null,
+        deletePending: (attachmentId) =>
+          Effect.sync(() => {
+            deleted.push(attachmentId);
+          }),
+      },
+    });
+
+    const prepared = yield* service.createAttachmentUploadUrl({
+      ...reference,
+      name: "demo.png",
+      mimeType: "image/png",
+      sizeBytes: 42,
+    });
+    const uploaded = yield* service.uploadAttachment({
+      ...reference,
+      name: "demo.png",
+      mimeType: "image/png",
+      attachmentId: prepared.attachmentId,
+    });
+
+    assert.deepStrictEqual(staged, [{ name: "demo.png", mimeType: "image/png", sizeBytes: 42 }]);
+    assert.deepStrictEqual(published, [
+      {
+        cwd: "/a",
+        repository: "acme/web",
+        host: "github.com",
+        path: "/staged/pending-id.png",
+        name: "demo.png",
+        mimeType: "image/png",
+      },
+    ]);
+    assert.deepStrictEqual(uploaded, {
+      insertion: "![demo.png](https://github.com/user-attachments/assets/id)",
+    });
+    assert.deepStrictEqual(deleted, ["pending-id"]);
+  }),
+);
+
+it.effect("removes a staged attachment when publication fails", () =>
+  Effect.gen(function* () {
+    const deleted: Array<string> = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "web", workspaceRoot: "/a", repository: "acme/web" })],
+      providers: [
+        fakeProvider("github", {
+          capabilities: {
+            ...fakeProvider("github").capabilities,
+            attachments: true,
+          },
+          uploadAttachment: () => Effect.fail(requestFailed),
+        }),
+      ],
+      attachmentStore: {
+        resolvePendingPath: () => "/staged/pending-id.png",
+        deletePending: (attachmentId) =>
+          Effect.sync(() => {
+            deleted.push(attachmentId);
+          }),
+      },
+    });
+
+    const error = yield* Effect.flip(
+      service.uploadAttachment({
+        projectId: "p1" as ProjectId,
+        repository: "acme/web",
+        number: 1,
+        name: "demo.png",
+        mimeType: "image/png",
+        attachmentId: "pending-id",
+      }),
+    );
+
+    assert.strictEqual(error._tag, "PullRequestOperationError");
+    assert.deepStrictEqual(deleted, ["pending-id"]);
   }),
 );
 
