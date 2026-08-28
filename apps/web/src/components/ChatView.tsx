@@ -42,6 +42,7 @@ import {
   submitCodexFeedback,
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
+import type { EnvironmentGitHubIssueListEntry } from "@t3tools/client-runtime/state/github-issues";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -209,6 +210,7 @@ import {
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
+import { ProjectGitHubIssuesPanel } from "../routes/_chat.issues";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import {
@@ -3730,6 +3732,24 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addIssuesSurface = useCallback(() => {
+    if (
+      !activeThreadRef ||
+      !activeProject ||
+      activeProject.repositoryIdentity?.provider !== "github" ||
+      serverConfig?.environment.capabilities.githubIssues !== true
+    ) {
+      return;
+    }
+    useRightPanelStore.getState().open(activeThreadRef, "github-issues");
+  }, [activeProject, activeThreadRef, serverConfig]);
+  const openIssueFromBrowser = useCallback(
+    (issue: EnvironmentGitHubIssueListEntry) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openGitHubIssue(activeThreadRef, issue);
+    },
+    [activeThreadRef],
+  );
   const addAgentsSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
@@ -4721,6 +4741,9 @@ function ChatViewContent(props: ChatViewProps) {
   }, [activeThreadPr, openThreadPullRequest]);
   const pullRequestSurfaceAvailable =
     supportsPullRequests && activeThreadPr !== null && threadRepository !== null;
+  const issuesSurfaceAvailable =
+    serverConfig?.environment.capabilities.githubIssues === true &&
+    activeProject?.repositoryIdentity?.provider === "github";
   // Primitive slice of the displayed PR for the settle-rule memos below:
   // resolveDisplayedThreadPr returns a fresh object every render, so memoize
   // on the fields the rules read instead of the object identity.
@@ -7197,6 +7220,12 @@ function ChatViewContent(props: ChatViewProps) {
           workspaceMutationId={workspaceMutationId}
         />
       </Suspense>
+    ) : activeRightPanelSurface?.kind === "github-issues" && activeProject ? (
+      <ProjectGitHubIssuesPanel
+        key={`${activeProject.environmentId}:${activeProject.id}`}
+        projectRef={scopeProjectRef(activeProject.environmentId, activeProject.id)}
+        onSelectIssue={openIssueFromBrowser}
+      />
     ) : activeRightPanelSurface?.kind === "github-issue" && !githubIssuesCapabilityKnown ? (
       <GitHubIssueDetailGhost />
     ) : activeRightPanelSurface?.kind === "github-issue" && !supportsGitHubIssues ? (
@@ -7746,12 +7775,14 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
+          onAddIssues={addIssuesSurface}
           onAddAgents={addAgentsSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
+          issuesAvailable={issuesSurfaceAvailable}
           agentsAvailable
           pullRequestStatuses={pullRequestTabStatuses}
           liveAgentCount={agentPanelModel.liveCount}
@@ -7786,12 +7817,14 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
+            onAddIssues={addIssuesSurface}
             onAddAgents={addAgentsSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
+            issuesAvailable={issuesSurfaceAvailable}
             agentsAvailable
             pullRequestStatuses={pullRequestTabStatuses}
             liveAgentCount={agentPanelModel.liveCount}
