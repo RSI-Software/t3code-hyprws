@@ -22,6 +22,47 @@ interface Props {
   onRemove: () => void;
 }
 
+export function PreviewBookmarkMenuContent({
+  scope,
+  projectAvailable,
+  onScopeChange,
+  onRemove,
+}: Props) {
+  return (
+    <>
+      <MenuRadioGroup
+        value={scope ?? ""}
+        onValueChange={(value) => {
+          if (value === "project" || value === "global") onScopeChange(value);
+        }}
+      >
+        <MenuGroupLabel>Save page to</MenuGroupLabel>
+        <MenuRadioItem value="project" disabled={!projectAvailable}>
+          <span className="flex items-center gap-2">
+            <Folder className="size-4 text-muted-foreground" />
+            Project bookmarks
+          </span>
+        </MenuRadioItem>
+        <MenuRadioItem value="global">
+          <span className="flex items-center gap-2">
+            <Globe2 className="size-4 text-muted-foreground" />
+            Global bookmarks
+          </span>
+        </MenuRadioItem>
+      </MenuRadioGroup>
+      {scope ? (
+        <>
+          <MenuSeparator />
+          <MenuItem variant="destructive" onClick={onRemove}>
+            <Trash2 />
+            Remove bookmark
+          </MenuItem>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 export function PreviewBookmarkMenu({ scope, projectAvailable, onScopeChange, onRemove }: Props) {
   const label =
     scope === "project"
@@ -53,35 +94,12 @@ export function PreviewBookmarkMenu({ scope, projectAvailable, onScopeChange, on
         <TooltipPopup>{label}</TooltipPopup>
       </Tooltip>
       <MenuPopup align="end" sideOffset={6} className="min-w-52">
-        <MenuGroupLabel>Save page to</MenuGroupLabel>
-        <MenuRadioGroup
-          value={scope ?? ""}
-          onValueChange={(value) => {
-            if (value === "project" || value === "global") onScopeChange(value);
-          }}
-        >
-          <MenuRadioItem value="project" disabled={!projectAvailable}>
-            <span className="flex items-center gap-2">
-              <Folder className="size-4 text-muted-foreground" />
-              Project bookmarks
-            </span>
-          </MenuRadioItem>
-          <MenuRadioItem value="global">
-            <span className="flex items-center gap-2">
-              <Globe2 className="size-4 text-muted-foreground" />
-              Global bookmarks
-            </span>
-          </MenuRadioItem>
-        </MenuRadioGroup>
-        {scope ? (
-          <>
-            <MenuSeparator />
-            <MenuItem variant="destructive" onClick={onRemove}>
-              <Trash2 />
-              Remove bookmark
-            </MenuItem>
-          </>
-        ) : null}
+        <PreviewBookmarkMenuContent
+          scope={scope}
+          projectAvailable={projectAvailable}
+          onScopeChange={onScopeChange}
+          onRemove={onRemove}
+        />
       </MenuPopup>
     </Menu>
   );
