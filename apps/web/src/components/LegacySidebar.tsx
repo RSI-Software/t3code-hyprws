@@ -191,6 +191,7 @@ import {
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
+  orderThreadsByProjectPreference,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   useRetainedValue,
@@ -226,7 +227,23 @@ const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
+  manual: "Manual",
 };
+
+function sortLegacySidebarThreads(
+  threads: readonly SidebarThreadSummary[],
+  sortOrder: SidebarThreadSortOrder,
+  threadOrderByProject: Readonly<Record<string, readonly string[]>>,
+): SidebarThreadSummary[] {
+  const ordered = sortThreads(threads, sortOrder);
+  if (sortOrder !== "manual") return ordered;
+  return orderThreadsByProjectPreference({
+    threads: ordered,
+    preferredIdsByProject: threadOrderByProject,
+    getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    getProjectKey: (thread) => `${thread.environmentId}:${thread.projectId}`,
+  });
+}
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
   easing: "ease-out",
@@ -1162,6 +1179,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const threadSortOrder = useClientSettings<SidebarThreadSortOrder>(
     (settings) => settings.sidebarThreadSortOrder,
   );
+  const threadOrderByProject = useUiStateStore((state) => state.threadOrderByProject);
   const appSettingsConfirmThreadDelete = useClientSettings<boolean>(
     (settings) => settings.confirmThreadDelete,
   );
@@ -1330,9 +1348,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const visibleProjectThreads = sortThreads(
+    const visibleProjectThreads = sortLegacySidebarThreads(
       projectThreads.filter((thread) => thread.archivedAt === null),
       threadSortOrder,
+      threadOrderByProject,
     );
     const projectStatus = resolveProjectStatusIndicator(
       visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
@@ -1344,7 +1363,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [projectThreads, threadLastVisitedAts, threadOrderByProject, threadSortOrder]);
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
     if (!activeThreadKey || projectExpanded) {
@@ -1382,9 +1401,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
+    const hasOverflowingThreads =
+      threadSortOrder !== "manual" && visibleProjectThreads.length > sidebarThreadPreviewCount;
     const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
+      threadSortOrder === "manual" || isThreadListExpanded || !hasOverflowingThreads
         ? visibleProjectThreads
         : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
     const visibleThreadKeys = new Set(
@@ -1417,6 +1437,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     projectThreads,
     sidebarThreadPreviewCount,
     threadLastVisitedAts,
+    threadSortOrder,
     visibleProjectThreads,
   ]);
 
@@ -3180,6 +3201,7 @@ export default function LegacySidebar({
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const threadOrderByProject = useUiStateStore((store) => store.threadOrderByProject);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
@@ -3489,11 +3511,12 @@ export default function LegacySidebar({
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {
-        const projectThreads = sortThreads(
+        const projectThreads = sortLegacySidebarThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
             (thread) => thread.archivedAt === null,
           ),
           sidebarThreadSortOrder,
+          threadOrderByProject,
         );
         const projectExpanded = resolveProjectExpanded(
           projectExpandedById,
@@ -3513,9 +3536,10 @@ export default function LegacySidebar({
           return [];
         }
         const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
+        const hasOverflowingThreads =
+          sidebarThreadSortOrder !== "manual" && projectThreads.length > sidebarThreadPreviewCount;
         const previewThreads =
-          isThreadListExpanded || !hasOverflowingThreads
+          sidebarThreadSortOrder === "manual" || isThreadListExpanded || !hasOverflowingThreads
             ? projectThreads
             : projectThreads.slice(0, sidebarThreadPreviewCount);
         const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
@@ -3530,6 +3554,7 @@ export default function LegacySidebar({
       projectExpandedById,
       routeThreadKey,
       sortedProjects,
+      threadOrderByProject,
       threadsByProjectKey,
     ],
   );
