@@ -13,6 +13,9 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ApprovalRequestId,
+  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+  CHILD_ITEM_RENDER_DIFF_MAX_CHARS,
+  ChildItemRenderDetail,
   ClaudeSettings,
   ProviderDriverKind,
   ProviderItemId,
@@ -39,6 +42,11 @@ import { ProviderAdapterProcessError, ProviderAdapterValidationError } from "../
 import type { ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { makeClaudeAdapter, type ClaudeAdapterLiveOptions } from "./ClaudeAdapter.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
+const encodeChildItemRenderDetailJson = Schema.encodeSync(
+  Schema.fromJsonString(ChildItemRenderDetail),
+);
+const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
+  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 
 // Test-local service tag so the rest of the file can keep using `yield* ClaudeAdapter`.
 class ClaudeAdapter extends Context.Service<ClaudeAdapter, ClaudeAdapterShape>()(
@@ -2323,6 +2331,240 @@ describe("ClaudeAdapterLive", () => {
       Effect.provide(harness.layer),
     );
   });
+
+  it.effect("normalizes bounded Claude child command results and file diffs", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const completedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "item.completed" && event.payload.agentId === "task-child-detail",
+        ),
+        Stream.take(3),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+        cwd: "/workspace/project",
+      });
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-child-detail",
+        description: "Detail agent",
+        task_type: "local_agent",
+        tool_use_id: "toolu_child_detail",
+        uuid: "task-child-detail-uuid",
+        session_id: "sdk-session",
+      } as unknown as SDKMessage);
+
+      const emitTool = (
+        index: number,
+        id: string,
+        name: string,
+        input: object,
+        result: string,
+        toolUseResult?: object,
+      ) => {
+        harness.query.emit({
+          type: "stream_event",
+          parent_tool_use_id: "toolu_child_detail",
+          uuid: `${id}-start`,
+          session_id: "sdk-session",
+          event: {
+            type: "content_block_start",
+            index,
+            content_block: { type: "tool_use", id, name, input },
+          },
+        } as unknown as SDKMessage);
+        harness.query.emit({
+          type: "user",
+          parent_tool_use_id: "toolu_child_detail",
+          uuid: `${id}-result`,
+          session_id: "sdk-session",
+          message: {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: id, content: result }],
+          },
+          ...(toolUseResult ? { tool_use_result: toolUseResult } : {}),
+        } as unknown as SDKMessage);
+      };
+
+      emitTool(
+        0,
+        "child-command-detail",
+        "Bash",
+        { command: "cat /home/alice/private.txt" },
+        `done\n${'\u0000\n"\\'.repeat(5_000)}`,
+      );
+      emitTool(
+        1,
+        "child-edit-detail",
+        "Edit",
+        {
+          file_path: "/workspace/project/src/example.ts",
+          old_string: "const home = '/home/alice';",
+          new_string: "const home = './project';",
+        },
+        "updated /home/alice/project/src/example.ts",
+      );
+      emitTool(2, "child-mcp-detail", "mcp__example__run", {}, "ok", {
+        output: "richer structured output",
+        runHandles: { taskId: "private-task-id" },
+      });
+
+      const events = Array.from(yield* Fiber.join(completedFiber));
+      const command = events.find((event) => event.itemId === "child-command-detail");
+      const edit = events.find((event) => event.itemId === "child-edit-detail");
+      const mcp = events.find((event) => event.itemId === "child-mcp-detail");
+      if (command?.type === "item.completed") {
+        assert.equal(command.payload.renderDetail?.command, "cat [local path]");
+        assert.match(command.payload.renderDetail?.result ?? "", /^done\n/u);
+        assert.equal(command.payload.renderDetail?.truncated, true);
+        assert.ok(command.payload.renderDetail);
+        assert.ok(
+          childItemRenderDetailBytes(command.payload.renderDetail) <=
+            CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+        );
+      } else {
+        assert.fail("expected completed Claude child command");
+      }
+      if (edit?.type === "item.completed") {
+        assert.deepEqual(edit.payload.renderDetail, {
+          result: "updated [local path]",
+          changedFiles: [
+            {
+              path: "src/example.ts",
+              kind: "modified",
+              diff: "--- before\n+++ after\n-const home = '[local path]';\n+const home = './project';",
+            },
+          ],
+          truncated: true,
+        });
+      } else {
+        assert.fail("expected completed Claude child edit");
+      }
+      if (mcp?.type === "item.completed") {
+        assert.equal(mcp.payload.renderDetail?.result, "richer structured output");
+        assert.equal(mcp.payload.renderDetail?.result?.includes("private-task-id"), false);
+      } else {
+        assert.fail("expected completed Claude child MCP call");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "renders attributed command and notebook input received only through JSON deltas",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const updatesFiber = yield* adapter.streamEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "item.updated" && event.payload.agentId === "task-child-delta",
+          ),
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "full-access",
+          cwd: "/workspace/project",
+        });
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-child-delta",
+          description: "Delta detail agent",
+          task_type: "local_agent",
+          tool_use_id: "toolu_child_delta",
+          uuid: "task-child-delta-uuid",
+          session_id: "sdk-session",
+        } as unknown as SDKMessage);
+
+        const emitDeltaTool = (index: number, id: string, name: string, partialJson: string) => {
+          harness.query.emit({
+            type: "stream_event",
+            parent_tool_use_id: "toolu_child_delta",
+            uuid: `${id}-start`,
+            session_id: "sdk-session",
+            event: {
+              type: "content_block_start",
+              index,
+              content_block: { type: "tool_use", id, name, input: {} },
+            },
+          } as unknown as SDKMessage);
+          harness.query.emit({
+            type: "stream_event",
+            parent_tool_use_id: "toolu_child_delta",
+            uuid: `${id}-delta`,
+            session_id: "sdk-session",
+            event: {
+              type: "content_block_delta",
+              index,
+              delta: { type: "input_json_delta", partial_json: partialJson },
+            },
+          } as unknown as SDKMessage);
+        };
+
+        emitDeltaTool(
+          0,
+          "child-command-delta",
+          "Bash",
+          '{"command":"cat /workspace/project/src/example.ts"}',
+        );
+        emitDeltaTool(
+          1,
+          "child-notebook-delta",
+          "NotebookEdit",
+          `{"notebook_path":"/workspace/project/notebooks/demo.ipynb","new_source":"${"x".repeat(5_000)}"}`,
+        );
+
+        const updates = Array.from(yield* Fiber.join(updatesFiber));
+        const command = updates.find((event) => event.itemId === "child-command-delta");
+        const notebook = updates.find((event) => event.itemId === "child-notebook-delta");
+        if (command?.type === "item.updated") {
+          assert.equal(command.payload.timelineBypass, true);
+          assert.deepEqual(command.payload.renderDetail, {
+            command: "cat [local path]",
+            truncated: true,
+          });
+        } else {
+          assert.fail("expected delta-only Claude child command update");
+        }
+        if (notebook?.type === "item.updated") {
+          assert.equal(notebook.payload.timelineBypass, true);
+          assert.equal(
+            notebook.payload.renderDetail?.changedFiles?.[0]?.path,
+            "notebooks/demo.ipynb",
+          );
+          assert.equal(notebook.payload.renderDetail?.changedFiles?.[0]?.kind, "modified");
+          const diff = notebook.payload.renderDetail?.changedFiles?.[0]?.diff;
+          assert.match(diff ?? "", /^--- before\n\+\+\+ after\n\+x+…$/u);
+          assert.ok(diff);
+          assert.ok(new TextEncoder().encode(diff).length <= CHILD_ITEM_RENDER_DIFF_MAX_CHARS);
+          assert.equal(notebook.payload.renderDetail?.truncated, true);
+        } else {
+          assert.fail("expected delta-only Claude child notebook update");
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("closes the session when the Claude stream aborts after a turn starts", () => {
     const harness = makeHarness();

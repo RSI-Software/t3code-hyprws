@@ -8,6 +8,8 @@ import {
   AuthAccessTokenType,
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
+  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
+  ChildItemRenderDetail,
   CommandId,
   DEFAULT_SERVER_SETTINGS,
   type DpopFailureReason,
@@ -82,6 +84,11 @@ const decodeTransferThreadSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationThreadDetailSnapshot),
 );
 const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+const encodeChildItemRenderDetailJson = Schema.encodeSync(
+  Schema.fromJsonString(ChildItemRenderDetail),
+);
+const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
+  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 
 const collectQueueUntil = Effect.fn("TransferBudget.collectQueueUntil")(function* <A>(
   queue: Queue.Queue<A>,
@@ -116,6 +123,7 @@ import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import { makeChildItemRenderDetail } from "./provider/childItemRenderDetail.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -4091,6 +4099,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("serves bounded agent activity only with orchestration read access", () =>
     Effect.gen(function* () {
+      const hostile = '\u0000\n"\\'.repeat(8_000);
+      const boundedRenderDetail = makeChildItemRenderDetail({
+        workspaceRoot: "/workspace/project",
+        command: hostile,
+        result: hostile,
+        changedFiles: [{ path: "/workspace/project/src/codex.ts", diff: hostile }],
+      });
+      assert.ok(boundedRenderDetail);
       yield* buildAppUnderTest({
         layers: {
           projectionSnapshotQuery: {
@@ -4098,7 +4114,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               if (threadId !== ThreadId.make("thread-1") || agentId !== "agent-1") {
                 return Effect.succeed(Option.none());
               }
-              assert.equal(window.limit, 1);
+              assert.equal(window.limit, 3);
               return Effect.succeed(
                 Option.some({
                   agentId,
@@ -4121,12 +4137,41 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       sequence: 7,
                       createdAt: `2026-08-28T00:00:00.${"1".repeat(30_000)}Z`,
                     },
+                    {
+                      id: EventId.make("activity-2"),
+                      tone: "tool" as const,
+                      kind: "tool.completed",
+                      summary: "Codex child edit",
+                      payload: { agentId, renderDetail: boundedRenderDetail },
+                      turnId: null,
+                      sequence: 8,
+                      createdAt: "2026-08-28T00:00:01.000Z",
+                    },
+                    {
+                      id: EventId.make("activity-3"),
+                      tone: "tool" as const,
+                      kind: "tool.completed",
+                      summary: "Claude child edit",
+                      payload: {
+                        agentId,
+                        renderDetail: {
+                          result: "updated src/claude.ts",
+                          changedFiles: [
+                            { path: "src/claude.ts", kind: "modified", diff: "+updated" },
+                          ],
+                          truncated: false,
+                        },
+                      },
+                      turnId: null,
+                      sequence: 9,
+                      createdAt: "2026-08-28T00:00:02.000Z",
+                    },
                   ],
                   page: {
                     beforeCursor: null,
                     hasMore: false,
                     snapshotSequence: 9,
-                    threadSequence: 7,
+                    threadSequence: 9,
                   },
                 }),
               );
@@ -4142,7 +4187,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         scope: "access:read",
       });
       const endpoint = yield* getHttpServerUrl(
-        "/api/orchestration/threads/thread-1/agents/agent-1/activities?limit=1",
+        "/api/orchestration/threads/thread-1/agents/agent-1/activities?limit=3",
       );
       const allowedResponse = yield* fetchEffect(endpoint, {
         headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` },
@@ -4227,10 +4272,27 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(allowedPayload?.agentId, "agent-1");
       assert.deepEqual(allowedPayload?.runHandles, {});
       assert.isArray(allowedPayload?.values);
-      assert.isAtMost(
-        Buffer.byteLength(encodeUnknownJsonString(allowedActivities[0]), "utf8"),
-        AGENT_ACTIVITY_SERIALIZED_MAX_BYTES,
+      assert.deepEqual(allowedActivities[1]?.payload, {
+        agentId: "agent-1",
+        renderDetail: boundedRenderDetail,
+      });
+      assert.ok(
+        childItemRenderDetailBytes(boundedRenderDetail) <= CHILD_ITEM_RENDER_JSON_MAX_BYTES,
       );
+      assert.deepEqual(allowedActivities[2]?.payload, {
+        agentId: "agent-1",
+        renderDetail: {
+          result: "updated src/claude.ts",
+          changedFiles: [{ path: "src/claude.ts", kind: "modified", diff: "+updated" }],
+          truncated: false,
+        },
+      });
+      for (const activity of allowedActivities) {
+        assert.isAtMost(
+          Buffer.byteLength(encodeUnknownJsonString(activity), "utf8"),
+          AGENT_ACTIVITY_SERIALIZED_MAX_BYTES,
+        );
+      }
       assert.equal(deniedResponse.status, 403);
       assert.equal(deniedBody.requiredScope, "orchestration:read");
       assert.equal(missingResponse.status, 404);
