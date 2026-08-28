@@ -661,20 +661,30 @@ export const make = Effect.gen(function* () {
           menuTemplate.push({ type: "separator" });
         }
 
-        menuTemplate.push(
-          { role: "cut", enabled: params.editFlags.canCut },
-          { role: "copy", enabled: params.editFlags.canCopy },
-          { role: "paste", enabled: params.editFlags.canPaste },
-          { role: "selectAll", enabled: params.editFlags.canSelectAll },
-        );
+        // App action menus stay in the renderer so they keep T3's icons,
+        // hierarchy, and theme tokens; a native menu opens only for the native
+        // actions this click actually offers.
+        if (params.isEditable || params.selectionText.length > 0) {
+          menuTemplate.push(
+            { role: "cut", enabled: params.editFlags.canCut },
+            { role: "copy", enabled: params.editFlags.canCopy },
+            { role: "paste", enabled: params.editFlags.canPaste },
+            { role: "selectAll", enabled: params.editFlags.canSelectAll },
+          );
+        }
 
-        void runPromise(
-          electronMenu.popupTemplate({
-            window: ownerWindow,
-            template: menuTemplate,
-            ...(params.frame ? { frame: params.frame } : {}),
-          }),
-        );
+        if (menuTemplate.at(-1)?.type === "separator") {
+          menuTemplate.pop();
+        }
+        if (menuTemplate.length > 0) {
+          void runPromise(
+            electronMenu.popupTemplate({
+              window: ownerWindow,
+              template: menuTemplate,
+              ...(params.frame ? { frame: params.frame } : {}),
+            }),
+          );
+        }
       });
       contents.on("did-create-window", (popup) => {
         installContextMenu(popup, popup.webContents);
