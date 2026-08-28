@@ -144,6 +144,14 @@ const LegacyConfirmQuit = Schema.Boolean.pipe(
 
 const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
 
+export const GitHubLinkOpenMode = Schema.Literals(["integrated", "external"]);
+export type GitHubLinkOpenMode = typeof GitHubLinkOpenMode.Type;
+export const DEFAULT_GITHUB_LINK_OPEN_MODE: GitHubLinkOpenMode = "external";
+
+export const GitHubChangeRequestOpenMode = Schema.Literals(["native", "integrated", "external"]);
+export type GitHubChangeRequestOpenMode = typeof GitHubChangeRequestOpenMode.Type;
+export const DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE: GitHubChangeRequestOpenMode = "native";
+
 /**
  * A user-chosen font family (a single name or a comma-separated list). Empty
  * means "use the app default"; clients compose their own fallback stacks.
@@ -202,6 +210,12 @@ export const ClientSettingsSchema = Schema.Struct({
    */
   browserAutoShowFloatingPreview: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW)),
+  ),
+  githubLinkOpenMode: GitHubLinkOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_LINK_OPEN_MODE)),
+  ),
+  githubChangeRequestOpenMode: GitHubChangeRequestOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE)),
   ),
   // Desktop-only. Boolean values from older settings files decode to their
   // equivalent mode and encode back as the canonical string value.
@@ -1006,6 +1020,8 @@ export const ClientSettingsPatch = Schema.Struct({
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
   browserRecordingFrameRate: Schema.optionalKey(BrowserRecordingFrameRate),
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
+  githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode),
+  githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode),
   confirmQuit: Schema.optionalKey(QuitConfirmationMode),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
