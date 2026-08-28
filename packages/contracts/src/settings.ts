@@ -128,6 +128,14 @@ export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill",
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
+export const GitHubLinkOpenMode = Schema.Literals(["integrated", "external"]);
+export type GitHubLinkOpenMode = typeof GitHubLinkOpenMode.Type;
+export const DEFAULT_GITHUB_LINK_OPEN_MODE: GitHubLinkOpenMode = "external";
+
+export const GitHubChangeRequestOpenMode = Schema.Literals(["native", "integrated", "external"]);
+export type GitHubChangeRequestOpenMode = typeof GitHubChangeRequestOpenMode.Type;
+export const DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE: GitHubChangeRequestOpenMode = "native";
+
 /**
  * A user-chosen font family (a single name or a comma-separated list). Empty
  * means "use the app default"; clients compose their own fallback stacks.
@@ -165,6 +173,12 @@ export const ClientSettingsSchema = Schema.Struct({
    */
   browserAutoShowFloatingPreview: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW)),
+  ),
+  githubLinkOpenMode: GitHubLinkOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_LINK_OPEN_MODE)),
+  ),
+  githubChangeRequestOpenMode: GitHubChangeRequestOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE)),
   ),
   // Desktop-only: require holding the quit shortcut (Cmd/Ctrl+Q) before the
   // app quits; a quick tap only shows a hint. Browser clients ignore it.
@@ -953,6 +967,8 @@ export const ClientSettingsPatch = Schema.Struct({
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
+  githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode),
+  githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode),
   confirmQuit: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
