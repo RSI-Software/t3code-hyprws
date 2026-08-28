@@ -2355,14 +2355,55 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   /**
-   * Chromium hands every guest `<webview>` the embedder's zoom level, so zooming
-   * the app UI drags the previewed page along with it. The preview browser owns
-   * its own zoom factor, so re-assert it on each attached guest whenever the main
-   * window's zoom changes (see DesktopWindow.zoomMain).
+   * Chromium synchronously hands every guest `<webview>` the embedder's new zoom
+   * level. Snapshot the preview-owned factors first, then update the embedder and
+   * restore its guests in the same JavaScript continuation so the inherited zoom
+   * never reaches a rendered frame.
    */
-  const reapplyZoom = Effect.fn("PreviewManager.reapplyZoom")(function* () {
-    const tabIds = Array.from((yield* SynchronizedRef.get(tabsRef)).keys());
-    yield* Effect.forEach(tabIds, assertTabZoom, { discard: true });
+  const restoreGuestZooms = (
+    guests: ReadonlyArray<{
+      readonly tabId: string;
+      readonly wc: Electron.WebContents;
+      readonly zoomFactor: number;
+    }>,
+  ) => {
+    const failures: PreviewOperationError[] = [];
+    for (const { tabId, wc, zoomFactor } of guests) {
+      if (wc.isDestroyed()) continue;
+      try {
+        wc.setZoomFactor(zoomFactor);
+      } catch (cause) {
+        failures.push(
+          new PreviewOperationError({
+            operation: "preserveGuestZooms",
+            tabId,
+            webContentsId: wc.id,
+            cause,
+          }),
+        );
+      }
+    }
+    return failures;
+  };
+
+  const preserveGuestZooms = Effect.fn("PreviewManager.preserveGuestZooms")(function* (
+    updateEmbedderZoom: () => void,
+  ) {
+    const tabs = yield* SynchronizedRef.get(tabsRef);
+    const guests = Array.from(tabs.values()).flatMap((tab) => {
+      if (tab.webContentsId == null) return [];
+      const wc = webContents.fromId(tab.webContentsId);
+      return wc && !wc.isDestroyed() ? [{ tabId: tab.tabId, wc, zoomFactor: tab.zoomFactor }] : [];
+    });
+
+    updateEmbedderZoom();
+    const failures = restoreGuestZooms(guests);
+    yield* Effect.forEach(
+      failures,
+      (error) =>
+        Effect.logWarning("Failed to restore preview zoom after interface zoom.", { error }),
+      { discard: true },
+    );
   });
 
   // Emulated media lives on the CDP debugger session, not the WebContents, so
@@ -3767,7 +3808,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     openPictureInPicture,
     openDevTools,
     pickElement,
-    reapplyZoom,
+    preserveGuestZooms,
     refresh,
     registerWebview,
     resetZoom: (tabId: string) => applyZoom(tabId, () => DEFAULT_ZOOM_FACTOR),
@@ -4086,7 +4127,7 @@ export interface PreviewWindowManager {
   readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly reapplyZoom: () => Effect.Effect<void>;
+  readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
   readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly setColorScheme: (
     tabId: string,
@@ -4178,9 +4219,9 @@ export class PreviewManager extends Context.Service<
     readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-    // Re-applies every attached guest's own zoom factor, undoing the zoom level
-    // Chromium inherits from the embedder when the app UI zooms.
-    readonly reapplyZoom: () => Effect.Effect<void>;
+    // Applies an embedder zoom update and restores every attached guest's own
+    // zoom factor before Chromium can render the inherited level.
+    readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
     readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly setColorScheme: (
       tabId: string,
@@ -4430,7 +4471,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       zoomIn: (tabId) => authorized(tabId, operations.zoomIn(tabId)),
       zoomOut: (tabId) => authorized(tabId, operations.zoomOut(tabId)),
       resetZoom: (tabId) => authorized(tabId, operations.resetZoom(tabId)),
-      reapplyZoom: operations.reapplyZoom,
+      preserveGuestZooms: operations.preserveGuestZooms,
       hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
       setColorScheme: (tabId, colorScheme) =>
         authorized(tabId, operations.setColorScheme(tabId, colorScheme)),

@@ -1122,18 +1122,18 @@ export const make = Effect.gen(function* () {
         return;
       }
       const webContents = window.value.webContents;
-      // Same step size as the Electron zoomIn/zoomOut menu roles.
-      webContents.setZoomLevel(
-        direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
-      );
-      // Chromium pushes the new level down to embedded guests, which would zoom
-      // the previewed page along with the app UI. The preview browser keeps its
-      // own zoom, so put each guest owned by this window back where it was.
       const identity = yield* electronWindow.identityFor(window.value);
       const windowPreviewManager = Option.isSome(identity)
         ? yield* previewManager.forWindow(identity.value)
         : previewManager;
-      yield* windowPreviewManager.reapplyZoom();
+      yield* windowPreviewManager.preserveGuestZooms(() => {
+        // Same step size as the Electron zoomIn/zoomOut menu roles.
+        webContents.setZoomLevel(
+          direction === "reset"
+            ? 0
+            : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
+        );
+      });
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;

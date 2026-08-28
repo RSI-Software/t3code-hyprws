@@ -1210,7 +1210,7 @@ describe("PreviewManager", () => {
 
   // Zooming the app UI pushes the window's zoom level onto every guest, so the
   // preview has to be put back at the zoom the user gave it.
-  effectIt.effect("re-applies each tab's own zoom when the app window zooms", () =>
+  effectIt.effect("preserves each tab's own zoom while the app window zooms", () =>
     withManager((manager) =>
       Effect.gen(function* () {
         const setZoomFactor = vi.fn();
@@ -1240,13 +1240,22 @@ describe("PreviewManager", () => {
           },
         } as never);
 
-        yield* manager.createTab("tab_reapply");
-        yield* manager.registerWebview("tab_reapply", 42);
-        yield* manager.zoomIn("tab_reapply");
+        yield* manager.createTab("tab_preserve");
+        yield* manager.registerWebview("tab_preserve", 42);
+        yield* manager.zoomIn("tab_preserve");
         setZoomFactor.mockClear();
 
-        yield* manager.reapplyZoom();
+        const restoreOrder: string[] = [];
+        setZoomFactor.mockImplementation(() => {
+          restoreOrder.push("guest");
+        });
+        yield* manager.preserveGuestZooms(() => {
+          restoreOrder.push("embedder");
+          expect(setZoomFactor).not.toHaveBeenCalled();
+          queueMicrotask(() => restoreOrder.push("microtask"));
+        });
 
+        expect(restoreOrder).toEqual(["embedder", "guest"]);
         expect(setZoomFactor).toHaveBeenCalledTimes(1);
         expect(setZoomFactor).toHaveBeenCalledWith(1.1);
       }),
