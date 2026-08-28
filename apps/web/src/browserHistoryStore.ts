@@ -387,6 +387,12 @@ export function useThreadRecentHistory(
   );
 }
 
+export function useThreadBrowserProjectKey(ref: ScopedThreadRef): string | null {
+  return useBrowserHistoryStore(
+    (state) => state.projectKeyByThreadKey[scopedThreadKey(ref)] ?? null,
+  );
+}
+
 export function resetBrowserHistoryForTests(): void {
   useBrowserHistoryStore.setState({
     byProjectKey: {},
