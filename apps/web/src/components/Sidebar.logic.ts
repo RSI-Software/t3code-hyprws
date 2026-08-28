@@ -26,6 +26,7 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 import { formatRelativeTimeLabel } from "../timestampFormat";
+import type { SidebarThreadGroup } from "../uiStateStore";
 
 export function shouldNavigateAfterThreadPark(input: {
   readonly threadKey: string;
@@ -333,6 +334,149 @@ export function planSidebarThreadDrop(input: {
   }
 }
 
+export type SidebarThreadGroupLayoutItem<T> =
+  | { readonly kind: "thread"; readonly thread: T }
+  | {
+      readonly kind: "group";
+      readonly projectKey: string;
+      readonly group: SidebarThreadGroup;
+      readonly threads: readonly T[];
+    };
+
+export type SidebarThreadSortableItem =
+  | { readonly kind: "thread"; readonly id: string }
+  | {
+      readonly kind: "group-header";
+      readonly id: string;
+      readonly projectKey: string;
+      readonly groupId: string;
+      readonly anchorThreadId: string;
+    };
+
+export function sidebarThreadGroupSortableId(projectKey: string, groupId: string): string {
+  return `sidebar-thread-group\0${projectKey}\0${groupId}`;
+}
+
+export function buildSidebarThreadSortableItems<T>(input: {
+  readonly layout: readonly SidebarThreadGroupLayoutItem<T>[];
+  readonly getId: (thread: T) => string;
+}): SidebarThreadSortableItem[] {
+  return input.layout.flatMap((item): SidebarThreadSortableItem[] => {
+    if (item.kind === "thread") {
+      return [{ kind: "thread", id: input.getId(item.thread) }];
+    }
+    const anchorThread = item.threads[0];
+    if (!anchorThread) return [];
+    const header: SidebarThreadSortableItem = {
+      kind: "group-header",
+      id: sidebarThreadGroupSortableId(item.projectKey, item.group.id),
+      projectKey: item.projectKey,
+      groupId: item.group.id,
+      anchorThreadId: input.getId(anchorThread),
+    };
+    if (item.group.collapsed) return [header];
+    return [
+      header,
+      ...item.threads.map((thread): SidebarThreadSortableItem => ({
+        kind: "thread",
+        id: input.getId(thread),
+      })),
+    ];
+  });
+}
+
+export function getSidebarThreadLayoutOrder<T>(input: {
+  readonly layout: readonly SidebarThreadGroupLayoutItem<T>[];
+  readonly getId: (thread: T) => string;
+}): string[] {
+  return input.layout.flatMap((item) =>
+    item.kind === "thread" ? [input.getId(item.thread)] : item.threads.map(input.getId),
+  );
+}
+
+export function buildSidebarThreadGroupLayout<T>(input: {
+  readonly threads: readonly T[];
+  readonly groupsByProject: Readonly<Record<string, readonly SidebarThreadGroup[]>>;
+  readonly getId: (thread: T) => string;
+  readonly getProjectKey: (thread: T) => string;
+}): SidebarThreadGroupLayoutItem<T>[] {
+  const visibleById = new Map(input.threads.map((thread) => [input.getId(thread), thread]));
+  const groupByThreadId = new Map<
+    string,
+    { readonly projectKey: string; readonly group: SidebarThreadGroup; readonly threads: T[] }
+  >();
+  for (const [projectKey, groups] of Object.entries(input.groupsByProject)) {
+    for (const group of groups) {
+      const threads = input.threads.filter(
+        (thread) =>
+          input.getProjectKey(thread) === projectKey &&
+          group.threadIds.includes(input.getId(thread)),
+      );
+      if (threads.length < 2) continue;
+      const entry = { projectKey, group, threads };
+      for (const threadId of group.threadIds) {
+        if (visibleById.has(threadId)) groupByThreadId.set(threadId, entry);
+      }
+    }
+  }
+
+  const emittedGroups = new Set<string>();
+  return input.threads.flatMap((thread): SidebarThreadGroupLayoutItem<T>[] => {
+    const entry = groupByThreadId.get(input.getId(thread));
+    if (!entry) return [{ kind: "thread", thread }];
+    const groupKey = `${entry.projectKey}\0${entry.group.id}`;
+    if (emittedGroups.has(groupKey)) return [];
+    emittedGroups.add(groupKey);
+    return [{ kind: "group", ...entry }];
+  });
+}
+
+export function isSidebarThreadGroupDrop(input: {
+  readonly activeRect: { readonly top: number; readonly bottom: number } | null;
+  readonly overRect: { readonly top: number; readonly bottom: number } | null;
+}): boolean {
+  if (!input.activeRect || !input.overRect) return false;
+  const center = (input.activeRect.top + input.activeRect.bottom) / 2;
+  const height = input.overRect.bottom - input.overRect.top;
+  return (
+    center >= input.overRect.top + height * 0.15 && center <= input.overRect.bottom - height * 0.15
+  );
+}
+
+export function isSidebarThreadGroupingTarget(input: {
+  readonly activeGroupId: string | null;
+  readonly overGroupId: string | null;
+  readonly overGroupHeader: boolean;
+  readonly activeRect: { readonly top: number; readonly bottom: number } | null;
+  readonly overRect: { readonly top: number; readonly bottom: number } | null;
+}): boolean {
+  if (input.activeGroupId !== null && input.activeGroupId === input.overGroupId) return false;
+  return input.overGroupHeader || isSidebarThreadGroupDrop(input);
+}
+
+export function isSidebarThreadUngroupBeforeTarget(input: {
+  readonly activeThreadId: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overItem: SidebarThreadSortableItem | undefined;
+}): boolean {
+  return (
+    input.activeGroup !== undefined &&
+    input.overItem?.kind === "group-header" &&
+    input.overItem.groupId === input.activeGroup.id &&
+    input.overItem.anchorThreadId === input.activeThreadId
+  );
+}
+
+export function getSidebarThreadGroupDissolvingKey(input: {
+  readonly projectKey: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overGroupId: string | null;
+}): string | null {
+  if (!input.activeGroup || input.activeGroup.threadIds.length !== 2) return null;
+  if (input.activeGroup.id === input.overGroupId) return null;
+  return `${input.projectKey}\0${input.activeGroup.id}`;
+}
+
 /** Project a drop's lifecycle fields before sorting its destination. Reusing
     the server's re-entry rules keeps the preview in place when events arrive. */
 export function applySidebarThreadDrop<
@@ -506,6 +650,58 @@ export function buildBulkUnpinContextMenuItem(input: {
 }): ContextMenuItem<"unpin"> | null {
   if (input.pinnedCount === 0) return null;
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
+}
+
+export type SidebarThreadGroupContextMenuId =
+  | "create-thread-group"
+  | "move-to-group"
+  | `move-to-group:${string}`
+  | "move-out-of-group";
+
+export function buildCreateThreadGroupContextMenuItem(input: {
+  readonly count: number;
+  readonly eligible: boolean;
+}): ContextMenuItem<SidebarThreadGroupContextMenuId> | null {
+  if (!input.eligible || input.count < 2) return null;
+  return {
+    id: "create-thread-group",
+    label: `Create group (${input.count})`,
+    icon: "folder-tree",
+  };
+}
+
+export function buildThreadGroupMembershipContextMenuItems(input: {
+  readonly groups: readonly Pick<SidebarThreadGroup, "id" | "title">[];
+  readonly currentGroupId: string | null;
+}): readonly ContextMenuItem<SidebarThreadGroupContextMenuId>[] {
+  const availableGroups = input.groups.filter((group) => group.id !== input.currentGroupId);
+  return [
+    ...(availableGroups.length > 0
+      ? [
+          {
+            id: "move-to-group" as const,
+            label: "Move to group",
+            icon: "folder-tree",
+            separatorBefore: true,
+            children: availableGroups.map((group) => ({
+              id: `move-to-group:${group.id}` as const,
+              label: group.title,
+              icon: "folder",
+            })),
+          },
+        ]
+      : []),
+    ...(input.currentGroupId === null
+      ? []
+      : [
+          {
+            id: "move-out-of-group" as const,
+            label: "Remove from group",
+            icon: "folder",
+            separatorBefore: availableGroups.length === 0,
+          },
+        ]),
+  ];
 }
 
 export interface ThreadStatusPill {
