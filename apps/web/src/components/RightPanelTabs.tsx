@@ -74,12 +74,14 @@ interface RightPanelTabsProps {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddPullRequest: () => void;
+  onAddIssues: () => void;
   onAddAgents: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
+  issuesAvailable: boolean;
   agentsAvailable: boolean;
   pullRequestStatuses?: Readonly<Record<string, PullRequestTabStatus>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
@@ -101,6 +103,7 @@ const SURFACE_DISABLED_REASONS = {
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
+  issues: "GitHub Issues are only available for GitHub projects on supported servers.",
   agents: "Agents are only available from a thread.",
 } as const;
 
@@ -123,8 +126,92 @@ const SURFACE_UNAVAILABLE_HINTS = {
   files: "Available when a project is open.",
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
+  issues: "Available for GitHub projects on supported servers.",
   agents: "Available from a thread.",
 } as const;
+
+export const rightPanelSurfaceActions = (props: RightPanelTabsProps) =>
+  [
+    {
+      label: "Browser",
+      description: "Open a local app or URL.",
+      icon: Globe2,
+      shortcut: "B",
+      available: props.browserAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.browser,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.browser,
+      onClick: props.onAddBrowser,
+      badgeCount: 0,
+    },
+    {
+      label: "Terminal",
+      description: "Start a shell in this workspace.",
+      icon: TerminalSquare,
+      shortcut: "T",
+      available: props.terminalAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.terminal,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.terminal,
+      onClick: props.onAddTerminal,
+      badgeCount: 0,
+    },
+    {
+      label: "Files",
+      description: "Browse and read workspace files.",
+      icon: Files,
+      shortcut: "F",
+      available: props.filesAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.files,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.files,
+      onClick: props.onAddFiles,
+      badgeCount: 0,
+    },
+    {
+      label: "Diff",
+      description: "Review changes in this thread.",
+      icon: FileDiff,
+      shortcut: "D",
+      available: props.diffAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.diff,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.diff,
+      onClick: props.onAddDiff,
+      badgeCount: 0,
+    },
+    {
+      label: "Pull request",
+      description: "Open this branch's pull request.",
+      icon: GitPullRequest,
+      shortcut: "P",
+      available: props.pullRequestAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.pullRequest,
+      onClick: props.onAddPullRequest,
+      badgeCount: 0,
+    },
+    {
+      label: "Issues",
+      description: "Browse this project's GitHub issues.",
+      icon: CircleDot,
+      shortcut: "I",
+      available: props.issuesAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.issues,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.issues,
+      onClick: props.onAddIssues,
+      badgeCount: 0,
+    },
+    {
+      label: "Agents",
+      description: "Follow subagents and workflows.",
+      icon: Bot,
+      shortcut: "A",
+      available: props.agentsAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.agents,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.agents,
+      onClick: props.onAddAgents,
+      badgeCount: props.liveAgentCount,
+    },
+  ] as const;
+
+type SurfaceAction = ReturnType<typeof rightPanelSurfaceActions>[number];
 
 type TabContextMenuAction =
   | "copy-path"
@@ -246,88 +333,9 @@ function SurfaceMenuItem(props: {
  * focused. The highlight only appears on hover or arrow use. Unavailable
  * surfaces stay visible with a one-line reason.
  */
-function RightPanelEmptyState(props: {
-  onAddBrowser: () => void;
-  onAddTerminal: () => void;
-  onAddDiff: () => void;
-  onAddFiles: () => void;
-  onAddPullRequest: () => void;
-  onAddAgents: () => void;
-  browserAvailable: boolean;
-  terminalAvailable: boolean;
-  diffAvailable: boolean;
-  filesAvailable: boolean;
-  pullRequestAvailable: boolean;
-  agentsAvailable: boolean;
-  liveAgentCount: number;
-}) {
+function RightPanelEmptyState({ actions }: { actions: readonly SurfaceAction[] }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
-
-  const actions = [
-    {
-      label: "Browser",
-      description: "Open a local app or URL.",
-      icon: Globe2,
-      shortcut: "B",
-      available: props.browserAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
-      onClick: props.onAddBrowser,
-      badgeCount: 0,
-    },
-    {
-      label: "Terminal",
-      description: "Start a shell in this workspace.",
-      icon: TerminalSquare,
-      shortcut: "T",
-      available: props.terminalAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.terminal,
-      onClick: props.onAddTerminal,
-      badgeCount: 0,
-    },
-    {
-      label: "Files",
-      description: "Browse and read workspace files.",
-      icon: Files,
-      shortcut: "F",
-      available: props.filesAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
-      onClick: props.onAddFiles,
-      badgeCount: 0,
-    },
-    {
-      label: "Diff",
-      description: "Review changes in this thread.",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
-      onClick: props.onAddDiff,
-      badgeCount: 0,
-    },
-    {
-      label: "Pull request",
-      description: "Open this branch's pull request.",
-      icon: GitPullRequest,
-      shortcut: "P",
-      available: props.pullRequestAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequest,
-      onClick: props.onAddPullRequest,
-      badgeCount: 0,
-    },
-    {
-      label: "Agents",
-      description: "Follow subagents and workflows.",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.agents,
-      onClick: props.onAddAgents,
-      badgeCount: props.liveAgentCount,
-    },
-  ] as const;
-
-  type SurfaceAction = (typeof actions)[number];
 
   const availableActions = actions.filter((action) => action.available);
   const highlightIndex =
@@ -477,7 +485,7 @@ function RightPanelEmptyState(props: {
                   <span className="font-medium text-sm">{action.label}</span>
                 </span>
                 <span className="mt-1.5 text-muted-foreground text-xs leading-relaxed">
-                  {action.disabledReason}
+                  {action.unavailableHint}
                 </span>
               </div>
             ),
@@ -507,6 +515,8 @@ function surfaceTitle(
       );
     case "pull-request":
       return `#${surface.number}`;
+    case "github-issues":
+      return "Issues";
     case "github-issue":
       return `Issue #${surface.number}`;
     case "agents":
@@ -598,6 +608,8 @@ function SurfaceIcon({
       // The tab carries no issue state, and a closed issue reads as muted everywhere else it is
       // drawn. Stays neutral until a tab status feeds this the way pull requests do.
       return <CircleDot className="size-3 shrink-0 text-muted-foreground" />;
+    case "github-issues":
+      return <CircleDot className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
   }
@@ -609,56 +621,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const tabListRef = useRef<HTMLDivElement>(null);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
 
-  const addSurfaceActions = [
-    {
-      label: "Browser",
-      icon: Globe2,
-      shortcut: "B",
-      available: props.browserAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.browser,
-      onClick: props.onAddBrowser,
-    },
-    {
-      label: "Terminal",
-      icon: TerminalSquare,
-      shortcut: "T",
-      available: props.terminalAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.terminal,
-      onClick: props.onAddTerminal,
-    },
-    {
-      label: "Files",
-      icon: Files,
-      shortcut: "F",
-      available: props.filesAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.files,
-      onClick: props.onAddFiles,
-    },
-    {
-      label: "Diff",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.diff,
-      onClick: props.onAddDiff,
-    },
-    {
-      label: "Pull request",
-      icon: GitPullRequest,
-      shortcut: "P",
-      available: props.pullRequestAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
-      onClick: props.onAddPullRequest,
-    },
-    {
-      label: "Agents",
-      icon: Bot,
-      shortcut: "A",
-      available: props.agentsAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.agents,
-      onClick: props.onAddAgents,
-    },
-  ] as const;
+  const addSurfaceActions = rightPanelSurfaceActions(props);
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -938,21 +901,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       </div>
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
         {props.activeSurfaceId === null ? (
-          <RightPanelEmptyState
-            onAddBrowser={props.onAddBrowser}
-            onAddTerminal={props.onAddTerminal}
-            onAddDiff={props.onAddDiff}
-            onAddFiles={props.onAddFiles}
-            onAddPullRequest={props.onAddPullRequest}
-            onAddAgents={props.onAddAgents}
-            browserAvailable={props.browserAvailable}
-            terminalAvailable={props.terminalAvailable}
-            diffAvailable={props.diffAvailable}
-            filesAvailable={props.filesAvailable}
-            pullRequestAvailable={props.pullRequestAvailable}
-            agentsAvailable={props.agentsAvailable}
-            liveAgentCount={props.liveAgentCount}
-          />
+          <RightPanelEmptyState actions={addSurfaceActions} />
         ) : (
           props.children
         )}
