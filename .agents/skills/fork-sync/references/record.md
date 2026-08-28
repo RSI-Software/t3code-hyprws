@@ -3,6 +3,32 @@
 Records live at `docs/operations/fork-sync-records/<stable-tag>.md` and are committed on the
 rehearsed stack. They are evidence carried into the next tag, not disposable agent notes.
 
+A record states what the rehearsal decided and what it proved. A section that only restates the
+stack is not evidence, so every shape below has a form for the case where there is nothing to report.
+
+## Citing a commit subject
+
+Code-span the whole subject wherever it appears, in a table cell and in prose:
+
+```markdown
+| `06f5d9d6dd` `fix(desktop): honor embedded browser wheel zoom (#169)` |
+```
+
+A squash appends `(#<number>)` to the subject, and that number is a fork pull request. Left bare, it
+is a live reference: GitHub resolves it against `pingdotgg/t3code` and posts a backlink on an
+unrelated upstream thread. `fork:upstream-refs` fails the file for exactly this reason.
+
+Run the guard on the record before committing it:
+
+```bash
+vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
+```
+
+The same rule covers upstream citations, always as `pingdotgg/t3code#<number>` inside a code span.
+
+The exception is `docs/internals/fork-delta.md`, where the subject stays plain text. The ledger
+matcher compares that cell against the raw commit subject, so a code-spanned cell matches no commit.
+
 ## Schema
 
 Use these sections in order.
@@ -25,6 +51,21 @@ Gate 4 replaces `absent` with `<login> YYYY-MM-DD`. `expected_old` is the exact 
 before rehearsal and is never shortened. If the published head moves, the drift procedure updates
 both Source and `expected_old` after the new commits have been read and incorporated.
 
+`Stack size` is `git rev-list --count <stable-tag>..HEAD` at `Rebased head`. It counts the rehearsed
+stack, which is what the conflicts, commit table, and checks are evidence about.
+
+One record states one stack size. Two counts may both be true at different heads, and the header
+owns reconciling them in the same place it states the number:
+
+- Gate 4 commits the record itself onto the stack, so the pushed head carries one more commit and
+  `fork:delta --check` reports `<count> + 1` against it. The record commit cannot name its own SHA,
+  so identify it by subject.
+- A retirement drop and a drift cherry-pick each move the count. Say which head each number belongs
+  to, and never leave a bare second number standing in Verification.
+
+A retirement drop also rewrites every SHA above the dropped commit. Re-derive the SHA column after
+the drop; the subjects are what survive, the SHAs are not.
+
 ### Conflicts
 
 One row per (fork commit, file), even when one commit conflicts in several files:
@@ -35,13 +76,43 @@ One row per (fork commit, file), even when one commit conflicts in several files
 ```
 
 Use only the classes in [the rehearsal reference](rehearse.md), effort `S`/`M`/`L`, and `yes` or
-`no` plus a reason for Agent-safe. Code-span every upstream citation as
-`pingdotgg/t3code#<number>`; never write a bare `#<number>`, which links to a nonexistent fork issue.
+`no` plus a reason for Agent-safe.
+
+When the rebase stopped zero times, write `None.` and delete the table. A header and a divider with
+no rows under them record nothing.
+
+A zero-conflict replay still owes evidence that nothing was silently dropped. State it as a short
+list under `None.`:
+
+- `git rev-list --count <stable-tag>..HEAD`, and the pre-rebase stack size it equals.
+- That every subject is byte-identical and in the same order.
+- That every full message, including every `Fork-Domain` and `Fork-Tier` trailer, is byte-identical.
+- The `git config rerere.enabled` state, so a cached resolution is ruled in or out.
+
+Name the head those counts were read at when a later gate changes the stack.
+
+### Automerged overlap review
+
+Required whenever the orientation report predicts a file that Git will automerge. A clean automerge
+is not evidence that fork behaviour survived, and no rebase stop will raise it.
+
+Classify each predicted file by comparing the rebased blob against the shared-base, fork, and
+upstream blobs:
+
+```markdown
+| File | Fork changed it | Upstream changed it | Rebased result | Reading |
+| ---- | --------------- | ------------------- | -------------- | ------- |
+```
+
+`Reading` states which behaviour survived and what would have been lost. A file where upstream now
+supplies the fork behaviour is a retire candidate and takes a row in **Fork commits** too.
+
+Write `None.` when the report predicts no overlap.
 
 ### Fork commits
 
-One row per rehearsed fork commit. Put the exact subject beside its rehearsal SHA because retirement
-decisions survive future SHA rewrites by subject.
+One row per rehearsed fork commit that carries a decision, a claim, or a change. Put the exact
+subject beside its rehearsal SHA because retirement decisions survive future SHA rewrites by subject.
 
 ```markdown
 | Fork commit and exact subject | Domain | Class summary | Action | Grounding claim |
@@ -49,8 +120,25 @@ decisions survive future SHA rewrites by subject.
 ```
 
 Action is `keep`, `retire`, `partial`, or `n/a`. Product claims name the exact UI label and expected
-outcome. A thread-sync claim proves a sent message, not text left in a draft. Use `n/a — no product
-grounding claim` when none applies.
+outcome, read from the surface under test rather than a neighbouring page. A thread-sync claim proves
+a sent message, not text left in a draft. Use `n/a — no product grounding claim` when none applies.
+
+A row is required when any of these holds:
+
+- The commit conflicted in at least one file.
+- The orientation report flagged it as a retire candidate, including when no conflict introduced it.
+- Its decision is `retire` or `partial`, or its keep reason is one the next rebase needs.
+- It carries a grounding claim.
+- It entered or left the stack during this rehearsal, through a drift cherry-pick or a retirement
+  drop.
+
+Do not repeat the stack. In a clean replay most commits produce the same three cells, and eighty
+rows reading `no content conflict` / `keep` / `n/a` are the stack, not the record. Close the table
+with one line stating how many rehearsed commits replayed with no conflict and no decision, so the
+count reconciles with `Stack size`.
+
+Keep the class token in `Class summary` for a row that needs a human, because gate 4 finds decision
+rows with `rg '\| (retire-candidate|human) \|'`.
 
 The durable decision is copied, keyed by exact subject, into `docs/internals/fork-delta.md#retired`
 or `docs/internals/fork-delta.md#kept`; do not treat a mutable SHA as its identity.
@@ -64,10 +152,13 @@ or `docs/internals/fork-delta.md#kept`; do not treat a mutable SHA as its identi
 - **Grounding** has one `Grounding pending:` line per host-owned claim until gate 4 records evidence.
 - End with the recommendation: `land`, `land-after-human-review-of-N`, or `do-not-land`.
 
-## Worked example
+## Worked examples
 
-[`v0.0.34`](../../../../docs/operations/fork-sync-records/v0.0.34.md) is the first worked record. It
-contains 16 conflict-file rows across eight commits, one row for every one of the 64 rehearsed fork
-commits, the targeted checks and one typecheck-only silent seam, and three exact grounding claims.
-It predates the sanity gate, so its header deliberately says `Human sanity: absent` and the apply
-gate refuses it.
+[`v0.0.34`](../../../../docs/operations/fork-sync-records/v0.0.34.md) is the conflicted case. It
+contains 16 conflict-file rows across eight commits, the targeted checks and one typecheck-only
+silent seam, and three exact grounding claims. It predates the sanity gate, so its header
+deliberately says `Human sanity: absent` and the apply gate refuses it.
+
+[`v0.0.35`](../../../../docs/operations/fork-sync-records/v0.0.35.md) is the zero-conflict case. It
+replays the whole stack with no stop, so its evidence is the replay proof, the automerged overlap
+review, and one retirement the orientation report raised without any conflict.
