@@ -396,6 +396,11 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - The bot-first sync model, bot-owned refs, human unblock, and stable-cut procedures in the
   [fork sync runbook](../operations/fork-sync.md) and repo-local
   [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill.
+- `scripts/fork-auto-rebase.ts` with its `fork:auto-rebase` alias. It advances the fork stack only to
+  a tagged commit inside the report's clean window, snapshots intermediate stable bases, preserves
+  the previous trunk head, and reports conflicts through fork-local issues.
+- `scripts/fork-sync-gate.ts` keeps human syncs stable-only unless the caller explicitly passes
+  `--allow-nightly`.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
 - The fork trailer section of `.github/pull_request_template.md`.
@@ -406,14 +411,16 @@ Retired with the fork.
 
 ### Rebase scan
 
-| Path                                       | Why it matters                                                |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| `README.md`, `AGENTS.md`, `docs/README.md` | Upstream edits these often and they carry fork-only sections. |
-| `package.json` scripts block               | The `fork:*` aliases sit between upstream aliases.            |
-| `docs/internals/scripts.md`                | Carries the `fork:*` script entries.                          |
-| `docs/internals/ci.md`                     | Documents fork-specific CI and advisory scan behavior.        |
-| `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
-| `.github/pull_request_template.md`         | Carries the fork trailer block every squash body needs.       |
+| Path                                                          | Why it matters                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `README.md`, `AGENTS.md`, `docs/README.md`                    | Upstream edits these often and they carry fork-only sections.                              |
+| `package.json` scripts block                                  | The `fork:*` aliases sit between upstream aliases.                                         |
+| `docs/internals/scripts.md`                                   | Carries the `fork:*` script entries.                                                       |
+| `docs/internals/ci.md`                                        | Documents fork-specific CI and advisory scan behavior.                                     |
+| `scripts/*.ts` siblings                                       | The ledger script copies their Effect CLI shape.                                           |
+| `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts` | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection. |
+| `.github/workflows/hyprws-rebase-report.yml`                  | Owns bot mode, runner setup, and fork-local issue upserts.                                 |
+| `.github/pull_request_template.md`                            | Carries the fork trailer block every squash body needs.                                    |
 
 ## distribution
 
