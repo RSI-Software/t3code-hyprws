@@ -712,4 +712,4 @@ export const makePendingClaudeProvider = (
     });
   });
 
-export { probeClaudeCapabilities };
+export { dedupeSlashCommands, probeClaudeCapabilities };
