@@ -851,6 +851,7 @@ const buildAppUnderTest = (options?: {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+          getAgentActivitySnapshot: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
@@ -4081,6 +4082,91 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(first.response.status, 200);
       assert.equal(second.response.status, 200);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves bounded agent activity only with orchestration read access", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getAgentActivitySnapshot: (threadId, agentId, window) => {
+              if (threadId !== ThreadId.make("thread-1") || agentId !== "agent-1") {
+                return Effect.succeed(Option.none());
+              }
+              assert.equal(window.limit, 1);
+              return Effect.succeed(
+                Option.some({
+                  agentId,
+                  activities: [
+                    {
+                      id: EventId.make("activity-1"),
+                      tone: "tool" as const,
+                      kind: "tool.completed",
+                      summary: "Read /home/alice/private/file.ts",
+                      payload: {
+                        agentId,
+                        runHandles: { scriptPath: "/home/alice/workflow.js" },
+                      },
+                      turnId: null,
+                      sequence: 7,
+                      createdAt: "2026-08-28T00:00:00.000Z",
+                    },
+                  ],
+                  page: {
+                    beforeCursor: null,
+                    hasMore: false,
+                    snapshotSequence: 9,
+                    threadSequence: 7,
+                  },
+                }),
+              );
+            },
+          },
+        },
+      });
+
+      const allowed = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+        scope: "orchestration:read",
+      });
+      const denied = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+        scope: "access:read",
+      });
+      const endpoint = yield* getHttpServerUrl(
+        "/api/orchestration/threads/thread-1/agents/agent-1/activities?limit=1",
+      );
+      const allowedResponse = yield* fetchEffect(endpoint, {
+        headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` },
+      });
+      const allowedBody = yield* responseJsonEffect<{
+        readonly activities: ReadonlyArray<{
+          readonly summary: string;
+          readonly payload: unknown;
+          readonly truncated: boolean;
+        }>;
+      }>(allowedResponse);
+      const deniedResponse = yield* fetchEffect(endpoint, {
+        headers: { authorization: `Bearer ${denied.body.access_token ?? ""}` },
+      });
+      const deniedBody = yield* responseJsonEffect<{ readonly requiredScope: string }>(
+        deniedResponse,
+      );
+      const missingResponse = yield* fetchEffect(endpoint.replace("agent-1", "missing-agent"), {
+        headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` },
+      });
+      const missingBody = yield* responseJsonEffect<{ readonly reason: string }>(missingResponse);
+
+      assert.equal(allowedResponse.status, 200);
+      assert.equal(allowedBody.activities[0]?.summary, "Read [local path]");
+      assert.equal(allowedBody.activities[0]?.truncated, true);
+      assert.deepEqual(allowedBody.activities[0]?.payload, {
+        agentId: "agent-1",
+        runHandles: {},
+      });
+      assert.equal(deniedResponse.status, 403);
+      assert.equal(deniedBody.requiredScope, "orchestration:read");
+      assert.equal(missingResponse.status, 404);
+      assert.equal(missingBody.reason, "agent_not_found");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
