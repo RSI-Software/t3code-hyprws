@@ -1,80 +1,88 @@
 ---
 name: fork-sync
-description: Guide the RSI-Software/t3code-hyprws fork through a stable upstream-tag rebase rehearsal, focused checks, human sanity review, and a human-only leased apply.
+description: Unblock an RSI-Software/t3code-hyprws upstream rebase with a gated rehearsal and leased apply, or cut a stable fork release from a bot-owned snapshot.
 ---
 
 # Fork sync
 
-Use this single flow for every upstream rebase. It has five gates and a hard stop at each one.
-Never target a nightly or untagged commit. Never post to `pingdotgg/t3code`. Never rebase, push,
-tag, or release from the `hyprws` worktree while running the agent-owned gates.
+Choose exactly one entry point:
 
-Set `tag=vX.Y.Z` to the chosen stable tag. The record is
+- **unblock** — resolve the current `rebase-blocked` issue by rehearsing the complete fork stack on
+  the selected upstream stable or nightly tag;
+- **cut stable** — verify a bot-owned `release/vX.Y.Z-hyprws` snapshot and hand its immutable stable
+  tag push to the human.
+
+Never post to `pingdotgg/t3code`. Never merge upstream into `hyprws`. Never move
+`hyprws-previous`, `hyprws-next`, or `release/vX.Y.Z-hyprws` by hand. The
+[fork-sync runbook](../../../docs/operations/fork-sync.md) owns the bot model, ref meanings,
+repository setup, failure handling, and local-lane recovery.
+
+## Entry point: unblock
+
+This flow has five gates and a hard stop at each one. The rewrite is rehearsed away from the
+`hyprws` worktree, and the final push stays human-only with the expected-old lease captured by the
+same rehearsal.
+
+Set `tag` to the newest upstream release tag beyond the blocking commit that the human intends to
+reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. The record is
 `docs/operations/fork-sync-records/$tag.md`; follow [the record schema](references/record.md) and
-[the rehearsal procedure](references/rehearse.md).
+[the rehearsal procedure](references/rehearse.md), treating `$tag` as the selected release tag when
+it is a nightly.
 
-Every command a gate runs is written here or in those two references, and nowhere else. The
-[fork-sync runbook](../../../docs/operations/fork-sync.md) owns the invariants each gate enforces, what
-the orientation output means, failure handling, and the one-time repository setup; it carries no gate
-command.
+### Gate 1 — Orient
 
-## Gate 1 — Orient
-
-The preflight fetches both lanes and proves the `main` mirror is current, so run it first. Sweep the
-watches against `upstream/main` before you pick, because a watch that is still `waiting` there can
-change which tag is worth taking. Then list the candidates and orient against the one you pick.
+The preflight fetches both lanes and proves the `main` mirror is current. Read the open block, sweep
+upstream watches, list reachable release tags, and orient against the human's selection:
 
 ```bash
 node scripts/fork-preflight.ts
+repo=RSI-Software/t3code-hyprws
+blocked_issue="$(gh issue list --state open --label rebase-blocked -R "$repo" \
+  --json number --jq 'if length == 1 then .[0].number else error("expected one open rebase-blocked issue") end')"
+gh issue view "$blocked_issue" --comments -R "$repo"
 node scripts/fork-upstream-watch.ts
-git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 3
+git tag --list 'v*' --sort=-v:refname \
+  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-nightly\.[0-9]{8}\.[0-9]+)?$' \
+  | head -n 10
 node scripts/fork-orient.ts --target "$tag"
 ```
 
-`node` is deliberate: Gate 1 runs in a worktree with no dependencies installed, and `vp run
-fork:preflight`, `vp run fork:upstream-watch`, and `vp run fork:orient` are the same commands once
-`vp i` has run. Orientation re-runs the preflight itself and refuses on an unmet precondition, so the
-first line is the one that names every unmet one before anything else runs. The `hyprws` worktree does
-not need to be clean; orientation reads `origin/hyprws`.
+`node` is deliberate: these scripts use Node builtins and can name preflight failures before `vp i`.
+Orientation proves the target exists as a tag, is reachable from `upstream/main`, and reports
+feasibility, automerged overlap, retire candidates, and `upstream-watch` verdicts. The selected tag
+must be beyond the blocking upstream commit; choosing the last clean tag only reproduces the bot's
+current result.
 
-Orientation proves the tag exists as a tag and is reachable from `upstream/main`; a version-shaped
-name is refused. It prints target, source, shared base, mirror currency, feasibility, automerged
-overlap, retire candidates, and an `upstream-watch` verdict per open issue against that tag. That
-tag-targeted sweep is the one Gate 5 closes from; the pre-pick sweep above only informs the pick.
-The runbook explains [what each verdict
-means](../../../docs/operations/fork-sync.md#what-the-orientation-means).
+**Stop.** Show the human the issue's blocking SHA, target tag and SHA, source and shared base,
+conflict/overlap summary, and watch verdicts. Record the full blocking SHA as `blocking_sha` for the
+closing comment. Continue only after the human confirms the target. Orientation is not permission to
+modify a ref.
 
-**Stop.** Show the human the Stop block the command printed. Continue only after the human confirms
-the target. The orientation is not permission to modify a ref.
+### Gate 2 — Rehearse
 
-## Gate 2 — Rehearse
-
-Create a disposable lane from the published fork; do not rebase the current checkout:
+Create a disposable lane from the published fork; never rebase the current checkout:
 
 ```bash
 wt switch --create "rehearse/$tag" --base origin/hyprws
 # Continue in the worktree path printed by Worktrunk.
 vp i
-expected_old=$(git rev-parse origin/hyprws)
-target_sha=$(git rev-parse "$tag^{commit}")
+expected_old="$(git rev-parse origin/hyprws)"
+target_sha="$(git rev-parse "$tag^{commit}")"
 git rebase "$tag"
 ```
 
-At every stop, read upstream intent first and preserve it, then reapply the smallest fork behavior
-at the current seam. Never squash, reorder, or reword a fork commit, and never run `git rebase
---skip`: a commit upstream has made obsolete is a `retire-candidate` row for the human at Gate 4, not
-a commit the rehearsal drops on its own. Classify every conflicted file as `mechanical`,
-`seam-moved`, `retire-candidate`, or `human`; review rerere output as a new resolution. Start the
-record immediately and retain every `Fork-*` trailer.
+At each stop, read upstream intent first, preserve it, and reapply the smallest fork behaviour at the
+current seam. Never squash, reorder, reword, or `git rebase --skip` a fork commit. Classify every
+conflicted file as `mechanical`, `seam-moved`, `retire-candidate`, or `human`; review rerere output as
+a proposal, not proof; preserve every `Fork-*` trailer. Start the human-sync record immediately.
 
-**Stop.** Show the human the rebased head, stack size, conflict counts by class, all
-`retire-candidate`/`human` rows, and any unresolved block. Continue only when the rebase is complete
-and every conflicted (fork commit, file) has a row, or the rebase stopped zero times and the record
-says `None.` with its replay evidence.
+**Stop.** Show the human the rebased head, stack size, conflicts by class, all
+`retire-candidate`/`human` rows, and any unresolved block. Continue only after every conflict has a
+record row, or a zero-stop replay has the record schema's replay evidence.
 
-## Gate 3 — Check
+### Gate 3 — Check
 
-Scan every involved domain against the target, then run only focused checks:
+Walk every involved domain against the selected tag and run focused checks:
 
 ```bash
 vp run fork:scan --head origin/hyprws --target "$tag"
@@ -83,39 +91,33 @@ vp run --filter <touched-package> typecheck
 vp test run <tests-beside-every-touched-file>
 ```
 
-`fork:scan` lists every file the fork and upstream both changed over the shared base, which is the
-overlap the record reviews. Read each `in scan` file against its automerge. A `MISSING` file is a
-gap in `docs/internals/fork-delta.md`; record it and leave the ledger edit to the human at gate 4.
-This run is the blocking one, because `$tag` is the rebase target the fork has not reached yet. Fork
-CI runs the same scan against live `upstream/main` on every push, advisory only.
+Replace the final two command arguments from the conflict and automerged-overlap file set; do not
+leave those sample tokens in a command. A `MISSING` scan result is a gap in
+`docs/internals/fork-delta.md` and must be recorded for the human to repair at Gate 4. Review every
+automerged overlap even when the rebase never stopped.
 
-Record exact commands and results. The commit table carries one row per decision, claim, or change,
-keyed by its exact subject; the record schema owns which commits require a row. Review every file
-the orientation report predicted as automerged overlap, because no rebase stop will raise one.
-Record typecheck-only findings under **Silent seams**. Every
-product claim must name the exact UI label and expected outcome; a thread-sync claim must use a sent
-message, never a draft.
+Record exact commands and results. Product claims name the exact UI label and expected outcome; a
+thread-sync claim uses a sent message, never a draft. Put typecheck-only findings under **Silent
+seams**.
 
-**Stop.** Show the human failed checks, silent seams, and the complete draft record. Continue only
-when `fork:scan`, `fork:delta`, every targeted typecheck, and every adjacent test pass. Never
-substitute a repo-wide `vp check`, `vp run -r typecheck`, or `vp run -r test` for the targeted set:
-fork CI owns the full suite, and a repo-wide run hides which seam failed.
+**Stop.** Show the human failed checks, silent seams, and the complete record. Continue only when the
+scan, ledger, every targeted typecheck, and every adjacent test pass. Never substitute repo-wide
+`vp check`, typecheck, or test for the targeted set; fork CI owns the full suite.
 
-## Gate 4 — Human sanity
+### Gate 4 — Human sanity
 
-The human reads only the decision rows and grounding claims:
+The human reads only decision rows and grounding claims:
 
 ```bash
 rg '\| (retire-candidate|human) \|' "docs/operations/fork-sync-records/$tag.md"
 rg 'Grounding (claim|pending)' "docs/operations/fork-sync-records/$tag.md"
 ```
 
-The human resolves each decision by exact fork commit subject in the `Retired` or `Kept` section of
-`docs/internals/fork-delta.md`, completes every required desktop grounding claim, and replaces the
-record's absent marker with `Human sanity: <login> YYYY-MM-DD`. The agent must not perform or infer
-this approval.
+The human resolves every decision by exact fork commit subject in the `Retired` or `Kept` section of
+`docs/internals/fork-delta.md`, completes required desktop grounding, and replaces the absent marker
+with `Human sanity: <login> YYYY-MM-DD`. The agent must not perform or infer this approval.
 
-Commit the completed record and durable decisions on the rehearsal branch:
+Commit the record and durable decisions on the rehearsal branch:
 
 ```bash
 vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
@@ -126,47 +128,74 @@ vp run fork:delta --check
 vp run fork:scan --head origin/hyprws --target "$tag"
 ```
 
-The guard runs first because a squash subject carries `(#<number>)`, which posts a backlink upstream
-once the record is published. `fork:delta --check` counts the record commit, so it reports one more
-than the record's `Stack size`. The scan is green once every `MISSING` file from gate 3 has a row in
-its domain's scan table.
+**Stop.** Show the human the sanity login/date, resolved subjects, grounding evidence, record commit,
+and green checks. Continue only with a committed record and explicit human approval.
 
-**Stop.** Show the human the sanity login/date, resolved retire/keep subjects, grounding evidence,
-record commit, and green checks. Continue only with a committed record and explicit human approval.
+### Gate 5 — Apply
 
-## Gate 5 — Apply
-
-First run the deterministic guard from the rehearsed branch:
+Run the deterministic guard from the rehearsed branch. `--allow-nightly` permits both supported tag
+shapes while preserving stable-only behaviour when the flag is absent.
 
 ```bash
-vp run fork:sync-gate --tag "$tag"
+vp run fork:sync-gate --tag "$tag" --allow-nightly
 ```
 
-It refuses on any unmet preflight precondition, and reads the published head from the fetch it just
-made. An unmet precondition, a missing record, a stale `expected_old`, or a missing sanity mark
-blocks apply. If `origin/hyprws`
-moved, fetch it, read the new commits, incorporate them through the drift procedure in
-[the rehearsal reference](references/rehearse.md), update the record, and repeat gates 3–4.
+The guard fetches and refuses an unmet preflight, invalid tag, missing record, stale `expected_old`,
+or absent human sanity mark. If `origin/hyprws` moved, do not refresh only the SHA. Read and
+incorporate the drift through [the rehearsal procedure](references/rehearse.md), update the evidence,
+and repeat Gates 3–4.
 
-**Stop.** The skill and agent never run the commands below. Print their resolved values for the
-human, who alone performs the published-head rewrite, tag, and release. `$release_tag` follows the
-[fork release naming
-rule](../../../docs/operations/fork-sync.md#invariants):
+**Stop.** The skill and agent never run the commands below. Resolve and print the exact values for
+the human, who alone rewrites the trunk and records the resolution:
 
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
-git tag "$release_tag" HEAD
-git push origin "$release_tag"
-gh run list --repo RSI-Software/t3code-hyprws --workflow hyprws-release.yml --limit 1
-gh run watch <run-id> --repo RSI-Software/t3code-hyprws
-gh release view "$release_tag" --repo RSI-Software/t3code-hyprws
+gh issue comment "$blocked_issue" -R RSI-Software/t3code-hyprws --body \
+  "Resolved blocking upstream commit \`$blocking_sha\` while rebasing \`hyprws\` onto \`$tag\`; the leased rewrite replaced \`$expected_old\`."
 ```
 
-The human verifies the release has the `.AppImage` and `latest-linux.yml` assets and that the
-record's retire/keep ledger entries are present. A refused lease returns to rehearsal; it is never
-silently refreshed.
+A refused lease returns to rehearsal; it is never silently refreshed. Do not update a bot-owned ref
+as part of this apply. The successful `hyprws` push starts a new bot run. That run closes every open
+`rebase-blocked` issue if no block remains, or updates the issue when it finds a later block.
 
-Then the human installs or runs that build and closes each `upstream-watch` issue Gate 1's
-tag-targeted sweep called `ready`, naming the upstream merge commit and this fork release. This is
-the only place a watch closes, and only that sweep names the candidates. A watch whose behavior is
-still broken stays open with what was seen.
+## Entry point: cut stable
+
+Use this only for an open `release` issue created from a bot-owned
+`release/vX.Y.Z-hyprws` snapshot. Never cut a stable from `hyprws`, `hyprws-next`, a rehearsal branch,
+or a local commit. Never move the snapshot branch or replace an existing tag.
+
+### Stable gate 1 — Identify
+
+```bash
+gh issue list --state open --label release \
+  -R RSI-Software/t3code-hyprws
+```
+
+Read the selected issue and confirm its exact title is `Stable candidate vX.Y.Z-hyprws`, its body
+names the matching snapshot, and the branch exists on `origin`. If several candidates are open, stop
+for the human to select one; recency is not permission to choose.
+
+### Stable gate 2 — Verify
+
+Follow the runbook's exact [cut a stable release](../../../docs/operations/fork-sync.md#cut-a-stable-release)
+preparation and verification blocks through `vp run test`. They derive the snapshot ref and next
+release number from the selected issue, create a disposable Worktrunk lane at the exact remote
+commit, and run the same preflight checks as the stable release workflow. Do not enter the separate
+**Human-only publish** block.
+
+**Stop.** Show the human the issue, snapshot branch and SHA, derived new tag, prior matching tags, and
+all check results. Continue only when the worktree is clean, every check passes, the remote snapshot
+still resolves to the checked SHA, and the tag does not already exist locally or remotely.
+
+### Stable gate 3 — Publish
+
+The skill and agent never create or push the stable tag. Hand the runbook's separate
+**Human-only publish** block to the human only after Stable gate 2 stops. The human creates an
+annotated `vX.Y.Z-hyprws.<n>` tag at the verified snapshot SHA, pushes it create-only, watches the
+exact `hyprws-release.yml` run, verifies the `.AppImage` and `latest-linux.yml`, and closes the
+candidate issue with the tag, snapshot SHA, and workflow URL.
+
+A failed push or existing tag is a stop, not permission to increment again without re-running the
+stable gates. A failed workflow leaves the candidate issue open. Bot run summaries record automatic
+rewrites; human sync records remain under `docs/operations/fork-sync-records/` and are not created for
+an ordinary stable cut from a bot snapshot.
