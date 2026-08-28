@@ -7,8 +7,10 @@
  *
  * Unlike Codex, the Claude snapshot probe may invoke a secondary probe
  * (`probeClaudeCapabilities`) to read Anthropic account + slash-command
- * metadata. That probe is per-instance and keyed by binary + resolved HOME so
- * two concurrent Claude instances don't cross-contaminate account metadata.
+ * metadata. That probe is per-instance, so binary and resolved HOME are already
+ * constant and cannot cross-contaminate account metadata between instances. It
+ * is keyed by working directory, because the CLI reports project-scoped slash
+ * commands and each workspace needs its own answer.
  *
  * @module provider/Drivers/ClaudeDriver
  */
@@ -32,6 +34,7 @@ import { makeClaudeAdapter } from "../Layers/ClaudeAdapter.ts";
 import { makeClaudeScopedLimitNames } from "../Layers/claudeUsageLimits.ts";
 import {
   checkClaudeProviderStatus,
+  dedupeSlashCommands,
   makePendingClaudeProvider,
   probeClaudeCapabilities,
 } from "../Layers/ClaudeProvider.ts";
@@ -57,12 +60,15 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
-import { makeClaudeCapabilitiesCacheKey, makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
+import { makeClaudeContinuationGroupKey } from "./ClaudeHome.ts";
 import { discoverClaudeSkills } from "./ClaudeSkills.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const CAPABILITIES_PROBE_TTL = Duration.minutes(5);
+// One entry per workspace the user has open. Small enough to bound CLI spawns,
+// large enough that switching between projects does not re-probe.
+const CAPABILITIES_PROBE_CACHE_CAPACITY = 16;
 
 function isClaudeNativeCommandPath(commandPath: string): boolean {
   const normalized = normalizeCommandPath(commandPath);
@@ -152,17 +158,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         modelCatalog,
       );
 
-      // Per-instance capabilities cache: keyed on binary + resolved HOME so
-      // account-specific probes never share auth metadata across instances.
+      // Per-instance capabilities cache, keyed by working directory.
+      //
+      // This cache lives in one instance's scope, so binary path and resolved
+      // HOME are already constant here and cannot leak account metadata across
+      // instances. The cwd is what varies, and it matters: the CLI's init
+      // handshake reports project-scoped slash commands, so a probe run from
+      // the server's own cwd sees only the built-ins. Keying on cwd gives each
+      // workspace its own answer at one CLI spawn per workspace per TTL.
       const capabilitiesProbeCache = yield* Cache.make({
-        capacity: 1,
+        capacity: CAPABILITIES_PROBE_CACHE_CAPACITY,
         timeToLive: CAPABILITIES_PROBE_TTL,
-        lookup: () =>
-          probeClaudeCapabilities(effectiveConfig, processEnv, cwd).pipe(
+        lookup: (probeCwd: string) =>
+          probeClaudeCapabilities(effectiveConfig, processEnv, probeCwd).pipe(
             Effect.provideService(Path.Path, path),
           ),
       });
-      const capabilitiesCacheKey = yield* makeClaudeCapabilitiesCacheKey(effectiveConfig, cwd);
 
       // Start the TTL-gated refresh without delaying provider readiness. The
       // next check observes a remote manifest after the background fetch lands.
@@ -172,7 +183,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
             Effect.flatMap((manifest) =>
               checkClaudeProviderStatus(
                 effectiveConfig,
-                () => Cache.get(capabilitiesProbeCache, capabilitiesCacheKey),
+                () => Cache.get(capabilitiesProbeCache, cwd),
                 processEnv,
                 cwd,
                 resolveClaudeModelCatalog(manifest),
@@ -225,8 +236,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
           : Effect.all([
               snapshot.getSnapshot,
               discoverClaudeSkills(effectiveConfig, cwd, processEnv),
+              // Slash commands come from the CLI's init handshake, so the
+              // machine snapshot only ever carries the built-ins. Probing from
+              // the workspace adds the project's own commands; a failed probe
+              // resolves undefined and leaves the machine set alone.
+              Cache.get(capabilitiesProbeCache, cwd),
             ]).pipe(
-              Effect.map(([machineSnapshot, skills]) => ({ ...machineSnapshot, skills })),
+              Effect.map(([machineSnapshot, skills, capabilities]) => ({
+                ...machineSnapshot,
+                skills,
+                slashCommands: dedupeSlashCommands([
+                  ...machineSnapshot.slashCommands,
+                  ...(capabilities?.slashCommands ?? []),
+                ]),
+              })),
               Effect.provideService(FileSystem.FileSystem, fileSystem),
               Effect.provideService(Path.Path, path),
             );
