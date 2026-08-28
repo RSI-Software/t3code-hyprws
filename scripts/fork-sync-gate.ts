@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - This standalone Git gate runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+
+import {
+  repositoryRoot,
+  runPreflight,
+  systemEnv,
+  unmetChecks,
+  type PreflightReport,
+} from "./fork-preflight.ts";
 
 const RECORD_DIRECTORY = "docs/operations/fork-sync-records";
 const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
@@ -17,24 +24,13 @@ export interface GateOptions {
   readonly tag: string;
 }
 
-export interface GitReader {
-  run(args: ReadonlyArray<string>): string;
+export interface GateDependencies {
+  readonly preflight: (root: string) => PreflightReport;
 }
 
-export class SystemGit implements GitReader {
-  private readonly cwd: string;
-
-  constructor(cwd: string) {
-    this.cwd = cwd;
-  }
-
-  run(args: ReadonlyArray<string>): string {
-    return NodeChildProcess.execFileSync("git", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-    });
-  }
-}
+const systemDependencies: GateDependencies = {
+  preflight: (root) => runPreflight(systemEnv(root)),
+};
 
 export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
   if (argv.length !== 2 || argv[0] !== "--tag" || !argv[1]) {
@@ -90,12 +86,30 @@ export const run = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
   output: GateOutput = processOutput,
+  dependencies: GateDependencies = systemDependencies,
 ): number => {
   try {
     const { tag } = parseArgs(argv);
-    const bootstrapGit = new SystemGit(cwd);
-    const root = bootstrapGit.run(["rev-parse", "--show-toplevel"]).trim();
-    const git = new SystemGit(root);
+    const root = repositoryRoot(cwd);
+
+    // Preconditions first, and the published head only from the preflight that
+    // fetched it. Resolving `origin/hyprws` here would compare the lease against
+    // whatever the last unrelated fetch happened to leave behind.
+    const preflight = dependencies.preflight(root);
+    const unmet = unmetChecks(preflight);
+    if (unmet.length > 0) {
+      for (const check of unmet) {
+        output.stderr(`blocked: precondition unmet: ${check.name}: ${check.detail}\n`);
+        if (check.remedy !== null) output.stderr(`        fix: ${check.remedy}\n`);
+      }
+      return 1;
+    }
+    const liveExpectedOld = preflight.originHyprwsSha;
+    if (liveExpectedOld === null) {
+      output.stderr("blocked: preflight reported no freshly fetched origin/hyprws head\n");
+      return 1;
+    }
+
     const relativeRecord = `${RECORD_DIRECTORY}/${tag}.md`;
     const recordPath = NodePath.join(root, relativeRecord);
     if (!NodeFS.existsSync(recordPath)) {
@@ -103,7 +117,6 @@ export const run = (
       return 1;
     }
 
-    const liveExpectedOld = git.run(["rev-parse", "origin/hyprws^{commit}"]).trim();
     const findings = inspectRecord(NodeFS.readFileSync(recordPath, "utf8"), liveExpectedOld);
     if (findings.length > 0) {
       for (const finding of findings) output.stderr(`blocked: ${finding}\n`);
