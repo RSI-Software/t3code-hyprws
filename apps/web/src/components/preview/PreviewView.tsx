@@ -22,11 +22,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT,
+  normalizeHistoryUrl,
   recordVisitForThread,
   removeUrlForThread,
   setTitleForThreadUrl,
+  useThreadBrowserProjectKey,
   useThreadRecentHistory,
 } from "~/browserHistoryStore";
+import {
+  useBrowserBookmarks,
+  useBrowserBookmarkStorageSync,
+  useBrowserBookmarkStore,
+} from "~/browserBookmarkStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
 import { ensureLocalApi } from "~/localApi";
@@ -161,6 +168,7 @@ export function PreviewView({
   const threadRefRef = useRef(threadRef);
   threadRefRef.current = threadRef;
   const previewState = useThreadPreviewState(threadRef);
+  const browserProjectKey = useThreadBrowserProjectKey(threadRef);
   const recentHistoryEntries = useThreadRecentHistory(
     threadRef,
     BROWSER_HISTORY_MAX_ENTRIES_PER_PROJECT,
@@ -230,6 +238,11 @@ export function PreviewView({
   const desktopOverlay = tabId ? (previewState.desktopByTabId[tabId] ?? null) : null;
   const navStatus = snapshot?.navStatus ?? { _tag: "Idle" as const };
   const url = navStatus._tag === "Idle" ? "" : navStatus.url;
+  const { projectBookmarks, globalBookmarks, bookmarkScope } = useBrowserBookmarks(
+    browserProjectKey,
+    url,
+  );
+  useBrowserBookmarkStorageSync();
   const loading = desktopOverlay?.loading ?? navStatus._tag === "Loading";
   const canGoBack = desktopOverlay?.canGoBack ?? snapshot?.canGoBack ?? false;
   const canGoForward = desktopOverlay?.canGoForward ?? snapshot?.canGoForward ?? false;
@@ -255,6 +268,7 @@ export function PreviewView({
 
   const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
+  const bookmarkable = !isUnreachable && normalizeHistoryUrl(url) !== null;
   const latestHistoryUrl = recentHistoryEntries[0]?.url;
   const threadKey = scopedThreadKey(threadRef);
   useEffect(() => {
@@ -489,6 +503,22 @@ export function PreviewView({
     useRightPanelStore.getState().openBrowser(threadRef, result.value.tabId);
     await closePreviewSession({ closePreview, snapshot, tabId, threadRef });
   }, [closePreview, moveTarget, open, snapshot, tabId, threadRef, url, viewport]);
+
+  const handleBookmarkScopeChange = useCallback(
+    (scope: "project" | "global") => {
+      useBrowserBookmarkStore.getState().setBookmarkScope({
+        projectKey: browserProjectKey,
+        scope,
+        url,
+        title: navTitle ?? undefined,
+      });
+    },
+    [browserProjectKey, navTitle, url],
+  );
+
+  const handleRemoveBookmark = useCallback(() => {
+    useBrowserBookmarkStore.getState().removeBookmark(browserProjectKey, url);
+  }, [browserProjectKey, url]);
 
   const handlePictureInPicture = useCallback(() => {
     if (!tabId) return;
@@ -979,6 +1009,10 @@ export function PreviewView({
         onForward={handleForward}
         onRefresh={handleRefresh}
         onSubmit={(next) => void handleSubmitUrl(next)}
+        bookmarkScope={bookmarkScope}
+        bookmarkProjectAvailable={browserProjectKey !== null}
+        onBookmarkScopeChange={bookmarkable ? handleBookmarkScopeChange : undefined}
+        onRemoveBookmark={bookmarkable ? handleRemoveBookmark : undefined}
         onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
         // Capture, annotation, and the more menu drive the desktop webview, so
         // server tabs leave them out. Floating works for both.
@@ -1108,7 +1142,12 @@ export function PreviewView({
             threadRef={threadRef}
             environmentId={threadRef.environmentId}
             configuredUrls={configuredUrls}
+            projectBookmarks={projectBookmarks}
+            globalBookmarks={globalBookmarks}
             recentEntries={recentHistoryEntries}
+            onRemoveBookmark={(_scope, url) =>
+              useBrowserBookmarkStore.getState().removeBookmark(browserProjectKey, url)
+            }
             onRemoveRecent={(url) => removeUrlForThread(threadRef, url)}
             onOpenUrl={(next) => void handleOpenServerUrl(next)}
           />
