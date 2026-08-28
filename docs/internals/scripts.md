@@ -61,6 +61,13 @@ authenticated.
 - `vp run typecheck`: Strict TypeScript checks for all packages.
 - `vp run test`: Runs workspace tests.
 - `vp run lint:mobile`: Mobile native static analysis (`scripts/mobile-native-static-check.ts`).
+- `node scripts/fork-release-version.ts --channel <stable|nightly>`: Resolves fork release metadata
+  for `.github/workflows/hyprws-release.yml`. Stable requires `--tag vX.Y.Z-hyprws.N`. Nightly
+  requires `--date YYYYMMDD --run-number N --sha SHA`, derives the next patch through the shared
+  nightly-version helpers, and emits `X.Y.Z-hyprws-nightly.YYYYMMDD.N`. Both channels select the
+  previous tag from their own fork tag family for generated release notes. `--github-output`
+  appends the version, tag, name, previous tag, and GitHub release flags to `GITHUB_OUTPUT`;
+  otherwise it prints the same metadata.
 - `vp run fork:delta`: Lists active fork commits above `upstream/main` by `Fork-Domain` and
   `Fork-Tier` trailer (`scripts/fork-delta.ts`), omitting subjects recorded under Retired in the fork
   ledger. `--check` exits 1 when a commit has invalid trailers or a retired subject is still present;
