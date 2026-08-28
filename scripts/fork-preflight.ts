@@ -195,7 +195,7 @@ const checkMirror = (env: PreflightEnv, remotesUsable: boolean): PreflightCheck 
     return unmet(
       CHECK_MIRROR,
       `origin/main ${originSha.slice(0, 12)}, upstream/main ${upstreamSha.slice(0, 12)}`,
-      "dispatch hyprws-rebase-report.yml, or push the mirror with git push origin upstream/main:main",
+      "dispatch hyprws-upstream-sync.yml, or push the mirror with git push origin upstream/main:main",
     );
   }
   return met(CHECK_MIRROR, `origin/main matches upstream/main at ${originSha.slice(0, 12)}`);
