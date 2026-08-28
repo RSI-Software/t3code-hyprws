@@ -29,6 +29,13 @@ Threads don't require a project. Pick **No project** (or press `mod+alt+n` on we
 - **Undo** (web/desktop): Unpinning, settling, snoozing, archiving, or discarding a draft shows a 5-second **Undo** toast (`mod+z`).
 - **Titles**: Choose **Regenerate title** from a thread's menu, or customize title style in **Settings → Threads → Text generation → Thread title instructions** (global or per-project).
 
+In **Manual** mode, drop a thread onto the middle of another active thread to group them. Drop more
+threads onto a group member to add them. Drag a member outside its group to remove it; a group
+disappears when fewer than two threads remain. Groups can be collapsed, renamed, regenerated, or
+dissolved from their header. Generated group names use the same title-generation setting as thread
+titles. Group names, membership, collapsed state, and order are stored on that browser or desktop
+installation. **Automatic** mode hides groups without deleting them.
+
 ### Working section (beta)
 
 Enabled by default (**Settings → General → Working section**, per device). Unpinned threads that are actively running—or waiting on subagents, watched PRs, or monitors—collapse into a **Working** section below Active, and return to the top of Active when they finish, fail, or need input.
