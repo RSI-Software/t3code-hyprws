@@ -40,7 +40,12 @@ import {
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import { resolveThreadRouteFamily, resolveThreadRouteRef } from "../threadRoutes";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+  getOrphanedWorktreePathsForThreads,
+  scopedWorktreePathKey,
+} from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
 import * as ThreadUndo from "./threadUndo";
@@ -347,8 +352,63 @@ export function useThreadActions() {
     ],
   );
 
+  /**
+   * The worktree path keys a batch delete would orphan, for the one confirmation
+   * the batch asks. A project that cleans its worktrees up automatically
+   * contributes nothing, so the batch never asks about a worktree the server
+   * removes by itself.
+   */
+  const collectOrphanedWorktreePathsForThreads = useCallback(
+    (targets: ReadonlyArray<ScopedThreadRef>) => {
+      const threadIdsByEnvironment = new Map<EnvironmentId, Set<ThreadId>>();
+      for (const target of targets) {
+        const threadIds = threadIdsByEnvironment.get(target.environmentId);
+        if (threadIds) {
+          threadIds.add(target.threadId);
+        } else {
+          threadIdsByEnvironment.set(target.environmentId, new Set([target.threadId]));
+        }
+      }
+
+      const pathKeys = new Set<string>();
+      for (const [environmentId, threadIds] of threadIdsByEnvironment) {
+        const environmentSettings = appAtomRegistry
+          .get(environmentServerConfigsAtom)
+          .get(environmentId)?.settings;
+        const threads = readEnvironmentThreadRefs(environmentId).flatMap((ref) => {
+          const shell = readThreadShell(ref);
+          return shell === null ? [] : [shell];
+        });
+        const removableThreadIds = new Set(
+          threads.flatMap((shell) =>
+            threadIds.has(shell.id) &&
+            readProject({ environmentId, projectId: shell.projectId }) !== null &&
+            !(
+              environmentSettings
+                ? resolveWorktreeCleanup(environmentSettings, shell.projectId).worktreeOnDelete
+                : false
+            )
+              ? [shell.id]
+              : [],
+          ),
+        );
+        for (const path of getOrphanedWorktreePathsForThreads(threads, removableThreadIds)) {
+          pathKeys.add(scopedWorktreePathKey(environmentId, path));
+        }
+      }
+      return pathKeys;
+    },
+    [],
+  );
+
   const deleteThread = useCallback(
-    async (target: ScopedThreadRef, opts: { deletedThreadKeys?: ReadonlySet<string> } = {}) => {
+    async (
+      target: ScopedThreadRef,
+      opts: {
+        deletedThreadKeys?: ReadonlySet<string>;
+        worktreeBatch?: { decision: "delete" | "keep"; pathKeys: ReadonlySet<string> };
+      } = {},
+    ) => {
       const resolved = resolveThreadTarget(target);
       if (!resolved) {
         // Thread not in main store (e.g. archived thread) — dispatch delete directly.
@@ -392,6 +452,14 @@ export function useThreadActions() {
         : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== null;
       const localApi = readLocalApi();
+      // A batch delete asks once, up front, so a thread whose worktree that
+      // confirmation covered never asks again here.
+      const batchAnswered =
+        orphanedWorktreePath !== null &&
+        (opts.worktreeBatch?.pathKeys.has(
+          scopedWorktreePathKey(threadRef.environmentId, orphanedWorktreePath),
+        ) ??
+          false);
       let shouldDeleteWorktree = false;
       const environmentSettings = appAtomRegistry
         .get(environmentServerConfigsAtom)
@@ -399,7 +467,9 @@ export function useThreadActions() {
       const automaticWorktreeCleanup = environmentSettings
         ? resolveWorktreeCleanup(environmentSettings, thread.projectId).worktreeOnDelete
         : false;
-      if (canDeleteWorktree && localApi && !automaticWorktreeCleanup) {
+      if (canDeleteWorktree && batchAnswered) {
+        shouldDeleteWorktree = opts.worktreeBatch?.decision === "delete";
+      } else if (canDeleteWorktree && localApi && !automaticWorktreeCleanup) {
         const confirmationResult = await settlePromise(() =>
           localApi.dialogs.confirm(
             [
@@ -890,6 +960,7 @@ export function useThreadActions() {
     () => ({
       archiveThread,
       unarchiveThread,
+      collectOrphanedWorktreePathsForThreads,
       deleteThread,
       confirmAndDeleteThread,
       settleThread,
@@ -906,6 +977,7 @@ export function useThreadActions() {
       archiveThread,
       confirmAndDeleteThread,
       confirmAndUnpinThread,
+      collectOrphanedWorktreePathsForThreads,
       deleteThread,
       pinThread,
       reorderPinnedThread,
