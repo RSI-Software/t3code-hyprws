@@ -16,12 +16,68 @@ import {
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
+const agentsSurface = {
+  id: "agents",
+  kind: "agents",
+  selectedAgentId: null,
+  rosterFocusAgentId: null,
+} as const;
 
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });
 
 describe("rightPanelStore", () => {
+  it("upgrades saved Agents surfaces with neutral drill-down state", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "agents",
+            surfaces: [{ id: "agents", kind: "agents" }],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "agents",
+          surfaces: [
+            {
+              id: "agents",
+              kind: "agents",
+              selectedAgentId: null,
+              rosterFocusAgentId: null,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("opens one child directly and returns to its roster row", () => {
+    useRightPanelStore.getState().openAgents(refA, { selectedAgentId: "agent-1" });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: "agent-1",
+      rosterFocusAgentId: null,
+    });
+
+    useRightPanelStore.getState().openAgents(refA, {
+      selectedAgentId: null,
+      rosterFocusAgentId: "agent-1",
+    });
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: null,
+      rosterFocusAgentId: "agent-1",
+    });
+  });
+
   it("drops the legacy singleton terminal surface during migration", () => {
     expect(
       migratePersistedRightPanelState({
@@ -314,10 +370,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "diff",
-      surfaces: [
-        { id: "diff", kind: "diff" },
-        { id: "agents", kind: "agents" },
-      ],
+      surfaces: [{ id: "diff", kind: "diff" }, agentsSurface],
     });
   });
 
@@ -452,7 +505,7 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "agents",
-      surfaces: [{ id: "agents", kind: "agents" }],
+      surfaces: [agentsSurface],
     });
 
     useRightPanelStore.getState().openFile(refB, "conductor.json");
@@ -470,11 +523,11 @@ describe("rightPanelStore", () => {
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
     expect(
       selectSelectedRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
-    ).toEqual({ id: "agents", kind: "agents" });
+    ).toEqual(agentsSurface);
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: false,
       activeSurfaceId: "agents",
-      surfaces: [{ id: "agents", kind: "agents" }],
+      surfaces: [agentsSurface],
     });
   });
 
