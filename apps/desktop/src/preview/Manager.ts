@@ -1029,6 +1029,39 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     ).pipe(Effect.ignore);
   });
 
+  const applyZoom = Effect.fn("PreviewManager.applyZoom")(function* (
+    tabId: string,
+    transform: (current: number) => number,
+    expectedWebContents?: Electron.WebContents,
+  ) {
+    yield* withTabLifecycleLock(
+      tabId,
+      Effect.gen(function* () {
+        const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
+        if (
+          !tab ||
+          (expectedWebContents !== undefined &&
+            (tab.webContentsId !== expectedWebContents.id ||
+              expectedWebContents.isDestroyed() ||
+              webContents.fromId(expectedWebContents.id) !== expectedWebContents))
+        ) {
+          return;
+        }
+        const next = transform(tab.zoomFactor);
+        if (Math.abs(next - tab.zoomFactor) < ZOOM_EPSILON) return;
+        if (tab.webContentsId != null) {
+          const wc = webContents.fromId(tab.webContentsId);
+          if (wc && !wc.isDestroyed()) {
+            yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
+              wc.setZoomFactor(next),
+            );
+          }
+        }
+        yield* update(tabId, { zoomFactor: next });
+      }),
+    );
+  });
+
   /**
    * Mute counterpart to {@link assertTabZoom}: pushes the tab's committed mute
    * onto whichever guest it currently owns, reading both at call time so an
@@ -1811,6 +1844,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     const audioStateChanged = (
       event: Electron.Event<Electron.WebContentsAudioStateChangedEventParams>,
     ) => runFork(syncTabAudible(tabId, wc, event.audible));
+    const zoomChanged = (_event: Electron.Event, direction: "in" | "out") =>
+      runFork(
+        applyZoom(tabId, (current) => nextZoomLevel(current, direction), wc).pipe(Effect.ignore),
+      );
     const publishFavicon = Effect.fn("PreviewManager.publishFavicon")(function* (input: {
       readonly captureDocumentId: number;
       readonly dataUrl: string;
@@ -2031,6 +2068,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("did-fail-load", failed as never);
         wc.off("audio-state-changed", audioStateChanged);
         wc.off("did-create-window", windowCreated);
+        wc.off("zoom-changed", zoomChanged);
         wc.off("before-input-event", beforeInput);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(RECORDING_INPUT_CHANNEL, recordingInput);
@@ -2052,6 +2090,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.on("dom-ready", restoreRecordingCursor);
         wc.on("did-fail-load", failed as never);
         wc.on("audio-state-changed", audioStateChanged);
+        wc.on("zoom-changed", zoomChanged);
         wc.ipc.on(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.on(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.on(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
@@ -2712,33 +2751,55 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   /**
-   * Chromium hands every guest `<webview>` the embedder's zoom level, so zooming
-   * the app UI drags the previewed page along with it. The preview browser owns
-   * its own zoom factor, so re-assert it on each attached guest whenever the main
-   * window's zoom changes (see DesktopWindow.zoomMain).
+   * Chromium synchronously hands every guest `<webview>` the embedder's new zoom
+   * level. Snapshot the preview-owned factors first, then update the embedder and
+   * restore its guests in the same JavaScript continuation so the inherited zoom
+   * never reaches a rendered frame.
    */
-  const reapplyZoom = Effect.fn("PreviewManager.reapplyZoom")(function* () {
-    const tabIds = Array.from((yield* SynchronizedRef.get(tabsRef)).keys());
-    yield* Effect.forEach(tabIds, assertTabZoom, { discard: true });
-  });
-
-  const applyZoom = Effect.fn("PreviewManager.applyZoom")(function* (
-    tabId: string,
-    transform: (current: number) => number,
-  ) {
-    const tab = (yield* SynchronizedRef.get(tabsRef)).get(tabId);
-    if (!tab) return;
-    const next = transform(tab.zoomFactor);
-    if (Math.abs(next - tab.zoomFactor) < ZOOM_EPSILON) return;
-    if (tab.webContentsId != null) {
-      const wc = webContents.fromId(tab.webContentsId);
-      if (wc && !wc.isDestroyed()) {
-        yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
-          wc.setZoomFactor(next),
+  const restoreGuestZooms = (
+    guests: ReadonlyArray<{
+      readonly tabId: string;
+      readonly wc: Electron.WebContents;
+      readonly zoomFactor: number;
+    }>,
+  ) => {
+    const failures: PreviewOperationError[] = [];
+    for (const { tabId, wc, zoomFactor } of guests) {
+      if (wc.isDestroyed()) continue;
+      try {
+        wc.setZoomFactor(zoomFactor);
+      } catch (cause) {
+        failures.push(
+          new PreviewOperationError({
+            operation: "preserveGuestZooms",
+            tabId,
+            webContentsId: wc.id,
+            cause,
+          }),
         );
       }
     }
-    yield* update(tabId, { zoomFactor: next });
+    return failures;
+  };
+
+  const preserveGuestZooms = Effect.fn("PreviewManager.preserveGuestZooms")(function* (
+    updateEmbedderZoom: () => void,
+  ) {
+    const tabs = yield* SynchronizedRef.get(tabsRef);
+    const guests = Array.from(tabs.values()).flatMap((tab) => {
+      if (tab.webContentsId == null) return [];
+      const wc = webContents.fromId(tab.webContentsId);
+      return wc && !wc.isDestroyed() ? [{ tabId: tab.tabId, wc, zoomFactor: tab.zoomFactor }] : [];
+    });
+
+    updateEmbedderZoom();
+    const failures = restoreGuestZooms(guests);
+    yield* Effect.forEach(
+      failures,
+      (error) =>
+        Effect.logWarning("Failed to restore preview zoom after interface zoom.", { error }),
+      { discard: true },
+    );
   });
 
   // Emulated media lives on the CDP debugger session, not the WebContents, so
@@ -4641,7 +4702,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     openPictureInPicture,
     openDevTools,
     pickElement,
-    reapplyZoom,
+    preserveGuestZooms,
     refresh,
     registerWebview,
     resetZoom: (tabId: string) => applyZoom(tabId, () => DEFAULT_ZOOM_FACTOR),
@@ -4986,7 +5047,7 @@ export interface PreviewWindowManager {
   readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-  readonly reapplyZoom: () => Effect.Effect<void>;
+  readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
   readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
   readonly setColorScheme: (
     tabId: string,
@@ -5085,9 +5146,9 @@ export class PreviewManager extends Context.Service<
     readonly zoomIn: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly zoomOut: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly resetZoom: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
-    // Re-applies every attached guest's own zoom factor, undoing the zoom level
-    // Chromium inherits from the embedder when the app UI zooms.
-    readonly reapplyZoom: () => Effect.Effect<void>;
+    // Applies an embedder zoom update and restores every attached guest's own
+    // zoom factor before Chromium can render the inherited level.
+    readonly preserveGuestZooms: (updateEmbedderZoom: () => void) => Effect.Effect<void>;
     readonly hardReload: (tabId: string) => Effect.Effect<void, PreviewManagerError>;
     readonly setColorScheme: (
       tabId: string,
@@ -5371,7 +5432,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       zoomIn: (tabId) => authorized(tabId, operations.zoomIn(tabId)),
       zoomOut: (tabId) => authorized(tabId, operations.zoomOut(tabId)),
       resetZoom: (tabId) => authorized(tabId, operations.resetZoom(tabId)),
-      reapplyZoom: operations.reapplyZoom,
+      preserveGuestZooms: operations.preserveGuestZooms,
       hardReload: (tabId) => authorized(tabId, operations.hardReload(tabId)),
       setColorScheme: (tabId, colorScheme) =>
         authorized(tabId, operations.setColorScheme(tabId, colorScheme)),
