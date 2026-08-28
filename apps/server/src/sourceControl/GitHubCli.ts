@@ -234,6 +234,8 @@ export class GitHubCli extends Context.Service<
       readonly timeoutMs?: number;
       /** Piped to the child's stdin, for payloads that must never appear in argv. */
       readonly stdin?: string;
+      /** Extra process environment. Undefined values deliberately remove inherited secrets. */
+      readonly env?: NodeJS.ProcessEnv;
       readonly maxOutputBytes?: number;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
@@ -352,6 +354,7 @@ export const make = Effect.gen(function* () {
         cwd: input.cwd,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+        ...(input.env !== undefined ? { env: input.env } : {}),
         ...(input.maxOutputBytes !== undefined ? { maxOutputBytes: input.maxOutputBytes } : {}),
       })
       .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
