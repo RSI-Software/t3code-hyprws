@@ -101,7 +101,41 @@ describe("GitHub issue JSON", () => {
       const issue = yield* decodeGitHubIssueDetail(encodeJson(rawIssue));
       expect(issue.body).toBe("");
       expect(issue.comments).toStrictEqual([]);
+      expect(issue.subIssues).toStrictEqual([]);
+      expect(issue.issueType).toBeNull();
       expect(issue.closedAt).toBeNull();
+    }),
+  );
+
+  it.effect("normalizes the issue type and the sub-issue hierarchy", () =>
+    Effect.gen(function* () {
+      const issue = yield* decodeGitHubIssueDetail(
+        encodeJson({
+          ...rawIssue,
+          issueType: { id: "IT_1", name: "Bug \u{1F41B}", description: "A problem", color: "RED" },
+          subIssues: {
+            nodes: [
+              {
+                id: "I_1",
+                number: 43,
+                title: "Render the list",
+                url: `${rawIssue.url.replace("42", "43")}`,
+                state: "OPEN",
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(issue.issueType).toStrictEqual({ name: "Bug \u{1F41B}", color: "RED" });
+      expect(issue.subIssues).toStrictEqual([
+        {
+          number: 43,
+          title: "Render the list",
+          url: "https://github.com/t3tools/t3code/issues/43",
+          state: "open",
+        },
+      ]);
     }),
   );
 
