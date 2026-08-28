@@ -118,19 +118,20 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 
 ## Domain index
 
-| Domain                                | Status | Tiers present     | Retires when                                                 |
-| ------------------------------------- | ------ | ----------------- | ------------------------------------------------------------ |
-| [project-windows](#project-windows)   | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                |
-| [github-issues](#github-issues)       | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.        |
-| [custom-agents](#custom-agents)       | Active | core              | Upstream main-thread custom-agent selection.                 |
-| [markdown-editing](#markdown-editing) | Active | core              | Upstream ships safe rich Markdown editing.                   |
-| [workspace-files](#workspace-files)   | Active | core              | Upstream supports ignored and trusted linked artifacts.      |
-| [fork-meta](#fork-meta)               | Active | qol               | Never. It documents the fork itself.                         |
-| [distribution](#distribution)         | Active | core              | Never, while the fork ships its own builds.                  |
-| [upstream-fixes](#upstream-fixes)     | Active | bugfix            | Each commit, when upstream ships the fix.                    |
-| [thread-ordering](#thread-ordering)   | Active | qol               | Upstream ships equivalent manual active-thread ordering.     |
-| [zmux-estate](#zmux-estate)           | Active | core              | Upstream terminals attach to an external session manager.    |
-| [worktrunk-hooks](#worktrunk-hooks)   | Active | core              | Upstream worktree lifecycle exposes create and remove hooks. |
+| Domain                                  | Status | Tiers present     | Retires when                                                  |
+| --------------------------------------- | ------ | ----------------- | ------------------------------------------------------------- |
+| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                 |
+| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile browser bookmarks. |
+| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.         |
+| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection.                  |
+| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing.                    |
+| [workspace-files](#workspace-files)     | Active | core              | Upstream supports ignored and trusted linked artifacts.       |
+| [fork-meta](#fork-meta)                 | Active | qol               | Never. It documents the fork itself.                          |
+| [distribution](#distribution)           | Active | core              | Never, while the fork ships its own builds.                   |
+| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix.                     |
+| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships equivalent manual active-thread ordering.      |
+| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager.     |
+| [worktrunk-hooks](#worktrunk-hooks)     | Active | core              | Upstream worktree lifecycle exposes create and remove hooks.  |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -247,6 +248,39 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/ChatMarkdown.tsx`                                | Shared with `github-issues`; neither domain owns it alone.          |
 | `packages/contracts/src/keybindings.ts`                                   | Defines the project-window keybinding action.                       |
 | `packages/shared/src/keybindings.ts`                                      | Maps the project-window keybinding action across clients.           |
+
+## browser-bookmarks
+
+### Need
+
+The embedded browser needs durable shortcuts for sites used by one project and sites used across every project window in the same T3 Code profile.
+
+### Shape
+
+The web client persists a profile-global collection and project-keyed collections in local storage. A Chrome-style star in the browser address field saves, moves, or removes the current page. New browser tabs show non-empty Project and Global sections before recent pages and local servers.
+
+The store normalizes URLs before deduplication, caps collection and project counts, and listens for storage changes so open project windows converge without a server contract or desktop IPC surface.
+
+### Retirement condition
+
+Delete this domain when upstream ships durable browser bookmarks with both project and profile-global scopes, equivalent address-field controls, and cross-window consistency.
+
+### Rebase scan
+
+| Path                                                           | Why inspect it on rebase                                                |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `apps/web/src/browserBookmarkStore.ts`                         | Fork-only persistence and project/global scope model.                   |
+| `apps/web/src/browserBookmarkStore.test.ts`                    | Fork-only storage, migration, isolation, and scope movement coverage.   |
+| `apps/web/src/browserHistoryStore.ts`                          | Exposes the existing normalized project identity to the bookmark store. |
+| `apps/web/src/components/preview/PreviewBookmarkCard.tsx`      | Fork-only bookmark row.                                                 |
+| `apps/web/src/components/preview/PreviewBookmarkMenu.tsx`      | Fork-only star and scope menu.                                          |
+| `apps/web/src/components/preview/PreviewBookmarkMenu.test.tsx` | Fork-only menu interaction and accessibility coverage.                  |
+| `apps/web/src/components/preview/PreviewChromeRow.tsx`         | Shared browser chrome where the address-field star is mounted.          |
+| `apps/web/src/components/preview/PreviewEmptyState.tsx`        | Shared new-tab page where bookmark sections are rendered.               |
+| `apps/web/src/components/preview/PreviewEmptyState.test.tsx`   | Shared new-tab ordering and empty-section coverage.                     |
+| `apps/web/src/components/preview/PreviewView.tsx`              | Shared browser orchestration and cross-window synchronization.          |
+| `docs/user/browser.md`                                         | Fork-only user documentation for bookmark scopes and profile locality.  |
+| `README.md`, `docs/README.md`                                  | Shared documentation indexes that link the browser guide.               |
 
 ## github-issues
 
