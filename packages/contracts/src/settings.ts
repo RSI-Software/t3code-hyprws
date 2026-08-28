@@ -246,6 +246,14 @@ const LegacyConfirmQuit = Schema.Boolean.pipe(
 
 const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
 
+export const GitHubLinkOpenMode = Schema.Literals(["integrated", "external"]);
+export type GitHubLinkOpenMode = typeof GitHubLinkOpenMode.Type;
+export const DEFAULT_GITHUB_LINK_OPEN_MODE: GitHubLinkOpenMode = "external";
+
+export const GitHubChangeRequestOpenMode = Schema.Literals(["native", "integrated", "external"]);
+export type GitHubChangeRequestOpenMode = typeof GitHubChangeRequestOpenMode.Type;
+export const DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE: GitHubChangeRequestOpenMode = "native";
+
 export const FontFamilyPreference = Schema.String.check(Schema.isMaxLength(200));
 export type FontFamilyPreference = typeof FontFamilyPreference.Type;
 
@@ -371,6 +379,12 @@ export const ClientSettingsSchema = Schema.Struct({
 
   browserDefaultProfileId: BrowserProfileId.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_PROFILE_ID)),
+  ),
+  githubLinkOpenMode: GitHubLinkOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_LINK_OPEN_MODE)),
+  ),
+  githubChangeRequestOpenMode: GitHubChangeRequestOpenMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE)),
   ),
 
   confirmQuit: QuitConfirmationModeSetting.pipe(
@@ -1711,6 +1725,8 @@ export const ClientSettingsPatch = Schema.Struct({
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
   browserProfiles: Schema.optionalKey(Schema.Array(BrowserProfile)),
   browserDefaultProfileId: Schema.optionalKey(BrowserProfileId),
+  githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode),
+  githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode),
   confirmQuit: Schema.optionalKey(QuitConfirmationMode),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
