@@ -227,19 +227,19 @@ function isPersistableItemLifecycle(event: ProviderRuntimeEvent): boolean {
   );
 }
 
-function persistedItemLifecycleData(
+function persistedItemLifecycleDetail(
   event: Extract<
     ProviderRuntimeEvent,
     { readonly type: "item.started" | "item.updated" | "item.completed" }
   >,
-): { readonly data?: unknown } {
-  if (
-    event.payload.data === undefined ||
-    (event.payload.agentId !== undefined && event.payload.timelineBypass === true)
-  ) {
-    return {};
-  }
-  return { data: event.payload.data };
+): { readonly data?: unknown; readonly renderDetail?: unknown } {
+  const attributed = event.payload.agentId !== undefined && event.payload.timelineBypass === true;
+  return {
+    ...(!attributed && event.payload.data !== undefined ? { data: event.payload.data } : {}),
+    ...(event.payload.renderDetail !== undefined
+      ? { renderDetail: event.payload.renderDetail }
+      : {}),
+  };
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -890,7 +890,7 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleData(event),
+            ...persistedItemLifecycleDetail(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
@@ -925,7 +925,7 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleData(event),
+            ...persistedItemLifecycleDetail(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
@@ -960,7 +960,7 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleData(event),
+            ...persistedItemLifecycleDetail(event),
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
