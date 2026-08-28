@@ -91,6 +91,9 @@ export function sortThreads<T extends { readonly id: string } & ThreadSortInput>
   threads: readonly T[],
   sortOrder: SidebarThreadSortOrder,
 ): T[] {
+  if (sortOrder === "manual") {
+    return [...threads];
+  }
   return Arr.sort(
     threads,
     Order.mapInput(
@@ -116,7 +119,7 @@ export function getLatestThreadForProject<
   return (
     sortThreads(
       threads.filter((thread) => thread.projectId === projectId && thread.archivedAt === null),
-      sortOrder,
+      sortOrder === "manual" ? "updated_at" : sortOrder,
     )[0] ?? null
   );
 }
