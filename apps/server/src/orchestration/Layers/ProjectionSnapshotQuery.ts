@@ -1,9 +1,12 @@
 import {
   ChatAttachment,
   CheckpointRef,
+  EventId,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT,
+  ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
@@ -57,6 +60,10 @@ import {
   decodeThreadDetailPageCursor,
   encodeThreadDetailPageCursor,
 } from "../threadDetailCursor.ts";
+import {
+  decodeAgentActivityPageCursor,
+  encodeAgentActivityPageCursor,
+} from "../agentActivityCursor.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
@@ -140,6 +147,22 @@ const ProjectIdLookupInput = Schema.Struct({
 });
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
+});
+const AgentMembershipLookupInput = Schema.Struct({
+  threadId: ThreadId,
+  agentId: Schema.String,
+});
+const ProjectionAgentMembershipRowSchema = Schema.Struct({
+  activityId: EventId,
+});
+const AgentActivityWindowLookupInput = Schema.Struct({
+  threadId: ThreadId,
+  agentId: Schema.String,
+  hasCursor: Schema.Number,
+  beforeSequence: Schema.Number,
+  beforeCreatedAt: Schema.String,
+  beforeActivityId: Schema.String,
+  limitPlusOne: Schema.Number,
 });
 // Windowed reads order turns by the stable keyset (anchor, turn key), where
 // anchor is requested_at and turn key is
@@ -1052,6 +1075,72 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sequence ASC,
           created_at ASC,
           activity_id ASC
+      `,
+  });
+
+  const getAgentMembershipRow = SqlSchema.findOneOption({
+    Request: AgentMembershipLookupInput,
+    Result: ProjectionAgentMembershipRowSchema,
+    execute: ({ threadId, agentId }) =>
+      sql`
+        SELECT activity_id AS "activityId"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND kind IN ('task.started', 'task.progress', 'task.updated', 'task.completed')
+          AND json_extract(payload_json, '$.taskId') = ${agentId}
+          AND (
+            json_extract(payload_json, '$.agentKind') = 'agent'
+            OR json_extract(payload_json, '$.agentKind') IS NULL
+          )
+        ORDER BY sequence DESC, created_at DESC, activity_id DESC
+        LIMIT 1
+      `,
+  });
+
+  const listAgentActivityRows = SqlSchema.findAll({
+    Request: AgentActivityWindowLookupInput,
+    Result: ProjectionThreadActivityDbRowSchema,
+    execute: ({
+      threadId,
+      agentId,
+      hasCursor,
+      beforeSequence,
+      beforeCreatedAt,
+      beforeActivityId,
+      limitPlusOne,
+    }) =>
+      sql`
+        SELECT
+          activity_id AS "activityId",
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          tone,
+          kind,
+          summary,
+          payload_json AS "payload",
+          sequence,
+          created_at AS "createdAt"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND (
+            json_extract(payload_json, '$.taskId') = ${agentId}
+            OR json_extract(payload_json, '$.agentId') = ${agentId}
+          )
+          AND (
+            ${hasCursor} = 0
+            OR COALESCE(sequence, -1) < ${beforeSequence}
+            OR (
+              COALESCE(sequence, -1) = ${beforeSequence}
+              AND created_at < ${beforeCreatedAt}
+            )
+            OR (
+              COALESCE(sequence, -1) = ${beforeSequence}
+              AND created_at = ${beforeCreatedAt}
+              AND activity_id < ${beforeActivityId}
+            )
+          )
+        ORDER BY COALESCE(sequence, -1) DESC, created_at DESC, activity_id DESC
+        LIMIT ${limitPlusOne}
       `,
   });
 
@@ -2845,6 +2934,126 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
+  const getAgentActivitySnapshot: ProjectionSnapshotQueryShape["getAgentActivitySnapshot"] = (
+    threadId,
+    agentId,
+    window,
+  ) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const threadRow = yield* getActiveThreadRowById({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:getThread:query",
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:getThread:decodeRow",
+              ),
+            ),
+          );
+          if (Option.isNone(threadRow)) {
+            return Option.none();
+          }
+
+          const membership = yield* getAgentMembershipRow({ threadId, agentId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:getMembership:query",
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:getMembership:decodeRow",
+              ),
+            ),
+          );
+          if (Option.isNone(membership)) {
+            return Option.none();
+          }
+
+          const decodedCursor =
+            window.beforeCursor === undefined
+              ? null
+              : decodeAgentActivityPageCursor(window.beforeCursor);
+          const cursor =
+            decodedCursor?.threadId === threadId && decodedCursor.agentId === agentId
+              ? decodedCursor
+              : null;
+          const limit = Math.min(
+            Math.max(window.limit ?? ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT, 1),
+            ORCHESTRATION_AGENT_ACTIVITY_MAX_LIMIT,
+          );
+          const rows = yield* listAgentActivityRows({
+            threadId,
+            agentId,
+            hasCursor: cursor === null ? 0 : 1,
+            beforeSequence: cursor?.beforeSequence ?? -1,
+            beforeCreatedAt: cursor?.beforeCreatedAt ?? "",
+            beforeActivityId: cursor?.beforeActivityId ?? "",
+            limitPlusOne: limit + 1,
+          }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:listActivities:query",
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:listActivities:decodeRows",
+              ),
+            ),
+          );
+          const hasMore = rows.length > limit;
+          const pageRows = rows.slice(0, limit);
+          const oldest = pageRows.at(-1);
+          const { snapshotSequence } = yield* getSnapshotSequence();
+          const watermarkRow = yield* getThreadEventWatermarkRow({
+            threadId,
+            maxSequence: snapshotSequence,
+          }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:threadWatermark:query",
+                "ProjectionSnapshotQuery.getAgentActivitySnapshot:threadWatermark:decodeRow",
+              ),
+            ),
+          );
+          const threadSequence = Option.match(watermarkRow, {
+            onNone: () => 0,
+            onSome: (row) => row.threadSequence ?? 0,
+          });
+          const activities = pageRows.toReversed().map((row) => ({
+            id: row.activityId,
+            tone: row.tone,
+            kind: row.kind,
+            summary: row.summary,
+            payload: row.payload,
+            turnId: row.turnId,
+            ...(row.sequence === null ? {} : { sequence: row.sequence }),
+            createdAt: row.createdAt,
+          }));
+          return Option.some({
+            agentId,
+            activities,
+            page: {
+              beforeCursor:
+                hasMore && oldest !== undefined
+                  ? encodeAgentActivityPageCursor({
+                      threadId,
+                      agentId,
+                      beforeSequence: oldest.sequence ?? -1,
+                      beforeCreatedAt: oldest.createdAt,
+                      beforeActivityId: oldest.activityId,
+                    })
+                  : null,
+              hasMore,
+              snapshotSequence,
+              threadSequence,
+            },
+          });
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getAgentActivitySnapshot:transaction")(
+                error,
+              ),
+        ),
+      );
+
   return {
     getCommandReadModel,
     getSnapshot,
@@ -2861,6 +3070,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadShellById,
     getThreadDetailById,
     getThreadDetailSnapshot,
+    getAgentActivitySnapshot,
   } satisfies ProjectionSnapshotQueryShape;
 });
 
