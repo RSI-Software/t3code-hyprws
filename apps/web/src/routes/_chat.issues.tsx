@@ -84,14 +84,37 @@ function GitHubIssuesRoute() {
   );
 }
 
+export function ProjectGitHubIssuesPanel({
+  projectRef,
+  onSelectIssue,
+}: {
+  readonly projectRef: ScopedProjectRef;
+  readonly onSelectIssue: (issue: EnvironmentGitHubIssueListEntry) => void;
+}) {
+  const [search, setSearch] = useState<IssuesSearch>({ state: "open" });
+  return (
+    <GitHubIssuesPage
+      forcedProjectRef={projectRef}
+      search={search}
+      onNavigate={(update) => setSearch((previous) => update(previous))}
+      variant="panel"
+      onSelectIssue={onSelectIssue}
+    />
+  );
+}
+
 export function GitHubIssuesPage({
   forcedProjectRef,
   search,
   onNavigate,
+  variant = "page",
+  onSelectIssue,
 }: {
   readonly forcedProjectRef: ScopedProjectRef | null;
   readonly search: IssuesSearch;
   readonly onNavigate: IssuesSearchUpdater;
+  readonly variant?: "page" | "panel";
+  readonly onSelectIssue?: (issue: EnvironmentGitHubIssueListEntry) => void;
 }) {
   const { environments } = useEnvironments();
   const capableEnvironments = useMemo(
@@ -255,14 +278,19 @@ export function GitHubIssuesPage({
     });
   };
   const selectIssue = useCallback(
-    (issue: EnvironmentGitHubIssueListEntry) =>
+    (issue: EnvironmentGitHubIssueListEntry) => {
+      if (onSelectIssue) {
+        onSelectIssue(issue);
+        return;
+      }
       updateSearch({
         selectedEnvironmentId: issue.environmentId,
         selectedProjectId: issue.projectId,
         repository: issue.repository,
         number: issue.number,
-      }),
-    [updateSearch],
+      });
+    },
+    [onSelectIssue, updateSearch],
   );
 
   // Order and narrowing sit on the fetched list rather than the request, so they stay out of the
@@ -388,6 +416,67 @@ export function GitHubIssuesPage({
     />
   );
 
+  const listSection = (
+    <section
+      className={cn(
+        "@container/issues flex min-h-0 min-w-0 flex-1 flex-col",
+        variant === "page" && "border-r border-border",
+      )}
+    >
+      <div className="flex flex-col gap-2 border-b border-border/70 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <GitHubIssueSearchField
+            value={search.q ?? ""}
+            onChange={(next) => updateFilters({ q: next || undefined })}
+          />
+          <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2">
+            <GitHubIssueFilterAdd {...narrowingProps} />
+            <GitHubIssueStateToggle
+              state={search.state}
+              onState={(next) => updateFilters({ state: next })}
+            />
+            <GitHubIssueProjectMenu
+              projects={githubProjects}
+              value={projectMenuValue}
+              windowProjectKey={windowProjectKey}
+              onValueChange={selectProject}
+            />
+            <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
+          </div>
+        </div>
+        <GitHubIssueFilterBar {...narrowingProps} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {listQuery.data?.errors.map((error) => (
+          <div
+            key={`${error.environmentId}:${error.projectId}`}
+            className="border-b border-warning/25 bg-warning-surface px-4 py-2 text-warning-foreground text-xs"
+          >
+            {error.projectTitle}: {error.message}
+          </div>
+        ))}
+        {listQuery.data?.environmentErrors.map((error) => (
+          <div
+            key={error.environmentId}
+            className="border-b border-warning/25 bg-warning-surface px-4 py-2 text-warning-foreground text-xs"
+          >
+            {error.message}
+          </div>
+        ))}
+        {listQuery.data?.truncated ? (
+          <div className="border-b border-border/60 px-4 py-2 text-muted-foreground text-xs">
+            Showing the newest 50 issues. Narrow the list with search or filters.
+          </div>
+        ) : null}
+        {body}
+      </div>
+    </section>
+  );
+
+  if (variant === "panel") {
+    return <div className="flex min-h-0 flex-1 bg-background text-foreground">{listSection}</div>;
+  }
+
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -412,60 +501,7 @@ export function GitHubIssuesPage({
         </WorkspacePageHeader>
 
         <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(20rem,0.9fr)_minmax(24rem,1.1fr)]">
-          <section className="@container/issues flex min-h-0 min-w-0 flex-col border-r border-border">
-            {/*
-              The search field keeps a usable width and the controls wrap under it as one row, so a
-              narrow window loses a line of height rather than shaving the field to a few characters.
-              Applied filters take a line of their own beneath, Linear's way.
-            */}
-            <div className="flex flex-col gap-2 border-b border-border/70 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <GitHubIssueSearchField
-                  value={search.q ?? ""}
-                  onChange={(next) => updateFilters({ q: next || undefined })}
-                />
-                <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2">
-                  <GitHubIssueFilterAdd {...narrowingProps} />
-                  <GitHubIssueStateToggle
-                    state={search.state}
-                    onState={(next) => updateFilters({ state: next })}
-                  />
-                  <GitHubIssueProjectMenu
-                    projects={githubProjects}
-                    value={projectMenuValue}
-                    windowProjectKey={windowProjectKey}
-                    onValueChange={selectProject}
-                  />
-                  <GitHubIssueOrderMenu order={order} onOrder={setOrder} />
-                </div>
-              </div>
-              <GitHubIssueFilterBar {...narrowingProps} />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {listQuery.data?.errors.map((error) => (
-                <div
-                  key={`${error.environmentId}:${error.projectId}`}
-                  className="border-b border-warning/25 bg-warning-surface px-4 py-2 text-warning-foreground text-xs"
-                >
-                  {error.projectTitle}: {error.message}
-                </div>
-              ))}
-              {listQuery.data?.environmentErrors.map((error) => (
-                <div
-                  key={error.environmentId}
-                  className="border-b border-warning/25 bg-warning-surface px-4 py-2 text-warning-foreground text-xs"
-                >
-                  {error.message}
-                </div>
-              ))}
-              {listQuery.data?.truncated ? (
-                <div className="border-b border-border/60 px-4 py-2 text-muted-foreground text-xs">
-                  Showing the newest 50 issues. Narrow the list with search or filters.
-                </div>
-              ) : null}
-              {body}
-            </div>
-          </section>
+          {listSection}
           <section className="hidden min-h-0 min-w-0 overflow-y-auto md:block">{detail}</section>
         </div>
       </div>
