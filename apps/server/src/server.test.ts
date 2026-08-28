@@ -29,6 +29,7 @@ import {
   ProviderInstanceId,
   ResolvedKeybindingRule,
   ThreadId,
+  TurnId,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -78,6 +79,7 @@ const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 const decodeTransferThreadSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationThreadDetailSnapshot),
 );
+const encodeUnknownJsonString = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const collectQueueUntil = Effect.fn("TransferBudget.collectQueueUntil")(function* <A>(
   queue: Queue.Queue<A>,
@@ -115,6 +117,8 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { AGENT_ACTIVITY_SERIALIZED_MAX_BYTES } from "./orchestration/AgentActivityProjection.ts";
+import { encodeAgentActivityPageCursor } from "./orchestration/agentActivityCursor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
@@ -4054,17 +4058,22 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   agentId,
                   activities: [
                     {
-                      id: EventId.make("activity-1"),
+                      id: EventId.make(`activity-${"a".repeat(30_000)}`),
                       tone: "tool" as const,
                       kind: "tool.completed",
                       summary: "Read /home/alice/private/file.ts",
                       payload: {
                         agentId,
                         runHandles: { scriptPath: "/home/alice/workflow.js" },
+                        values: Array.from({ length: 20 }, () =>
+                          Array.from({ length: 20 }, () =>
+                            Array.from({ length: 20 }, () => Array.from({ length: 20 }, () => 1)),
+                          ),
+                        ),
                       },
-                      turnId: null,
+                      turnId: TurnId.make(`turn-${"t".repeat(30_000)}`),
                       sequence: 7,
-                      createdAt: "2026-08-28T00:00:00.000Z",
+                      createdAt: `2026-08-28T00:00:00.${"1".repeat(30_000)}Z`,
                     },
                   ],
                   page: {
@@ -4109,18 +4118,85 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` },
       });
       const missingBody = yield* responseJsonEffect<{ readonly reason: string }>(missingResponse);
+      const malformedCursorResponse = yield* fetchEffect(`${endpoint}&beforeCursor=not-a-cursor`, {
+        headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` },
+      });
+      const malformedCursorBody = yield* responseJsonEffect<{ readonly reason: string }>(
+        malformedCursorResponse,
+      );
+      const crossThreadCursor = encodeAgentActivityPageCursor({
+        threadId: ThreadId.make("thread-2"),
+        agentId: "agent-1",
+        beforeSequence: 7,
+        beforeCreatedAt: "2026-08-28T00:00:00.000Z",
+        beforeActivityId: "activity-1",
+      });
+      const crossThreadCursorResponse = yield* fetchEffect(
+        `${endpoint}&beforeCursor=${encodeURIComponent(crossThreadCursor)}`,
+        { headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` } },
+      );
+      const crossThreadCursorBody = yield* responseJsonEffect<{ readonly reason: string }>(
+        crossThreadCursorResponse,
+      );
+      const crossAgentCursor = encodeAgentActivityPageCursor({
+        threadId: ThreadId.make("thread-1"),
+        agentId: "agent-2",
+        beforeSequence: 7,
+        beforeCreatedAt: "2026-08-28T00:00:00.000Z",
+        beforeActivityId: "activity-1",
+      });
+      const crossAgentCursorResponse = yield* fetchEffect(
+        `${endpoint}&beforeCursor=${encodeURIComponent(crossAgentCursor)}`,
+        { headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` } },
+      );
+      const crossAgentCursorBody = yield* responseJsonEffect<{ readonly reason: string }>(
+        crossAgentCursorResponse,
+      );
+      const nonCanonicalCursor = `${encodeAgentActivityPageCursor({
+        threadId: ThreadId.make("thread-1"),
+        agentId: "agent-1",
+        beforeSequence: 7,
+        beforeCreatedAt: "2026-08-28T00:00:00.000Z",
+        beforeActivityId: "activity-1",
+      })}=`;
+      const nonCanonicalCursorResponse = yield* fetchEffect(
+        `${endpoint}&beforeCursor=${encodeURIComponent(nonCanonicalCursor)}`,
+        { headers: { authorization: `Bearer ${allowed.body.access_token ?? ""}` } },
+      );
+      const nonCanonicalCursorBody = yield* responseJsonEffect<{ readonly reason: string }>(
+        nonCanonicalCursorResponse,
+      );
 
       assert.equal(allowedResponse.status, 200);
-      assert.equal(allowedBody.activities[0]?.summary, "Read [local path]");
-      assert.equal(allowedBody.activities[0]?.truncated, true);
-      assert.deepEqual(allowedBody.activities[0]?.payload, {
-        agentId: "agent-1",
-        runHandles: {},
-      });
+      const allowedActivities = allowedBody.activities;
+      assert.equal(allowedActivities[0]?.summary, "Read [local path]");
+      assert.equal(allowedActivities[0]?.truncated, true);
+      const allowedPayload = allowedActivities[0]?.payload as
+        | {
+            readonly agentId?: string;
+            readonly runHandles?: unknown;
+            readonly values?: unknown;
+          }
+        | undefined;
+      assert.equal(allowedPayload?.agentId, "agent-1");
+      assert.deepEqual(allowedPayload?.runHandles, {});
+      assert.isArray(allowedPayload?.values);
+      assert.isAtMost(
+        Buffer.byteLength(encodeUnknownJsonString(allowedActivities[0]), "utf8"),
+        AGENT_ACTIVITY_SERIALIZED_MAX_BYTES,
+      );
       assert.equal(deniedResponse.status, 403);
       assert.equal(deniedBody.requiredScope, "orchestration:read");
       assert.equal(missingResponse.status, 404);
       assert.equal(missingBody.reason, "agent_not_found");
+      assert.equal(malformedCursorResponse.status, 400);
+      assert.equal(malformedCursorBody.reason, "invalid_agent_activity_cursor");
+      assert.equal(crossThreadCursorResponse.status, 400);
+      assert.equal(crossThreadCursorBody.reason, "invalid_agent_activity_cursor");
+      assert.equal(crossAgentCursorResponse.status, 400);
+      assert.equal(crossAgentCursorBody.reason, "invalid_agent_activity_cursor");
+      assert.equal(nonCanonicalCursorResponse.status, 400);
+      assert.equal(nonCanonicalCursorBody.reason, "invalid_agent_activity_cursor");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
