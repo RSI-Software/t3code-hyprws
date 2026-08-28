@@ -34,3 +34,13 @@ export function isDefaultThreadEnvModeSettled(sources: {
     !sources.projectFilePending
   );
 }
+
+/**
+ * True for every mode that gives the thread its own git worktree. `worktrunk`
+ * is a `worktree` that also runs the repository's Worktrunk hooks, so code
+ * deciding on worktree-shaped behaviour (branch pickers, base selection,
+ * checkout mismatch) treats the two alike.
+ */
+export function isWorktreeEnvMode(mode: ThreadEnvMode): boolean {
+  return mode !== "local";
+}

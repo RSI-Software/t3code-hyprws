@@ -49,7 +49,6 @@ describe("searchSettings", () => {
     expect(searchSettings("external workspace symlinks").map((item) => item.id)).toEqual([
       "external-workspace-symlinks",
     ]);
-    expect(searchSettings("worktrunk hooks").map((item) => item.id)).toEqual(["worktrunk-hooks"]);
     expect(searchSettings("xyzzy")).toEqual([]);
   });
 
@@ -84,10 +83,6 @@ describe("searchSettings", () => {
 
   it("serves anchor props to panels from the catalog", () => {
     expect(searchableSetting("word-wrap")).toEqual({ id: "word-wrap", title: "Word wrap" });
-    expect(searchableSetting("worktrunk-hooks")).toEqual({
-      id: "worktrunk-hooks",
-      title: "Run Worktrunk hooks",
-    });
     expect(searchableSetting("archive")).toEqual({ id: "archive", title: "Archived threads" });
   });
 
