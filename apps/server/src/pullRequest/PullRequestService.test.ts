@@ -1467,20 +1467,30 @@ it.effect("flags a review request for the viewer but not on their own change req
   }),
 );
 
-it.effect("refuses a repository that does not belong to the requested project", () =>
+it.effect("uses the requested project to read another repository on the same host", () =>
   Effect.gen(function* () {
+    const repositories: string[] = [];
     const service = yield* makeService({
       projects: [
         project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
       ],
-      providers: [fakeProvider("github")],
+      providers: [
+        fakeProvider("github", {
+          getDiff: (input) => {
+            repositories.push(input.repository);
+            return Effect.succeed({ patch: "", truncated: false, nextCursor: null });
+          },
+        }),
+      ],
     });
 
-    const error = yield* service
-      .diff({ projectId: "p1" as ProjectId, repository: "attacker/repo", number: 1 })
-      .pipe(Effect.flip);
+    yield* service.diff({
+      projectId: "p1" as ProjectId,
+      repository: "other/repo",
+      number: 1,
+    });
 
-    assert.strictEqual(error._tag, "PullRequestOperationError");
+    assert.deepStrictEqual(repositories, ["other/repo"]);
   }),
 );
 
