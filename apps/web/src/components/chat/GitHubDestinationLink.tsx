@@ -5,6 +5,7 @@ import {
   GithubIcon,
   GitPullRequestIcon,
   Globe2Icon,
+  PanelRightIcon,
 } from "lucide-react";
 import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from "react";
 
@@ -44,16 +45,10 @@ function destinationLabel(destination: GitHubLinkDestination, target: GitHubLink
   return `Open in ${destinationName(destination, target)}`;
 }
 
-function DestinationIcon({
-  destination,
-  target,
-}: {
-  readonly destination: GitHubLinkDestination;
-  readonly target: GitHubLinkTarget;
-}) {
+function DestinationIcon({ destination }: { readonly destination: GitHubLinkDestination }) {
   if (destination === "integrated") return <Globe2Icon />;
   if (destination === "external") return <ExternalLinkIcon />;
-  return target.kind === "issue" ? <CircleDotIcon /> : <GitPullRequestIcon />;
+  return <PanelRightIcon />;
 }
 
 function GitHubTargetIcon({ target }: { readonly target: GitHubLinkTarget }) {
@@ -65,6 +60,12 @@ function GitHubTargetIcon({ target }: { readonly target: GitHubLinkTarget }) {
 function hasModifier(event: MouseEvent<HTMLElement>): boolean {
   return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
+
+const destinationControlOrder: readonly GitHubLinkDestination[] = [
+  "external",
+  "integrated",
+  "native",
+];
 
 export function GitHubDestinationLink({
   children,
@@ -78,7 +79,9 @@ export function GitHubDestinationLink({
   ...props
 }: GitHubDestinationLinkProps) {
   const controls = [
-    ...destinations.filter((destination) => destination !== preferredDestination),
+    ...destinationControlOrder.filter(
+      (destination) => destination !== preferredDestination && destinations.includes(destination),
+    ),
     preferredDestination,
   ];
   const reference = githubLinkLabel(linkTarget) ?? linkTarget.repository;
@@ -91,8 +94,7 @@ export function GitHubDestinationLink({
       className={cn(
         "group/github-link relative inline-flex max-w-full min-w-0 align-middle",
         "rounded-lg border border-border/65 bg-muted/30",
-        "before:absolute before:top-1.5 before:bottom-1.5 before:-left-px before:w-0.5 before:rounded-r-full before:bg-transparent",
-        "transition-colors duration-150 hover:border-primary/35 hover:bg-accent hover:before:bg-primary focus-within:border-primary/35 focus-within:bg-accent focus-within:before:bg-primary",
+        "transition-colors duration-150 hover:border-foreground/20 hover:bg-muted/50 focus-within:border-foreground/20 focus-within:bg-muted/50",
       )}
       data-github-link-kind={linkTarget.kind}
     >
@@ -101,7 +103,7 @@ export function GitHubDestinationLink({
         href={href}
         aria-label={`Open ${reference} in ${defaultName}`}
         className={cn(
-          "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[inherit] px-2.5 py-[7px] text-[0.92em] leading-[1.35] text-foreground no-underline",
+          "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[inherit] py-[7px] pr-10 pl-2.5 text-[0.92em] leading-[1.35] text-foreground no-underline",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           linkTarget.kind === "repository"
             ? "[@media(hover:none)]:pr-[4.25rem]"
@@ -134,27 +136,12 @@ export function GitHubDestinationLink({
             </span>
           </>
         ) : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                className="ml-auto inline-grid size-[22px] shrink-0 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-3.5"
-                aria-hidden
-              />
-            }
-          >
-            <DestinationIcon destination={preferredDestination} target={linkTarget} />
-          </TooltipTrigger>
-          <TooltipPopup side="top">Default: {defaultName}</TooltipPopup>
-        </Tooltip>
       </a>
       <span
         className={cn(
-          "pointer-events-none absolute inset-y-0 right-0 z-10 flex translate-x-1 items-center gap-0.5 overflow-hidden rounded-r-[inherit] border-l border-border/65 bg-accent px-1 opacity-0",
-          "transition-[opacity,transform] duration-150",
-          "group-hover/github-link:pointer-events-auto group-hover/github-link:translate-x-0 group-hover/github-link:opacity-100",
-          "group-focus-within/github-link:pointer-events-auto group-focus-within/github-link:translate-x-0 group-focus-within/github-link:opacity-100",
-          "[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100",
+          "absolute top-1/2 right-1 z-10 flex -translate-y-1/2 items-center gap-0.5",
+          "before:pointer-events-none before:absolute before:inset-y-0 before:-left-6 before:right-0 before:-z-10 before:rounded-md before:bg-gradient-to-r before:from-transparent before:via-background/95 before:to-background before:opacity-0 before:transition-opacity before:duration-150",
+          "group-hover/github-link:before:opacity-100 group-focus-within/github-link:before:opacity-100 [@media(hover:none)]:before:opacity-100",
         )}
         role="toolbar"
         aria-label={`Open ${reference} in another destination`}
@@ -168,9 +155,10 @@ export function GitHubDestinationLink({
               size="icon-micro"
               variant="ghost-muted"
               className={cn(
-                "relative size-8 rounded-md bg-transparent shadow-none [&_svg]:size-4",
-                preferred &&
-                  "text-foreground after:absolute after:right-1 after:bottom-1 after:size-1 after:rounded-full after:bg-primary after:content-['']",
+                "size-7 rounded-md bg-background/95 shadow-none transition-[color,opacity,transform,background-color] duration-150 [&_svg]:size-3.5",
+                preferred
+                  ? "text-foreground"
+                  : "pointer-events-none translate-x-1 opacity-0 group-hover/github-link:pointer-events-auto group-hover/github-link:translate-x-0 group-hover/github-link:opacity-100 group-focus-within/github-link:pointer-events-auto group-focus-within/github-link:translate-x-0 group-focus-within/github-link:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:translate-x-0 [@media(hover:none)]:opacity-100",
               )}
               aria-label={`${label}${preferred ? ", default" : ""}`}
               onClick={(event) => {
@@ -179,13 +167,15 @@ export function GitHubDestinationLink({
                 onOpen(destination, event);
               }}
             >
-              <DestinationIcon destination={destination} target={linkTarget} />
+              <DestinationIcon destination={destination} />
             </Button>
           );
           return (
             <Tooltip key={destination}>
               <TooltipTrigger render={button} />
-              <TooltipPopup side="top">{label}</TooltipPopup>
+              <TooltipPopup side="top">
+                {preferred ? `Default: ${defaultName}` : label}
+              </TooltipPopup>
             </Tooltip>
           );
         })}

@@ -118,6 +118,7 @@ describe("ChatMarkdown GitHub links", () => {
     expect(html).toContain('data-github-link-kind="issue"');
     expect(html).toContain('aria-label="Open RSI-Software/t3code-hyprws#167 in issue panel"');
     expect(html).toContain('role="toolbar"');
+    expect(html).toContain("lucide-panel-right");
     expect(html).toContain('aria-label="Open in issue panel, default"');
     expect(html).toContain('aria-label="Open in external browser"');
     expect(html.indexOf('aria-label="Open in external browser"')).toBeLessThan(
