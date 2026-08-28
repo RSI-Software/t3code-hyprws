@@ -42,6 +42,7 @@
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "fork:delta": "node scripts/fork-delta.ts",
+    "fork:preflight": "node scripts/fork-preflight.ts",
     "fork:sync-gate": "node scripts/fork-sync-gate.ts",
     "fork:upstream-refs": "node scripts/fork-upstream-refs.ts",
     "fork:rebase-report": "node scripts/fork-rebase-report.ts",
