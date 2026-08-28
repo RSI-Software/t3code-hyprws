@@ -67,10 +67,18 @@ authenticated.
   `--json` emits the active ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in
   stack order for `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a
   pull-request body ends with the trailer block its squash commit will inherit.
+- `vp run fork:preflight`: Checks the preconditions the fork-sync gates depend on and names each
+  unmet one (`scripts/fork-preflight.ts`): `rerere.enabled`, the `origin` and `upstream` remotes, a
+  freshly fetched `origin/hyprws`, a `main` mirror level with `upstream/main`, and installed
+  dependencies. It fetches rather than trusting whatever the last unrelated fetch left behind, and
+  exits 1 with every unmet precondition and its fix. Gates call it first and refuse on a failure, so
+  a stale ref is named before a gate acts on it rather than after.
 - `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
-  (`scripts/fork-sync-gate.ts`). It accepts stable tags only and exits 1 unless the committed
-  rehearsal record has a full `expected_old` equal to live `origin/hyprws` and a human sanity login
-  plus ISO date. It only reports readiness; it never pushes, tags, or releases.
+  (`scripts/fork-sync-gate.ts`). It accepts stable tags only, refuses on any unmet preflight
+  precondition, and exits 1 unless the committed rehearsal record has a full `expected_old` equal to
+  the `origin/hyprws` head the preflight fetched, plus a human sanity login and ISO date. It takes
+  that head from the preflight rather than resolving the ref itself, so it cannot pass a lease
+  against a ref nothing fetched. It only reports readiness; it never pushes, tags, or releases.
 - `vp run fork:upstream-refs <file>`: Scans a fork issue, comment, or pull-request body for a live
   upstream reference (`scripts/fork-upstream-refs.ts`). Fenced blocks, code spans, and HTML comments
   are ignored; anything left live exits 1, one finding per line as
