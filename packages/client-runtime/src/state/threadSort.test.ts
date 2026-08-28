@@ -21,6 +21,16 @@ function makeThread(overrides: Partial<TestThread> = {}): TestThread {
 }
 
 describe("sortThreads", () => {
+  it("preserves incoming order in manual mode", () => {
+    const threads = [makeThread({ id: "thread-2" }), makeThread({ id: "thread-1" })];
+
+    expect(sortThreads(threads, "manual").map((thread) => thread.id)).toEqual([
+      "thread-2",
+      "thread-1",
+    ]);
+    expect(sortThreads(threads, "manual")).not.toBe(threads);
+  });
+
   it("falls back to updatedAt and createdAt when latestUserMessageAt is invalid and there are no messages", () => {
     const sorted = sortThreads(
       [
