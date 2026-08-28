@@ -285,6 +285,14 @@ export interface PullRequestProviderApi {
    */
   readonly repositoryKey?: (input: { readonly canonicalKey: string }) => string;
 
+  readonly uploadAttachment?: (
+    input: ProviderRepositoryRef & {
+      readonly path: string;
+      readonly name: string;
+      readonly mimeType: string;
+    },
+  ) => Effect.Effect<string, PullRequestProviderError>;
+
   readonly getViewer: (input: {
     readonly cwd: string;
     readonly host?: string;
