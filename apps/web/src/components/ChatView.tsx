@@ -116,6 +116,7 @@ import {
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
 import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
+import type { EnvironmentGitHubIssueListEntry } from "@t3tools/client-runtime/state/github-issues";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -328,6 +329,7 @@ import {
   releaseClaimedRoles,
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
+import { ProjectGitHubIssuesPanel } from "../routes/_chat.issues";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
 import { getProviderModelCapabilities } from "../providerModels";
 import {
@@ -5521,6 +5523,24 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addIssuesSurface = useCallback(() => {
+    if (
+      !activeThreadRef ||
+      !activeProject ||
+      activeProject.repositoryIdentity?.provider !== "github" ||
+      serverConfig?.environment.capabilities.githubIssues !== true
+    ) {
+      return;
+    }
+    useRightPanelStore.getState().open(activeThreadRef, "github-issues");
+  }, [activeProject, activeThreadRef, serverConfig]);
+  const openIssueFromBrowser = useCallback(
+    (issue: EnvironmentGitHubIssueListEntry) => {
+      if (!activeThreadRef) return;
+      useRightPanelStore.getState().openGitHubIssue(activeThreadRef, issue);
+    },
+    [activeThreadRef],
+  );
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -7210,6 +7230,9 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().openPullRequest(activeThreadRef, pullRequestPanelTarget);
   }, [activeThreadRef, pullRequestPanelTarget, supportsPullRequests]);
   const pullRequestSurfaceAvailable = supportsPullRequests && pullRequestPanelTarget !== null;
+  const issuesSurfaceAvailable =
+    serverConfig?.environment.capabilities.githubIssues === true &&
+    activeProject?.repositoryIdentity?.provider === "github";
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
   const supportsPinning = serverConfig?.environment.capabilities.threadPinning === true;
@@ -11115,6 +11138,12 @@ export default function ChatView(props: ChatViewProps) {
           workspaceMutationId={workspaceMutationId}
         />
       </Suspense>
+    ) : renderedRightPanelSurface?.kind === "github-issues" && activeProject ? (
+      <ProjectGitHubIssuesPanel
+        key={`${activeProject.environmentId}:${activeProject.id}`}
+        projectRef={scopeProjectRef(activeProject.environmentId, activeProject.id)}
+        onSelectIssue={openIssueFromBrowser}
+      />
     ) : renderedRightPanelSurface?.kind === "github-issue" && !githubIssuesCapabilityKnown ? (
       <GitHubIssueDetailGhost />
     ) : renderedRightPanelSurface?.kind === "github-issue" && !supportsGitHubIssues ? (
@@ -11126,6 +11155,15 @@ export default function ChatView(props: ChatViewProps) {
       <GitHubIssueDetailPanel
         key={`${renderedRightPanelSurface.environmentId}:${renderedRightPanelSurface.projectId}:${renderedRightPanelSurface.repository}#${renderedRightPanelSurface.number}`}
         environmentId={renderedRightPanelSurface.environmentId as EnvironmentId}
+        onSelectSubIssue={(child) => {
+          if (!activeThreadRef) return;
+          useRightPanelStore.getState().openGitHubIssue(activeThreadRef, {
+            environmentId: renderedRightPanelSurface.environmentId,
+            projectId: renderedRightPanelSurface.projectId,
+            repository: renderedRightPanelSurface.repository,
+            number: child.number,
+          });
+        }}
         reference={{
           projectId: renderedRightPanelSurface.projectId as ProjectId,
           repository: renderedRightPanelSurface.repository,
@@ -12090,6 +12128,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
+          onAddIssues={addIssuesSurface}
           onAddDevice={addDeviceSurface}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -12097,6 +12136,7 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
+          issuesAvailable={issuesSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
         >
           {rightPanelContent}
@@ -12148,6 +12188,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
+            onAddIssues={addIssuesSurface}
             onAddDevice={addDeviceSurface}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -12155,6 +12196,7 @@ export default function ChatView(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
+            issuesAvailable={issuesSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
           >
             {rightPanelContent}
