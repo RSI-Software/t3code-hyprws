@@ -41,6 +41,7 @@ import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 import { resolveTarget } from "./pullRequestTarget.ts";
+import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
 
 function project(input: {
   readonly id: string;
@@ -327,6 +328,7 @@ function makeService(input: {
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
   readonly resolveRepositoryIdentity?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]["resolve"];
   readonly onProjectRead?: () => void;
+  readonly attachmentStore?: Partial<PullRequestAttachmentStore["Service"]>;
 }) {
   // Build in the test scope; per-call Effect.provide would close the marks database on service acquisition.
   return Effect.flatMap(
@@ -339,6 +341,12 @@ function makeService(input: {
           PullRequestProviderRegistry.PullRequestProviderRegistry,
           PullRequestProviderRegistry.fromProviders(input.providers),
         ),
+        Layer.mock(PullRequestAttachmentStore)({
+          createUploadUrl: () => Effect.die("unused"),
+          resolvePendingPath: () => null,
+          deletePending: () => Effect.void,
+          ...input.attachmentStore,
+        }),
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
           resolveLink: () => undefined,
           resolveHandle:
