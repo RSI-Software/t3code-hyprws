@@ -82,6 +82,67 @@ describe("runtimeEventToActivities task progress", () => {
     expect(usagePayload).not.toHaveProperty("status");
   });
 });
+
+describe("runtimeEventToActivities task provider ownership", () => {
+  for (const providerName of ["codex", "claudeAgent"] as const) {
+    it(`stamps ${providerName} on every reconstructable task lifecycle row`, () => {
+      const provider = ProviderDriverKind.make(providerName);
+      const taskId = RuntimeTaskId.make(`${providerName}-agent`);
+      const events = [
+        {
+          ...base,
+          provider,
+          type: "task.started",
+          eventId: EventId.make(`${providerName}-started`),
+          payload: { taskId, description: "Child started" },
+        },
+        {
+          ...base,
+          provider,
+          type: "task.progress",
+          eventId: EventId.make(`${providerName}-progress`),
+          payload: { taskId, description: "Child", summary: "Inspecting" },
+        },
+        {
+          ...base,
+          provider,
+          type: "task.progress",
+          eventId: EventId.make(`${providerName}-usage`),
+          payload: { taskId, description: "Child", typedUsage: { totalTokens: 42 } },
+        },
+        {
+          ...base,
+          provider,
+          type: "task.updated",
+          eventId: EventId.make(`${providerName}-updated`),
+          payload: { taskId, status: "waiting" },
+        },
+        {
+          ...base,
+          provider,
+          type: "task.completed",
+          eventId: EventId.make(`${providerName}-completed`),
+          payload: { taskId, status: "completed", summary: "Done" },
+        },
+      ] satisfies ReadonlyArray<ProviderRuntimeEvent>;
+
+      const activities = events.flatMap((event) => runtimeEventToActivities(event));
+
+      expect(activities).toHaveLength(5);
+      expect(activities.map((activity) => activity.kind)).toEqual([
+        "task.started",
+        "task.progress",
+        "task.progress",
+        "task.updated",
+        "task.completed",
+      ]);
+      for (const activity of activities) {
+        expect(activity.payload).toMatchObject({ provider });
+        expect(activity).not.toHaveProperty("sequence");
+      }
+    });
+  }
+});
 describe("runtimeEventToActivities tool streaming persistence", () => {
   const accumulatedStdout = [
     "first line of output",

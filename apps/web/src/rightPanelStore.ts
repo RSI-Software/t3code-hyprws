@@ -18,6 +18,20 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
+import { agentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-agents-singleton-import
+import { createOpenAgents } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-import
+import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
+import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
+import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
+import { normalizeAgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-migrate-agents-import
+import { normalizeGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
+import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
+import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
+import type { AgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-agents-surface-import
+import type { GitHubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
+import type { GitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
+import type { OpenAgentsFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-decl-import
+import type { OpenGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -28,8 +42,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
-  "github-issues",
-  "github-issue",
+  ...githubIssueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
   "agents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -55,7 +68,7 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
-  | { id: "github-issues"; kind: "github-issues" }
+  | GitHubIssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -88,23 +101,16 @@ export type RightPanelSurface =
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
-  | {
-      id: `github-issue:${string}`;
-      kind: "github-issue";
-      environmentId: string;
-      projectId: string;
-      repository: string;
-      number: number;
-    }
-  | { id: "agents"; kind: "agents" };
+  | GitHubIssueSurfaceFork // fork-hook: github-issues/right-panel-surface
+  | AgentsSurfaceFork; // fork-hook: custom-agents/right-panel-agents-surface
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
 // v10 keys pull-request surfaces by reference instead of a singleton tab.
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
-// v14 adds GitHub issue surfaces.
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+// v15 gives the singleton Agents surface thread-local drill-down state.
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -141,7 +147,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "github-issue">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
@@ -159,10 +165,8 @@ interface RightPanelStoreState {
       url?: string;
     },
   ) => void;
-  openGitHubIssue: (
-    ref: ScopedThreadRef,
-    target: { environmentId: string; projectId: string; repository: string; number: number },
-  ) => void;
+  openGitHubIssue: OpenGitHubIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
+  openAgents: OpenAgentsFork; // fork-hook: custom-agents/right-panel-open-agents-decl
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -184,7 +188,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "github-issue">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -196,7 +200,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "github-issue">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -205,10 +209,10 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
-    case "github-issues":
-      return { id: "github-issues", kind };
+    case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
+      return githubIssueHubSurfaceFork(); // fork-hook: github-issues/right-panel-hub-singleton
     case "agents":
-      return { id: "agents", kind };
+      return agentsSurfaceFork(); // fork-hook: custom-agents/right-panel-agents-singleton
     case "device":
       return { id: "device", kind };
   }
@@ -282,41 +286,6 @@ export function pullRequestSurface(target: {
     repository: target.repository,
     number: target.number,
     ...(typeof target.url === "string" ? { url: target.url } : {}),
-  };
-}
-
-/**
- * A pull-request tab's status map with one entry set. Keyed by the surface the panel is showing
- * rather than by a key rebuilt from the status, so the tab is found again whether or not that
- * surface was opened with an environment on it. Returns the same map when the tab's own fields
- * have not changed, so a caller can skip a re-render.
- */
-export function updatePullRequestTabStatus<Status extends { state: unknown; isDraft: boolean }>(
-  statuses: Readonly<Record<string, Status>>,
-  surfaceId: string,
-  status: Status,
-): Readonly<Record<string, Status>> {
-  return statuses[surfaceId]?.state === status.state &&
-    statuses[surfaceId]?.isDraft === status.isDraft
-    ? statuses
-    : { ...statuses, [surfaceId]: status };
-}
-
-export type GitHubIssueSurface = Extract<RightPanelSurface, { kind: "github-issue" }>;
-
-export function githubIssueSurface(target: {
-  environmentId: string;
-  projectId: string;
-  repository: string;
-  number: number;
-}): GitHubIssueSurface {
-  return {
-    id: `github-issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`,
-    kind: "github-issue",
-    environmentId: target.environmentId,
-    projectId: target.projectId,
-    repository: target.repository,
-    number: target.number,
   };
 }
 
@@ -453,22 +422,8 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
-                    if (surface.kind === "github-issue") {
-                      if (
-                        typeof surface.environmentId !== "string" ||
-                        surface.environmentId.length === 0 ||
-                        typeof surface.projectId !== "string" ||
-                        surface.projectId.length === 0 ||
-                        typeof surface.repository !== "string" ||
-                        surface.repository.length === 0 ||
-                        typeof surface.number !== "number" ||
-                        !Number.isSafeInteger(surface.number) ||
-                        surface.number < 1
-                      ) {
-                        return [];
-                      }
-                      return [githubIssueSurface(surface)];
-                    }
+                    if (surface.kind === "github-issue") return normalizeGitHubIssueFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
+                    if (surface.kind === "agents") return normalizeAgentsSurfaceFork(surface); // fork-hook: custom-agents/right-panel-migrate-agents
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -510,9 +465,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? (rawActiveSurfaceId ?? null)
                 : rawActiveSurfaceId === "pull-request"
                   ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
-                  : rawActiveSurfaceId === "github-issue"
-                    ? (surfaces.find((surface) => surface.kind === "github-issue")?.id ?? null)
-                    : null;
+                  : resolveGitHubIssueActiveSurfaceIdFork(rawActiveSurfaceId, surfaces); // fork-hook: github-issues/right-panel-active-surface
               // A migration that dropped every surface (e.g. plan-only panels
               // in v9) must not reopen an empty panel.
               const isOpen =
@@ -645,12 +598,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               : next;
           }),
         ),
-      openGitHubIssue: (ref, target) =>
-        set((state) => ({
-          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, githubIssueSurface(target)),
-          ),
-        })),
+      openGitHubIssue: createOpenGitHubIssue({ set, updateThread }), // fork-hook: github-issues/right-panel-open-github-issue
+      openAgents: createOpenAgents({ set, updateThread }), // fork-hook: custom-agents/right-panel-open-agents
       /**
        * Opening a file leaves the standalone explorer alone. It is the way back to the
        * unselected tree, so consuming it would make a file selection a one-way door and
@@ -966,7 +915,7 @@ export function selectActiveRightPanel(
 ): RightPanelKind | null {
   const state = selectThreadRightPanelState(byThreadKey, ref);
   if (!state.isOpen) return null;
-  return state.surfaces.find((surface) => surface.id === state.activeSurfaceId)?.kind ?? null;
+  return selectActiveRightPanelKindFork(state); // fork-hook: github-issues/right-panel-active-kind
 }
 
 export function selectActiveRightPanelSurface(
