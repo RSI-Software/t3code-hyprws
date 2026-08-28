@@ -290,6 +290,14 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import {
+  resolveCompletedTurnTiming,
+  shouldShowSidebarDoneStatus,
+} from "./Sidebar.completedTiming.fork"; // fork-hook: upstream-fixes/completed-timing-import
+import {
+  SidebarCompletedAgeFork,
+  SidebarCompletedTimingTooltipFork,
+} from "./SidebarCompletedTiming.fork"; // fork-hook: upstream-fixes/completed-timing-ui-import
+import {
   composerDraftHasUserContent,
   DraftId,
   useComposerDraftStore,
@@ -1057,6 +1065,9 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        {/* fork-hook: upstream-fixes/completed-timing-tooltip */}
+        <SidebarCompletedTimingTooltipFork thread={thread} />
+        {/* fork-hook-end */}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -1657,6 +1668,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  const completedTimingFork = resolveCompletedTurnTiming(thread); // fork-hook: upstream-fixes/completed-timing
+  const showDoneStatusFork = shouldShowSidebarDoneStatus({
+    status,
+    isUnread,
+    interactionMode: thread.interactionMode,
+    hasActionableProposedPlan: thread.hasActionableProposedPlan,
+    completedTiming: completedTimingFork,
+  }); // fork-hook: upstream-fixes/done-status
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -1713,7 +1732,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       icon: "woke" as const,
                       className: "text-warning",
                     }
-                  : isUnread
+                  : showDoneStatusFork // fork-hook: upstream-fixes/done-status-label
                     ? {
                         label: "Done",
                         icon: "done" as const,
@@ -2373,6 +2392,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               <WorkingDuration startedAt={thread.latestRun?.completedAt ?? null} />
                             </span>
                           ) : null}
+                          {/* fork-hook: upstream-fixes/completed-age */}
+                          {topStatus.icon === "done" && completedTimingFork ? (
+                            <SidebarCompletedAgeFork
+                              completedAt={completedTimingFork.completedAt}
+                            />
+                          ) : null}
+                          {/* fork-hook-end */}
                         </span>
                       )
                     ) : (
