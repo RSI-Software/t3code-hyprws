@@ -54,6 +54,7 @@ const makeProjectionSnapshotQueryLayer = (importedWorkspaceRoots: ReadonlyArray<
     getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
     getProjectShells: () => Effect.die("unused"),
     getProjectShellById: () => Effect.die("unused"),
+    getAgentActivitySnapshot: () => Effect.die("unused"),
     getImportedAgentSessionSources: () => Effect.succeed([]),
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
     getThreadCheckpointContext: () => Effect.die("unused"),

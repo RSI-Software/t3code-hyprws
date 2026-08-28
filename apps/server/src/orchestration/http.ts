@@ -2,12 +2,14 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
+  ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
+import { projectAgentActivitySnapshot } from "./AgentActivityProjection.ts";
 import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
@@ -91,6 +93,29 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
             snapshot.value,
             args.payload.reasoningMessages === "true",
           );
+        }),
+      )
+      .handle(
+        "agentActivity",
+        Effect.fn("environment.orchestration.agentActivity")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const snapshot = yield* projectionSnapshotQuery
+            .getAgentActivitySnapshot(args.params.threadId, args.params.agentId, {
+              limit: args.payload.limit ?? ORCHESTRATION_AGENT_ACTIVITY_DEFAULT_LIMIT,
+              ...(args.payload.beforeCursor === undefined
+                ? {}
+                : { beforeCursor: args.payload.beforeCursor }),
+            })
+            .pipe(
+              Effect.catch((cause) =>
+                failEnvironmentInternal("orchestration_agent_activity_failed", cause),
+              ),
+            );
+          if (Option.isNone(snapshot)) {
+            return yield* failEnvironmentNotFound("agent_not_found");
+          }
+          return projectAgentActivitySnapshot(snapshot.value);
         }),
       )
       .handle(
