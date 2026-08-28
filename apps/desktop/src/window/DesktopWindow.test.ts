@@ -390,14 +390,16 @@ function makeTestLayer(input: {
             }),
           isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
           getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
-          reapplyZoom: () =>
+          preserveGuestZooms: (updateEmbedderZoom) =>
             Effect.sync(() => {
+              updateEmbedderZoom();
               input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
             }),
           forWindow: () =>
             Effect.succeed({
-              reapplyZoom: () =>
+              preserveGuestZooms: (updateEmbedderZoom: () => void) =>
                 Effect.sync(() => {
+                  updateEmbedderZoom();
                   input.previewZoomReapplies?.push(input.window.webContents.getZoomLevel());
                 }),
             } as never),
