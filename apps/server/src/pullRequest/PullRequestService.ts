@@ -19,6 +19,7 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import {
+  type AttachmentCreateUploadUrlResult,
   PullRequestOperationError,
   PullRequestUnavailableError,
   pullRequestHostOf,
@@ -29,6 +30,9 @@ import {
   type PullRequestAction,
   type PullRequestActionInput,
   type PullRequestActivity,
+  type PullRequestAttachmentCreateUploadUrlInput,
+  type PullRequestAttachmentUploadInput,
+  type PullRequestAttachmentUploadResult,
   type PullRequestCommentInput,
   type PullRequestCommentUpdateInput,
   type PullRequestDetail,
@@ -86,6 +90,7 @@ import {
   PullRequestProviderError,
 } from "./PullRequestProvider.ts";
 import * as PullRequestReadCache from "./PullRequestReadCache.ts";
+import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
 import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
 import * as ViewedFiles from "./pullRequestViewedFiles.ts";
 
@@ -235,6 +240,12 @@ export class PullRequestService extends Context.Service<
     ) => Effect.Effect<void, PullRequestError>;
     readonly runAction: (input: PullRequestActionInput) => Effect.Effect<void, PullRequestError>;
     readonly update: (input: PullRequestUpdateInput) => Effect.Effect<void, PullRequestError>;
+    readonly createAttachmentUploadUrl: (
+      input: PullRequestAttachmentCreateUploadUrlInput,
+    ) => Effect.Effect<AttachmentCreateUploadUrlResult, PullRequestError>;
+    readonly uploadAttachment: (
+      input: PullRequestAttachmentUploadInput,
+    ) => Effect.Effect<PullRequestAttachmentUploadResult, PullRequestError>;
     readonly comment: (input: PullRequestCommentInput) => Effect.Effect<void, PullRequestError>;
     readonly updateComment: (
       input: PullRequestCommentUpdateInput,
@@ -599,6 +610,9 @@ function withRateLimitBackoff(
       : {
           updateChangeRequest: interactive("updateChangeRequest", api.updateChangeRequest),
         }),
+    ...(api.uploadAttachment === undefined
+      ? {}
+      : { uploadAttachment: interactive("uploadAttachment", api.uploadAttachment) }),
     comment: interactive("comment", api.comment),
     ...(api.updateComment === undefined
       ? {}
@@ -631,6 +645,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* PullRequestProviderRegistry.PullRequestProviderRegistry;
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+  const attachmentStore = yield* PullRequestAttachmentStore;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const rateLimits = yield* SourceControlRateLimit.SourceControlRateLimit;
   const filesViewedStore = yield* PullRequestFilesViewed.PullRequestFilesViewedRepository;
@@ -2100,6 +2115,79 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  const createAttachmentUploadUrl: PullRequestService["Service"]["createAttachmentUploadUrl"] = (
+    input,
+  ) =>
+    requireProject(input).pipe(
+      Effect.flatMap((project) => {
+        if (
+          project.api.capabilities.attachments !== true ||
+          project.api.uploadAttachment === undefined
+        ) {
+          return Effect.fail(
+            new PullRequestOperationError({
+              operation: "createAttachmentUploadUrl",
+              detail: "This host cannot upload pull request attachments.",
+            }),
+          );
+        }
+        return attachmentStore
+          .createUploadUrl({
+            name: input.name,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new PullRequestOperationError({
+                  operation: "createAttachmentUploadUrl",
+                  detail: "Failed to prepare the attachment upload.",
+                  cause,
+                }),
+            ),
+          );
+      }),
+    );
+
+  const uploadAttachment: PullRequestService["Service"]["uploadAttachment"] = (input) =>
+    requireProject(input).pipe(
+      Effect.flatMap(
+        (project): Effect.Effect<PullRequestAttachmentUploadResult, PullRequestError> => {
+          const upload = project.api.uploadAttachment;
+          if (project.api.capabilities.attachments !== true || upload === undefined) {
+            return Effect.fail(
+              new PullRequestOperationError({
+                operation: "uploadAttachment",
+                detail: "This host cannot upload pull request attachments.",
+              }),
+            );
+          }
+          const path = attachmentStore.resolvePendingPath(input.attachmentId);
+          if (!path) {
+            return Effect.fail(
+              new PullRequestOperationError({
+                operation: "uploadAttachment",
+                detail: "The staged attachment was removed or expired.",
+              }),
+            );
+          }
+          return upload({
+            cwd: project.project.workspaceRoot,
+            repository: project.repository,
+            host: project.host,
+            path,
+            name: input.name,
+            mimeType: input.mimeType,
+          }).pipe(
+            Effect.map((insertion) => ({ insertion })),
+            Effect.mapError(toPullRequestError("uploadAttachment")),
+          );
+        },
+      ),
+      Effect.ensuring(attachmentStore.deletePending(input.attachmentId)),
+    );
+
   const updateComment: PullRequestService["Service"]["updateComment"] = (input) =>
     (input.body.trim().length === 0
       ? Effect.fail(
@@ -3283,6 +3371,8 @@ export const make = Effect.gen(function* () {
     setFilesViewed,
     runAction: runActionAndInvalidate,
     update: invalidatedByMutation(update),
+    createAttachmentUploadUrl,
+    uploadAttachment,
     comment: invalidatedByMutation(comment),
     updateComment: invalidatedByMutation(updateComment),
     submitReview: invalidatedByMutation(submitReview),
