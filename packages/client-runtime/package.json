@@ -99,6 +99,10 @@
       "types": "./src/state/pullRequests.ts",
       "default": "./src/state/pullRequests.ts"
     },
+    "./state/thread-groups": {
+      "types": "./src/state/threadGroups.ts",
+      "default": "./src/state/threadGroups.ts"
+    },
     "./state/project-grouping": {
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"

@@ -21,6 +21,7 @@ export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
   threadOrderByProject?: Record<string, string[]>;
+  threadGroupsByProject?: Record<string, SidebarThreadGroup[]>;
   threadLastVisitedAtById?: Record<string, string>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
@@ -30,6 +31,13 @@ export interface PersistedUiState {
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
+export interface SidebarThreadGroup {
+  id: string;
+  title: string;
+  threadIds: string[];
+  collapsed: boolean;
+}
+
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
@@ -37,6 +45,7 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadOrderByProject: Record<string, string[]>;
+  threadGroupsByProject: Record<string, SidebarThreadGroup[]>;
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
@@ -51,6 +60,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   threadOrderByProject: {},
+  threadGroupsByProject: {},
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -99,6 +109,43 @@ function sanitizeStringArrayRecord(value: unknown): Record<string, string[]> {
   );
 }
 
+function sanitizeThreadGroupRecord(value: unknown): Record<string, SidebarThreadGroup[]> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, SidebarThreadGroup[]> = {};
+  for (const [projectKey, groups] of Object.entries(value)) {
+    if (!projectKey || !Array.isArray(groups)) continue;
+    const usedThreadIds = new Set<string>();
+    const usedGroupIds = new Set<string>();
+    const sanitized = groups.flatMap((group): SidebarThreadGroup[] => {
+      if (!group || typeof group !== "object") return [];
+      const candidate = group as Partial<SidebarThreadGroup>;
+      if (typeof candidate.id !== "string" || !candidate.id) return [];
+      if (usedGroupIds.has(candidate.id)) return [];
+      if (typeof candidate.title !== "string" || !candidate.title.trim()) return [];
+      const threadIds = sanitizeStringArray(candidate.threadIds).filter((id) => {
+        if (usedThreadIds.has(id)) return false;
+        usedThreadIds.add(id);
+        return true;
+      });
+      if (threadIds.length < 2) {
+        for (const id of threadIds) usedThreadIds.delete(id);
+        return [];
+      }
+      usedGroupIds.add(candidate.id);
+      return [
+        {
+          id: candidate.id,
+          title: candidate.title.trim(),
+          threadIds,
+          collapsed: candidate.collapsed === true,
+        },
+      ];
+    });
+    if (sanitized.length > 0) result[projectKey] = sanitized;
+  }
+  return result;
+}
+
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object") {
     return {};
@@ -142,6 +189,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectExpandedById,
     projectOrder,
     threadOrderByProject: sanitizeStringArrayRecord(parsed.threadOrderByProject),
+    threadGroupsByProject: sanitizeThreadGroupRecord(parsed.threadGroupsByProject),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
@@ -221,6 +269,7 @@ export function persistState(state: UiState): void {
         projectExpandedById,
         projectOrder: state.projectOrder,
         threadOrderByProject: state.threadOrderByProject,
+        threadGroupsByProject: state.threadGroupsByProject,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
@@ -429,6 +478,132 @@ export function reorderProjectThreads(
   };
 }
 
+export type SidebarThreadDropMode = "reorder" | "group";
+
+function orderedGroupThreadIds(threadIds: readonly string[], order: readonly string[]): string[] {
+  const members = new Set(threadIds);
+  return order.filter((id) => members.has(id));
+}
+
+export function moveProjectThread(
+  state: UiState,
+  projectKey: string,
+  currentThreadOrder: readonly string[],
+  draggedThreadId: string,
+  targetThreadId: string,
+  mode: SidebarThreadDropMode,
+  newGroup?: { readonly id: string; readonly title: string },
+): UiState {
+  const reordered = reorderProjectThreads(
+    state,
+    projectKey,
+    currentThreadOrder,
+    draggedThreadId,
+    targetThreadId,
+  );
+  if (reordered === state) return state;
+
+  const threadOrder = reordered.threadOrderByProject[projectKey] ?? [...currentThreadOrder];
+  const currentGroups = state.threadGroupsByProject[projectKey] ?? [];
+  const sourceGroup = currentGroups.find((group) => group.threadIds.includes(draggedThreadId));
+  const targetGroup = currentGroups.find((group) => group.threadIds.includes(targetThreadId));
+  let groups = currentGroups.map((group) => ({ ...group, threadIds: [...group.threadIds] }));
+
+  const removeDraggedFromSource = () => {
+    groups = groups.map((group) =>
+      group.id === sourceGroup?.id
+        ? { ...group, threadIds: group.threadIds.filter((id) => id !== draggedThreadId) }
+        : group,
+    );
+  };
+
+  if (mode === "group") {
+    removeDraggedFromSource();
+    if (targetGroup) {
+      groups = groups.map((group) =>
+        group.id === targetGroup.id
+          ? {
+              ...group,
+              threadIds: orderedGroupThreadIds([...group.threadIds, draggedThreadId], threadOrder),
+            }
+          : group,
+      );
+    } else if (newGroup) {
+      groups.push({
+        id: newGroup.id,
+        title: newGroup.title,
+        threadIds: orderedGroupThreadIds([targetThreadId, draggedThreadId], threadOrder),
+        collapsed: false,
+      });
+    }
+  } else if (sourceGroup && sourceGroup.id !== targetGroup?.id) {
+    removeDraggedFromSource();
+  }
+
+  groups = groups
+    .map((group) => ({
+      ...group,
+      threadIds: orderedGroupThreadIds(group.threadIds, threadOrder),
+    }))
+    .filter((group) => group.threadIds.length >= 2);
+
+  return {
+    ...reordered,
+    threadGroupsByProject: {
+      ...state.threadGroupsByProject,
+      [projectKey]: groups,
+    },
+  };
+}
+
+export function renameThreadGroup(
+  state: UiState,
+  projectKey: string,
+  groupId: string,
+  title: string,
+): UiState {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return state;
+  const groups = state.threadGroupsByProject[projectKey] ?? [];
+  if (!groups.some((group) => group.id === groupId && group.title !== trimmedTitle)) return state;
+  return {
+    ...state,
+    threadGroupsByProject: {
+      ...state.threadGroupsByProject,
+      [projectKey]: groups.map((group) =>
+        group.id === groupId ? { ...group, title: trimmedTitle } : group,
+      ),
+    },
+  };
+}
+
+export function setThreadGroupCollapsed(
+  state: UiState,
+  projectKey: string,
+  groupId: string,
+  collapsed: boolean,
+): UiState {
+  const groups = state.threadGroupsByProject[projectKey] ?? [];
+  if (!groups.some((group) => group.id === groupId && group.collapsed !== collapsed)) return state;
+  return {
+    ...state,
+    threadGroupsByProject: {
+      ...state.threadGroupsByProject,
+      [projectKey]: groups.map((group) => (group.id === groupId ? { ...group, collapsed } : group)),
+    },
+  };
+}
+
+export function removeThreadGroup(state: UiState, projectKey: string, groupId: string): UiState {
+  const groups = state.threadGroupsByProject[projectKey] ?? [];
+  const nextGroups = groups.filter((group) => group.id !== groupId);
+  if (nextGroups.length === groups.length) return state;
+  return {
+    ...state,
+    threadGroupsByProject: { ...state.threadGroupsByProject, [projectKey]: nextGroups },
+  };
+}
+
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -446,6 +621,17 @@ interface UiStateStore extends UiState {
     draggedThreadId: string,
     targetThreadId: string,
   ) => void;
+  moveProjectThread: (
+    projectKey: string,
+    currentThreadOrder: readonly string[],
+    draggedThreadId: string,
+    targetThreadId: string,
+    mode: SidebarThreadDropMode,
+    newGroup?: { readonly id: string; readonly title: string },
+  ) => void;
+  renameThreadGroup: (projectKey: string, groupId: string, title: string) => void;
+  setThreadGroupCollapsed: (projectKey: string, groupId: string, collapsed: boolean) => void;
+  removeThreadGroup: (projectKey: string, groupId: string) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -468,6 +654,31 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjectThreads(state, projectKey, currentThreadOrder, draggedThreadId, targetThreadId),
     ),
+  moveProjectThread: (
+    projectKey,
+    currentThreadOrder,
+    draggedThreadId,
+    targetThreadId,
+    mode,
+    newGroup,
+  ) =>
+    set((state) =>
+      moveProjectThread(
+        state,
+        projectKey,
+        currentThreadOrder,
+        draggedThreadId,
+        targetThreadId,
+        mode,
+        newGroup,
+      ),
+    ),
+  renameThreadGroup: (projectKey, groupId, title) =>
+    set((state) => renameThreadGroup(state, projectKey, groupId, title)),
+  setThreadGroupCollapsed: (projectKey, groupId, collapsed) =>
+    set((state) => setThreadGroupCollapsed(state, projectKey, groupId, collapsed)),
+  removeThreadGroup: (projectKey, groupId) =>
+    set((state) => removeThreadGroup(state, projectKey, groupId)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
