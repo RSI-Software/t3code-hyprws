@@ -35,6 +35,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
+import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
@@ -351,6 +352,8 @@ const layerPullRequestService = PullRequestService.layer.pipe(
   Layer.provide(PullRequestReadCache.layer),
   Layer.provide(layerSourceControlProviderRegistry),
   Layer.provide(SourceControlRateLimit.layer),
+  Layer.provide(VcsProcess.layer),
+  Layer.provide(PullRequestAttachmentStore.layer),
 );
 
 const layerGitManager = GitManager.layer.pipe(
