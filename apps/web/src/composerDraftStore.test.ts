@@ -89,7 +89,6 @@ import {
   restoreFailedDraftThread,
   subscribeDraftThreadPromotion,
   type ComposerFileAttachment,
-  resolveComposerDraftStorageKey,
   type ComposerImageAttachment,
   composerFileNeedsReattach,
   partializeComposerDraftStoreState,
