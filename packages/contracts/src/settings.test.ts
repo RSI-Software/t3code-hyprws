@@ -85,6 +85,28 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ClientSettings GitHub link destinations", () => {
+  it("keeps existing link behavior as the defaults", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.githubLinkOpenMode).toBe("external");
+    expect(settings.githubChangeRequestOpenMode).toBe("native");
+  });
+
+  it("accepts only destinations applicable to each GitHub link kind", () => {
+    expect(
+      decodeClientSettings({
+        githubLinkOpenMode: "integrated",
+        githubChangeRequestOpenMode: "external",
+      }),
+    ).toMatchObject({
+      githubLinkOpenMode: "integrated",
+      githubChangeRequestOpenMode: "external",
+    });
+    expect(() => decodeClientSettings({ githubLinkOpenMode: "native" })).toThrow();
+  });
+});
+
 describe("ClientSettings ignored files", () => {
   it("hides ignored files by default and accepts client patches", () => {
     expect(decodeClientSettings({}).showIgnoredFiles).toBe(false);
