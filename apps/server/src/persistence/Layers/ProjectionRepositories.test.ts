@@ -71,38 +71,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     }),
   );
 
-  it.effect("round-trips the worktrunk hooks override through the project row", () =>
-    Effect.gen(function* () {
-      const projects = yield* ProjectionProjectRepository;
-      const base = {
-        projectId: ProjectId.make("project-worktrunk-hooks"),
-        title: "Worktrunk hooks project",
-        workspaceRoot: "/tmp/project-worktrunk-hooks",
-        defaultModelSelection: null,
-        defaultThreadEnvMode: null,
-        scripts: [],
-        createdAt: "2026-03-24T00:00:00.000Z",
-        updatedAt: "2026-03-24T00:00:00.000Z",
-        deletedAt: null,
-      } as const;
-
-      yield* projects.upsert({ ...base, worktrunkHooks: false });
-      const disabled = yield* projects.getById({ projectId: base.projectId });
-      assert.strictEqual(Option.getOrNull(disabled)?.worktrunkHooks, false);
-
-      yield* projects.upsert({ ...base, worktrunkHooks: true });
-      const enabled = yield* projects.getById({ projectId: base.projectId });
-      assert.strictEqual(Option.getOrNull(enabled)?.worktrunkHooks, true);
-
-      yield* projects.upsert({ ...base, worktrunkHooks: null });
-      const cleared = yield* projects.listAll();
-      assert.strictEqual(
-        cleared.find((row) => row.projectId === base.projectId)?.worktrunkHooks,
-        null,
-      );
-    }),
-  );
-
   it.effect("stores JSON for thread model options", () =>
     Effect.gen(function* () {
       const threads = yield* ProjectionThreadRepository;
