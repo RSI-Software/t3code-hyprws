@@ -19,6 +19,15 @@ import {
 } from "./linkedThreadSurface";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
+import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
+import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
+import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
+import { normalizeGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
+import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
+import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
+import type { GitHubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
+import type { GitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
+import type { OpenGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -32,7 +41,7 @@ const RIGHT_PANEL_KINDS = [
   "issue",
   "thread",
   "linked-thread",
-  "github-issue",
+  ...githubIssueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -64,6 +73,8 @@ export type RightPanelSurface =
       /** Set when breadcrumbs moved a folder browser up to the workspace root. */
       folderTrail?: string;
     }
+  | GitHubIssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
+  | GitHubIssueSurfaceFork // fork-hook: github-issues/right-panel-surface
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -103,15 +114,6 @@ export type RightPanelSurface =
       scope: string;
       key: string;
       url?: string;
-    }
-  | { id: "pull-requests"; kind: "pull-requests" } // fork-hook: github-issues/issue-surface-union
-  | {
-      id: `github-issue:${string}`;
-      kind: "github-issue";
-      environmentId: string;
-      projectId: string;
-      repository: string;
-      number: number;
     }
   /**
    * A thread of the panel's environment shown beside it: a side chat or a subagent. Which one is
@@ -240,10 +242,7 @@ interface RightPanelStoreState {
   ) => void;
   /** Clears the surface's pending link only while it is still `revealUrl`. */
   settlePullRequestReveal: (ref: ScopedThreadRef, surfaceId: string, revealUrl: string) => void;
-  openGitHubIssue: (
-    ref: ScopedThreadRef,
-    target: { environmentId: string; projectId: string; repository: string; number: number },
-  ) => void;
+  openGitHubIssue: OpenGitHubIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -313,6 +312,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
+    case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
+      return githubIssueHubSurfaceFork(); // fork-hook: github-issues/right-panel-hub-singleton
     case "device":
       return { id: "device", kind };
   }
@@ -428,41 +429,6 @@ const withoutReveal = (surface: RightPanelSurface): RightPanelSurface => {
   const { revealUrl: _pending, ...rest } = surface;
   return rest;
 };
-
-/**
- * A pull-request tab's status map with one entry set. Keyed by the surface the panel is showing
- * rather than by a key rebuilt from the status, so the tab is found again whether or not that
- * surface was opened with an environment on it. Returns the same map when the tab's own fields
- * have not changed, so a caller can skip a re-render.
- */
-export function updatePullRequestTabStatus<Status extends { state: unknown; isDraft: boolean }>(
-  statuses: Readonly<Record<string, Status>>,
-  surfaceId: string,
-  status: Status,
-): Readonly<Record<string, Status>> {
-  return statuses[surfaceId]?.state === status.state &&
-    statuses[surfaceId]?.isDraft === status.isDraft
-    ? statuses
-    : { ...statuses, [surfaceId]: status };
-}
-
-export type GitHubIssueSurface = Extract<RightPanelSurface, { kind: "github-issue" }>;
-
-export function githubIssueSurface(target: {
-  environmentId: string;
-  projectId: string;
-  repository: string;
-  number: number;
-}): GitHubIssueSurface {
-  return {
-    id: `github-issue:${encodeURIComponent(target.environmentId)}:${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`,
-    kind: "github-issue",
-    environmentId: target.environmentId,
-    projectId: target.projectId,
-    repository: target.repository,
-    number: target.number,
-  };
-}
 
 const upsertSurface = (
   current: ThreadRightPanelState,
@@ -728,22 +694,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
-                    if (surface.kind === "github-issue") {
-                      if (
-                        typeof surface.environmentId !== "string" ||
-                        surface.environmentId.length === 0 ||
-                        typeof surface.projectId !== "string" ||
-                        surface.projectId.length === 0 ||
-                        typeof surface.repository !== "string" ||
-                        surface.repository.length === 0 ||
-                        typeof surface.number !== "number" ||
-                        !Number.isSafeInteger(surface.number) ||
-                        surface.number < 1
-                      ) {
-                        return [];
-                      }
-                      return [githubIssueSurface(surface)];
-                    }
+                    if (surface.kind === "github-issue") return normalizeGitHubIssueFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -790,9 +741,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? (rawActiveSurfaceId ?? null)
                 : rawActiveSurfaceId === "pull-request"
                   ? (surfaces.find((surface) => surface.kind === "pull-request")?.id ?? null)
-                  : rawActiveSurfaceId === "github-issue"
-                    ? (surfaces.find((surface) => surface.kind === "github-issue")?.id ?? null)
-                    : null;
+                  : resolveGitHubIssueActiveSurfaceIdFork(rawActiveSurfaceId, surfaces); // fork-hook: github-issues/right-panel-active-surface
               const isOpen =
                 surfaces.length > 0 &&
                 (typeof validThreadState?.isOpen === "boolean"
@@ -1075,12 +1024,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             ),
           }));
         }),
-      openGitHubIssue: (ref, target) =>
-        set((state) => ({
-          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, githubIssueSurface(target)),
-          ),
-        })),
+      openGitHubIssue: createOpenGitHubIssue({ set, userAction }), // fork-hook: github-issues/right-panel-open-github-issue
       /**
        * Opening a file leaves the standalone explorer alone. It is the way back to the
        * unselected tree, so consuming it would make a file selection a one-way door and
@@ -1580,7 +1524,7 @@ export function selectActiveRightPanel(
 ): RightPanelKind | null {
   const state = selectThreadRightPanelState(byThreadKey, ref);
   if (!state.isOpen) return null;
-  return state.surfaces.find((surface) => surface.id === state.activeSurfaceId)?.kind ?? null;
+  return selectActiveRightPanelKindFork(state); // fork-hook: github-issues/right-panel-active-kind
 }
 
 export function selectActiveRightPanelSurface(
