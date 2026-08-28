@@ -213,7 +213,11 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/updates/DesktopUpdates.ts`                              | Captures the session before `destroyAll`. Upstream edits this file. |
 | `apps/server/src/provider/providerSessionEnvironment.ts`                  | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
 | `apps/server/src/provider/Layers/*Adapter.ts`                             | Every adapter passes that identity into its runtime.                |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                    | Covers project identity propagation through Codex.                  |
+| `apps/server/src/provider/Layers/ProviderService.ts`                      | Owns project-scoped provider session startup.                       |
+| `apps/server/src/provider/Layers/ProviderService.test.ts`                 | Covers project-scoped provider session startup.                     |
 | `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`          | Carries `projectId` on the provider session start input.            |
+| `apps/server/src/keybindings.test.ts`                                     | Covers project-window keybinding dispatch.                          |
 | `apps/desktop/src/app/DesktopClerk.ts`                                    | Single-instance lock and deep-link forwarding.                      |
 | `apps/desktop/src/preview/Manager.ts`                                     | Preview namespacing by window.                                      |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                  | The bridge surface the web client gates on.                         |
@@ -224,13 +228,17 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/WindowProjectScopeToggle.tsx`                    | Shared project/all-project segmented control.                       |
 | `apps/web/src/components/pullRequest/pullRequestListRoute.ts`             | Search contract shared by the hub and project routes.               |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                       | Resolves Pull Requests navigation within the active window scope.   |
+| `apps/web/src/components/ChatView.tsx`                                    | Starts and navigates threads within project-window scope.           |
 | `apps/web/src/components/Sidebar.logic.ts`                                | `isProjectInSidebarScope`; upstream reworks this comparator.        |
 | `apps/web/src/components/Sidebar.logic.test.ts`                           | Fork scope cases sit beside upstream's ordering cases.              |
 | `docs/user/thread-sidebar.md`                                             | Documents the scoped sidebar on a page upstream also edits.         |
+| `docs/user/keybindings.md`                                                | Documents project-window keyboard entry points.                     |
 | `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
 | `apps/web/src/components/preview/previewBridge.ts`                        | The retirement signal. Read it on every rebase.                     |
 | `apps/web/src/components/CommandPalette.tsx`                              | Entry point, and a busy upstream file.                              |
 | `apps/web/src/components/ChatMarkdown.tsx`                                | Shared with `github-issues`; neither domain owns it alone.          |
+| `packages/contracts/src/keybindings.ts`                                   | Defines the project-window keybinding action.                       |
+| `packages/shared/src/keybindings.ts`                                      | Maps the project-window keybinding action across clients.           |
 
 ## github-issues
 
@@ -260,6 +268,8 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/server/src/ws.ts`, `apps/server/src/server.ts`                               | Handler and server-lifetime service wiring.                       |
 | `apps/server/src/auth/RpcAuthorization.ts`                                         | Read-only authorization scopes.                                   |
 | `apps/server/src/environment/ServerEnvironment.ts`                                 | Static capability advertisement.                                  |
+| `apps/server/src/environment/ServerEnvironment.test.ts`                            | Covers GitHub Issues capability advertisement.                    |
+| `packages/contracts/src/environment.test.ts`                                       | Covers the optional GitHub Issues environment capability.         |
 | `packages/client-runtime/src/state/githubIssues.ts`                                | Client-neutral atoms and multi-environment identity.              |
 | `apps/web/src/routes/_chat.issues.tsx`                                             | Hub list and shared page implementation.                          |
 | `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                                     |
@@ -269,8 +279,10 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                |
 | `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.                           |
 | `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                                     |
+| `apps/web/src/lib/openPullRequestLink.test.ts`                                     | Covers issue URL claiming alongside pull requests.                |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                                | Scoped sidebar entry point.                                       |
 | `apps/web/src/components/CommandPalette.tsx`                                       | Scoped command-palette entry point.                               |
+| `docs/user/source-control.md`                                                      | Documents GitHub Issues browsing and hand-off.                    |
 
 ## custom-agents
 
@@ -310,12 +322,19 @@ The upstream behavior must persist the selection and apply it on new and resumed
 | `apps/web/src/components/chat/composerProviderState.tsx`                                                                                | Renders capability-driven composer controls.              |
 | `apps/server/src/provider/Layers/ClaudeProvider.ts`                                                                                     | Discovers Claude agents.                                  |
 | `apps/server/src/provider/Layers/ClaudeAdapter.ts`                                                                                      | Applies Claude's `--agent` launch argument.               |
+| `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`                                                                                 | Covers Claude agent discovery and launch behavior.        |
 | `apps/server/src/provider/Drivers/CodexAgents.ts`                                                                                       | Discovers and parses Codex agent definitions.             |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                                                                                       | Applies Codex agent selection at the adapter boundary.    |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                                                                  | Covers Codex agent selection and session behavior.        |
+| `apps/server/src/provider/Layers/CodexCollabWire.test.ts`                                                                               | Covers Codex custom-agent collaboration wire behavior.    |
 | `apps/server/src/provider/Layers/CodexSessionRuntime.ts`                                                                                | Layers Codex agent config and instructions onto a thread. |
 | `apps/server/src/provider/Layers/CodexProvider.ts`                                                                                      | Builds the Codex agent select descriptor.                 |
 | `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`, `apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts` | Restarts sessions when the root agent changes.            |
+| `apps/server/src/server.test.ts`                                                                                                        | Covers custom-agent behavior through server seams.        |
 | `apps/server/package.json`, `pnpm-lock.yaml`                                                                                            | The `smol-toml` dependency the Codex parser needs.        |
 | `packages/contracts/src/model.ts`, `packages/shared/src/model.ts`                                                                       | Own the generic provider-option contract.                 |
+| `packages/contracts/src/orchestration.ts`                                                                                               | Carries selected agent options through orchestration.     |
+| `docs/user/providers-codex.md`                                                                                                          | Documents Codex custom-agent selection.                   |
 
 ## markdown-editing
 
@@ -351,6 +370,7 @@ The replacement must use the existing file-save path and avoid loading its edito
 | `apps/web/src/components/files/filePreviewMode.ts`     | Keeps MDX outside the rich-editing boundary.             |
 | `apps/web/package.json`, `pnpm-lock.yaml`              | Milkdown and round-trip-test dependencies.               |
 | `apps/web/src/components/ChatMarkdown.tsx`             | Upstream preview changes may replace this domain.        |
+| `docs/README.md`                                       | Indexes the fork's Markdown editing documentation.       |
 
 ## fork-meta
 
@@ -383,6 +403,7 @@ Retired with the fork.
 | `README.md`, `AGENTS.md`, `docs/README.md` | Upstream edits these often and they carry fork-only sections. |
 | `package.json` scripts block               | The `fork:*` aliases sit between upstream aliases.            |
 | `docs/internals/scripts.md`                | Carries the `fork:*` script entries.                          |
+| `docs/internals/ci.md`                     | Documents fork-specific CI and advisory scan behavior.        |
 | `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
 | `.github/pull_request_template.md`         | Carries the fork trailer block every squash body needs.       |
 
@@ -548,9 +569,11 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | ----------------------------------------------------- | ------------------------------------------------------------------------- |
 | `apps/server/src/terminal/Manager.ts`                 | Shell candidate resolution and spawn env; the attach path hooks here.     |
 | `apps/server/src/git/GitWorkflowService.ts`           | Worktree create and remove; the bind and unbind calls hook here.          |
+| `apps/server/src/server.test.ts`                      | Covers zmux attachment and fallback through server seams.                 |
 | `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.          |
 | `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and its legacy migration sit between upstream keys. |
 | `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for the switch; a busy upstream file.                         |
+| `apps/server/src/ws.ts`                               | Shares worktree lifecycle wiring with the zmux binder.                    |
 
 ## worktrunk-hooks
 
@@ -583,12 +606,14 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `packages/contracts/src/orchestration.ts`                     | `prepareWorktree.worktrunk` on the bootstrap payload.                                 |
 | `packages/shared/src/threadEnvMode.ts`                        | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.  |
 | `apps/server/src/ws.ts`                                       | Thread bootstrap worktree create; the create hooks run before the setup script.       |
+| `apps/server/src/server.test.ts`                              | Covers worktrunk lifecycle behavior through server seams.                             |
 | `packages/contracts/src/git.ts`                               | `worktrunk` on the local status result.                                               |
 | `apps/server/src/git/GitWorkflowService.ts`                   | Status carries the marker; on remove it decides the pre-remove and post-remove calls. |
 | `apps/web/src/components/BranchToolbar.logic.ts`              | `EnvMode`, its labels, and every worktree-shaped resolver.                            |
 | `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`    | Composer Workspace picker; the third item, its icon, and the locked label.            |
 | `apps/web/src/components/BranchToolbar.tsx`                   | Mobile-width Workspace menu; the same third item.                                     |
 | `apps/web/src/components/ChatView.tsx`                        | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.      |
+| `apps/web/src/components/ChatView.logic.ts`                   | Shares worktree-shaped thread-start logic with the worktrunk mode.                    |
 | `apps/web/src/components/settings/SettingsPanels.tsx`         | New threads select; a busy upstream file.                                             |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`   | Project Workspace select.                                                             |
 | `apps/mobile/src/features/threads/new-task-flow-provider.tsx` | Maps a `worktrunk` default to `worktree`.                                             |
