@@ -206,6 +206,14 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       [{ tag: "v1.0.0", branch: "release/v1.0.0-hyprws" }],
     );
     assert.strictEqual(result.blocked?.blockingSha, fixture.conflict);
+    assert.strictEqual(
+      result.blocked?.title,
+      `[📡#217] hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
+    );
+    assert.include(
+      result.blocked?.body ?? "",
+      "Parent: RSI-Software/t3code-hyprws#217\n\n<!-- gh-bot:relationships:start -->\nRelationships: none (`--no-relationship`).",
+    );
     assert.strictEqual(result.blocked?.conflicts[0]?.domain, "fork-meta");
     assert.deepStrictEqual(result.verificationDependencySetup, ["shared-install"]);
     assert.include(

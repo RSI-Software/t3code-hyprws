@@ -29,7 +29,8 @@ On each scheduled, pushed, or manually dispatched run, the workflow:
 
 A run that has no newer clean release tag is a successful no-op. A conflict beyond the clean target
 does not prevent the bot from advancing to that target; the same run reports the next block for a
-human.
+human. Every `rebase-blocked` issue files under conflict-handling tracker
+RSI-Software/t3code-hyprws#217.
 
 ## Bot-owned refs
 
