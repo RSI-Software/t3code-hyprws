@@ -73,6 +73,14 @@ authenticated.
   dependencies. It fetches rather than trusting whatever the last unrelated fetch left behind, and
   exits 1 with every unmet precondition and its fix. Gates call it first and refuse on a failure, so
   a stale ref is named before a gate acts on it rather than after.
+- `vp run fork:orient --target vX.Y.Z`: Gate 1 of the fork-sync flow (`scripts/fork-orient.ts`). It
+  runs `fork:preflight`, proves the target exists as a tag and is reachable from `upstream/main` with
+  `git merge-base --is-ancestor`, then prints target, source, shared base, mirror currency,
+  feasibility, automerged overlap, retire candidates, an `upstream-watch` verdict per open issue
+  against that tag, and the Gate 1 Stop block to stdout. It writes no file, ref, or GitHub thread. It
+  imports only Node builtins and its sibling scripts, so `node scripts/fork-orient.ts` runs in a
+  worktree with no dependencies installed; installed dependencies are reported, not required. It
+  exits 1 when a Gate 1 precondition is unmet, the tag is unproved, or the watch sweep fails.
 - `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
   (`scripts/fork-sync-gate.ts`). It accepts stable tags only, refuses on any unmet preflight
   precondition, and exits 1 unless the committed rehearsal record has a full `expected_old` equal to
