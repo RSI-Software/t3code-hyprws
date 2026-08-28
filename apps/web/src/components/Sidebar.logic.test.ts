@@ -22,6 +22,7 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveCompletedTurnTiming,
+  orderThreadsByProjectPreference,
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,

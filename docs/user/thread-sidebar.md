@@ -40,6 +40,11 @@ A thread whose composer holds unsent text or attachments shows an amber tint and
 sidebar, the same marks a new-thread draft uses. On web and desktop, hover the row and choose the
 **X** to discard that draft without opening the thread.
 
+To arrange active work yourself on web or desktop, open **Sort threads**, choose **Manual**, then
+drag an unpinned thread to another position in the same project. The order is stored on that
+browser or desktop installation. Choose **Automatic** to return to the normal active-thread order.
+Pinned, snoozed, and settled threads keep their own ordering rules.
+
 Right-click a pull request link in a thread and choose **Link to thread** to show that pull request
 in the sidebar. The thread settles when the linked pull request merges if **Auto-settle merged
 threads** is enabled. Right-click the same link and choose **Unlink from thread** to remove it.
