@@ -81,6 +81,12 @@ authenticated.
   imports only Node builtins and its sibling scripts, so `node scripts/fork-orient.ts` runs in a
   worktree with no dependencies installed; installed dependencies are reported, not required. It
   exits 1 when a Gate 1 precondition is unmet, the tag is unproved, or the watch sweep fails.
+- `vp run fork:scan`: Checks every fork domain's `### Rebase scan` table in the fork ledger
+  (`scripts/fork-scan.ts`). It groups the fork stack by `Fork-Domain`, intersects the files those
+  commits change with the files upstream changed over the same base, and exits 1 naming each domain
+  and file the domain's scan table does not list. `--target <ref>` picks the upstream ref to compare
+  against (default `upstream/main`), `--head <ref>` the fork ref, and `--base <ref>` overrides their
+  merge base. `vp run fork:scan --head origin/hyprws --target vX.Y.Z` is the gate 3 overlap walk.
 - `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
   (`scripts/fork-sync-gate.ts`). It accepts stable tags only, refuses on any unmet preflight
   precondition, and exits 1 unless the committed rehearsal record has a full `expected_old` equal to
