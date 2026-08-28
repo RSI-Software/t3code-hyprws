@@ -14,6 +14,7 @@ import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 200;
@@ -653,12 +654,59 @@ export function resolveWorkingStartedAt(
   return firstValidTimestamp(thread.session?.updatedAt);
 }
 
+export interface CompletedTurnTiming {
+  readonly completedAt: string;
+  readonly durationMs: number;
+}
+
+/** Frozen timing for the latest completed turn. A missing, malformed, or
+    reversed interval is not repaired into a plausible-looking duration. */
+export function resolveCompletedTurnTiming(
+  thread: Pick<SidebarThreadSummary, "latestTurn">,
+): CompletedTurnTiming | null {
+  const turn = thread.latestTurn;
+  if (turn?.state !== "completed" && turn?.state !== "interrupted") return null;
+  const completedAt = firstValidTimestamp(turn?.completedAt);
+  const startedAt = firstValidTimestamp(turn?.startedAt, turn?.requestedAt);
+  if (completedAt === null || startedAt === null) return null;
+
+  const completedMs = Date.parse(completedAt);
+  const startedMs = Date.parse(startedAt);
+  if (completedMs < startedMs) return null;
+
+  return {
+    completedAt,
+    durationMs: completedMs - startedMs,
+  };
+}
+
+export function shouldShowSidebarDoneStatus(input: {
+  status: SidebarThreadStatus;
+  isUnread: boolean;
+  interactionMode: SidebarThreadSummary["interactionMode"];
+  hasActionableProposedPlan: boolean;
+  completedTiming: CompletedTurnTiming | null;
+}): boolean {
+  if (input.status !== "ready") return false;
+  // Preserve the existing unread badge even when timing is incomplete.
+  if (input.isUnread) return true;
+  // A read plan prompt needs a decision; durable Done must not replace it.
+  if (input.interactionMode === "plan" && input.hasActionableProposedPlan) return false;
+  return input.completedTiming !== null;
+}
+
 export function formatWorkingDurationLabel(elapsedMs: number): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+export function formatSidebarRelativeTimeLabel(timestamp: string): string {
+  const label = formatRelativeTimeLabel(timestamp);
+  if (label === "just now") return "now";
+  return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
 export function resolveThreadStatusPill(input: {
