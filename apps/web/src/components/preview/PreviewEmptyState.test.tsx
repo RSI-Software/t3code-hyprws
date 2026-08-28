@@ -45,7 +45,10 @@ function render(recentEntries: Array<{ url: string; lastVisitedAt: number; title
     <PreviewEmptyState
       threadRef={threadRef}
       environmentId={environmentId}
+      projectBookmarks={[]}
+      globalBookmarks={[]}
       recentEntries={recentEntries}
+      onRemoveBookmark={() => undefined}
       onRemoveRecent={() => undefined}
       onOpenUrl={() => undefined}
     />,
