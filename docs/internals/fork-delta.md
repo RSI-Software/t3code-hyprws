@@ -342,6 +342,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
 - `scripts/fork-preflight.ts` with its `fork:preflight` alias, the precondition check every sync gate runs first.
+- `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-rebase-report.yml`.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
