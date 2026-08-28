@@ -26,6 +26,7 @@ import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
+import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
@@ -319,6 +320,8 @@ const PullRequestServiceLive = PullRequestService.layer.pipe(
   Layer.provide(PullRequestProviderRegistry.layer),
   Layer.provide(SourceControlProviderRegistryLayerLive),
   Layer.provide(SourceControlRateLimit.layer),
+  Layer.provide(VcsProcess.layer),
+  Layer.provide(PullRequestAttachmentStore.layer),
 );
 
 const GitManagerLayerLive = GitManager.layer.pipe(
