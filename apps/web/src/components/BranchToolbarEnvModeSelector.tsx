@@ -1,11 +1,6 @@
-import {
-  FolderGit2Icon,
-  FolderGitIcon,
-  FolderIcon,
-  HistoryIcon,
-  ToggleLeftIcon,
-  ToggleRightIcon,
-} from "lucide-react";
+import { FolderGit2Icon, FolderGitIcon, FolderIcon, HistoryIcon } from "lucide-react";
+import { FolderCogIcon } from "lucide-react"; // fork-hook: worktrunk-hooks/env-mode-selector-cog-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktree-mode-import
 import { memo, useMemo } from "react";
 
 import {
@@ -15,40 +10,29 @@ import {
   type EnvMode,
 } from "./BranchToolbar.logic";
 import { useComposerMenuProps } from "./chat/composerEventScope";
+import { BranchToolbarWorktrunkSelectItem } from "./BranchToolbarEnvModeSelector.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-item-import
 import {
   Select,
   SelectGroup,
   SelectGroupLabel,
   SelectItem,
   SelectPopup,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-export const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
-export const WORKTRUNK_HOOKS_SELECT_VALUE = "worktrunk-hooks";
-export const WORKTRUNK_HOOKS_LABEL = "Run Worktrunk hooks";
-
-/**
- * The project's resolved Worktrunk hooks state for the workspace picker.
- * Toggling writes the project override, the same value Project settings edits.
- */
-export interface WorktrunkHooksControl {
-  readonly enabled: boolean;
-  readonly onToggle: () => void;
-}
+const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 
 interface BranchToolbarEnvModeSelectorProps {
   forceNewWorktree?: boolean;
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  activeWorktrunk?: boolean; // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-prop-type
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel?: string | null;
   onUsePreviousWorktree?: () => void;
-  worktrunkHooks?: WorktrunkHooksControl | null;
 }
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
@@ -56,29 +40,23 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   envLocked,
   effectiveEnvMode,
   activeWorktreePath,
+  activeWorktrunk = false, // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-default
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
-  worktrunkHooks,
 }: BranchToolbarEnvModeSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const showPreviousWorktree = Boolean(previousWorktreeLabel && onUsePreviousWorktree);
-  // Only a new worktree runs hooks, so the item appears once that mode is
-  // picked. Like "previous worktree", selecting it acts without changing the
-  // picker's value.
-  const showWorktrunkHooks = effectiveEnvMode === "worktree" && Boolean(worktrunkHooks);
   const envModeItems = useMemo(
     () => [
       { value: "local", label: resolveCurrentWorkspaceLabel(activeWorktreePath) },
       { value: "worktree", label: resolveEnvModeLabel("worktree") },
+      { value: "worktrunk", label: resolveEnvModeLabel("worktrunk") }, // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-option
       ...(showPreviousWorktree && previousWorktreeLabel
         ? [{ value: PREVIOUS_WORKTREE_SELECT_VALUE, label: previousWorktreeLabel }]
         : []),
-      ...(showWorktrunkHooks
-        ? [{ value: WORKTRUNK_HOOKS_SELECT_VALUE, label: WORKTRUNK_HOOKS_LABEL }]
-        : []),
     ],
-    [activeWorktreePath, previousWorktreeLabel, showPreviousWorktree, showWorktrunkHooks],
+    [activeWorktreePath, previousWorktreeLabel, showPreviousWorktree],
   );
 
   if (envLocked || forceNewWorktree) {
@@ -92,7 +70,11 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           {forceNewWorktree ? (
             <FolderGit2Icon className="size-3 shrink-0" />
           ) : activeWorktreePath ? (
-            <FolderGitIcon className="size-3 shrink-0" />
+            activeWorktrunk ? ( // fork-hook: worktrunk-hooks/env-mode-selector-locked-icon
+              <FolderCogIcon className="size-3 shrink-0" />
+            ) : (
+              <FolderGitIcon className="size-3 shrink-0" />
+            )
           ) : (
             <FolderIcon className="size-3 shrink-0" />
           )}
@@ -106,14 +88,14 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             >
               {forceNewWorktree
                 ? resolveEnvModeLabel("worktree")
-                : resolveLockedWorkspaceLabel(activeWorktreePath)}
+                : resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)}
             </span>
           </span>
         </TooltipTrigger>
         <TooltipPopup>
           {forceNewWorktree
             ? "Each model starts in its own worktree."
-            : resolveLockedWorkspaceLabel(activeWorktreePath)}
+            : resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)}
         </TooltipPopup>
       </Tooltip>
     );
@@ -126,10 +108,6 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       onValueChange={(value: string | null) => {
         if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
           onUsePreviousWorktree?.();
-          return;
-        }
-        if (value === WORKTRUNK_HOOKS_SELECT_VALUE) {
-          worktrunkHooks?.onToggle();
           return;
         }
         onEnvModeChange(value as EnvMode);
@@ -151,6 +129,8 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         >
           {effectiveEnvMode === "worktree" ? (
             <FolderGit2Icon className="size-3" />
+          ) : effectiveEnvMode === "worktrunk" ? ( // fork-hook: worktrunk-hooks/env-mode-selector-trigger-icon
+            <FolderCogIcon className="size-3" />
           ) : activeWorktreePath ? (
             <FolderGitIcon className="size-3" />
           ) : (
@@ -169,8 +149,8 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           </span>
         </TooltipTrigger>
         <TooltipPopup>
-          {effectiveEnvMode === "worktree"
-            ? resolveEnvModeLabel("worktree")
+          {isWorktreeEnvMode(effectiveEnvMode) // fork-hook: worktrunk-hooks/env-mode-selector-trigger-tooltip
+            ? resolveEnvModeLabel(effectiveEnvMode)
             : resolveCurrentWorkspaceLabel(activeWorktreePath)}
         </TooltipPopup>
       </Tooltip>
@@ -193,6 +173,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               {resolveEnvModeLabel("worktree")}
             </span>
           </SelectItem>
+          {/* fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-item */}
+          <BranchToolbarWorktrunkSelectItem />
+          {/* fork-hook-end */}
           {showPreviousWorktree && previousWorktreeLabel ? (
             <SelectItem value={PREVIOUS_WORKTREE_SELECT_VALUE}>
               <span className="inline-flex items-center gap-1.5">
@@ -202,30 +185,6 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             </SelectItem>
           ) : null}
         </SelectGroup>
-        {showWorktrunkHooks && worktrunkHooks ? (
-          <>
-            <SelectSeparator />
-            <SelectGroup>
-              <SelectGroupLabel>Worktrunk</SelectGroupLabel>
-              <SelectItem
-                value={WORKTRUNK_HOOKS_SELECT_VALUE}
-                aria-label={`${WORKTRUNK_HOOKS_LABEL}: ${worktrunkHooks.enabled ? "on" : "off"}`}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  {worktrunkHooks.enabled ? (
-                    <ToggleRightIcon className="size-3" />
-                  ) : (
-                    <ToggleLeftIcon className="size-3 text-muted-foreground" />
-                  )}
-                  {WORKTRUNK_HOOKS_LABEL}
-                  <span className="text-muted-foreground">
-                    {worktrunkHooks.enabled ? "on" : "off"}
-                  </span>
-                </span>
-              </SelectItem>
-            </SelectGroup>
-          </>
-        ) : null}
       </SelectPopup>
     </Select>
   );

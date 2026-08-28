@@ -84,19 +84,13 @@ export const T3ProjectFile = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(
     ThreadEnvMode.annotate({
       description:
-        'Where new threads start for this repository: "worktree" for a fresh git worktree, "local" for the current checkout. A per-project setting in T3 Code overrides this; when neither is set, the global default applies.',
+        'Where new threads start for this repository: "worktree" for a fresh git worktree, "worktrunk" for a fresh git worktree that also runs the Worktrunk hooks in .config/wt.toml, "local" for the current checkout. A per-project setting in T3 Code overrides this; when neither is set, the global default applies.',
     }),
   ),
   worktreeSubmodules: Schema.optionalKey(
     WorktreeSubmodules.annotate({
       description:
         'How new worktrees populate git submodules: "recursive" (the default) initializes nested submodules too, "top-level" initializes only those declared by this repository, and "none" leaves every submodule empty for a setup script to handle. A project or environment setting in T3 Code overrides this.',
-    }),
-  ),
-  worktrunkHooks: Schema.optionalKey(
-    Schema.Boolean.annotate({
-      description:
-        "Whether T3 Code runs this repository's Worktrunk hooks (.config/wt.toml) when it creates or removes a thread worktree. Overrides the environment setting for this project; false skips every hook.",
     }),
   ),
   scripts: Schema.optionalKey(
