@@ -128,6 +128,7 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
+  onAddIssues: () => void;
   onAddDevice: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
@@ -135,6 +136,7 @@ interface RightPanelTabsProps {
   filesAvailable: boolean;
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
+  issuesAvailable: boolean;
   deviceAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
@@ -163,6 +165,7 @@ const SURFACE_DISABLED_REASONS = {
   diff: "Diff is only available for server threads in Git repositories.",
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
+  issues: "GitHub Issues are only available for GitHub projects on supported servers.",
   device: "Devices are only available from a thread.",
 } as const;
 
@@ -186,8 +189,95 @@ const SURFACE_UNAVAILABLE_HINTS = {
   diff: "Available for Git repositories.",
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
+  issues: "Available for GitHub projects on supported servers.",
   device: "Available from a thread.",
 } as const;
+
+const rightPanelSurfaceActions = (props: RightPanelTabsProps) =>
+  [
+    {
+      label: "Browser",
+      description: "Open a local app or URL.",
+      icon: Globe2,
+      shortcut: "B",
+      available: props.browserAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.browser,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.browser,
+      onClick: props.onAddBrowser,
+    },
+    {
+      label: "Terminal",
+      description: "Start a shell in this workspace.",
+      icon: TerminalSquare,
+      shortcut: "T",
+      available: props.terminalAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.terminal,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.terminal,
+      onClick: props.onAddTerminal,
+    },
+    {
+      label: "Files",
+      description: "Browse and read workspace files.",
+      icon: Files,
+      shortcut: "F",
+      available: props.filesAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.files,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.files,
+      onClick: props.onAddFiles,
+    },
+    {
+      label: "Diff",
+      description: "Review changes in this thread.",
+      icon: FileDiff,
+      shortcut: "D",
+      available: props.diffAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.diff,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.diff,
+      onClick: props.onAddDiff,
+    },
+    {
+      label: "Pull request",
+      description: "Open this branch's pull request.",
+      icon: PullRequestGlyph.pullRequest,
+      shortcut: "P",
+      available: props.pullRequestAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.pullRequest,
+      onClick: props.onAddPullRequest,
+    },
+    {
+      label: "Linked pull requests",
+      description: "Every pull request this thread has linked, stacks included.",
+      icon: PullRequestGlyph.link,
+      shortcut: "L",
+      available: props.pullRequestsAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.pullRequests,
+      onClick: props.onAddPullRequests,
+    },
+    {
+      label: "Issues",
+      description: "Browse this project's GitHub issues.",
+      icon: CircleDot,
+      shortcut: "I",
+      available: props.issuesAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.issues,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.issues,
+      onClick: props.onAddIssues,
+    },
+    {
+      label: "Device",
+      description: "Watch an iOS Simulator or Android Emulator.",
+      icon: Smartphone,
+      shortcut: "M",
+      available: props.deviceAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.device,
+      unavailableHint: SURFACE_UNAVAILABLE_HINTS.device,
+      onClick: props.onAddDevice,
+    },
+  ] as const;
+
+type SurfaceAction = ReturnType<typeof rightPanelSurfaceActions>[number];
 
 type TabContextMenuAction =
   | "rename"
@@ -317,87 +407,13 @@ function SurfaceMenuItem(props: {
  * surfaces stay visible with a one-line reason.
  */
 function RightPanelEmptyState(props: {
-  onAddBrowser: () => void;
+  actions: readonly SurfaceAction[];
   onAddBrowserInProfile: (profileId: string) => void;
   browserProfiles: ReadonlyArray<{ readonly id: string; readonly name: string }>;
-  onAddTerminal: () => void;
-  onAddDiff: () => void;
-  onAddFiles: () => void;
-  onAddPullRequest: () => void;
-  onAddPullRequests: () => void;
-  onAddDevice: () => void;
-  browserAvailable: boolean;
-  terminalAvailable: boolean;
-  diffAvailable: boolean;
-  filesAvailable: boolean;
-  pullRequestAvailable: boolean;
-  pullRequestsAvailable: boolean;
-  deviceAvailable: boolean;
 }) {
+  const { actions } = props;
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
-
-  const actions = [
-    {
-      label: "Browser",
-      icon: Globe2,
-      shortcut: "B",
-      available: props.browserAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.browser,
-      onClick: props.onAddBrowser,
-    },
-    {
-      label: "Terminal",
-      icon: TerminalSquare,
-      shortcut: "T",
-      available: props.terminalAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.terminal,
-      onClick: props.onAddTerminal,
-    },
-    {
-      label: "Files",
-      icon: Files,
-      shortcut: "F",
-      available: props.filesAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
-      onClick: props.onAddFiles,
-    },
-    {
-      label: "Diff",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
-      onClick: props.onAddDiff,
-    },
-    {
-      label: "Pull request",
-      icon: PullRequestGlyph.pullRequest,
-      shortcut: "P",
-      available: props.pullRequestAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequest,
-      onClick: props.onAddPullRequest,
-    },
-    {
-      label: "Linked pull requests",
-      icon: PullRequestGlyph.link,
-      shortcut: "L",
-      available: props.pullRequestsAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
-      onClick: props.onAddPullRequests,
-    },
-    {
-      label: "Device",
-      description: "Watch an iOS Simulator or Android Emulator.",
-      icon: Smartphone,
-      shortcut: "M",
-      available: props.deviceAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
-      onClick: props.onAddDevice,
-    },
-  ] as const;
-
-  type SurfaceAction = (typeof actions)[number];
 
   const availableActions = actions.filter((action) => action.available);
   const highlightIndex =
@@ -558,7 +574,7 @@ function RightPanelEmptyState(props: {
             ) : (
               <DisabledReasonTooltip
                 key={action.label}
-                reason={action.disabledReason}
+                reason={action.unavailableHint} // fork-hook: github-issues/empty-state-unavailable-hint
                 trigger={
                   <div
                     tabIndex={0}
@@ -602,6 +618,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "github-issues":
+      return "Issues";
     case "github-issue":
       return `Issue #${surface.number}`;
     case "device":
@@ -691,6 +709,8 @@ function SurfaceIcon({
       // The tab carries no issue state, and a closed issue reads as muted everywhere else it is
       // drawn. Stays neutral until a tab status feeds this the way pull requests do.
       return <CircleDot className="size-3 shrink-0 text-muted-foreground" />;
+    case "github-issues":
+      return <CircleDot className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -869,64 +889,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     });
   }, []);
 
-  const addSurfaceActions = [
-    {
-      label: "Browser",
-      icon: Globe2,
-      shortcut: "B",
-      available: props.browserAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.browser,
-      onClick: props.onAddBrowser,
-    },
-    {
-      label: "Terminal",
-      icon: TerminalSquare,
-      shortcut: "T",
-      available: props.terminalAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.terminal,
-      onClick: props.onAddTerminal,
-    },
-    {
-      label: "Files",
-      icon: Files,
-      shortcut: "F",
-      available: props.filesAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.files,
-      onClick: props.onAddFiles,
-    },
-    {
-      label: "Diff",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.diff,
-      onClick: props.onAddDiff,
-    },
-    {
-      label: "Pull request",
-      icon: PullRequestGlyph.pullRequest,
-      shortcut: "P",
-      available: props.pullRequestAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
-      onClick: props.onAddPullRequest,
-    },
-    {
-      label: "Linked pull requests",
-      icon: PullRequestGlyph.link,
-      shortcut: "L",
-      available: props.pullRequestsAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
-      onClick: props.onAddPullRequests,
-    },
-    {
-      label: "Device",
-      icon: Smartphone,
-      shortcut: "M",
-      available: props.deviceAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.device,
-      onClick: props.onAddDevice,
-    },
-  ] as const;
+  const addSurfaceActions = rightPanelSurfaceActions(props);
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -1400,22 +1363,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
         {props.activeSurfaceId === null ? (
           <RightPanelEmptyState
-            onAddBrowser={props.onAddBrowser}
+            actions={addSurfaceActions}
             onAddBrowserInProfile={props.onAddBrowserInProfile}
             browserProfiles={browserProfiles}
-            onAddTerminal={props.onAddTerminal}
-            onAddDiff={props.onAddDiff}
-            onAddFiles={props.onAddFiles}
-            onAddPullRequest={props.onAddPullRequest}
-            onAddPullRequests={props.onAddPullRequests}
-            onAddDevice={props.onAddDevice}
-            browserAvailable={props.browserAvailable}
-            terminalAvailable={props.terminalAvailable}
-            diffAvailable={props.diffAvailable}
-            filesAvailable={props.filesAvailable}
-            pullRequestAvailable={props.pullRequestAvailable}
-            pullRequestsAvailable={props.pullRequestsAvailable}
-            deviceAvailable={props.deviceAvailable}
           />
         ) : (
           props.children
