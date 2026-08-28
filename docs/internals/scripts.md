@@ -94,12 +94,25 @@ authenticated.
   and file the domain's scan table does not list. `--target <ref>` picks the upstream ref to compare
   against (default `upstream/main`), `--head <ref>` the fork ref, and `--base <ref>` overrides their
   merge base. `vp run fork:scan --head origin/hyprws --target vX.Y.Z` is the gate 3 overlap walk.
+- `vp run fork:auto-rebase --fetch --mode candidate`: Reads the rebase feasibility window directly,
+  selects its newest upstream stable or nightly tag, and replays the complete fork stack in a
+  detached temporary worktree (`scripts/fork-auto-rebase.ts`). It snapshots each intermediate stable
+  tag to a create-only `release/vX.Y.Z-hyprws` branch. Candidate mode force-updates `hyprws-next`;
+  `on` also records `hyprws-previous` and rewrites `hyprws` with an explicit expected-old lease;
+  a rejected lease restores both the prior recovery ref and snapshots created by that run. `off`
+  reports without mutating refs. Verification reuses the checkout install only when the target leaves
+  every workspace manifest and `pnpm-lock.yaml` unchanged; otherwise it runs `vp i` in the detached
+  worktree. `--dry-run` performs the selection, rebase, and verification without any push. `--target`
+  accepts only an upstream release tag inside the clean window. The workflow consumes `--summary`,
+  `--issue-json`, and `--github-output` for its run summary and fork-local issues.
 - `vp run fork:sync-gate --tag vX.Y.Z`: Guards the human-only apply step
-  (`scripts/fork-sync-gate.ts`). It accepts stable tags only, refuses on any unmet preflight
-  precondition, and exits 1 unless the committed rehearsal record has a full `expected_old` equal to
-  the `origin/hyprws` head the preflight fetched, plus a human sanity login and ISO date. It takes
-  that head from the preflight rather than resolving the ref itself, so it cannot pass a lease
-  against a ref nothing fetched. It only reports readiness; it never pushes, tags, or releases.
+  (`scripts/fork-sync-gate.ts`). Stable tags remain the default; `--allow-nightly` also accepts
+  `vX.Y.Z-nightly.YYYYMMDD.N` for a deliberate nightly-target rehearsal. The gate refuses on any
+  unmet preflight precondition and exits 1 unless the committed rehearsal record has a full
+  `expected_old` equal to the `origin/hyprws` head the preflight fetched, plus a human sanity login
+  and ISO date. It takes that head from the preflight rather than resolving the ref itself, so it
+  cannot pass a lease against a ref nothing fetched. It only reports readiness; it never pushes,
+  tags, or releases.
 - `vp run fork:upstream-refs <file>`: Scans a fork issue, comment, or pull-request body for a live
   upstream reference (`scripts/fork-upstream-refs.ts`). Fenced blocks, code spans, and HTML comments
   are ignored; anything left live exits 1, one finding per line as
