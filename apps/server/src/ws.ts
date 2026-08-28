@@ -2526,6 +2526,9 @@ const layerWsRpc = (
           ),
         [WS_METHODS.pullRequestsUpdate]: (input) =>
           withPullRequestViewer(input, pullRequests.update(input)),
+        [WS_METHODS.pullRequestsCreateAttachmentUploadUrl]: (input) =>
+          pullRequests.createAttachmentUploadUrl(input),
+        [WS_METHODS.pullRequestsUploadAttachment]: (input) => pullRequests.uploadAttachment(input),
         [WS_METHODS.pullRequestsComment]: (input) =>
           withPullRequestViewer(input, pullRequests.comment(input)),
         [WS_METHODS.pullRequestsUpdateComment]: (input) =>
