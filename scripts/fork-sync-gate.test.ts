@@ -16,9 +16,17 @@ const record = (expectedOld = SHA, sanity = "donjor 2026-08-27") => `# Rehearsal
 - \`expected_old\`: \`${expectedOld}\`\n
 - Human sanity: ${sanity}\n`;
 
-it("accepts only one stable tag", () => {
-  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3"]), { tag: "v1.2.3" });
-  assert.throws(() => parseArgs(["--tag", "v1.2.3-nightly.4"]), UsageError);
+it("keeps stable-only as the default and opts into nightly tags", () => {
+  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3"]), {
+    tag: "v1.2.3",
+    allowNightly: false,
+  });
+  assert.deepStrictEqual(parseArgs(["--allow-nightly", "--tag", "v1.2.3-nightly.20260828.4"]), {
+    tag: "v1.2.3-nightly.20260828.4",
+    allowNightly: true,
+  });
+  assert.throws(() => parseArgs(["--tag", "v1.2.3-nightly.20260828.4"]), UsageError);
+  assert.throws(() => parseArgs(["--tag", "v1.2.3-nightly.4", "--allow-nightly"]), UsageError);
   assert.throws(() => parseArgs(["--tag", "../../tmp"]), UsageError);
   assert.throws(() => parseArgs([]), UsageError);
 });
