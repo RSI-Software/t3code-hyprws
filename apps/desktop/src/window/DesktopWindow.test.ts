@@ -226,6 +226,7 @@ function makeTestLayer(input: {
   readonly environmentEnv?: Record<string, string | undefined>;
   readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
   readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -337,6 +338,16 @@ function makeTestLayer(input: {
     destroyAll: Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
+  const testElectronMenuLayer = input.popupTemplates
+    ? Layer.succeed(ElectronMenu.ElectronMenu, {
+        setApplicationMenu: () => Effect.void,
+        popupTemplate: ({ template }) =>
+          Effect.sync(() => {
+            input.popupTemplates?.push([...template]);
+          }),
+        showContextMenu: () => Effect.succeed(Option.none()),
+      } satisfies ElectronMenu.ElectronMenu["Service"])
+    : electronMenuLayer;
 
   return DesktopWindow.layer.pipe(
     Layer.provide(
@@ -352,7 +363,7 @@ function makeTestLayer(input: {
         hyprlandPlacementLayer,
         windowSessionLayer,
         electronAppLayer,
-        electronMenuLayer,
+        testElectronMenuLayer,
         Layer.succeed(ElectronShell.ElectronShell, {
           openExternal: (url) =>
             Effect.sync(() => {
@@ -524,6 +535,68 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
   });
 
 describe("DesktopWindow", () => {
+  it.effect("leaves app context menus to the renderer while preserving native text actions", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const popupTemplates: Electron.MenuItemConstructorOptions[][] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        popupTemplates,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        const contextMenu = fakeWindow.webContentsListeners.get("context-menu");
+        if (!contextMenu) {
+          return yield* Effect.die("context-menu listener was not registered");
+        }
+
+        const appMenuEvent = { preventDefault: vi.fn() };
+        contextMenu(appMenuEvent, {
+          isEditable: false,
+          selectionText: "",
+          editFlags: {},
+          dictionarySuggestions: [],
+          linkURL: "",
+          mediaType: "none",
+          misspelledWord: "",
+        } as unknown as Electron.ContextMenuParams);
+        yield* Effect.promise(() => Promise.resolve());
+
+        assert.deepEqual(popupTemplates, []);
+        assert.equal(appMenuEvent.preventDefault.mock.calls.length, 1);
+
+        const editableEvent = { preventDefault: vi.fn() };
+        contextMenu(editableEvent, {
+          isEditable: true,
+          selectionText: "selected text",
+          editFlags: {
+            canCut: true,
+            canCopy: true,
+            canPaste: true,
+            canSelectAll: true,
+          },
+          dictionarySuggestions: [],
+          linkURL: "",
+          mediaType: "none",
+          misspelledWord: "",
+        } as unknown as Electron.ContextMenuParams);
+        yield* Effect.promise(() => Promise.resolve());
+
+        assert.deepEqual(
+          popupTemplates[0]?.map((item) => item.role),
+          ["cut", "copy", "paste", "selectAll"],
+        );
+        assert.equal(editableEvent.preventDefault.mock.calls.length, 1);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
   it("restores bounds only when the window fits within a connected display", () => {
     const persistedBounds = { x: 2040, y: 80, width: 1320, height: 880 };
     const displays = [
