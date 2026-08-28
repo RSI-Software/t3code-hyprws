@@ -58,7 +58,10 @@ async function render(
       <PreviewEmptyState
         threadRef={threadRef}
         environmentId={environmentId}
+        projectBookmarks={[]} // fork-hook: browser-bookmarks/empty-state-test-project
+        globalBookmarks={[]} // fork-hook: browser-bookmarks/empty-state-test-global
         recentEntries={recentEntries}
+        onRemoveBookmark={() => {}} // fork-hook: browser-bookmarks/empty-state-test-remove
         onRemoveRecent={onRemoveRecent}
         onOpenUrl={onOpenUrl}
       />,
