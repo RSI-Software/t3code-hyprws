@@ -1,10 +1,16 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, GitHubIssueDetail, GitHubIssueRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  GitHubIssueDetail,
+  GitHubIssueRef,
+  GitHubSubIssue,
+} from "@t3tools/contracts";
 import { DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE } from "@t3tools/contracts/settings";
 import {
   CircleDotIcon,
   CircleSlash2Icon,
   ExternalLinkIcon,
+  ListTreeIcon,
   MessageSquareIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -24,6 +30,7 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
 import { GitHubIssueDetailGhost } from "./GitHubIssueGhosts";
 
@@ -101,6 +108,7 @@ export function GitHubIssueDetailContent({
   handoffPromptTemplate = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
   loading,
   onRetry,
+  onSelectSubIssue,
 }: {
   readonly environmentId: EnvironmentId | null;
   readonly detail: GitHubIssueDetail | null;
@@ -108,6 +116,11 @@ export function GitHubIssueDetailContent({
   readonly handoffPromptTemplate?: string;
   readonly loading: boolean;
   readonly onRetry: () => void;
+  /**
+   * Opens a child of this issue in the same panel. Absent where the panel has no list behind it —
+   * the right-panel tab — and there a child is a link to GitHub instead.
+   */
+  readonly onSelectSubIssue?: (child: GitHubSubIssue) => void;
 }) {
   const newThread = useNewThreadHandler();
   const [preparing, setPreparing] = useState(false);
@@ -167,6 +180,9 @@ export function GitHubIssueDetailContent({
     );
   }
 
+  // An environment on an older server omits the key rather than sending an empty list.
+  const subIssues = detail.subIssues ?? [];
+
   return (
     <article className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
       <div className="flex flex-wrap items-start gap-3">
@@ -202,14 +218,12 @@ export function GitHubIssueDetailContent({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-1.5">
+      <div className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
+        {detail.issueType == null ? null : (
+          <GitHubIssueTypeChip issueType={detail.issueType} className="px-2" />
+        )}
         {detail.labels.map((label) => (
-          <span
-            key={label.name}
-            className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs"
-          >
-            {label.name}
-          </span>
+          <GitHubIssueLabelChip key={label.name} label={label} className="px-2" />
         ))}
         {detail.assignees.map((assignee) => (
           <span
@@ -232,6 +246,27 @@ export function GitHubIssueDetailContent({
           <p className="text-muted-foreground text-sm">No description provided.</p>
         )}
       </section>
+
+      {subIssues.length > 0 ? (
+        <section className="mt-6">
+          <h3 className="flex items-center gap-2 font-medium text-sm">
+            <ListTreeIcon className="size-4" /> Sub-issues (
+            {subIssues.filter((child) => child.state === "closed").length} of {subIssues.length}{" "}
+            closed)
+          </h3>
+          <ul className="mt-3 divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70">
+            {subIssues.map((child) => (
+              <li key={child.url}>
+                <GitHubSubIssueRow
+                  child={child}
+                  repository={detail.repository}
+                  {...(onSelectSubIssue ? { onSelect: onSelectSubIssue } : {})}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="mt-8">
         <h3 className="flex items-center gap-2 font-medium text-sm">
@@ -265,6 +300,58 @@ export function GitHubIssueDetailContent({
         </div>
       </section>
     </article>
+  );
+}
+
+/**
+ * A child's repository, read off its URL. GitHub allows a sub-issue in another repository, and the
+ * detail request only reaches the one this issue belongs to, so a foreign child opens on GitHub.
+ */
+const SUB_ISSUE_REPOSITORY = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/issues\/\d+/;
+
+function gitHubSubIssueRepository(url: string): string | null {
+  return SUB_ISSUE_REPOSITORY.exec(url)?.[1] ?? null;
+}
+
+function GitHubSubIssueRow({
+  child,
+  repository,
+  onSelect,
+}: {
+  readonly child: GitHubSubIssue;
+  readonly repository: string;
+  readonly onSelect?: (child: GitHubSubIssue) => void;
+}) {
+  const sameRepository =
+    gitHubSubIssueRepository(child.url)?.toLowerCase() === repository.toLowerCase();
+  const inner = (
+    <>
+      <GitHubIssueStateIcon
+        state={child.state}
+        className={cn(
+          "size-4 shrink-0",
+          child.state === "open" ? "text-success-foreground" : "text-muted-foreground",
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate">{child.title}</span>
+      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">#{child.number}</span>
+    </>
+  );
+  const className =
+    "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+  if (onSelect === undefined || !sameRepository) {
+    return (
+      <a href={child.url} target="_blank" rel="noreferrer noopener" className={className}>
+        {inner}
+        <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      </a>
+    );
+  }
+  return (
+    <button type="button" className={className} onClick={() => onSelect(child)}>
+      {inner}
+    </button>
   );
 }
 
