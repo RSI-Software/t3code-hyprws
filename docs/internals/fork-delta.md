@@ -491,6 +491,13 @@ letting new activity reshuffle the list.
 - The preference is client-local and overlays the existing automatic order, so new threads append
   predictably and switching back to Automatic is lossless.
 - Pinned, snoozed, and settled ordering remains unchanged.
+- A center drop on another active thread creates or extends a visual group; an edge drop keeps the
+  existing reorder behavior. Dragging outside a group removes the member, and one-member groups
+  dissolve automatically.
+- Group membership, names, and collapsed state persist beside the manual order. Automatic mode
+  preserves but does not render those preferences.
+- Initial and regenerated group names use the server's existing thread-title generation path;
+  group headers also support inline manual renaming and dissolution.
 
 ### Retirement condition
 
@@ -499,15 +506,18 @@ without requiring the fork to migrate or discard saved order.
 
 ### Rebase scan
 
-| Path                                              | Why it matters                                      |
-| ------------------------------------------------- | --------------------------------------------------- |
-| `packages/contracts/src/settings.ts`              | Carries the Manual sort option.                     |
-| `packages/client-runtime/src/state/threadSort.ts` | Defines Manual as preserving supplied order.        |
-| `apps/web/src/uiStateStore.ts`                    | Persists client-local per-project thread order.     |
-| `apps/web/src/components/Sidebar.logic.ts`        | Overlays per-project order without crossing groups. |
-| `apps/web/src/components/Sidebar.tsx`             | Owns the active-thread drag interaction.            |
-| `apps/web/src/components/LegacySidebar.tsx`       | Keeps the legacy sort control compatible.           |
-| `docs/user/thread-sidebar.md`                     | Documents the user-visible behavior.                |
+| Path                                                 | Why it matters                                      |
+| ---------------------------------------------------- | --------------------------------------------------- |
+| `packages/contracts/src/settings.ts`                 | Carries the Manual sort option.                     |
+| `packages/client-runtime/src/state/threadSort.ts`    | Defines Manual as preserving supplied order.        |
+| `apps/web/src/uiStateStore.ts`                       | Persists client-local per-project thread order.     |
+| `apps/web/src/components/Sidebar.logic.ts`           | Overlays per-project order without crossing groups. |
+| `apps/web/src/components/Sidebar.tsx`                | Owns the active-thread drag interaction.            |
+| `apps/web/src/components/SidebarThreadGroup.tsx`     | Renders group headers and name controls.            |
+| `packages/contracts/src/environmentHttp.ts`          | Types remote-safe group title generation.           |
+| `apps/server/src/orchestration/ThreadGroupTitles.ts` | Reuses the thread-title generation service.         |
+| `apps/web/src/components/LegacySidebar.tsx`          | Keeps the legacy sort control compatible.           |
+| `docs/user/thread-sidebar.md`                        | Documents the user-visible behavior.                |
 
 ## upstream-fixes
 
