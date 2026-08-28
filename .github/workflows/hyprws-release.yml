@@ -1,13 +1,16 @@
 name: hyprws Release
 
 # Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
-# Stable tags keep the v<upstream>-hyprws.<n> flow. Scheduled and manually
-# dispatched nightlies publish v<next>-hyprws-nightly.<date>.<run> from hyprws.
+# Stable tags keep the v<upstream>-hyprws.<n> flow. Trunk landings publish their
+# pushed commit. Scheduled fallbacks and nightly manual dispatches publish
+# v<next>-hyprws-nightly.<date>.<run> from hyprws.
 # Upstream release.yml stays disabled on the fork; mirror its job shape, setup,
 # and action versions here on every rebase (docs/internals/fork-delta.md).
 
 on:
   push:
+    branches:
+      - hyprws
     tags:
       - "v*-hyprws.*"
       - "!v*-hyprws-nightly.*"
@@ -25,10 +28,10 @@ on:
           - nightly
           - stable
 
-# Push events are stable tags; schedules and dispatches share the nightly queue.
+# Stable tag pushes and stable dispatches use the stable queue; every other run uses nightly.
 # Preflight remains the only place that resolves the requested channel.
 concurrency:
-  group: hyprws-release-${{ github.event_name == 'push' && 'stable' || 'nightly' }}
+  group: hyprws-release-${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || inputs.channel == 'stable') && 'stable' || 'nightly' }}
   cancel-in-progress: false
   queue: max
 
@@ -113,7 +116,11 @@ jobs:
               channel="${DISPATCH_CHANNEL:-nightly}"
               ;;
             push)
-              channel=stable
+              if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+                channel=stable
+              else
+                channel=nightly
+              fi
               ;;
             *)
               echo "Unsupported release event: $GITHUB_EVENT_NAME" >&2
@@ -135,7 +142,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ steps.release_channel.outputs.channel == 'nightly' && 'hyprws' || github.sha }}
+          ref: ${{ (github.event_name == 'push' || steps.release_channel.outputs.channel == 'stable') && github.sha || 'hyprws' }}
           fetch-depth: 0
           sparse-checkout: |
             /*
