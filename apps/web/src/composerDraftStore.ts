@@ -78,10 +78,10 @@ export function resolveComposerDraftStorageKey(pathname: string): string {
 }
 
 // Test doubles stub `window` without `location`; treat that like a server render.
-export const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
+const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
   typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
 );
-const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
+const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree", "worktrunk"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
 export const DraftId = Schema.String.pipe(Schema.brand("DraftId"));
@@ -1414,7 +1414,7 @@ function normalizeDraftThreadEnvMode(
   value: unknown,
   fallbackWorktreePath: string | null,
 ): DraftThreadEnvMode {
-  if (value === "local" || value === "worktree") {
+  if (value === "local" || value === "worktree" || value === "worktrunk") {
     return value;
   }
   return fallbackWorktreePath ? "worktree" : "local";
