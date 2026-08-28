@@ -59,11 +59,13 @@ T3 Code works with the platforms your team already uses:
 
 The **GitHub Issues** page lists issues from GitHub-backed projects across connected environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In a project window, the list starts with that project and the **This project / All projects** toggle widens it without leaving the window.
 
-Open an issue to read its description, labels, assignees, and newest 100 comments. GitHub issue links for workspace projects open in T3 Code; unmatched links and modified clicks stay in the browser.
+Open an issue to read its description, labels, assignees, and newest 100 comments. GitHub issue and pull request links in chat show their full `owner/repository#number` identity. Hover a link to open it in the native panel, T3 Browser, or your external browser. Native panels can also read repositories that are not checked out in the active project, using that project's authenticated GitHub host.
+
+Choose the normal-click destination under **Settings → Source Control → GitHub links**. Issues and pull requests support all three destinations; other repository links support T3 Browser and the external browser. The controls on the link remain available for one-click overrides.
 
 Choose **Work on this issue** to open an empty draft in the issue's project. T3 Code puts a short issue reference and instruction in the composer but does not send it. Existing draft work is never overwritten.
 
-To change that text, open **Settings → Source Control → GitHub issues** and edit **GitHub issue handoff prompt**. The template supports `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the server environment that owns the issue, so its web and desktop clients use the same prompt.
+To change that text, open **Settings → Source Control → GitHub links** and edit **GitHub issue handoff prompt**. The template supports `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the server environment that owns the issue, so its web and desktop clients use the same prompt.
 
 Issues are read-only in T3 Code: commenting, closing, labeling, and assigning remain on GitHub. The GitHub CLI must be installed and authenticated on each server that holds a project. Run `gh auth login` for GitHub.com or `gh auth login --hostname <host>` for GitHub Enterprise.
 
