@@ -344,12 +344,19 @@ export const make = Effect.gen(function* () {
     direction: MainWindowZoomDirection,
   ) {
     const webContents = window.webContents;
-    webContents.setZoomLevel(
-      direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
-    );
+    const identity = yield* electronWindow.identityFor(window);
+    const windowPreviewManager = Option.isSome(identity)
+      ? yield* previewManager.forWindow(identity.value)
+      : previewManager;
+    // Chromium pushes the new level down to embedded guests, which would zoom
+    // the previewed page along with the app UI. The preview browser keeps its
+    // own zoom, so each guest owned by this window keeps its level.
+    yield* windowPreviewManager.preserveGuestZooms(() => {
+      webContents.setZoomLevel(
+        direction === "reset" ? 0 : webContents.getZoomLevel() + (direction === "in" ? 0.5 : -0.5),
+      );
+    });
     if (environment.platform === "darwin") syncMacosWindowButtons(window);
-    // App zoom propagates to guests; restore each preview's own zoom.
-    yield* previewManager.reapplyZoom();
   });
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
