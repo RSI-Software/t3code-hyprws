@@ -11,6 +11,8 @@ import type {
   RuntimeMode,
   ScopedThreadRef,
   ServerProvider,
+  ServerProviderSkill,
+  ServerProviderSlashCommand,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -623,6 +625,8 @@ export interface ChatComposerHandle {
 // Props
 // --------------------------------------------------------------------------
 
+const EMPTY_COMPOSER_SKILLS: ReadonlyArray<ServerProviderSkill> = [];
+
 export interface ChatComposerProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
@@ -685,6 +689,19 @@ export interface ChatComposerProps {
   // Provider / model
   lockedProvider: ProviderDriverKind | null;
   providerStatuses: ServerProvider[];
+  /**
+   * Skills for the active workspace. `providerStatuses[].skills` is
+   * machine-scoped — the server scans it once per provider instance against
+   * its own cwd — so it reports user-scope skills only. Falls back to the
+   * snapshot when absent.
+   */
+  workspaceSkills?: ReadonlyArray<ServerProviderSkill> | undefined;
+  /**
+   * Slash commands for the active workspace. `providerStatuses[].slashCommands`
+   * is probed once against the server's own cwd and therefore lists only the
+   * agent CLI's built-ins. Falls back to the snapshot when absent.
+   */
+  workspaceSlashCommands?: ReadonlyArray<ServerProviderSlashCommand> | undefined;
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
 
@@ -783,6 +800,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     interactionMode,
     lockedProvider,
     providerStatuses,
+    workspaceSkills,
+    workspaceSlashCommands,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
     activeContextWindow,
@@ -1175,6 +1194,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
   );
+  // Prefer workspace-scoped capabilities; fall back to the machine-scoped
+  // snapshot so an older server still populates the pickers.
+  const composerSkills = useMemo<ReadonlyArray<ServerProviderSkill>>(
+    () =>
+      workspaceSkills && workspaceSkills.length > 0
+        ? workspaceSkills
+        : selectedProviderStatus
+          ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+          : EMPTY_COMPOSER_SKILLS,
+    [workspaceSkills, selectedProviderStatus, gitCwd],
+  );
 
   const composerPromptInjectionState = useMemo(
     () => getComposerPromptInjectionState(prompt),
@@ -1398,11 +1428,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const slashMenuSkills = getProviderSkillsForSlashMenu(
-        selectedProviderSkills,
+        composerSkills,
         settings.showSkillsInSlashMenu,
       );
       const providerSlashCommandItems = getProviderSlashCommandsForSlashMenu(
-        selectedProviderSlashCommands,
+        workspaceSlashCommands ?? selectedProviderSlashCommands,
         slashMenuSkills,
       ).map((command) => ({
         id: `provider-slash-command:${selectedProvider}:${command.name}`,
@@ -1431,7 +1461,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return searchSlashCommandItems(slashCommandItems, query);
     }
     if (composerTrigger.kind === "skill") {
-      return searchProviderSkills(selectedProviderSkills, composerTrigger.query).map((skill) => ({
+      return searchProviderSkills(composerSkills, composerTrigger.query).map((skill) => ({
         id: `skill:${selectedProvider}:${skill.name}`,
         type: "skill" as const,
         provider: selectedProvider,
@@ -1445,6 +1475,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    composerSkills,
+    workspaceSlashCommands,
     composerTrigger,
     planModeUiEnabled,
     selectedProvider,
@@ -4178,7 +4210,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       ? composerTerminalContexts
                       : []
                   }
-                  skills={selectedProviderSkills}
+                  skills={composerSkills}
                   {...(showMobilePendingAnswerActions ? { className: "max-sm:pb-11" } : {})}
                   onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
                   onChange={onPromptChange}

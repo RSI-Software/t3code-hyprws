@@ -192,6 +192,8 @@ function makeRegistry(
       refreshWorkspaceSnapshot: () => Ref.get(providersRef),
       getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
         Effect.succeed(lifecycleFor(provider)),
+      discoverSkillsForInstance: () => Effect.succeed([]),
+      discoverSlashCommandsForInstance: () => Effect.succeed([]),
       setProviderMaintenanceActionState,
       streamChanges: Stream.empty,
     };

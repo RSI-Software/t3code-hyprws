@@ -23,6 +23,7 @@
  */
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -38,6 +39,7 @@ import { ProviderDriverError } from "../Errors.ts";
 import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
 import {
   checkCodexProviderStatus,
+  listCodexProviderSkills,
   makePendingCodexProvider,
   probeCodexSkillsForCwd,
   withCodexAgentOptions,
@@ -245,6 +247,29 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
               ),
             );
 
+      const discoverSkillsForCwd = (skillsCwd: string) =>
+        listCodexProviderSkills({
+          binaryPath: effectiveConfig.binaryPath,
+          homePath: effectiveConfig.homePath,
+          launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, processEnv),
+          cwd: skillsCwd,
+          environment: processEnv,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.scoped,
+          Effect.timeout(Duration.seconds(10)),
+          Effect.catch((error) =>
+            Effect.logWarning("Codex workspace skill discovery failed; using snapshot skills.", {
+              cwd: skillsCwd,
+              error: String(error),
+              instanceId,
+            }).pipe(
+              Effect.andThen(snapshot.getSnapshot),
+              Effect.map((provider) => provider.skills),
+            ),
+          ),
+        );
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -256,6 +281,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         snapshotForCwd,
         adapter,
         textGeneration,
+        discoverSkillsForCwd,
       } satisfies ProviderInstance;
     }),
 };
