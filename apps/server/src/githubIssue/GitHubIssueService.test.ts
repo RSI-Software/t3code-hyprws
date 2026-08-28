@@ -320,24 +320,39 @@ describe("GitHubIssueService", () => {
     }),
   );
 
-  it.effect("rejects detail repository mismatch before invoking gh", () =>
+  it.effect("uses the selected project to read an issue from another repository", () =>
     Effect.gen(function* () {
       const execute = vi.fn<GitHubCli.GitHubCli["Service"]["execute"]>(() =>
-        Effect.succeed(output("{}")),
+        Effect.succeed(
+          output(
+            JSON.stringify({
+              ...issue(42),
+              body: "Cross-repository issue",
+              closedAt: null,
+              comments: [],
+            }),
+          ),
+        ),
       );
       const service = yield* makeService(
         [project({ id: "p1", title: "web", workspaceRoot: "/web" })],
         execute,
       );
-      const error = yield* service
-        .detail({
-          projectId: "p1" as ProjectId,
-          repository: "attacker/other",
-          number: 42,
-        })
-        .pipe(Effect.flip);
-      assert.strictEqual(error._tag, "GitHubIssueOperationError");
-      assert.strictEqual(execute.mock.calls.length, 0);
+      const detail = yield* service.detail({
+        projectId: "p1" as ProjectId,
+        repository: "other/repo",
+        number: 42,
+      });
+
+      assert.strictEqual(detail.repository, "other/repo");
+      assert.strictEqual(execute.mock.calls[0]?.[0].cwd, "/web");
+      assert.deepStrictEqual(execute.mock.calls[0]?.[0].args.slice(0, 5), [
+        "issue",
+        "view",
+        "42",
+        "--repo",
+        "github.com/other/repo",
+      ]);
     }),
   );
 
