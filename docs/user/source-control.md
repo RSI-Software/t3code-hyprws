@@ -93,14 +93,20 @@ environments. Search by text, filter by Open, Closed, or All, and narrow the hub
 a project window the list starts with that project, and the **This project / All projects** toggle
 widens it without leaving the window.
 
-Opening an issue shows its description, labels, assignees, and newest 100 comments. A GitHub issue
-link for a project in your workspace opens in T3 Code; unmatched links and modified clicks go to
-your browser.
+Opening an issue shows its description, labels, assignees, and newest 100 comments. GitHub issue and
+pull request links in chat show their full `owner/repository#number` identity. Hover a link to open
+it in the native panel, T3 Browser, or your external browser. Native panels can also read
+repositories that are not checked out in the active project, using that project's authenticated
+GitHub host.
+
+Choose the normal-click destination under **Settings → Source Control → GitHub links**. Issues and
+pull requests support all three destinations; other repository links support T3 Browser and the
+external browser. The controls on the link stay available for one-click overrides.
 
 **Work on this issue** opens an empty draft in the issue's project with a short issue reference and
 instruction placed in the composer, unsent. Draft work you already have is never overwritten.
 
-Change that text under **Settings → Source Control → GitHub issues**, in **GitHub issue handoff
+Change that text under **Settings → Source Control → GitHub links**, in **GitHub issue handoff
 prompt**. The template takes `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the
 server environment that owns the issue, so its web and desktop clients use the same prompt.
 
