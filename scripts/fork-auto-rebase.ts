@@ -5,7 +5,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import * as NodePerformance from "node:perf_hooks";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import {
   buildFeasibility,
@@ -466,7 +466,7 @@ interface StopCensusLimits {
 const defaultStopCensusLimits = (): StopCensusLimits => ({
   stopLimit: STOP_CENSUS_LIMIT,
   timeLimitMs: STOP_CENSUS_TIME_LIMIT_MS,
-  now: () => NodePerformance.performance.now(),
+  now: () => NodePerfHooks.performance.now(),
 });
 
 const hasStage = (stages: string, stage: number): boolean =>
