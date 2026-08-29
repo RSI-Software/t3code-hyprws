@@ -8,6 +8,7 @@ import {
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
   defaultEnabledForDriver,
+  migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -514,5 +515,21 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.addProjectBaseDirectory).toBe("~/Development");
     expect(encoded.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
+  });
+});
+
+describe("migrateLegacyForkThreadEnvModeSettings", () => {
+  it("lifts a stored worktrunk default into the wire pair", () => {
+    expect(migrateLegacyForkThreadEnvModeSettings({ defaultThreadEnvMode: "worktrunk" })).toEqual({
+      defaultThreadEnvMode: "worktree",
+      defaultThreadEnvModeFork: "worktrunk",
+    });
+  });
+
+  it("leaves every other settings shape untouched", () => {
+    const settings = { defaultThreadEnvMode: "worktree" };
+    expect(migrateLegacyForkThreadEnvModeSettings(settings)).toBe(settings);
+    expect(migrateLegacyForkThreadEnvModeSettings({})).toEqual({});
+    expect(migrateLegacyForkThreadEnvModeSettings(null)).toBeNull();
   });
 });

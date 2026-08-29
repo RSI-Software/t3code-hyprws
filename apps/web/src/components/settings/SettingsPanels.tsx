@@ -38,7 +38,11 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import {
+  fromWireThreadEnvModeFields,
+  isWorktreeEnvMode,
+  toWireThreadEnvModeFields,
+} from "@t3tools/shared/threadEnvMode";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -537,7 +541,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Provider update checks"]
         : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
       ...(settings.newWorktreesStartFromOrigin !==
@@ -576,6 +580,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
+      settings.defaultThreadEnvModeFork,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
       settings.followExternalWorkspaceSymlinks,
@@ -690,6 +695,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+      defaultThreadEnvModeFork: undefined,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
@@ -2345,7 +2351,8 @@ export function GeneralSettingsPanel() {
           {...searchableSetting("new-threads")}
           description="Pick the default workspace mode for newly created draft threads."
           resetAction={
-            settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ||
+            fromWireThreadEnvModeFields(settings) !==
+              DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ||
             settings.newWorktreesStartFromOrigin !==
               DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
               <SettingResetButton
@@ -2353,6 +2360,7 @@ export function GeneralSettingsPanel() {
                 onClick={() =>
                   updateSettings({
                     defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+                    defaultThreadEnvModeFork: undefined,
                     newWorktreesStartFromOrigin:
                       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
                   })
@@ -2362,18 +2370,21 @@ export function GeneralSettingsPanel() {
           }
           control={
             <Select
-              value={settings.defaultThreadEnvMode}
+              value={fromWireThreadEnvModeFields(settings)}
               onValueChange={(value) => {
                 if (value === "local" || value === "worktree" || value === "worktrunk") {
-                  updateSettings({ defaultThreadEnvMode: value });
+                  updateSettings({
+                    defaultThreadEnvModeFork: undefined,
+                    ...toWireThreadEnvModeFields(value),
+                  });
                 }
               }}
             >
               <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
                 <SelectValue>
-                  {settings.defaultThreadEnvMode === "local"
+                  {fromWireThreadEnvModeFields(settings) === "local"
                     ? "Local"
-                    : resolveEnvModeLabel(settings.defaultThreadEnvMode)}
+                    : resolveEnvModeLabel(fromWireThreadEnvModeFields(settings))}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -2391,7 +2402,7 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        {isWorktreeEnvMode(settings.defaultThreadEnvMode) ? (
+        {isWorktreeEnvMode(fromWireThreadEnvModeFields(settings)) ? (
           <SettingsRow
             className="bg-muted/20 sm:pl-9"
             title={searchableSetting("start-from-origin").title}

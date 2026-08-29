@@ -1,9 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
+const decodeWireThreadEnvMode = Schema.decodeUnknownSync(WireThreadEnvMode);
+const decodeThreadEnvMode = Schema.decodeUnknownSync(ThreadEnvMode);
 
 const descriptor = {
   environmentId: "environment-1",
@@ -51,5 +53,17 @@ describe("ExecutionEnvironmentDescriptor", () => {
         capabilities: { ...descriptor.capabilities, githubIssues: true },
       }).capabilities.githubIssues,
     ).toBe(true);
+  });
+});
+
+describe("WireThreadEnvMode", () => {
+  it("accepts only the modes every released client validates against", () => {
+    expect(decodeWireThreadEnvMode("local")).toBe("local");
+    expect(decodeWireThreadEnvMode("worktree")).toBe("worktree");
+    expect(() => decodeWireThreadEnvMode("worktrunk")).toThrow();
+  });
+
+  it("keeps the fork mode decodable where the value is stored, not sent", () => {
+    expect(decodeThreadEnvMode("worktrunk")).toBe("worktrunk");
   });
 });
