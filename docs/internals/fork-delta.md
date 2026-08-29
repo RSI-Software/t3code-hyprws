@@ -141,7 +141,7 @@ A domain is a reason the fork exists, not a feature area of the app.
 | Fork commit                                            | Domain          | Upstream replacement                                                                                                                                                                                                                         | Retired at |
 | ------------------------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | fix(web): scope markdown actions to thread environment | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines `threadRef?.environmentId ?? explicitEnvironmentId ?? null` at the same binding in `apps/web/src/components/ChatMarkdown.tsx`, leaving `resolveChatMarkdownEnvironmentId` a redundant wrapper. | v0.0.35    |
-| fix(web): upload media in pull request descriptions     | upstream-fixes  | `pingdotgg/t3code#8235` replaces the attachment extension-inference generalization with typed `image \| file` claims, streamed bodies, and the advertised 50 MB limit. The `gh-image` pull-request publication path remains fork-owned. | v0.0.36    |
+| fix(web): upload media in pull request descriptions    | upstream-fixes  | `pingdotgg/t3code#8235` replaces the attachment extension-inference generalization with typed `image \| file` claims, streamed bodies, and the advertised 50 MB limit. The `gh-image` pull-request publication path remains fork-owned.      | v0.0.36    |
 
 References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never
 live links. A retired-only subject must no longer be present in the fork stack; `fork:delta --check`
@@ -149,10 +149,10 @@ reports it as `retired but present` until the rebase drops it.
 
 ## Kept
 
-| Fork commit                                       | Domain          | Reason                                                                                                                                                                                                                                                                                                 | Reviewed at |
-| ------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| refactor(web): add physical project sidebar scope | project-windows | `pingdotgg/t3code#8231` refactored the same `apps/web/src/components/Sidebar.logic.ts` comparator but still lists every project's threads; the fork's `isProjectInSidebarScope` is a separate export that survived the automerge intact and remains the only source of project-window sidebar scoping. | v0.0.35     |
-| fix(web): upload media in pull request descriptions | upstream-fixes | Kept the fork-only `gh-image` pull-request publication path, editor paste flow, RPC, and settings surface; upstream only replaced the shared attachment extension-inference plumbing. | v0.0.36     |
+| Fork commit                                         | Domain          | Reason                                                                                                                                                                                                                                                                                                 | Reviewed at |
+| --------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| refactor(web): add physical project sidebar scope   | project-windows | `pingdotgg/t3code#8231` refactored the same `apps/web/src/components/Sidebar.logic.ts` comparator but still lists every project's threads; the fork's `isProjectInSidebarScope` is a separate export that survived the automerge intact and remains the only source of project-window sidebar scoping. | v0.0.35     |
+| fix(web): upload media in pull request descriptions | upstream-fixes  | Kept the fork-only `gh-image` pull-request publication path, editor paste flow, RPC, and settings surface; upstream only replaced the shared attachment extension-inference plumbing.                                                                                                                  | v0.0.36     |
 
 A kept reason documents the fork behaviour that the overlap signal did not replace. A subject in
 both Retired and Kept is a partial decision and remains in the active fork ledger.
@@ -231,6 +231,7 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/server/src/keybindings.test.ts`                                                 | Covers project-window keybinding dispatch.                                   |
 | `apps/desktop/src/app/DesktopClerk.ts`                                                | Single-instance lock and deep-link forwarding.                               |
 | `apps/desktop/src/preview/Manager.ts`                                                 | Preview namespacing by window.                                               |
+| `apps/desktop/src/preview/Manager.test.ts`                                            | Covers shared preview behavior beside project-window namespacing.            |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | The bridge surface the web client gates on.                                  |
 | `packages/contracts/src/ipc.ts`                                                       | `openProjectWindow` lives here.                                              |
 | `apps/web/src/routes/project.*`                                                       | Fork-only route subtree.                                                     |
@@ -240,6 +241,8 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/pullRequest/pullRequestListRoute.ts`                         | Search contract shared by the hub and project routes.                        |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                                   | Resolves Pull Requests navigation within the active window scope.            |
 | `apps/web/src/components/ChatView.tsx`                                                | Starts and navigates threads within project-window scope.                    |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                           | Project settings reached from scoped project-window chrome.                  |
+| `apps/web/src/hooks/useThreadActions.ts`                                              | Thread actions must retain the active project-window scope.                  |
 | `apps/web/src/components/Sidebar.logic.ts`                                            | `isProjectInSidebarScope`; upstream reworks this comparator.                 |
 | `apps/web/src/components/Sidebar.logic.test.ts`                                       | Fork scope cases sit beside upstream's ordering cases.                       |
 | `apps/web/src/components/Sidebar.tsx`                                                 | Applies the active project-window scope to the shared sidebar.               |
@@ -692,6 +695,7 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `packages/contracts/src/orchestration.ts`                         | `prepareWorktree.worktrunk` on the bootstrap payload.                                 |
 | `packages/shared/src/threadEnvMode.ts`                            | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.  |
 | `packages/contracts/src/settings.ts`                              | `defaultThreadEnvMode` pair on server settings plus its patch and migration.          |
+| `packages/contracts/src/settings.test.ts`                         | Covers the worktrunk default beside upstream settings.                                |
 | `apps/server/src/serverSettings.ts`                               | Chains the stored-`worktrunk` settings migration.                                     |
 | `apps/server/src/orchestration/decider.ts`                        | Folds the wire pair back into the wide mode on the persisted event.                   |
 | `apps/server/src/orchestration/projector.ts`                      | Splits the stored mode into the wire pair for the in-memory read model.               |
@@ -711,6 +715,8 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/web/src/composerDraftStore.ts`                              | Keeps worktrunk-backed drafts aligned with thread startup.                            |
 | `apps/web/src/lib/chatThreadActions.ts`                           | Routes worktrunk thread actions through the shared startup path.                      |
 | `apps/web/src/components/settings/SettingsPanels.tsx`             | New threads select; a busy upstream file.                                             |
+| `apps/web/src/components/settings/settingsSearch.ts`              | Indexes the worktrunk mode in shared settings search.                                 |
+| `apps/web/src/components/settings/settingsSearch.test.ts`         | Covers worktrunk settings-search entries beside upstream preferences.                 |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`       | Project Workspace select.                                                             |
 | `apps/mobile/src/features/threads/new-task-flow-provider.tsx`     | Maps a `worktrunk` default to `worktree`.                                             |
 
