@@ -133,6 +133,7 @@ function makeFakeBrowserWindow() {
     setTitleBarOverlay: vi.fn(),
     setWindowButtonPosition: vi.fn(),
     show: vi.fn(),
+    showInactive: vi.fn(),
     webContents,
   };
 
@@ -158,6 +159,7 @@ function makeFakeBrowserWindow() {
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
     setTitle: window.setTitle, // fork-hook: multi-window/fake-window-set-title
+    showInactive: window.showInactive,
     webContentsListeners,
     webContentsOnce: webContents.once,
     windowListeners,
@@ -244,11 +246,13 @@ function layerTest(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
-  readonly previewMainWindowSets?: Electron.BrowserWindow[];
-  readonly previewBrowserSessionRequests?: number[];
-  readonly environmentEnv?: Record<string, string | undefined>;
-  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
-  readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly previewMainWindowSets?: Electron.BrowserWindow[]; // fork-hook: multi-window/preview-main-window-sets
+  readonly previewBrowserSessionRequests?: number[]; // fork-hook: multi-window/preview-browser-session-requests
+  readonly environmentEnv?: Record<string, string | undefined>; // fork-hook: multi-window/environment-env-input
+  readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[]; // fork-hook: multi-window/restore-entries-input
+  readonly workspaceMoves?: { key: string; workspace: string }[]; // fork-hook: multi-window/workspace-moves-input
+  readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
+  readonly revealRequests?: number[];
   readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
@@ -291,6 +295,15 @@ function layerTest(input: {
     claim: () => Effect.void,
     forget: () => Effect.void,
     workspaceOf: () => Effect.succeed(Option.none()),
+    stageWorkspaceRule: (title, workspace) =>
+      Effect.sync(() => {
+        input.workspaceRuleEvents?.push({ action: "stage", title, workspace: workspace.name });
+        return true;
+      }),
+    clearWorkspaceRule: (title) =>
+      Effect.sync(() => {
+        input.workspaceRuleEvents?.push({ action: "clear", title });
+      }),
     moveToWorkspace: (key, workspace) =>
       Effect.sync(() => {
         input.workspaceMoves?.push({ key, workspace: workspace.name });
@@ -548,6 +561,8 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             claim: () => Effect.void,
             forget: () => Effect.void,
             workspaceOf: () => Effect.succeed(Option.none()),
+            stageWorkspaceRule: () => Effect.succeed(false),
+            clearWorkspaceRule: () => Effect.void,
             moveToWorkspace: () => Effect.void,
           } satisfies HyprlandPlacement.HyprlandPlacement["Service"]), // fork-hook: multi-window/splash-hyprland-placement
           Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
