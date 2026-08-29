@@ -40,6 +40,8 @@ zmux owns long-running terminal sessions, while editors and browsers remain sepa
 - Do not remove the hub, remote environments, the web client, or mobile project navigation.
 - Do not rewrite unrelated upstream systems to make the fork feel internally unique.
 
+`dev:desktop:agent` is the narrow development-tooling exception to the compositor-policy rule. It relays the operator's explicit “invoking numbered workspace minus one” request into a disposable dev process; shipped application launches still leave placement to Hyprland.
+
 ## Architectural direction
 
 This section records the grounded target shape, verified against the code on 2026-08-22.
