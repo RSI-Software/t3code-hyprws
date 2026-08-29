@@ -107,6 +107,10 @@ vi.mock("@t3tools/shared/projectSettings", () => ({
   }),
 }));
 vi.mock("@t3tools/shared/threadEnvMode", () => ({
+  fromWireThreadEnvModeFields: (fields: {
+    readonly defaultThreadEnvMode?: "local" | "worktree" | null;
+    readonly defaultThreadEnvModeFork?: "local" | "worktree" | "worktrunk";
+  }) => fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode,
   resolveDefaultThreadEnvMode: (input: {
     readonly projectFile: "local" | "worktree" | null;
     readonly globalDefault: "local" | "worktree";
