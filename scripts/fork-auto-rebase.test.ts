@@ -208,7 +208,11 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     assert.strictEqual(result.blocked?.blockingSha, fixture.conflict);
     assert.strictEqual(
       result.blocked?.title,
-      `[📡#217] hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
+      `[📡#217] 🔔 hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
+    );
+    assert.include(
+      result.blocked?.body ?? "",
+      `The fork stack advances to \`v1.1.0-nightly.20260828.1208\`, the newest clean upstream tag.\n1 upstream commit sits behind the blocking commit \`${fixture.conflict}\`.`,
     );
     assert.include(
       result.blocked?.body ?? "",
