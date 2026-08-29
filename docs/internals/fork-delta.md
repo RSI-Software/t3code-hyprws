@@ -131,7 +131,7 @@ A rebase preserves trailers, so the log stays queryable after every sync.
 | [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix.                     |
 | [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships equivalent manual active-thread ordering.      |
 | [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager.     |
-| [worktrunk-hooks](#worktrunk-hooks)     | Active | core              | Upstream worktree lifecycle exposes create and remove hooks.  |
+| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream worktree lifecycle exposes create and remove hooks.  |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -670,6 +670,7 @@ Upstream runs `git worktree add` and `git worktree remove` directly, so a projec
 ### Shape
 
 - `ThreadEnvMode` gains `worktrunk` beside upstream's `local` and `worktree`: a fresh git worktree that also runs the project's Worktrunk hooks. It is a sibling option, labelled "New worktrunk", wherever upstream offers "New worktree": Settings → New threads, a project's Workspace default, `defaultThreadEnvMode` in `t3.json`, and the composer's Workspace picker. Upstream's `worktree` mode is untouched.
+- `worktrunk` never crosses the wire. Every wire schema keeps upstream's two-value `WireThreadEnvMode` and carries the exact mode in an optional `defaultThreadEnvModeFork` sibling, because a released client validates the field and drops the whole payload on an unknown literal. Storage, persisted events, the projection database, and `t3.json` keep the wide `ThreadEnvMode`; `@t3tools/shared/threadEnvMode` owns both directions and `settings.json` migrates a stored `"worktrunk"` into the pair on read.
 - A `worktrunk` thread sends `prepareWorktree.worktrunk: true` on its first turn. The server then drops a `t3-worktrunk` marker beside git's own `locked` file in the worktree's gitdir (`.git/worktrees/<name>/`) and runs `wt hook pre-start` and `wt hook post-start` in the new worktree, ahead of the `t3.json` setup script. Removing a marked worktree runs `wt hook pre-remove` in it first and `wt hook post-remove` in the primary checkout after; `git worktree remove` deletes the marker with the gitdir, so no thread or project state records the mode. Local VCS status reports `worktrunk: true` while the marker exists, which is how a started thread's composer reads "Worktrunk" instead of "Worktree".
 - Every hook runs headless through `wt hook <type> --yes`: `pre-*` hooks block, `post-start` returns once `wt` has detached its hooks, and a failed create hook lands as an error activity on the thread.
 - `.config/wt.toml` in the project and `wt` on the server's PATH gate every hook; a mode without either degrades silently to upstream `worktree` behaviour. There is no separate on/off switch.
@@ -684,27 +685,34 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 
 ### Rebase scan
 
-| Path                                                          | Why it matters                                                                        |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `apps/server/src/worktrunk/**`                                | Fork-only. A conflict means upstream grew its own worktree hook model.                |
-| `packages/contracts/src/environment.ts`                       | `ThreadEnvMode` carries the third literal; a new upstream mode lands beside it.       |
-| `packages/contracts/src/orchestration.ts`                     | `prepareWorktree.worktrunk` on the bootstrap payload.                                 |
-| `packages/shared/src/threadEnvMode.ts`                        | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.  |
-| `apps/server/src/ws.ts`                                       | Thread bootstrap worktree create; the create hooks run before the setup script.       |
-| `apps/server/src/server.test.ts`                              | Covers worktrunk lifecycle behavior through server seams.                             |
-| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`  | Shares durable activity sequencing with worktrunk-owned thread projection changes.    |
-| `packages/contracts/src/git.ts`                               | `worktrunk` on the local status result.                                               |
-| `apps/server/src/git/GitWorkflowService.ts`                   | Status carries the marker; on remove it decides the pre-remove and post-remove calls. |
-| `apps/web/src/components/BranchToolbar.logic.ts`              | `EnvMode`, its labels, and every worktree-shaped resolver.                            |
-| `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`    | Composer Workspace picker; the third item, its icon, and the locked label.            |
-| `apps/web/src/components/BranchToolbar.tsx`                   | Mobile-width Workspace menu; the same third item.                                     |
-| `apps/web/src/components/ChatView.tsx`                        | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.      |
-| `apps/web/src/components/ChatView.logic.ts`                   | Shares worktree-shaped thread-start logic with the worktrunk mode.                    |
-| `apps/web/src/composerDraftStore.ts`                          | Keeps worktrunk-backed drafts aligned with thread startup.                            |
-| `apps/web/src/lib/chatThreadActions.ts`                       | Routes worktrunk thread actions through the shared startup path.                      |
-| `apps/web/src/components/settings/SettingsPanels.tsx`         | New threads select; a busy upstream file.                                             |
-| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`   | Project Workspace select.                                                             |
-| `apps/mobile/src/features/threads/new-task-flow-provider.tsx` | Maps a `worktrunk` default to `worktree`.                                             |
+| Path                                                              | Why it matters                                                                        |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `apps/server/src/worktrunk/**`                                    | Fork-only. A conflict means upstream grew its own worktree hook model.                |
+| `packages/contracts/src/environment.ts`                           | `ThreadEnvMode` carries the third literal; a new upstream mode lands beside it.       |
+| `packages/contracts/src/orchestration.ts`                         | `prepareWorktree.worktrunk` on the bootstrap payload.                                 |
+| `packages/shared/src/threadEnvMode.ts`                            | `isWorktreeEnvMode`; upstream code comparing `=== "worktree"` must route through it.  |
+| `packages/contracts/src/settings.ts`                              | `defaultThreadEnvMode` pair on server settings plus its patch and migration.          |
+| `apps/server/src/serverSettings.ts`                               | Chains the stored-`worktrunk` settings migration.                                     |
+| `apps/server/src/orchestration/decider.ts`                        | Folds the wire pair back into the wide mode on the persisted event.                   |
+| `apps/server/src/orchestration/projector.ts`                      | Splits the stored mode into the wire pair for the in-memory read model.               |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | Splits the stored mode into the wire pair on every project snapshot.                  |
+| `apps/web/src/hooks/useHandleNewThread.ts`                        | Resolves the effective new-thread mode from the wire pair.                            |
+| `packages/shared/src/serverSettings.ts`                           | Replaces the thread-mode pair wholesale instead of deep-merging it.                   |
+| `apps/server/src/ws.ts`                                           | Thread bootstrap worktree create; the create hooks run before the setup script.       |
+| `apps/server/src/server.test.ts`                                  | Covers worktrunk lifecycle behavior through server seams.                             |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`      | Shares durable activity sequencing with worktrunk-owned thread projection changes.    |
+| `packages/contracts/src/git.ts`                                   | `worktrunk` on the local status result.                                               |
+| `apps/server/src/git/GitWorkflowService.ts`                       | Status carries the marker; on remove it decides the pre-remove and post-remove calls. |
+| `apps/web/src/components/BranchToolbar.logic.ts`                  | `EnvMode`, its labels, and every worktree-shaped resolver.                            |
+| `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`        | Composer Workspace picker; the third item, its icon, and the locked label.            |
+| `apps/web/src/components/BranchToolbar.tsx`                       | Mobile-width Workspace menu; the same third item.                                     |
+| `apps/web/src/components/ChatView.tsx`                            | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.      |
+| `apps/web/src/components/ChatView.logic.ts`                       | Shares worktree-shaped thread-start logic with the worktrunk mode.                    |
+| `apps/web/src/composerDraftStore.ts`                              | Keeps worktrunk-backed drafts aligned with thread startup.                            |
+| `apps/web/src/lib/chatThreadActions.ts`                           | Routes worktrunk thread actions through the shared startup path.                      |
+| `apps/web/src/components/settings/SettingsPanels.tsx`             | New threads select; a busy upstream file.                                             |
+| `apps/web/src/components/settings/ProjectSettingsPanel.tsx`       | Project Workspace select.                                                             |
+| `apps/mobile/src/features/threads/new-task-flow-provider.tsx`     | Maps a `worktrunk` default to `worktree`.                                             |
 
 ## Adding a domain
 
