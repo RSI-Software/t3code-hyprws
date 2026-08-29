@@ -23,7 +23,10 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
+import {
+  fromWireThreadEnvModeFields,
+  resolveDefaultThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode";
 import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
@@ -161,14 +164,14 @@ export function useNewThreadHandler() {
       const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
         const consultProjectFile = project !== undefined && projectThreadEnvMode == null;
         return resolveDefaultThreadEnvMode({
-          projectSetting: projectThreadEnvMode,
+          projectSetting: project ? fromWireThreadEnvModeFields(project) : null,
           projectFile: consultProjectFile
             ? await readT3ProjectFileDefaultThreadEnvMode(
                 project.environmentId,
                 project.workspaceRoot,
               )
             : null,
-          globalDefault: projectSettings.settings.defaultThreadEnvMode,
+          globalDefault: fromWireThreadEnvModeFields(targetServerSettings),
         });
       };
       const logicalProjectKey = project
