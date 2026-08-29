@@ -1,0 +1,21 @@
+{
+  "schema": "cli-doctor-exemptions.v1",
+  "note": "Visible ledger for exact reviewed command-surface exemptions.",
+  "generated": "2026-07-23",
+  "exemptions": [
+    {
+      "surfaceId": "scripts-file:scripts/dev-desktop-agent.ts",
+      "findingCode": "probe-refused",
+      "rationale": "The side-effect-free shell validates argv before loading the supervisor runtime, but CLI Doctor intentionally refuses the computed runtime import. Help, invalid usage, and dry-run behavior are covered separately.",
+      "reviewer": "agent:pi",
+      "signoff": "agent-reviewed exception under the user-approved desktop agent launcher request"
+    },
+    {
+      "surfaceId": "scripts-file:scripts/dev-desktop-agent.ts",
+      "findingCode": "unknown-arg-unverified",
+      "rationale": "This dependent finding comes from the runtime-import probe refusal. The shell rejects unknown arguments with exit 2 before importing the runtime, covered by parser tests and a direct behavioral probe.",
+      "reviewer": "agent:pi",
+      "signoff": "agent-reviewed exception under the user-approved desktop agent launcher request"
+    }
+  ]
+}
