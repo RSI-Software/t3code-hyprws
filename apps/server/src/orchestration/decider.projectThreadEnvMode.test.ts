@@ -58,6 +58,34 @@ it.layer(NodeServices.layer)("decider project defaultThreadEnvMode", (it) => {
     }),
   );
 
+  it.effect("stores the fork mode a client sent as a wire pair, and re-splits it", () =>
+    Effect.gen(function* () {
+      const readModel = yield* projectEvent(createEmptyReadModel(now), seedProjectCreated(1));
+
+      const result = yield* decideOrchestrationCommand({
+        command: {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-project-env-mode-worktrunk"),
+          projectId,
+          defaultThreadEnvMode: "worktree",
+          defaultThreadEnvModeFork: "worktrunk",
+        },
+        readModel,
+      });
+
+      const event = Array.isArray(result) ? result[0] : result;
+      // The event log holds the exact mode; only the wire needs the pair.
+      expect((event.payload as { defaultThreadEnvMode?: unknown }).defaultThreadEnvMode).toBe(
+        "worktrunk",
+      );
+
+      const updated = yield* projectEvent(readModel, { ...event, sequence: 2 });
+      const project = updated.projects[0];
+      expect(project?.defaultThreadEnvMode).toBe("worktree");
+      expect(project?.defaultThreadEnvModeFork).toBe("worktrunk");
+    }),
+  );
+
   it.effect("omits the field when unset and clears it on explicit null", () =>
     Effect.gen(function* () {
       const readModel = yield* projectEvent(createEmptyReadModel(now), seedProjectCreated(1));
@@ -98,6 +126,7 @@ it.layer(NodeServices.layer)("decider project defaultThreadEnvMode", (it) => {
       const clearEvent = Array.isArray(clear) ? clear[0] : clear;
       const afterClear = yield* projectEvent(afterSet, { ...clearEvent, sequence: 3 });
       expect(afterClear.projects[0]?.defaultThreadEnvMode).toBeNull();
+      expect(afterClear.projects[0]?.defaultThreadEnvModeFork).toBeUndefined();
     }),
   );
 });
