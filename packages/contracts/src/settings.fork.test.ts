@@ -7,6 +7,7 @@ import {
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
   defaultEnabledForDriver,
+  migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -108,6 +109,22 @@ describe("ServerSettings.githubIssueHandoffPromptTemplate", () => {
       }).githubIssueHandoffPromptTemplate,
     ).toBe("Fix {{url}} carefully.");
     expect(() => decodeServerSettingsPatch({ githubIssueHandoffPromptTemplate: "   " })).toThrow();
+  });
+});
+
+describe("migrateLegacyForkThreadEnvModeSettings", () => {
+  it("lifts a stored worktrunk default into the wire pair", () => {
+    expect(migrateLegacyForkThreadEnvModeSettings({ defaultThreadEnvMode: "worktrunk" })).toEqual({
+      defaultThreadEnvMode: "worktree",
+      defaultThreadEnvModeFork: "worktrunk",
+    });
+  });
+
+  it("leaves every other settings shape untouched", () => {
+    const settings = { defaultThreadEnvMode: "worktree" };
+    expect(migrateLegacyForkThreadEnvModeSettings(settings)).toBe(settings);
+    expect(migrateLegacyForkThreadEnvModeSettings({})).toEqual({});
+    expect(migrateLegacyForkThreadEnvModeSettings(null)).toBeNull();
   });
 });
 
