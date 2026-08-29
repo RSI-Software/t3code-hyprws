@@ -44,6 +44,10 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
+import {
+  fromWireThreadEnvModeFields,
+  toWireThreadEnvModeFields,
+} from "@t3tools/shared/threadEnvMode";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -581,7 +585,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Continue threads after restarts"]
         : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
       ...(settings.newWorktreesStartFromOrigin !==
@@ -626,6 +630,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.composerCollapseOnScroll,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
+      settings.defaultThreadEnvModeFork,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
       settings.diffLayout,
@@ -751,6 +756,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+      defaultThreadEnvModeFork: undefined,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,

@@ -84,6 +84,7 @@ import {
   type ProjectionThreadDetailQuery,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
+import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
@@ -413,7 +414,7 @@ function mapProjectShellRow(
     workspaceRoot: row.workspaceRoot,
     repositoryIdentity,
     defaultModelSelection: row.defaultModelSelection,
-    defaultThreadEnvMode: row.defaultThreadEnvMode,
+    ...toWireThreadEnvModeOverrideFields(row.defaultThreadEnvMode),
     autoPull: row.autoPull === 1,
     faviconPath: row.faviconPath ?? null,
     projectIcon: row.projectIcon ?? null,
@@ -2294,7 +2295,7 @@ pending_approval_requests AS (
                 workspaceRoot: row.workspaceRoot,
                 repositoryIdentity: repositoryIdentities.get(row.projectId) ?? null,
                 defaultModelSelection: row.defaultModelSelection,
-                defaultThreadEnvMode: row.defaultThreadEnvMode,
+                ...toWireThreadEnvModeOverrideFields(row.defaultThreadEnvMode),
                 autoPull: row.autoPull === 1,
                 faviconPath: row.faviconPath ?? null,
                 projectIcon: row.projectIcon ?? null,
@@ -2461,7 +2462,7 @@ pending_approval_requests AS (
                   workspaceRoot: row.workspaceRoot,
                   repositoryIdentity: repositoryIdentities.get(row.projectId) ?? null,
                   defaultModelSelection: row.defaultModelSelection,
-                  defaultThreadEnvMode: row.defaultThreadEnvMode,
+                  ...toWireThreadEnvModeOverrideFields(row.defaultThreadEnvMode),
                   autoPull: row.autoPull === 1,
                   faviconPath: row.faviconPath ?? null,
                   projectIcon: row.projectIcon ?? null,
@@ -3012,7 +3013,7 @@ pending_approval_requests AS (
                     workspaceRoot: option.value.workspaceRoot,
                     repositoryIdentity,
                     defaultModelSelection: option.value.defaultModelSelection,
-                    defaultThreadEnvMode: option.value.defaultThreadEnvMode,
+                    ...toWireThreadEnvModeOverrideFields(option.value.defaultThreadEnvMode),
                     autoPull: option.value.autoPull === 1,
                     faviconPath: option.value.faviconPath ?? null,
                     projectIcon: option.value.projectIcon ?? null,
