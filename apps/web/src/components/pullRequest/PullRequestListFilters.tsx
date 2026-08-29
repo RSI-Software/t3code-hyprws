@@ -490,6 +490,7 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId,
   unavailable,
   onProject,
+  showProjectFilter = true,
 }: {
   onOpenChange?: (open: boolean) => void;
   state: PullRequestListState;
@@ -509,11 +510,13 @@ export function PullRequestFiltersMenu({
   server: EnvironmentId | undefined;
   serverOptions: ReadonlyArray<PullRequestFilterOption<string>>;
   onServer: (server: EnvironmentId | undefined) => void;
-  projects: ReadonlyArray<ProjectFaviconProject & { readonly id: ProjectId }> | null;
+  projects: ReadonlyArray<ProjectFaviconProject & { readonly id: ProjectId }>;
   projectId: ProjectId | undefined;
   projectEnvironmentId: EnvironmentId | undefined;
   unavailable: ReadonlyMap<string, string>;
   onProject: (projectId: ProjectId | undefined, environmentId: EnvironmentId | undefined) => void;
+  /** Fork integration: project windows own this choice in their project/all-project toggle. */
+  showProjectFilter?: boolean;
 }) {
   const selectedLabels = (filters.labels ?? []).flatMap((group) => group);
   const filterCount = [
@@ -542,27 +545,24 @@ export function PullRequestFiltersMenu({
     projectId === undefined || projectEnvironmentId === undefined
       ? ALL_PROJECTS_VALUE
       : pullRequestProjectKey({ id: projectId, environmentId: projectEnvironmentId });
-  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> =
-    projects === null
-      ? []
-      : [
-          { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
-          ...projects
-            .toSorted(
-              (left, right) =>
-                Number(unavailable.has(pullRequestProjectKey(left))) -
-                Number(unavailable.has(pullRequestProjectKey(right))),
-            )
-            .map((project) => ({
-              value: pullRequestProjectKey(project),
-              label: project.title,
-              Icon: FolderGit2Icon,
-              project,
-              ...(unavailable.has(pullRequestProjectKey(project))
-                ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
-                : {}),
-            })),
-        ];
+  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
+    { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
+    ...projects
+      .toSorted(
+        (left, right) =>
+          Number(unavailable.has(pullRequestProjectKey(left))) -
+          Number(unavailable.has(pullRequestProjectKey(right))),
+      )
+      .map((project) => ({
+        value: pullRequestProjectKey(project),
+        label: project.title,
+        Icon: FolderGit2Icon,
+        project,
+        ...(unavailable.has(pullRequestProjectKey(project))
+          ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
+          : {}),
+      })),
+  ];
   return (
     <Menu onOpenChange={onOpenChange}>
       <MenuTrigger render={<Button variant="outline" />}>
@@ -646,7 +646,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
-        {projects === null ? null : (
+        {showProjectFilter ? (
           <>
             <MenuSeparator />
             <PullRequestFilterRadioSubmenu
@@ -662,7 +662,7 @@ export function PullRequestFiltersMenu({
               }}
             />
           </>
-        )}
+        ) : null}
       </MenuPopup>
     </Menu>
   );
