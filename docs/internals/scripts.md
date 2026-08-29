@@ -34,7 +34,7 @@ authenticated.
   without Bun present it selects `NodePtyAdapter` and `NodeHttpServer`.
 - `vp run dev:web`: Starts just the Vite dev server for the web app.
 - `vp run dev:desktop`: Starts the Electron shell against the dev server.
-- `vp run dev:desktop:agent`: Starts or restarts this worktree's desktop dev stack on the numbered Hyprland workspace before the invoking app. It maps without focus, disables detached DevTools, allocates a stable free CDP port from base 9223, and records the live endpoint under `XDG_STATE_HOME`. The invoking workspace must be numbered and greater than 1.
+- `vp run dev:desktop:agent`: Starts or restarts this worktree's desktop dev stack, disables detached DevTools, allocates a stable free CDP port from base 9223, and records the live endpoint under `XDG_STATE_HOME`. It uses normal compositor placement by default. Set `T3CODE_DESKTOP_AGENT_WORKSPACE=-1` in the repo's gitignored `.env` to map without focus one numbered workspace before the invoking app, or set a positive workspace ID for fixed placement. `--workspace <selector>` overrides the repo setting for one run; `none` explicitly restores default placement.
 - `vp run dev:desktop:agent:url`: Prints the live worktree instance's recorded CDP origin.
 - `vp run hypr:workspace [-t <seconds>]`: Captures the active app's Hyprland workspace, optionally waits so the user can switch workspaces, then reports both the newly focused workspace and the app's original workspace.
 - `vp run dev:marketing`: Starts the Astro marketing site.

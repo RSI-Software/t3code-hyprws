@@ -5,20 +5,57 @@ import {
   allocateDesktopAgentPort,
   desktopAgentInstanceHash,
   desktopAgentPortCandidate,
+  parseDesktopAgentWorkspaceSelector,
   resolveAgentTargetWorkspace,
 } from "./lib/dev-desktop-agent.ts";
 
 describe("desktop agent launcher", () => {
   it("parses the run, dry-run, url, and help contracts", () => {
-    assert.deepStrictEqual(parseDesktopAgentCommand(["run"]), { kind: "run", dryRun: false });
+    assert.deepStrictEqual(parseDesktopAgentCommand(["run"]), {
+      kind: "run",
+      dryRun: false,
+      workspace: undefined,
+    });
     assert.deepStrictEqual(parseDesktopAgentCommand(["run", "--dry-run"]), {
       kind: "run",
       dryRun: true,
+      workspace: undefined,
+    });
+    assert.deepStrictEqual(parseDesktopAgentCommand(["run", "--workspace", "-1"]), {
+      kind: "run",
+      dryRun: false,
+      workspace: "-1",
+    });
+    assert.deepStrictEqual(parseDesktopAgentCommand(["run", "--workspace=none"]), {
+      kind: "run",
+      dryRun: false,
+      workspace: "none",
     });
     assert.deepStrictEqual(parseDesktopAgentCommand(["url"]), { kind: "url" });
     assert.deepStrictEqual(parseDesktopAgentCommand(["--help"]), { kind: "help" });
     assert.throws(() => parseDesktopAgentCommand([]), /missing command/u);
     assert.throws(() => parseDesktopAgentCommand(["run", "--wat"]), /unknown argument/u);
+    assert.throws(() => parseDesktopAgentCommand(["run", "--workspace"]), /requires a value/u);
+    assert.throws(
+      () => parseDesktopAgentCommand(["run", "--workspace", "-1", "--workspace=2"]),
+      /only once/u,
+    );
+    assert.throws(
+      () => parseDesktopAgentCommand(["run", "--workspace", "m-1"]),
+      /invalid --workspace value/u,
+    );
+  });
+
+  it("defaults to compositor placement and accepts personal workspace selectors", () => {
+    assert.deepStrictEqual(parseDesktopAgentWorkspaceSelector(undefined), { kind: "default" });
+    assert.deepStrictEqual(parseDesktopAgentWorkspaceSelector("none"), { kind: "default" });
+    assert.deepStrictEqual(parseDesktopAgentWorkspaceSelector("-1"), { kind: "previous" });
+    assert.deepStrictEqual(parseDesktopAgentWorkspaceSelector("7"), {
+      kind: "numbered",
+      workspace: { id: 7, name: "7" },
+    });
+    assert.throws(() => parseDesktopAgentWorkspaceSelector("m-1"), /invalid.+selector/u);
+    assert.throws(() => parseDesktopAgentWorkspaceSelector("0"), /invalid.+selector/u);
   });
 
   it("targets the numbered workspace immediately before the invoking app", () => {

@@ -9,6 +9,7 @@ import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 
 import { readHyprctlWorkspace, type WorkspaceRef } from "./hyprland-workspace.ts";
+import { loadRepoEnv } from "./public-config.ts";
 
 const DEBUG_PORT_BASE = 9223;
 const DEBUG_PORT_SPREAD = 50;
@@ -23,9 +24,9 @@ export type DesktopAgentRecord = {
   readonly repo: string;
   readonly hash: string;
   readonly port: number;
-  readonly originWorkspace: number;
-  readonly targetWorkspace: number;
-  readonly placementTitle: string;
+  readonly originWorkspace: number | null;
+  readonly targetWorkspace: number | null;
+  readonly placementTitle: string | null;
   readonly runnerPid: number;
   readonly childPid: number | null;
   readonly startedAt: string;
@@ -39,6 +40,26 @@ export function resolveAgentTargetWorkspace(origin: WorkspaceRef): WorkspaceRef 
   }
   const id = origin.id - 1;
   return { id, name: String(id) };
+}
+
+export type DesktopAgentWorkspaceSelector =
+  | { readonly kind: "default" }
+  | { readonly kind: "previous" }
+  | { readonly kind: "numbered"; readonly workspace: WorkspaceRef };
+
+export function parseDesktopAgentWorkspaceSelector(
+  value: string | undefined,
+): DesktopAgentWorkspaceSelector {
+  const selector = value?.trim();
+  if (!selector || selector === "none") return { kind: "default" };
+  if (selector === "-1") return { kind: "previous" };
+  if (/^[1-9]\d*$/u.test(selector)) {
+    const id = Number(selector);
+    if (Number.isSafeInteger(id)) return { kind: "numbered", workspace: { id, name: selector } };
+  }
+  throw new Error(
+    `invalid desktop agent workspace selector ${JSON.stringify(value)}; expected none, -1, or a positive workspace id`,
+  );
 }
 
 export function desktopAgentInstanceHash(repo: string): string {
@@ -280,15 +301,28 @@ function printError(error: unknown): number {
   return 1;
 }
 
-async function runAgentDesktop(dryRun: boolean): Promise<number> {
+async function runAgentDesktop(
+  dryRun: boolean,
+  workspaceOverride: string | undefined,
+): Promise<number> {
   const repo = resolveRepo();
   const hash = desktopAgentInstanceHash(repo);
-  const origin = readHyprctlWorkspace("activewindow");
-  const target = resolveAgentTargetWorkspace(origin);
+  const repoEnv = loadRepoEnv({ repoRoot: repo });
+  const workspace = parseDesktopAgentWorkspaceSelector(
+    workspaceOverride ?? repoEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"],
+  );
+  let origin: WorkspaceRef | null = null;
+  let target: WorkspaceRef | null = null;
+  if (workspace.kind === "previous") {
+    origin = readHyprctlWorkspace("activewindow");
+    target = resolveAgentTargetWorkspace(origin);
+  } else if (workspace.kind === "numbered") {
+    target = workspace.workspace;
+  }
   const directory = stateDirectory();
   const path = recordPath(hash);
   const releaseLock = await acquireAllocationLock(lockPath());
-  const placementTitle = `t3code-dev-agent-${hash}`;
+  const placementTitle = target === null ? null : `t3code-dev-agent-${hash}`;
   let record: DesktopAgentRecord | null = null;
   try {
     const previous = readRecord(path);
@@ -299,8 +333,14 @@ async function runAgentDesktop(dryRun: boolean): Promise<number> {
         ? previous.port
         : await allocateDesktopAgentPort({ hash, claimedPorts, isBindable: portBindable });
     if (dryRun) {
+      const placement =
+        target === null
+          ? "default"
+          : origin === null
+            ? `workspace:${target.name}`
+            : `workspace:${origin.name}->${target.name}`;
       process.stdout.write(
-        `repo=${repo} origin=${origin.name} target=${target.name} debugUrl=http://127.0.0.1:${String(port)}\n`,
+        `repo=${repo} placement=${placement} debugUrl=http://127.0.0.1:${String(port)}\n`,
       );
       return 0;
     }
@@ -309,8 +349,8 @@ async function runAgentDesktop(dryRun: boolean): Promise<number> {
       repo,
       hash,
       port,
-      originWorkspace: origin.id,
-      targetWorkspace: target.id,
+      originWorkspace: origin?.id ?? null,
+      targetWorkspace: target?.id ?? null,
       placementTitle,
       runnerPid: process.pid,
       childPid: null,
@@ -324,19 +364,30 @@ async function runAgentDesktop(dryRun: boolean): Promise<number> {
 
   if (record === null) throw new Error("desktop agent state was not initialized");
   const port = record.port;
+  const placement =
+    target === null
+      ? "default"
+      : origin === null
+        ? `workspace:${target.name}`
+        : `workspace:${origin.name}->${target.name}`;
 
   process.stdout.write(
-    `[desktop-agent] workspace=${origin.name}->${target.name} debugUrl=http://127.0.0.1:${String(port)} devtools=off\n`,
+    `[desktop-agent] placement=${placement} debugUrl=http://127.0.0.1:${String(port)} devtools=off\n`,
   );
+  const childEnv = { ...repoEnv };
+  delete childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"];
+  delete childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"];
+  if (target !== null && placementTitle !== null) {
+    childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"] = target.name;
+    childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"] = placementTitle;
+  }
   const child = NodeChildProcess.spawn("vp", ["run", "dev:desktop"], {
     cwd: repo,
     detached: true,
     env: {
-      ...process.env,
+      ...childEnv,
       T3CODE_DESKTOP_REMOTE_DEBUGGING_PORT: String(port),
       T3CODE_DESKTOP_DEVTOOLS: "0",
-      T3CODE_DESKTOP_AGENT_WORKSPACE: target.name,
-      T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: placementTitle,
     },
     stdio: "inherit",
   });
@@ -385,10 +436,14 @@ function printAgentUrl(): number {
 }
 
 export async function runDesktopAgentCommand(
-  command: { readonly kind: "run"; readonly dryRun: boolean } | { readonly kind: "url" },
+  command:
+    | { readonly kind: "run"; readonly dryRun: boolean; readonly workspace: string | undefined }
+    | { readonly kind: "url" },
 ): Promise<number> {
   try {
-    return command.kind === "url" ? printAgentUrl() : await runAgentDesktop(command.dryRun);
+    return command.kind === "url"
+      ? printAgentUrl()
+      : await runAgentDesktop(command.dryRun, command.workspace);
   } catch (error) {
     return printError(error);
   }
