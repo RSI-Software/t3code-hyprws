@@ -1,10 +1,9 @@
 /**
  * Minimal Hyprland IPC client.
  *
- * The fork does not place windows -- Hyprland does. This module exists only so
- * an update relaunch can put a window back on the workspace the user had
- * already put it on. Read the workspace of a live window, and move a restored
- * window back silently. Nothing here decides where a new window belongs.
+ * Hyprland still owns workspace policy. This module preserves an update
+ * relaunch arrangement and applies an explicit dev-launch workspace supplied by
+ * the invoking app. It never derives a workspace from monitor policy itself.
  *
  * Speaks the compositor's socket directly instead of shelling out to
  * `hyprctl`, because that is all `hyprctl` does and a child process per query
@@ -103,6 +102,38 @@ export function formatWorkspaceArgument(workspace: HyprlandWorkspaceRef): string
   if (workspace.name.startsWith("special:")) return workspace.name;
   if (workspace.id > 0 && workspace.name === String(workspace.id)) return String(workspace.id);
   return workspace.name.length > 0 ? `name:${workspace.name}` : String(workspace.id);
+}
+
+const escapeWindowRuleRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+/** Exact map-time title matcher. Commas cannot be escaped in Hyprland rule fields. */
+export function formatWindowRuleTitleMatcher(title: string): string | null {
+  return title.length > 0 && !title.includes(",")
+    ? `match:title ^(${escapeWindowRuleRegex(title)})$`
+    : null;
+}
+
+export function formatSuppressActivationWindowRule(title: string): string | null {
+  const matcher = formatWindowRuleTitleMatcher(title);
+  return matcher === null
+    ? null
+    : `/keyword windowrule suppress_event activate activate_focus, ${matcher}`;
+}
+
+export function formatWorkspaceWindowRule(
+  workspace: HyprlandWorkspaceRef,
+  title: string,
+): string | null {
+  const matcher = formatWindowRuleTitleMatcher(title);
+  return matcher === null
+    ? null
+    : `/keyword windowrule workspace ${formatWorkspaceArgument(workspace)} silent, ${matcher}`;
+}
+
+export function formatClearWorkspaceWindowRule(title: string): string | null {
+  const matcher = formatWindowRuleTitleMatcher(title);
+  return matcher === null ? null : `/keyword windowrule workspace unset, ${matcher}`;
 }
 
 /**
