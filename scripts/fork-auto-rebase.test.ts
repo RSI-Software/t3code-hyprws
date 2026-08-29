@@ -8,10 +8,12 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
+import { buildBlockedIssue } from "./lib/fork-rebase-issues.ts";
 import {
   buildAutoRebasePlan,
   executeAutoRebase,
   parseArgs,
+  rehearseStopCensus,
   renderSummary,
   selectNewestTag,
   SystemGit,
@@ -216,7 +218,52 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       ["v1.0.0"],
     );
 
-    const result = executeAutoRebase(fixture.root, dryRunOptions, plan, () => "shared-install");
+    const stalePath = "already-resolved-by-the-advance.txt";
+    const stalePlan = {
+      ...plan,
+      feasibility: {
+        ...plan.feasibility,
+        ffBoundary: {
+          ...plan.feasibility.ffBoundary,
+          firstConflict:
+            plan.feasibility.ffBoundary.firstConflict === null
+              ? null
+              : {
+                  ...plan.feasibility.ffBoundary.firstConflict,
+                  sha: fixture.cleanNightly,
+                  shortSha: fixture.cleanNightly.slice(0, 7),
+                  subject: "stale pre-advance blocker",
+                },
+        },
+        conflicts: [
+          ...(plan.feasibility.conflicts[0] === undefined
+            ? []
+            : [{ ...plan.feasibility.conflicts[0], path: stalePath }]),
+          ...plan.feasibility.conflicts,
+        ],
+      },
+    };
+    let censusHead = "";
+    let censusBase = "";
+    const result = executeAutoRebase(
+      fixture.root,
+      dryRunOptions,
+      stalePlan,
+      () => "shared-install",
+      {
+        rehearseStopCensus: (_root, headSha, baseSha, target) => {
+          censusHead = headSha;
+          censusBase = baseSha;
+          return {
+            targetTag: target.tag,
+            conflictingForkCommitCount: 2,
+            conflictingFileCount: 3,
+            truncated: false,
+            stopLimit: 128,
+          };
+        },
+      },
+    );
     assert.strictEqual(result.status, "advanced");
     assert.notStrictEqual(result.newSha, fixture.fork);
     assert.strictEqual(
@@ -228,10 +275,28 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       [{ tag: "v1.0.0", branch: "release/v1.0.0-hyprws" }],
     );
     assert.strictEqual(result.blocked?.blockingSha, fixture.conflict);
+    assert.notStrictEqual(censusHead, fixture.fork);
+    assert.strictEqual(censusHead, result.newSha);
+    assert.strictEqual(censusBase, fixture.cleanNightly);
+    assert.notInclude(result.blocked?.body ?? "", fixture.fork);
+    assert.notInclude(result.blocked?.body ?? "", stalePath);
+    assert.deepStrictEqual(result.blocked?.stopCensus, {
+      targetTag: "v1.1.0-nightly.20260828.1209",
+      conflictingForkCommitCount: 2,
+      conflictingFileCount: 3,
+      truncated: false,
+      stopLimit: 128,
+    });
+    assert.include(
+      result.blocked?.body ?? "",
+      "## Sequential rebase census\n\nA throwaway rebase rehearsal to `v1.1.0-nightly.20260828.1209` found 2 conflicting fork commits and 3 conflict-file resolutions.",
+    );
     assert.strictEqual(
       result.blocked?.title,
       `[📡#217] 🔔 hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
     );
+    assert.include(result.blocked?.body ?? "", `<!-- blocking-sha:${fixture.conflict} -->`);
+    assert.notInclude(result.blocked?.body ?? "", "stale pre-advance blocker");
     assert.include(
       result.blocked?.body ?? "",
       `The fork stack advances to \`v1.1.0-nightly.20260828.1208\`, the newest clean upstream tag.\n1 upstream commit sits behind the blocking commit \`${fixture.conflict}\`.`,
@@ -248,6 +313,50 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     );
     assert.include(result.stableCandidates[0]?.body ?? "", "trunk has not adopted");
     assert.deepStrictEqual(findUpstreamReferences(result.blocked?.body ?? ""), []);
+    assert.include(
+      buildBlockedIssue(plan, {
+        targetTag: "v1.1.0-nightly.20260828.1209",
+        conflictingForkCommitCount: 128,
+        conflictingFileCount: 140,
+        truncated: true,
+        stopLimit: 128,
+      })?.body ?? "",
+      "The census stopped at its safety cap of 128 conflict stops, so these are lower-bound counts.",
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("rehearses sequential conflict stops in a disposable worktree", () => {
+  const fixture = fixtureRepository();
+  try {
+    const before = git(fixture.root, ["worktree", "list", "--porcelain"]);
+    const census = rehearseStopCensus(fixture.root, fixture.fork, fixture.base, {
+      tag: "v1.1.0-nightly.20260828.1209",
+      sha: fixture.conflict,
+      position: 3,
+      stable: false,
+    });
+    assert.deepStrictEqual(census, {
+      targetTag: "v1.1.0-nightly.20260828.1209",
+      conflictingForkCommitCount: 1,
+      conflictingFileCount: 1,
+      truncated: false,
+      stopLimit: 128,
+    });
+    assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+    assert.throws(
+      () =>
+        rehearseStopCensus(fixture.root, fixture.fork, fixture.base, {
+          tag: "v9.9.9",
+          sha: "f".repeat(40),
+          position: 4,
+          stable: true,
+        }),
+      /census rebase failed/,
+    );
+    assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
