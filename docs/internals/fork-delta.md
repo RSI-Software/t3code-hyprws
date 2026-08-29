@@ -173,7 +173,7 @@ Previews, composer drafts, and preview IPC are namespaced per window.
 Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
-QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; Pull Requests shares its search contract through `apps/web/src/components/pullRequest/pullRequestListRoute.ts`, adds `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`, and resolves the project-window entry point in `apps/web/src/components/sidebar/SidebarChrome.tsx`.
+QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; Pull Requests shares its search contract through `apps/web/src/components/pullRequest/pullRequestListRoute.ts`, adds `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`, and resolves the project-window entry point in `apps/web/src/components/sidebar/SidebarChrome.tsx`.
 Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
 
 An auto-update relaunch is one of those fork-only defects.
@@ -183,6 +183,8 @@ Here it collapses a workspace-per-project layout into a single hub window.
 `apps/desktop/src/window/hyprland.ts` reads each window's workspace over the compositor socket and moves the restored window back silently.
 Neither decides where a window belongs; they only put back an arrangement the user already made, so `AGENTS.md`'s rule against encoding compositor policy holds.
 Off Hyprland every operation is a no-op and the windows simply reopen.
+
+The development-only `dev:desktop:agent` command is explicit operator tooling rather than shipped window policy. It captures the invoking app's numbered workspace, requests the preceding workspace, allocates a stable free CDP port per worktree, and passes both values through the existing desktop watcher. Each restarted Electron main process stages exact-title map and activation-suppression rules, uses `showInactive`, verifies and silently corrects placement, then neutralizes the workspace rule. Hyprland cannot remove one runtime rule, so the exact worktree-title activation guard remains to cover watcher restarts without matching normal launches. Concurrent worktrees use separate titles, state records, process groups, and debug ports.
 
 Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
 A project window starts with its project id as the window title.
@@ -208,46 +210,48 @@ Verify the complete browser/Electron gap before retiring the domain.
 
 After every rebase onto upstream, check these before trusting a clean merge.
 
-| Path                                                                      | Why it matters                                                      |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `apps/desktop/src/window/DesktopWindow.ts`                                | The window service the fork makes plural. Upstream would land here. |
-| `apps/desktop/src/window/WindowIdentity.ts`                               | Fork-only. A conflict means upstream added its own identity model.  |
-| `apps/desktop/src/window/DesktopWindowSession.ts`                         | Fork-only. The manifest that carries windows across an update.      |
-| `apps/desktop/src/window/hyprland.ts`                                     | Fork-only. The only place that speaks to the compositor.            |
-| `apps/desktop/src/backend/DesktopBackendPool.test.ts`                     | Covers the shared backend pool lifecycle used by project windows.   |
-| `apps/desktop/src/updates/DesktopUpdates.ts`                              | Captures the session before `destroyAll`. Upstream edits this file. |
-| `apps/server/src/provider/providerSessionEnvironment.ts`                  | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
-| `apps/server/src/provider/Layers/*Adapter.ts`                             | Every adapter passes that identity into its runtime.                |
-| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                    | Covers project identity propagation through Codex.                  |
-| `apps/server/src/provider/Layers/ProviderService.ts`                      | Owns project-scoped provider session startup.                       |
-| `apps/server/src/provider/Layers/ProviderService.test.ts`                 | Covers project-scoped provider session startup.                     |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`          | Carries `projectId` on the provider session start input.            |
-| `apps/server/src/keybindings.test.ts`                                     | Covers project-window keybinding dispatch.                          |
-| `apps/desktop/src/app/DesktopClerk.ts`                                    | Single-instance lock and deep-link forwarding.                      |
-| `apps/desktop/src/preview/Manager.ts`                                     | Preview namespacing by window.                                      |
-| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                  | The bridge surface the web client gates on.                         |
-| `packages/contracts/src/ipc.ts`                                           | `openProjectWindow` lives here.                                     |
-| `apps/web/src/routes/project.*`                                           | Fork-only route subtree.                                            |
-| `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` | Keeps Pull Requests inside the scoped project shell.                |
-| `apps/web/src/windowProjectScope.ts`                                      | Shared project-window list-scope resolver and storage key.          |
-| `apps/web/src/components/WindowProjectScopeToggle.tsx`                    | Shared project/all-project segmented control.                       |
-| `apps/web/src/components/pullRequest/pullRequestListRoute.ts`             | Search contract shared by the hub and project routes.               |
-| `apps/web/src/components/sidebar/SidebarChrome.tsx`                       | Resolves Pull Requests navigation within the active window scope.   |
-| `apps/web/src/components/ChatView.tsx`                                    | Starts and navigates threads within project-window scope.           |
-| `apps/web/src/components/Sidebar.logic.ts`                                | `isProjectInSidebarScope`; upstream reworks this comparator.        |
-| `apps/web/src/components/Sidebar.logic.test.ts`                           | Fork scope cases sit beside upstream's ordering cases.              |
-| `apps/web/src/components/Sidebar.tsx`                                     | Applies the active project-window scope to the shared sidebar.      |
-| `apps/web/src/composerDraftStore.ts`                                      | Persists drafts within project-window thread scope.                 |
-| `apps/web/src/composerDraftStore.test.ts`                                 | Covers project-scoped draft restoration.                            |
-| `apps/web/src/hooks/useHandleNewThread.ts`                                | Starts new threads inside the active project window.                |
-| `docs/user/thread-sidebar.md`                                             | Documents the scoped sidebar on a page upstream also edits.         |
-| `docs/user/keybindings.md`                                                | Documents project-window keyboard entry points.                     |
-| `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
-| `apps/web/src/components/preview/previewBridge.ts`                        | The retirement signal. Read it on every rebase.                     |
-| `apps/web/src/components/CommandPalette.tsx`                              | Entry point, and a busy upstream file.                              |
-| `apps/web/src/components/ChatMarkdown.tsx`                                | Shared with `github-issues`; neither domain owns it alone.          |
-| `packages/contracts/src/keybindings.ts`                                   | Defines the project-window keybinding action.                       |
-| `packages/shared/src/keybindings.ts`                                      | Maps the project-window keybinding action across clients.           |
+| Path                                                                                  | Why it matters                                                               |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `apps/desktop/src/window/DesktopWindow.ts`                                            | The window service the fork makes plural and the no-focus dev launch seam.   |
+| `apps/desktop/src/app/DesktopConfig.ts`, `apps/desktop/src/app/DesktopEnvironment.ts` | Carry the development-only agent placement request.                          |
+| `scripts/dev-desktop-agent.ts`, `scripts/hyprland-workspace.ts`                       | Allocate the worktree CDP endpoint and derive the explicit launch workspace. |
+| `apps/desktop/src/window/WindowIdentity.ts`                                           | Fork-only. A conflict means upstream added its own identity model.           |
+| `apps/desktop/src/window/DesktopWindowSession.ts`                                     | Fork-only. The manifest that carries windows across an update.               |
+| `apps/desktop/src/window/hyprland.ts`                                                 | Fork-only. The only place that speaks to the compositor.                     |
+| `apps/desktop/src/backend/DesktopBackendPool.test.ts`                                 | Covers the shared backend pool lifecycle used by project windows.            |
+| `apps/desktop/src/updates/DesktopUpdates.ts`                                          | Captures the session before `destroyAll`. Upstream edits this file.          |
+| `apps/server/src/provider/providerSessionEnvironment.ts`                              | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.            |
+| `apps/server/src/provider/Layers/*Adapter.ts`                                         | Every adapter passes that identity into its runtime.                         |
+| `apps/server/src/provider/Layers/CodexAdapter.test.ts`                                | Covers project identity propagation through Codex.                           |
+| `apps/server/src/provider/Layers/ProviderService.ts`                                  | Owns project-scoped provider session startup.                                |
+| `apps/server/src/provider/Layers/ProviderService.test.ts`                             | Covers project-scoped provider session startup.                              |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                      | Carries `projectId` on the provider session start input.                     |
+| `apps/server/src/keybindings.test.ts`                                                 | Covers project-window keybinding dispatch.                                   |
+| `apps/desktop/src/app/DesktopClerk.ts`                                                | Single-instance lock and deep-link forwarding.                               |
+| `apps/desktop/src/preview/Manager.ts`                                                 | Preview namespacing by window.                                               |
+| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | The bridge surface the web client gates on.                                  |
+| `packages/contracts/src/ipc.ts`                                                       | `openProjectWindow` lives here.                                              |
+| `apps/web/src/routes/project.*`                                                       | Fork-only route subtree.                                                     |
+| `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`             | Keeps Pull Requests inside the scoped project shell.                         |
+| `apps/web/src/windowProjectScope.ts`                                                  | Shared project-window list-scope resolver and storage key.                   |
+| `apps/web/src/components/WindowProjectScopeToggle.tsx`                                | Shared project/all-project segmented control.                                |
+| `apps/web/src/components/pullRequest/pullRequestListRoute.ts`                         | Search contract shared by the hub and project routes.                        |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                   | Resolves Pull Requests navigation within the active window scope.            |
+| `apps/web/src/components/ChatView.tsx`                                                | Starts and navigates threads within project-window scope.                    |
+| `apps/web/src/components/Sidebar.logic.ts`                                            | `isProjectInSidebarScope`; upstream reworks this comparator.                 |
+| `apps/web/src/components/Sidebar.logic.test.ts`                                       | Fork scope cases sit beside upstream's ordering cases.                       |
+| `apps/web/src/components/Sidebar.tsx`                                                 | Applies the active project-window scope to the shared sidebar.               |
+| `apps/web/src/composerDraftStore.ts`                                                  | Persists drafts within project-window thread scope.                          |
+| `apps/web/src/composerDraftStore.test.ts`                                             | Covers project-scoped draft restoration.                                     |
+| `apps/web/src/hooks/useHandleNewThread.ts`                                            | Starts new threads inside the active project window.                         |
+| `docs/user/thread-sidebar.md`                                                         | Documents the scoped sidebar on a page upstream also edits.                  |
+| `docs/user/keybindings.md`                                                            | Documents project-window keyboard entry points.                              |
+| `apps/web/src/routeTree.gen.ts`                                                       | Generated. Regenerate rather than resolving by hand.                         |
+| `apps/web/src/components/preview/previewBridge.ts`                                    | The retirement signal. Read it on every rebase.                              |
+| `apps/web/src/components/CommandPalette.tsx`                                          | Entry point, and a busy upstream file.                                       |
+| `apps/web/src/components/ChatMarkdown.tsx`                                            | Shared with `github-issues`; neither domain owns it alone.                   |
+| `packages/contracts/src/keybindings.ts`                                               | Defines the project-window keybinding action.                                |
+| `packages/shared/src/keybindings.ts`                                                  | Maps the project-window keybinding action across clients.                    |
 
 ## browser-bookmarks
 
