@@ -109,4 +109,26 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
       }).pipe(Effect.provide(layer));
     }),
   );
+
+  it.effect("skips devtools when the development run opts out", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        environmentEnv: { T3CODE_DESKTOP_DEVTOOLS: "0" },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
 };
