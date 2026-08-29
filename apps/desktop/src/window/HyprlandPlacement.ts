@@ -1,11 +1,11 @@
 /**
- * Remembers which Hyprland client belongs to which desktop window, so the
- * workspace a window sits on survives an update relaunch.
+ * Remembers which Hyprland client belongs to which desktop window. Update
+ * relaunches restore a previous arrangement; dev:desktop:agent may stage one
+ * explicit map-time target chosen from the invoking app's workspace.
  *
- * This is deliberately not a placement policy. Hyprland still decides where a
- * window opens; the only move this service ever makes is putting a restored
- * window back where the user had already dragged it, and it makes that move
- * silently so the user's current workspace never changes underneath them.
+ * This is deliberately not monitor policy. The service never derives where a
+ * window belongs and every move is silent, so the user's current workspace does
+ * not change underneath them.
  *
  * Every operation is best-effort. Off Hyprland, or with the socket gone, each
  * one becomes a no-op instead of an error -- window restore must not depend on
@@ -18,7 +18,10 @@ import * as Option from "effect/Option";
 
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import {
+  formatClearWorkspaceWindowRule,
+  formatSuppressActivationWindowRule,
   formatWorkspaceArgument,
+  formatWorkspaceWindowRule,
   parseHyprlandClients,
   readHyprlandSocketEnvironment,
   requestHyprland,
@@ -46,6 +49,12 @@ export class HyprlandPlacement extends Context.Service<
     readonly claim: (key: string, title: string) => Effect.Effect<void>;
     readonly forget: (key: string) => Effect.Effect<void>;
     readonly workspaceOf: (key: string) => Effect.Effect<Option.Option<HyprlandWorkspaceRef>>;
+    /** Stages a title-scoped rule before a hidden window maps. */
+    readonly stageWorkspaceRule: (
+      title: string,
+      workspace: HyprlandWorkspaceRef,
+    ) => Effect.Effect<boolean>;
+    readonly clearWorkspaceRule: (title: string) => Effect.Effect<void>;
     /** Moves a claimed window to `workspace` without switching the view. */
     readonly moveToWorkspace: (key: string, workspace: HyprlandWorkspaceRef) => Effect.Effect<void>;
   }
@@ -106,6 +115,30 @@ export const make = (options: {
         : Option.some(client.workspace);
     });
 
+    const stageWorkspaceRule = Effect.fn("desktop.hyprland.stageWorkspaceRule")(function* (
+      title: string,
+      workspace: HyprlandWorkspaceRef,
+    ) {
+      if (!isAvailable) return false;
+      const workspacePayload = formatWorkspaceWindowRule(workspace, title);
+      const suppressionPayload = formatSuppressActivationWindowRule(title);
+      if (workspacePayload === null || suppressionPayload === null) return false;
+      // The exact worktree title keeps the activation guard safe to retain.
+      // Hyprland has no single-runtime-rule removal; retaining it also covers
+      // every Electron restart owned by the development watcher.
+      const workspaceResult = yield* request(workspacePayload);
+      const suppressionResult = yield* request(suppressionPayload);
+      return Option.isSome(workspaceResult) && Option.isSome(suppressionResult);
+    });
+
+    const clearWorkspaceRule = Effect.fn("desktop.hyprland.clearWorkspaceRule")(function* (
+      title: string,
+    ) {
+      if (!isAvailable) return;
+      const payload = formatClearWorkspaceWindowRule(title);
+      if (payload !== null) yield* request(payload);
+    });
+
     const moveToWorkspace = Effect.fn("desktop.hyprland.moveToWorkspace")(function* (
       key: string,
       workspace: HyprlandWorkspaceRef,
@@ -122,6 +155,8 @@ export const make = (options: {
       claim,
       forget: (key) => Effect.sync(() => void addressesByKey.delete(key)),
       workspaceOf,
+      stageWorkspaceRule,
+      clearWorkspaceRule,
       moveToWorkspace,
     });
   });
