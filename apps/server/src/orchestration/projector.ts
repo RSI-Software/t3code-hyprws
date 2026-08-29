@@ -37,6 +37,7 @@ import {
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
+import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -284,7 +285,10 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.defaultThreadEnvMode !== undefined
-                    ? { defaultThreadEnvMode: payload.defaultThreadEnvMode }
+                    ? {
+                        defaultThreadEnvModeFork: undefined,
+                        ...toWireThreadEnvModeOverrideFields(payload.defaultThreadEnvMode),
+                      }
                     : {}),
                   ...(payload.autoPull !== undefined ? { autoPull: payload.autoPull } : {}),
                   ...(payload.faviconPath !== undefined
