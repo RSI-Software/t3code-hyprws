@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
+import { fromWireThreadEnvModeFields, toWireThreadEnvModeFields } from "./threadEnvMode.ts";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -175,8 +176,18 @@ export function applyServerSettingsPatch(
     usagePriceOverrides: usagePriceOverridesPatch,
     projectAgentBrowserAccessOverrides: projectAgentBrowserAccessOverridesPatch,
     projectAutoPullOverrides: projectAutoPullOverridesPatch,
+    // Fork: the thread-mode pair replaces wholesale. A merge would keep a
+    // stale `...Fork` sibling and resurrect a mode the patch just cleared.
+    defaultThreadEnvMode,
+    defaultThreadEnvModeFork,
     ...patchForMerge
   } = patch;
+  const threadEnvModeReplacement =
+    defaultThreadEnvMode === undefined
+      ? {}
+      : toWireThreadEnvModeFields(
+          fromWireThreadEnvModeFields({ defaultThreadEnvMode, defaultThreadEnvModeFork }),
+        );
   const currentBackgroundActivity = normalizeServerBackgroundActivitySettings(current);
   const backgroundActivityPatch =
     backgroundActivityProfile !== undefined
@@ -282,6 +293,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
     ...(providerHealthRefreshInterval !== undefined ? { providerHealthRefreshInterval } : {}),
+    ...(defaultThreadEnvMode === undefined
+      ? {}
+      : { defaultThreadEnvModeFork: undefined, ...threadEnvModeReplacement }),
   };
   const normalizedBackgroundActivity = normalizeBackgroundActivitySettings(
     nextWithReplacementsBase.backgroundActivity,
