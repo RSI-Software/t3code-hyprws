@@ -20,6 +20,7 @@ const child: GitHubSubIssue = {
 const emptyDraft: ComposerThreadDraftState = {
   prompt: "",
   images: [],
+  files: [],
   nonPersistedImageIds: [],
   persistedAttachments: [],
   terminalContexts: [],
