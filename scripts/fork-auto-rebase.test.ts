@@ -145,11 +145,33 @@ const fixtureRepository = (): Fixture => {
     "origin",
     `${base}:refs/heads/main`,
     `${fork}:refs/heads/hyprws`,
+    `${base}:refs/tags/v0.9.0-hyprws.1`,
     `${conflict}:refs/internal/upstream`,
   ]);
   git(root, ["update-ref", "refs/remotes/origin/hyprws", fork]);
   NodeFS.writeFileSync(pushLog, "");
   return { container, root, remote, pushLog, base, stable, cleanNightly, conflict, fork };
+};
+
+interface ManualApplyFixture extends Fixture {
+  readonly manualHead: string;
+}
+
+const manualApplyFixture = (): ManualApplyFixture => {
+  const fixture = fixtureRepository();
+  git(fixture.root, ["switch", "fork-stack"]);
+  git(fixture.root, ["rebase", "--onto", fixture.stable, fixture.base]);
+  NodeFS.writeFileSync(NodePath.join(fixture.root, "nightly.txt"), "fork\n");
+  const manualHead = commit(fixture.root, "fix(test): resolve the stable apply");
+  git(fixture.root, [
+    "push",
+    "--force-with-lease=refs/heads/hyprws:" + fixture.fork,
+    "origin",
+    `${manualHead}:refs/heads/hyprws`,
+  ]);
+  git(fixture.root, ["update-ref", "refs/remotes/origin/hyprws", manualHead]);
+  NodeFS.writeFileSync(fixture.pushLog, "");
+  return { ...fixture, manualHead };
 };
 
 const dryRunOptions = {
@@ -253,6 +275,134 @@ const options = (mode: "off" | "candidate" | "on", dryRun = false) => ({
   ...dryRunOptions,
   mode,
   dryRun,
+});
+
+it("does not snapshot a crossed stable tag that was already published", () => {
+  const fixture = fixtureRepository();
+  try {
+    git(fixture.remote, ["update-ref", "refs/tags/v1.0.0-hyprws.1", fixture.stable]);
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    assert.strictEqual(plan.target?.sha, fixture.cleanNightly);
+    assert.deepStrictEqual(plan.stableTags, []);
+
+    const result = executeAutoRebase(fixture.root, dryRunOptions, plan, () => "shared-install");
+    assert.deepStrictEqual(result.stableCandidates, []);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("creates the stable snapshot at the trunk head after a manual apply", () => {
+  const fixture = manualApplyFixture();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.manualHead, null);
+    assert.strictEqual(plan.target?.tag, "v1.0.0");
+    assert.deepStrictEqual(
+      plan.stableTags.map(({ tag, position }) => ({ tag, position })),
+      [{ tag: "v1.0.0", position: 0 }],
+    );
+
+    const result = executeAutoRebase(fixture.root, options("on"), plan, () => "shared-install");
+    assert.strictEqual(result.status, "no-op");
+    assert.strictEqual(result.newSha, null);
+    assert.strictEqual(result.blocked?.blockingSha, fixture.cleanNightly);
+    assert.deepStrictEqual(
+      result.stableCandidates.map(({ tag, branch, sha }) => ({ tag, branch, sha })),
+      [
+        {
+          tag: "v1.0.0",
+          branch: "release/v1.0.0-hyprws",
+          sha: fixture.manualHead,
+        },
+      ],
+    );
+    assert.strictEqual(remoteHeads(fixture)["release/v1.0.0-hyprws"], fixture.manualHead);
+    assert.deepStrictEqual(pushOrder(fixture), ["refs/heads/release/v1.0.0-hyprws"]);
+    assert.include(renderSummary(result), "Push ordering: create-only release/*");
+    assert.include(
+      renderSummary(result),
+      `- Created snapshot: \`release/v1.0.0-hyprws\` at \`${fixture.manualHead}\``,
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("a manual-apply dry run leaves every remote ref untouched", () => {
+  const fixture = manualApplyFixture();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.manualHead, null);
+    const before = remoteHeads(fixture);
+    const result = executeAutoRebase(
+      fixture.root,
+      options("on", true),
+      plan,
+      () => "shared-install",
+    );
+    assert.deepStrictEqual(
+      result.stableCandidates.map(({ tag }) => tag),
+      ["v1.0.0"],
+    );
+    assert.deepStrictEqual(remoteHeads(fixture), before);
+    assert.deepStrictEqual(pushOrder(fixture), []);
+    assert.include(
+      renderSummary(result),
+      `- Snapshot pending: \`release/v1.0.0-hyprws\` at \`${fixture.manualHead}\``,
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("skips a base stable snapshot created after planning", () => {
+  const fixture = manualApplyFixture();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.manualHead, null);
+    assert.deepStrictEqual(
+      plan.stableTags.map(({ tag }) => tag),
+      ["v1.0.0"],
+    );
+    git(fixture.remote, ["update-ref", "refs/heads/release/v1.0.0-hyprws", fixture.manualHead]);
+    NodeFS.writeFileSync(fixture.pushLog, "");
+
+    const result = executeAutoRebase(fixture.root, options("on"), plan, () => "shared-install");
+    assert.deepStrictEqual(result.stableCandidates, []);
+    assert.deepStrictEqual(pushOrder(fixture), []);
+    assert.strictEqual(result.blocked?.blockingSha, fixture.cleanNightly);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("does not recreate a base stable snapshot that already exists", () => {
+  const fixture = manualApplyFixture();
+  try {
+    git(fixture.remote, ["update-ref", "refs/heads/release/v1.0.0-hyprws", fixture.manualHead]);
+    NodeFS.writeFileSync(fixture.pushLog, "");
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.manualHead, null);
+    assert.deepStrictEqual(plan.stableTags, []);
+
+    const result = executeAutoRebase(fixture.root, options("on"), plan, () => "shared-install");
+    assert.deepStrictEqual(result.stableCandidates, []);
+    assert.deepStrictEqual(pushOrder(fixture), []);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("does not snapshot a base stable tag that was already published", () => {
+  const fixture = manualApplyFixture();
+  try {
+    git(fixture.remote, ["update-ref", "refs/tags/v1.0.0-hyprws.1", fixture.manualHead]);
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.manualHead, null);
+    assert.deepStrictEqual(plan.stableTags, []);
+
+    const result = executeAutoRebase(fixture.root, options("on"), plan, () => "shared-install");
+    assert.deepStrictEqual(result.stableCandidates, []);
+    assert.deepStrictEqual(pushOrder(fixture), []);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
 });
 
 it("off and dry-run modes leave every bare-remote ref untouched", () => {
