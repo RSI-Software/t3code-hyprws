@@ -154,6 +154,7 @@ import {
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
   searchSidebarThreadsByTitle,
+  resolveSidebarThreadSortOrderAfterDrop,
   shouldCreateNewThreadInCurrentProject,
   resolveWorkingStartedAt,
   shouldShowSidebarDoneStatus,
@@ -207,7 +208,6 @@ import {
   ComboboxTrigger,
   useComboboxFilter,
 } from "./ui/combobox";
-import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
@@ -3069,7 +3069,6 @@ export default function Sidebar({
     (event: DragEndEvent) => {
       const intendedGroupTargetKey = groupDropTargetKeyRef.current;
       updateGroupDropTarget(null);
-      if (sidebarThreadSortOrder !== "manual") return;
       const activeKey = String(event.active.id);
       const overKey = event.over === null ? null : String(event.over.id);
       if (overKey === null || activeKey === overKey) return;
@@ -3092,6 +3091,9 @@ export default function Sidebar({
       const newGroup =
         mode === "group" && !targetGroup ? { id: randomUUID(), title: "New group" } : undefined;
       moveProjectThread(projectKey, projectThreadKeys, activeKey, overKey, mode, newGroup);
+      updateClientSettings({
+        sidebarThreadSortOrder: resolveSidebarThreadSortOrderAfterDrop(sidebarThreadSortOrder),
+      });
       if (newGroup) {
         void requestThreadGroupTitle({
           projectKey,
@@ -3107,6 +3109,7 @@ export default function Sidebar({
       requestThreadGroupTitle,
       sidebarThreadSortOrder,
       threadGroupsByProject,
+      updateClientSettings,
       updateGroupDropTarget,
     ],
   );
@@ -4056,38 +4059,6 @@ export default function Sidebar({
                     <TooltipPopup side="right">Project settings</TooltipPopup>
                   </Tooltip>
                 ) : null}
-                <Menu>
-                  <MenuTrigger
-                    render={
-                      <SidebarMenuButton
-                        size="icon"
-                        type="button"
-                        className="shrink-0 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-                        aria-label="Sort threads"
-                        title="Sort threads"
-                      />
-                    }
-                  >
-                    <ArrowUpDownIcon />
-                  </MenuTrigger>
-                  <MenuPopup align="end" className="min-w-36">
-                    <MenuRadioGroup
-                      value={sidebarThreadSortOrder === "manual" ? "manual" : "automatic"}
-                      onValueChange={(value) => {
-                        updateClientSettings({
-                          sidebarThreadSortOrder: value === "manual" ? "manual" : "updated_at",
-                        });
-                      }}
-                    >
-                      <MenuRadioItem value="automatic" closeOnClick>
-                        Automatic
-                      </MenuRadioItem>
-                      <MenuRadioItem value="manual" closeOnClick>
-                        Manual
-                      </MenuRadioItem>
-                    </MenuRadioGroup>
-                  </MenuPopup>
-                </Menu>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -4363,7 +4334,7 @@ export default function Sidebar({
                       />,
                     );
                   }
-                  if (sidebarThreadSortOrder === "manual" && activeThreads.length > 0) {
+                  if (activeThreads.length > 0) {
                     items.push(
                       <li key="active-dnd" className="list-none">
                         <DndContext
@@ -4385,80 +4356,106 @@ export default function Sidebar({
                               aria-label="Active threads"
                               className="flex flex-col gap-px"
                             >
-                              {activeThreadGroupLayout.flatMap((item) => {
-                                if (item.kind === "thread") {
-                                  const threadKey = scopedThreadKey(
-                                    scopeThreadRef(item.thread.environmentId, item.thread.id),
-                                  );
-                                  return [
-                                    <SortableThreadRow key={threadKey} id={threadKey}>
-                                      {(bag) =>
-                                        renderThreadRow(item.thread, "active", bag, {
-                                          isGroupDropTarget: groupDropTargetKey === threadKey,
-                                        })
-                                      }
-                                    </SortableThreadRow>,
-                                  ];
-                                }
-                                const generatingKey = `${item.projectKey}\0${item.group.id}`;
-                                const groupRows = item.group.collapsed
-                                  ? []
-                                  : item.threads.map((thread) => {
+                              {sidebarThreadSortOrder === "manual"
+                                ? activeThreadGroupLayout.flatMap((item) => {
+                                    if (item.kind === "thread") {
                                       const threadKey = scopedThreadKey(
-                                        scopeThreadRef(thread.environmentId, thread.id),
+                                        scopeThreadRef(item.thread.environmentId, item.thread.id),
                                       );
-                                      return (
+                                      return [
                                         <SortableThreadRow key={threadKey} id={threadKey}>
                                           {(bag) =>
-                                            renderThreadRow(thread, "active", bag, {
-                                              grouped: true,
+                                            renderThreadRow(item.thread, "active", bag, {
                                               isGroupDropTarget: groupDropTargetKey === threadKey,
                                             })
                                           }
-                                        </SortableThreadRow>
-                                      );
-                                    });
-                                return [
-                                  <SidebarThreadGroupHeader
-                                    key={`group:${generatingKey}`}
-                                    group={item.group}
-                                    memberCount={item.threads.length}
-                                    isGenerating={generatingGroupIds.has(generatingKey)}
-                                    onCollapsedChange={(collapsed) =>
-                                      setThreadGroupCollapsed(
-                                        item.projectKey,
-                                        item.group.id,
-                                        collapsed,
-                                      )
+                                        </SortableThreadRow>,
+                                      ];
                                     }
-                                    onRename={(title) =>
-                                      renameThreadGroup(item.projectKey, item.group.id, title)
-                                    }
-                                    onRegenerate={() =>
-                                      void requestThreadGroupTitle({
-                                        projectKey: item.projectKey,
-                                        groupId: item.group.id,
-                                        members: item.threads,
-                                        expectedGroup: item.group,
-                                        previousTitle: item.group.title,
-                                      })
-                                    }
-                                    onRemove={() =>
-                                      removeThreadGroup(item.projectKey, item.group.id)
-                                    }
-                                  />,
-                                  ...groupRows,
-                                ];
-                              })}
+                                    const generatingKey = `${item.projectKey}\0${item.group.id}`;
+                                    const groupRows = item.group.collapsed
+                                      ? []
+                                      : item.threads.map((thread) => {
+                                          const threadKey = scopedThreadKey(
+                                            scopeThreadRef(thread.environmentId, thread.id),
+                                          );
+                                          return (
+                                            <SortableThreadRow key={threadKey} id={threadKey}>
+                                              {(bag) =>
+                                                renderThreadRow(thread, "active", bag, {
+                                                  grouped: true,
+                                                  isGroupDropTarget:
+                                                    groupDropTargetKey === threadKey,
+                                                })
+                                              }
+                                            </SortableThreadRow>
+                                          );
+                                        });
+                                    return [
+                                      <SidebarThreadGroupHeader
+                                        key={`group:${generatingKey}`}
+                                        group={item.group}
+                                        memberCount={item.threads.length}
+                                        isGenerating={generatingGroupIds.has(generatingKey)}
+                                        onCollapsedChange={(collapsed) =>
+                                          setThreadGroupCollapsed(
+                                            item.projectKey,
+                                            item.group.id,
+                                            collapsed,
+                                          )
+                                        }
+                                        onRename={(title) =>
+                                          renameThreadGroup(item.projectKey, item.group.id, title)
+                                        }
+                                        onRegenerate={() =>
+                                          void requestThreadGroupTitle({
+                                            projectKey: item.projectKey,
+                                            groupId: item.group.id,
+                                            members: item.threads,
+                                            expectedGroup: item.group,
+                                            previousTitle: item.group.title,
+                                          })
+                                        }
+                                        onRemove={() =>
+                                          removeThreadGroup(item.projectKey, item.group.id)
+                                        }
+                                      />,
+                                      ...groupRows,
+                                    ];
+                                  })
+                                : activeThreads.map((thread) => {
+                                    const threadKey = scopedThreadKey(
+                                      scopeThreadRef(thread.environmentId, thread.id),
+                                    );
+                                    return (
+                                      <SortableThreadRow key={threadKey} id={threadKey}>
+                                        {(bag) => renderThreadRow(thread, "active", bag)}
+                                      </SortableThreadRow>
+                                    );
+                                  })}
                             </ul>
                           </SortableContext>
                         </DndContext>
                       </li>,
                     );
-                  } else {
-                    for (const thread of activeThreads) {
-                      items.push(renderThreadRow(thread, "active"));
-                    }
+                  }
+                  if (sidebarThreadSortOrder === "manual") {
+                    items.push(
+                      <li key="automatic-order-reset" className="list-none px-2.5 pt-1">
+                        <button
+                          type="button"
+                          data-thread-selection-safe
+                          data-testid="sidebar-automatic-order-reset"
+                          onClick={() =>
+                            updateClientSettings({ sidebarThreadSortOrder: "updated_at" })
+                          }
+                          className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-muted-foreground/60 transition-colors hover:bg-sidebar-row-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                        >
+                          <ArrowUpDownIcon aria-hidden className="size-3" />
+                          Use automatic order
+                        </button>
+                      </li>,
+                    );
                   }
                   // Snoozed shelf: between the inbox and Settled — out of the
                   // way, never gone. The header always renders while anything

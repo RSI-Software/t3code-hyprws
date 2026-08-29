@@ -26,6 +26,7 @@ import {
   orderThreadsByProjectPreference,
   resolveProjectStatusIndicator,
   resolveSidebarStageBadgeLabel,
+  resolveSidebarThreadSortOrderAfterDrop,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,
   resolveThreadStatusPill,
@@ -61,6 +62,15 @@ import {
   type Project,
   type Thread,
 } from "../types";
+
+describe("sidebar thread drag ordering", () => {
+  it.each(["created_at", "updated_at", "manual"] as const)(
+    "uses manual order after a successful drop from %s",
+    (currentOrder) => {
+      expect(resolveSidebarThreadSortOrderAfterDrop(currentOrder)).toBe("manual");
+    },
+  );
+});
 
 describe("sidebar thread groups", () => {
   const threads = [
