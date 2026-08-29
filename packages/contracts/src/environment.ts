@@ -23,9 +23,24 @@ export const ExecutionEnvironmentPlatform = Schema.Struct({
  * Where a new thread runs: the project's current checkout ("local") or a
  * fresh git worktree ("worktree"). Lives here (not settings.ts) so
  * orchestration contracts can reference it without an import cycle.
+ *
+ * Fork: "worktrunk" is a "worktree" that also runs the repository's Worktrunk
+ * hooks. It is the stored and server-internal form only. Nothing that crosses
+ * the wire may carry it, because a released client validates the field against
+ * `WireThreadEnvMode` and drops the whole payload on an unknown value. Wire
+ * schemas pair `WireThreadEnvMode` with a `...Fork` sibling instead; the
+ * helpers in `@t3tools/shared/threadEnvMode` own both directions.
  */
 export const ThreadEnvMode = Schema.Literals(["local", "worktree", "worktrunk"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+
+/**
+ * The thread modes every released T3 Code client can decode. Every wire field
+ * uses this, so an old client keeps rendering projects and threads that a fork
+ * server describes with a mode it has never heard of.
+ */
+export const WireThreadEnvMode = Schema.Literals(["local", "worktree"]);
+export type WireThreadEnvMode = typeof WireThreadEnvMode.Type;
 export type ExecutionEnvironmentPlatform = typeof ExecutionEnvironmentPlatform.Type;
 
 /** How a server can replace itself with another version when asked over RPC.
