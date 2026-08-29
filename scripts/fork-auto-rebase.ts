@@ -206,6 +206,11 @@ export const selectNewestTag = (tags: ReadonlyArray<PositionedTag>): PositionedT
     return right.tag.localeCompare(left.tag, undefined, { numeric: true });
   })[0] ?? null;
 
+const originHasStableRelease = (git: Pick<FeasibilityGit, "run">, tag: string): boolean =>
+  git
+    .run(["ls-remote", "origin", `refs/heads/release/${tag}-hyprws`, `refs/tags/${tag}-hyprws.*`])
+    .trim().length > 0;
+
 const readPositionedTags = (
   git: Pick<FeasibilityGit, "run">,
   positions: ReadonlyMap<string, number>,
@@ -265,7 +270,10 @@ export const buildAutoRebasePlan = (
     baseSha,
     target,
     stableTags: tags
-      .filter((tag) => tag.stable && tag.position > 0 && tag.position <= targetPosition)
+      .filter(
+        (tag) =>
+          tag.stable && tag.position <= targetPosition && !originHasStableRelease(git, tag.tag),
+      )
       .toSorted(
         (left, right) => left.position - right.position || left.tag.localeCompare(right.tag),
       ),
@@ -413,6 +421,29 @@ export const createRebasedStack = (
 const trackingBranchExists = (git: Pick<FeasibilityGit, "runResult">, branch: string): boolean =>
   git.runResult(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).status === 0;
 
+const createStableSnapshots = (
+  root: string,
+  candidates: Array<StableCandidate>,
+  skipExisting = false,
+): ReadonlyArray<string> => {
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    if (candidate === undefined || !remoteBranchExists(root, candidate.branch)) continue;
+    if (!skipExisting) {
+      throw new Error(`refusing to replace create-only branch origin/${candidate.branch}`);
+    }
+    process.stdout.write(`skip stable snapshot: origin/${candidate.branch} already exists\n`);
+    candidates.splice(index, 1);
+  }
+  return candidates.map((candidate) => {
+    requireSuccess(
+      `create origin/${candidate.branch}`,
+      pushResult(root, ["origin", `${candidate.sha}:refs/heads/${candidate.branch}`]),
+    );
+    return candidate.branch;
+  });
+};
+
 export interface AutoRebaseHooks {
   readonly beforeHyprwsPush?: () => void;
 }
@@ -443,7 +474,33 @@ export const executeAutoRebase = (
       blocked,
     };
   }
+  for (const stable of plan.stableTags) {
+    const branch = `release/${stable.tag}-hyprws`;
+    if (trackingBranchExists(git, branch)) continue;
+    const stack =
+      stable.position === 0
+        ? null
+        : createRebasedStack(root, plan.oldSha, plan.baseSha, stable.sha, verify);
+    if (stack !== null) dependencySetups.add(stack.dependencySetup);
+    const marker = `<!-- hyprws-stable-candidate: ${stable.tag}-hyprws -->`;
+    stableCandidates.push({
+      tag: stable.tag,
+      branch,
+      sha: stack?.sha ?? plan.oldSha,
+      title: `Stable candidate ${stable.tag}-hyprws`,
+      marker,
+      label: "release",
+      body: stableCandidateBody(
+        stable.tag,
+        branch,
+        // The trunk has already adopted the position-zero stack.
+        stable.position === 0 ? "on" : options.mode,
+      ),
+    });
+  }
+
   if (plan.target === null || plan.target.sha === plan.baseSha) {
+    if (!options.dryRun) createStableSnapshots(root, stableCandidates, true);
     return {
       schemaVersion: 1,
       mode: options.mode,
@@ -457,23 +514,6 @@ export const executeAutoRebase = (
       verificationDependencySetup: [],
       blocked,
     };
-  }
-
-  for (const stable of plan.stableTags) {
-    const branch = `release/${stable.tag}-hyprws`;
-    if (trackingBranchExists(git, branch)) continue;
-    const stack = createRebasedStack(root, plan.oldSha, plan.baseSha, stable.sha, verify);
-    dependencySetups.add(stack.dependencySetup);
-    const marker = `<!-- hyprws-stable-candidate: ${stable.tag}-hyprws -->`;
-    stableCandidates.push({
-      tag: stable.tag,
-      branch,
-      sha: stack.sha,
-      title: `Stable candidate ${stable.tag}-hyprws`,
-      marker,
-      label: "release",
-      body: stableCandidateBody(stable.tag, branch, options.mode),
-    });
   }
 
   // Verify every replay before the first mutation. A feasibility mismatch or
@@ -495,19 +535,7 @@ export const executeAutoRebase = (
         ]),
       );
     }
-    for (const candidate of stableCandidates) {
-      if (remoteBranchExists(root, candidate.branch)) {
-        throw new Error(`refusing to replace create-only branch origin/${candidate.branch}`);
-      }
-    }
-    const pushedSnapshots: Array<string> = [];
-    for (const candidate of stableCandidates) {
-      requireSuccess(
-        `create origin/${candidate.branch}`,
-        pushResult(root, ["origin", `${candidate.sha}:refs/heads/${candidate.branch}`]),
-      );
-      pushedSnapshots.push(candidate.branch);
-    }
+    const pushedSnapshots = createStableSnapshots(root, stableCandidates);
     if (options.mode === "candidate") {
       requireSuccess(
         "push hyprws-next",
@@ -550,11 +578,13 @@ export const executeAutoRebase = (
 
 export const renderSummary = (result: AutoRebaseResult): string => {
   const pushOrdering =
-    result.dryRun || result.status !== "advanced"
+    result.dryRun || (result.status !== "advanced" && result.stableCandidates.length === 0)
       ? "none"
-      : result.mode === "candidate"
-        ? "create-only release/*, then force-update hyprws-next"
-        : "lease preflight, create-only release/*, hyprws-previous, then leased hyprws; a lease failure rolls back snapshots and hyprws-previous";
+      : result.status === "no-op"
+        ? "create-only release/*"
+        : result.mode === "candidate"
+          ? "create-only release/*, then force-update hyprws-next"
+          : "lease preflight, create-only release/*, hyprws-previous, then leased hyprws; a lease failure rolls back snapshots and hyprws-previous";
   const lines = [
     "# hyprws auto-rebase",
     "",
@@ -568,8 +598,13 @@ export const renderSummary = (result: AutoRebaseResult): string => {
     `- Dependency setup: ${result.verificationDependencySetup.length === 0 ? "not run" : result.verificationDependencySetup.join(", ")}`,
     `- Push ordering: ${pushOrdering}`,
   ];
-  if (result.status === "no-op")
+  if (result.status === "no-op") {
     lines.push("", "No clean upstream tag lies beyond the current base.");
+    for (const candidate of result.stableCandidates) {
+      const status = result.dryRun ? "Snapshot pending" : "Created snapshot";
+      lines.push(`- ${status}: \`${candidate.branch}\` at \`${candidate.sha}\``);
+    }
+  }
   if (result.blocked !== null) {
     lines.push(
       "",
