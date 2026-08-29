@@ -311,6 +311,11 @@ export const make = Effect.gen(function* () {
   const hyprlandPlacement = yield* HyprlandPlacement; // fork-hook: multi-window/hyprland-placement
   const windowSession = yield* DesktopWindowSession.DesktopWindowSession; // fork-hook: multi-window/window-session
   const backendReadyRef = yield* Ref.make(false);
+  const pendingDevAgentPlacementRef = yield* Ref.make(
+    // One map-time placement for dev:desktop:agent. The launcher environment survives
+    // main-process watch restarts; each fresh process consumes its own copy once.
+    environment.devAgentPlacement,
+  ); // fork-hook: multi-window/dev-agent-placement
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
@@ -367,6 +372,12 @@ export const make = Effect.gen(function* () {
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
     if (identity.kind === "hub") yield* previewManager.getBrowserSession(); // fork-hook: multi-window/hub-preview-session
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const normalWindowTitle =
+      identity.kind === "hub" ? environment.displayName : identity.ref.projectId; // fork-hook: multi-window/placement-title
+    const devAgentPlacement =
+      identity.kind === "hub"
+        ? yield* Ref.get(pendingDevAgentPlacementRef)
+        : Option.none<DesktopEnvironment.DesktopDevAgentPlacement>(); // fork-hook: multi-window/dev-agent-placement
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -404,6 +415,7 @@ export const make = Effect.gen(function* () {
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
+      ...WindowPlacement.titleOptionFork(initialWindowTitle), // fork-hook: multi-window/placement-title
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
