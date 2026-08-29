@@ -4081,6 +4081,20 @@ export default function Sidebar({
                 </Tooltip>
               </div>
             ) : null}
+            {projectGroups.length > 0 && sidebarThreadSortOrder === "manual" ? (
+              <div className="px-2.5 pt-1">
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  data-testid="sidebar-automatic-order-reset"
+                  onClick={() => updateClientSettings({ sidebarThreadSortOrder: "updated_at" })}
+                  className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-muted-foreground/60 transition-colors hover:bg-sidebar-row-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                >
+                  <ArrowUpDownIcon aria-hidden className="size-3" />
+                  Use automatic order
+                </button>
+              </div>
+            ) : null}
           </SidebarGroup>
         }
       >
@@ -4436,24 +4450,6 @@ export default function Sidebar({
                             </ul>
                           </SortableContext>
                         </DndContext>
-                      </li>,
-                    );
-                  }
-                  if (sidebarThreadSortOrder === "manual") {
-                    items.push(
-                      <li key="automatic-order-reset" className="list-none px-2.5 pt-1">
-                        <button
-                          type="button"
-                          data-thread-selection-safe
-                          data-testid="sidebar-automatic-order-reset"
-                          onClick={() =>
-                            updateClientSettings({ sidebarThreadSortOrder: "updated_at" })
-                          }
-                          className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-muted-foreground/60 transition-colors hover:bg-sidebar-row-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-                        >
-                          <ArrowUpDownIcon aria-hidden className="size-3" />
-                          Use automatic order
-                        </button>
                       </li>,
                     );
                   }

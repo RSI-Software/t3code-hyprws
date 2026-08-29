@@ -563,8 +563,8 @@ letting new activity reshuffle the list.
 
 - Web and desktop keep active threads drag-ready. The first valid drop seeds a manual order from
   the visible automatic order, then applies the move.
-- A subtle action below the active list restores automatic order; the project filter row stays
-  dedicated to project controls.
+- A subtle action below the project filter and above the thread list restores automatic order; the
+  project filter row stays dedicated to project controls.
 - Dragging is limited to active, unpinned threads in the same physical project.
 - The preference is client-local and overlays the existing automatic order, so new threads append
   predictably and switching back to Automatic is lossless.

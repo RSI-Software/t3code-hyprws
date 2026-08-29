@@ -15,8 +15,9 @@ away. Its timestamps do not change. Other threads keep their positions.
 
 To arrange active work yourself on web or desktop, drag an unpinned thread to another position in
 the same project. Your first successful drop switches the list to your manual order, stored on that
-browser or desktop installation. Select **Use automatic order** below the active list to return to
-the normal active-thread order. Pinned, snoozed, and settled threads keep their own ordering rules.
+browser or desktop installation. Select **Use automatic order** below the project filter and above
+the thread list to return to the normal active-thread order. Pinned, snoozed, and settled threads
+keep their own ordering rules.
 
 In **Manual** mode, drop a thread onto the middle of another active thread to group them. Drop more
 threads onto a group member to add them. Drag a member outside its group to remove it; a group
