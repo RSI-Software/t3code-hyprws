@@ -40,6 +40,8 @@ function makeLayer(baseDir: string, workspaces: Record<string, HyprlandWorkspace
     claim: () => Effect.void,
     forget: () => Effect.void,
     workspaceOf: (key) => Effect.succeed(Option.fromNullishOr(workspaces[key])),
+    stageWorkspaceRule: () => Effect.succeed(false),
+    clearWorkspaceRule: () => Effect.void,
     moveToWorkspace: () => Effect.void,
   } satisfies HyprlandPlacement["Service"]);
 
