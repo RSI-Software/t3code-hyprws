@@ -43,7 +43,9 @@ Do not create, move, delete, or force-push these refs by hand:
 | `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.             |
 
 A release snapshot never follows later trunk work. It is the immutable branch from which a human
-chooses a stable fork tag. If a snapshot already exists, the bot leaves it unchanged.
+chooses a stable fork tag. If a manual leased apply lands the trunk on a stable upstream tag, the
+next sync run snapshots that exact trunk head unless the snapshot or a published stable already
+exists.
 
 ## Auto-rebase modes
 
