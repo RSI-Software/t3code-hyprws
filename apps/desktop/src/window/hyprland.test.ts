@@ -1,7 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  formatClearWorkspaceWindowRule,
+  formatSuppressActivationWindowRule,
+  formatWindowRuleTitleMatcher,
   formatWorkspaceArgument,
+  formatWorkspaceWindowRule,
   hyprlandSocketCandidates,
   parseHyprlandClients,
   selectClientForWindow,
@@ -56,6 +60,26 @@ describe("hyprland", () => {
     assert.equal(formatWorkspaceArgument({ id: 3, name: "3" }), "3");
     assert.equal(formatWorkspaceArgument({ id: 7, name: "code" }), "name:code");
     assert.equal(formatWorkspaceArgument({ id: -98, name: "special:magic" }), "special:magic");
+  });
+
+  it("formats exact map-time workspace rules and rejects unsafe titles", () => {
+    assert.equal(
+      formatWindowRuleTitleMatcher("t3code-dev-agent.a+b"),
+      "match:title ^(t3code-dev-agent\\.a\\+b)$",
+    );
+    assert.equal(
+      formatWorkspaceWindowRule({ id: 8, name: "8" }, "t3code-dev-agent-a"),
+      "/keyword windowrule workspace 8 silent, match:title ^(t3code-dev-agent-a)$",
+    );
+    assert.equal(
+      formatSuppressActivationWindowRule("t3code-dev-agent-a"),
+      "/keyword windowrule suppress_event activate activate_focus, match:title ^(t3code-dev-agent-a)$",
+    );
+    assert.equal(
+      formatClearWorkspaceWindowRule("t3code-dev-agent-a"),
+      "/keyword windowrule workspace unset, match:title ^(t3code-dev-agent-a)$",
+    );
+    assert.equal(formatWindowRuleTitleMatcher("unsafe,title"), null);
   });
 
   it("matches a window by title before falling back to a lone candidate", () => {
