@@ -14,17 +14,18 @@ When you un-settle a thread, it returns to the top of the active list so you can
 away. Its timestamps do not change. Other threads keep their positions.
 
 To arrange active work yourself on web or desktop, drag an unpinned thread to another position in
-the same project. Your first successful drop switches the list to your manual order, stored on that
-browser or desktop installation. Select **Use automatic order** below the project filter and above
-the thread list to return to the normal active-thread order. Pinned, snoozed, and settled threads
-keep their own ordering rules.
+the same project. Your first successful drop switches the list to your custom order, stored on that
+browser or desktop installation. A compact marker below the project filter always shows **Newest
+first** or **Custom order**. Hover it to see **Drag threads to reorder**, **Use custom order**, or
+**Sort newest first**, depending on which action is available. Switching to newest-first preserves
+the saved custom order. Pinned, snoozed, and settled threads keep their own ordering rules.
 
-In **Manual** mode, drop a thread onto the middle of another active thread to group them. Drop more
+In **Custom order**, drop a thread onto the middle of another active thread to group them. Drop more
 threads onto a group member to add them. Drag a member outside its group to remove it; a group
 disappears when fewer than two threads remain. Groups can be collapsed, renamed, regenerated, or
 dissolved from their header. Generated group names use the same title-generation setting as thread
 titles. Group names, membership, collapsed state, and order are stored on that browser or desktop
-installation. Using automatic order hides groups without deleting them.
+installation. Using newest-first order hides groups without deleting them.
 
 Right-click a pull request link in a thread and choose **Link to thread** to show that pull request
 in the sidebar. The thread settles when the linked pull request merges if **Auto-settle merged

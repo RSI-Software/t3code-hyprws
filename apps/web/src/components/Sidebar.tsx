@@ -140,6 +140,7 @@ import {
   formatWorkingDurationLabel,
   formatSidebarRelativeTimeLabel,
   firstValidTimestampMs,
+  hasSavedSidebarThreadOrder,
   hasUnseenCompletion,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
@@ -153,6 +154,7 @@ import {
   resolveCompletedTurnTiming,
   resolveSettledTimestamp,
   resolveSidebarThreadStatus,
+  resolveSidebarThreadOrderMarker,
   searchSidebarThreadsByTitle,
   resolveSidebarThreadSortOrderAfterDrop,
   shouldCreateNewThreadInCurrentProject,
@@ -2134,6 +2136,18 @@ export default function Sidebar({
             ),
     [forcedProjectRef, scopedProjectGroup],
   );
+  const hasSavedCustomThreadOrder = useMemo(
+    () =>
+      hasSavedSidebarThreadOrder({
+        orderByProject: threadOrderByProject,
+        scopedProjectKeys,
+      }),
+    [scopedProjectKeys, threadOrderByProject],
+  );
+  const threadOrderMarker = resolveSidebarThreadOrderMarker({
+    sortOrder: sidebarThreadSortOrder,
+    hasSavedCustomOrder: hasSavedCustomThreadOrder,
+  });
   useEffect(() => {
     if (forcedProjectRef === null && projectScopeKey !== null && scopedProjectGroup === null) {
       setProjectScopeKey(null);
@@ -4081,17 +4095,40 @@ export default function Sidebar({
                 </Tooltip>
               </div>
             ) : null}
-            {projectGroups.length > 0 && sidebarThreadSortOrder === "manual" ? (
-              <div className="px-2.5 pt-1">
+            {projectGroups.length > 0 ? (
+              <div className="px-2.5">
                 <button
                   type="button"
                   data-thread-selection-safe
-                  data-testid="sidebar-automatic-order-reset"
-                  onClick={() => updateClientSettings({ sidebarThreadSortOrder: "updated_at" })}
-                  className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-muted-foreground/60 transition-colors hover:bg-sidebar-row-hover hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  data-testid="sidebar-thread-order-marker"
+                  aria-label={`${threadOrderMarker.currentLabel}. ${threadOrderMarker.hoverLabel}`}
+                  aria-disabled={threadOrderMarker.action === "none" || undefined}
+                  tabIndex={threadOrderMarker.action === "none" ? -1 : undefined}
+                  onClick={
+                    threadOrderMarker.action === "none"
+                      ? undefined
+                      : () =>
+                          updateClientSettings({
+                            sidebarThreadSortOrder:
+                              threadOrderMarker.action === "use-custom" ? "manual" : "updated_at",
+                          })
+                  }
+                  className={cn(
+                    "group/order flex h-6 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] font-medium text-muted-foreground/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                    threadOrderMarker.action === "none"
+                      ? "cursor-default"
+                      : "cursor-pointer hover:bg-sidebar-row-hover hover:text-muted-foreground",
+                  )}
                 >
                   <ArrowUpDownIcon aria-hidden className="size-3" />
-                  Use automatic order
+                  <span className="min-w-0 flex-1">
+                    <span className="block group-hover/order:hidden group-focus-visible/order:hidden">
+                      {threadOrderMarker.currentLabel}
+                    </span>
+                    <span className="hidden group-hover/order:block group-focus-visible/order:block">
+                      {threadOrderMarker.hoverLabel}
+                    </span>
+                  </span>
                 </button>
               </div>
             ) : null}

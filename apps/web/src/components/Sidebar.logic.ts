@@ -33,6 +33,50 @@ export function resolveSidebarThreadSortOrderAfterDrop(
   return currentOrder === "manual" ? currentOrder : "manual";
 }
 
+export type SidebarThreadOrderMarkerAction = "none" | "use-custom" | "use-newest";
+
+export interface SidebarThreadOrderMarker {
+  readonly currentLabel: "Newest first" | "Custom order";
+  readonly hoverLabel: "Drag threads to reorder" | "Use custom order" | "Sort newest first";
+  readonly action: SidebarThreadOrderMarkerAction;
+}
+
+export function hasSavedSidebarThreadOrder(input: {
+  readonly orderByProject: Readonly<Record<string, readonly string[]>>;
+  readonly scopedProjectKeys: ReadonlySet<string> | null;
+}): boolean {
+  return Object.entries(input.orderByProject).some(
+    ([projectKey, order]) =>
+      order.length > 1 &&
+      (input.scopedProjectKeys === null || input.scopedProjectKeys.has(projectKey)),
+  );
+}
+
+export function resolveSidebarThreadOrderMarker(input: {
+  readonly sortOrder: SidebarThreadSortOrder;
+  readonly hasSavedCustomOrder: boolean;
+}): SidebarThreadOrderMarker {
+  if (input.sortOrder === "manual") {
+    return {
+      currentLabel: "Custom order",
+      hoverLabel: "Sort newest first",
+      action: "use-newest",
+    };
+  }
+  if (input.hasSavedCustomOrder) {
+    return {
+      currentLabel: "Newest first",
+      hoverLabel: "Use custom order",
+      action: "use-custom",
+    };
+  }
+  return {
+    currentLabel: "Newest first",
+    hoverLabel: "Drag threads to reorder",
+    action: "none",
+  };
+}
+
 // The list already reaches its destination through sortable transforms while
 // the pointer is down. dnd-kit's default also animates the committed DOM order
 // after release, replaying the same movement across every affected row.

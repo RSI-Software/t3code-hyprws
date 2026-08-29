@@ -15,6 +15,7 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
+  hasSavedSidebarThreadOrder,
   hasUnseenCompletion,
   isContextMenuPointerDown,
   isSidebarThreadGroupDrop,
@@ -26,6 +27,7 @@ import {
   orderThreadsByProjectPreference,
   resolveProjectStatusIndicator,
   resolveSidebarStageBadgeLabel,
+  resolveSidebarThreadOrderMarker,
   resolveSidebarThreadSortOrderAfterDrop,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,
@@ -70,6 +72,59 @@ describe("sidebar thread drag ordering", () => {
       expect(resolveSidebarThreadSortOrderAfterDrop(currentOrder)).toBe("manual");
     },
   );
+
+  it("only exposes custom order when the current project scope has a saved sequence", () => {
+    const orderByProject = {
+      "environment:project-a": ["thread-a", "thread-b"],
+      "environment:project-b": ["thread-c"],
+    };
+
+    expect(hasSavedSidebarThreadOrder({ orderByProject, scopedProjectKeys: null })).toBe(true);
+    expect(
+      hasSavedSidebarThreadOrder({
+        orderByProject,
+        scopedProjectKeys: new Set(["environment:project-a"]),
+      }),
+    ).toBe(true);
+    expect(
+      hasSavedSidebarThreadOrder({
+        orderByProject,
+        scopedProjectKeys: new Set(["environment:project-b"]),
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    {
+      sortOrder: "updated_at" as const,
+      hasSavedCustomOrder: false,
+      expected: {
+        currentLabel: "Newest first",
+        hoverLabel: "Drag threads to reorder",
+        action: "none",
+      },
+    },
+    {
+      sortOrder: "updated_at" as const,
+      hasSavedCustomOrder: true,
+      expected: {
+        currentLabel: "Newest first",
+        hoverLabel: "Use custom order",
+        action: "use-custom",
+      },
+    },
+    {
+      sortOrder: "manual" as const,
+      hasSavedCustomOrder: true,
+      expected: {
+        currentLabel: "Custom order",
+        hoverLabel: "Sort newest first",
+        action: "use-newest",
+      },
+    },
+  ])("describes the current order and its $expected.hoverLabel affordance", (input) => {
+    expect(resolveSidebarThreadOrderMarker(input)).toEqual(input.expected);
+  });
 });
 
 describe("sidebar thread groups", () => {

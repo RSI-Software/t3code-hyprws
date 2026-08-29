@@ -561,18 +561,21 @@ letting new activity reshuffle the list.
 
 ### Shape
 
-- Web and desktop keep active threads drag-ready. The first valid drop seeds a manual order from
-  the visible automatic order, then applies the move.
-- A subtle action below the project filter and above the thread list restores automatic order; the
-  project filter row stays dedicated to project controls.
+- Web and desktop keep active threads drag-ready. The first valid drop seeds a custom order from
+  the visible newest-first order, then applies the move.
+- A compact marker always stays below the project filter and above the thread list without shifting
+  the layout. It shows the current order, then reveals the available action on hover or focus.
+- Newest-first without a saved order teaches **Drag threads to reorder**. With a saved order it
+  offers **Use custom order**; custom order offers **Sort newest first** without deleting the saved
+  sequence.
 - Dragging is limited to active, unpinned threads in the same physical project.
-- The preference is client-local and overlays the existing automatic order, so new threads append
-  predictably and switching back to Automatic is lossless.
+- The preference is client-local and overlays the existing newest-first order, so new threads append
+  predictably and switching between orders is lossless.
 - Pinned, snoozed, and settled ordering remains unchanged.
 - A center drop on another active thread creates or extends a visual group; an edge drop keeps the
   existing reorder behavior. Dragging outside a group removes the member, and one-member groups
   dissolve automatically.
-- Group membership, names, and collapsed state persist beside the manual order. Automatic mode
+- Group membership, names, and collapsed state persist beside the custom order. Newest-first mode
   preserves but does not render those preferences.
 - Initial and regenerated group names use the server's existing thread-title generation path;
   group headers also support inline manual renaming and dissolution.
