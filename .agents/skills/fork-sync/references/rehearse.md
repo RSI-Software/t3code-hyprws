@@ -7,7 +7,7 @@ created from `origin/hyprws`; it never writes `hyprws`, `main`, a tag, or a remo
 
 1. Confirm the target is exactly `vX.Y.Z` or `vX.Y.Z-nightly.YYYYMMDD.<run>`, resolve
    `<tag>^{commit}`, and record both the full target SHA and
-   `expected_old=$(git rev-parse origin/hyprws)`.
+   `expected_old=$(git rev-parse origin/hyprws)`. Read that lease exactly once at rehearsal start.
 2. Install with `vp i` in the rehearsal worktree.
 3. Read the feasibility conflicts, automerged overlap, each active domain's rebase scan, and open
    `upstream-watch` issues before changing a hunk.
@@ -57,23 +57,32 @@ judgement remains.
 
 ## Trunk drift
 
-A stale published head is a hard stop, not permission to refresh the lease.
+A stale published head is a hard stop. Never refresh `expected_old` in the existing rehearsal or
+record.
 
 1. Fetch `origin` and inspect `git log --oneline <recorded-expected-old>..origin/hyprws`.
-2. Incorporate every newly published fork commit onto the rehearsed stack without changing its
-   subject or trailers.
-3. Update Source and `expected_old` to the newly read full SHA, plus the rebased head and stack size.
+2. Start a new rehearsal from the updated `origin/hyprws` and read its new `expected_old` exactly
+   once at rehearsal start.
+3. On that new lane, incorporate every newly published fork commit without changing its subject or
+   trailers, then record the new Source, rebased head, and stack size. Prior conflict resolutions,
+   including rerere, are candidates for reuse, not proof; run the checks below in full.
 4. Run `vp run fork:delta --check` and
    `vp run fork:rebase-report --source HEAD --target "$tag"`; the report must show zero conflicts.
-5. Repeat targeted typecheck/tests for touched seams and repeat human sanity. Never update only the
-   SHA in the record.
+5. Repeat targeted typecheck/tests for touched seams, rebuild the evidence, and obtain new human
+   sign-off. Never update only the SHA in the record.
 
-## Human decision and apply boundary
+## Human sign-off and agent apply boundary
 
-The human reviews only `retire-candidate` and `human` rows, silent seams, and grounding claims. A
-keep/retire/partial decision is keyed by exact commit subject and copied into the matching `Kept` or
-`Retired` section of `docs/internals/fork-delta.md`. Only the human writes the sanity login/date.
+The agent presents the `retire-candidate` and `human` rows, silent seams, and grounding evidence. The
+human replies with every keep/retire/partial decision keyed by exact commit subject, confirms the
+grounding evidence, records their login and date, and gives an explicit go. Missing sign-off is a
+hard stop. The agent copies those decisions into the matching `Kept` or `Retired` section of
+`docs/internals/fork-delta.md` and writes `Human sanity: <login> YYYY-MM-DD` from the recorded
+sign-off; it never performs or infers the approval.
 
-For a stable target, the agent may run `vp run fork:sync-gate --tag <tag>` after that commit. For a
-nightly target, it must use `vp run fork:sync-gate --tag <tag> --allow-nightly`. It stops before the
-lease push and hands the exact values to the human.
+After committing that record, the agent runs `vp run fork:sync-gate --tag <tag>` for a stable target
+or `vp run fork:sync-gate --tag <tag> --allow-nightly` for a nightly target. The gate's refusals are
+never bypassed. Once it passes, the agent pushes with
+`--force-with-lease=refs/heads/hyprws:<expected_old>` and posts the runbook issue comment. A stale
+lease is never refreshed: start a new rehearsal, read its lease once, repeat the evidence and human
+sign-off, and only then apply.
