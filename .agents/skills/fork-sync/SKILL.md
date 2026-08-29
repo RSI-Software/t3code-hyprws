@@ -9,8 +9,8 @@ Choose exactly one entry point:
 
 - **unblock** — resolve the current `rebase-blocked` issue by rehearsing the complete fork stack on
   the selected upstream stable or nightly tag;
-- **cut stable** — verify a bot-owned `release/vX.Y.Z-hyprws` snapshot and hand its immutable stable
-  tag push to the human.
+- **cut stable** — verify a bot-owned `release/vX.Y.Z-hyprws` snapshot, obtain human sign-off on the
+  exact candidate, and publish its immutable stable tag.
 
 Never post to `pingdotgg/t3code`. Never merge upstream into `hyprws`. Never move
 `hyprws-previous`, `hyprws-next`, or `release/vX.Y.Z-hyprws` by hand. The
@@ -19,9 +19,9 @@ repository setup, failure handling, and local-lane recovery.
 
 ## Entry point: unblock
 
-This flow has five gates and a hard stop at each one. The rewrite is rehearsed away from the
-`hyprws` worktree, and the final push stays human-only with the expected-old lease captured by the
-same rehearsal.
+This flow has five gates with hard stops for unmet prerequisites and missing human sign-off. The
+rewrite is rehearsed away from the `hyprws` worktree. After sign-off, the agent applies it with the
+expected-old lease read once at the start of that same rehearsal.
 
 Set `tag` to the newest upstream release tag beyond the blocking commit that the human intends to
 reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. The record is
@@ -60,7 +60,8 @@ modify a ref.
 
 ### Gate 2 — Rehearse
 
-Create a disposable lane from the published fork; never rebase the current checkout:
+Create a disposable lane from the published fork; never rebase the current checkout. Read
+`expected_old` exactly once at rehearsal start:
 
 ```bash
 wt switch --create "rehearse/$tag" --base origin/hyprws
@@ -106,18 +107,21 @@ scan, ledger, every targeted typecheck, and every adjacent test pass. Never subs
 
 ### Gate 4 — Human sanity
 
-The human reads only decision rows and grounding claims:
+At the sign-off boundary, the human reads only decision rows and grounding claims:
 
 ```bash
 rg '\| (retire-candidate|human) \|' "docs/operations/fork-sync-records/$tag.md"
 rg 'Grounding (claim|pending)' "docs/operations/fork-sync-records/$tag.md"
 ```
 
-The human resolves every decision by exact fork commit subject in the `Retired` or `Kept` section of
-`docs/internals/fork-delta.md`, completes required desktop grounding, and replaces the absent marker
-with `Human sanity: <login> YYYY-MM-DD`. The agent must not perform or infer this approval.
+**Stop.** Present every decision by exact fork commit subject, every silent seam, and all grounding
+evidence. Continue only when the human replies with the keep/retire/partial decisions, confirms the
+grounding evidence, records their login and date, and gives an explicit go. Missing sign-off is a
+hard stop; the agent must not perform or infer this approval.
 
-Commit the record and durable decisions on the rehearsal branch:
+After sign-off, the agent copies the decisions into the matching `Retired` or `Kept` section of
+`docs/internals/fork-delta.md` and writes `Human sanity: <login> YYYY-MM-DD` with the login and date
+from that sign-off. Commit the record and durable decisions on the rehearsal branch:
 
 ```bash
 vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
@@ -128,8 +132,8 @@ vp run fork:delta --check
 vp run fork:scan --head origin/hyprws --target "$tag"
 ```
 
-**Stop.** Show the human the sanity login/date, resolved subjects, grounding evidence, record commit,
-and green checks. Continue only with a committed record and explicit human approval.
+Any failure returns the rehearsal to Gate 3. A red check voids the sign-off, so the human must
+sign off again after the fix.
 
 ### Gate 5 — Apply
 
@@ -141,12 +145,12 @@ vp run fork:sync-gate --tag "$tag" --allow-nightly
 ```
 
 The guard fetches and refuses an unmet preflight, invalid tag, missing record, stale `expected_old`,
-or absent human sanity mark. If `origin/hyprws` moved, do not refresh only the SHA. Read and
-incorporate the drift through [the rehearsal procedure](references/rehearse.md), update the evidence,
-and repeat Gates 3–4.
+or absent human sanity mark. Its refusals are never bypassed. If `origin/hyprws` moved, do not refresh
+only the SHA: start a new rehearsal, read its lease once, incorporate the drift through [the rehearsal
+procedure](references/rehearse.md), update the evidence, and repeat Gates 3–4.
 
-**Stop.** The skill and agent never run the commands below. Resolve and print the exact values for
-the human, who alone rewrites the trunk and records the resolution:
+After the gate passes against the recorded sign-off, the agent resolves the exact values, rewrites
+the trunk with the recorded lease, and posts the runbook issue comment:
 
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
@@ -154,9 +158,10 @@ gh issue comment "$blocked_issue" -R RSI-Software/t3code-hyprws --body \
   "Resolved blocking upstream commit \`$blocking_sha\` while rebasing \`hyprws\` onto \`$tag\`; the leased rewrite replaced \`$expected_old\`."
 ```
 
-A refused lease returns to rehearsal; it is never silently refreshed. Do not update a bot-owned ref
-as part of this apply. The successful `hyprws` push starts a new bot run. That run closes every open
-`rebase-blocked` issue if no block remains, or updates the issue when it finds a later block.
+A refused lease returns to a full rehearsal; it is never silently refreshed. Do not update a
+bot-owned ref as part of this apply. The successful `hyprws` push starts a new bot run. That run
+closes every open `rebase-blocked` issue if no block remains, or updates the issue when it finds a
+later block.
 
 ## Entry point: cut stable
 
@@ -180,22 +185,23 @@ for the human to select one; recency is not permission to choose.
 Follow the runbook's exact [cut a stable release](../../../docs/operations/fork-sync.md#cut-a-stable-release)
 preparation and verification blocks through `vp run test`. They derive the snapshot ref and next
 release number from the selected issue, create a disposable Worktrunk lane at the exact remote
-commit, and run the same preflight checks as the stable release workflow. Do not enter the separate
-**Human-only publish** block.
+commit, and run the same preflight checks as the stable release workflow.
 
-**Stop.** Show the human the issue, snapshot branch and SHA, derived new tag, prior matching tags, and
-all check results. Continue only when the worktree is clean, every check passes, the remote snapshot
-still resolves to the checked SHA, and the tag does not already exist locally or remotely.
+**Stop.** Show the human the issue, snapshot branch and SHA, derived new tag, prior matching tags,
+and all check results. Continue only when the worktree is clean, every check passes,
+the remote snapshot still resolves to the checked SHA, the tag does not already exist locally or
+remotely, and the human records the exact candidate and an explicit go. Missing sign-off is a hard
+stop.
 
 ### Stable gate 3 — Publish
 
-The skill and agent never create or push the stable tag. Hand the runbook's separate
-**Human-only publish** block to the human only after Stable gate 2 stops. The human creates an
-annotated `vX.Y.Z-hyprws.<n>` tag at the verified snapshot SHA, pushes it create-only, watches the
-exact `hyprws-release.yml` run, verifies the `.AppImage` and `latest-linux.yml`, and closes the
-candidate issue with the tag, snapshot SHA, and workflow URL.
+After the human signs off, the agent creates an annotated `vX.Y.Z-hyprws.<n>` tag at the verified
+snapshot SHA, pushes it create-only, watches the exact `hyprws-release.yml` run, verifies the
+`.AppImage` and `latest-linux.yml`, and closes the candidate issue with the tag, snapshot SHA, and
+workflow URL.
 
 A failed push or existing tag is a stop, not permission to increment again without re-running the
-stable gates. A failed workflow leaves the candidate issue open. Bot run summaries record automatic
-rewrites; human sync records remain under `docs/operations/fork-sync-records/` and are not created for
-an ordinary stable cut from a bot snapshot.
+stable gates and obtaining fresh sign-off. A failed workflow leaves the candidate issue open. Bot
+run summaries record automatic rewrites; human sync records remain under
+`docs/operations/fork-sync-records/` and are not created for an ordinary stable cut from a bot
+snapshot.
