@@ -1,10 +1,15 @@
 import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { CircleDotIcon } from "lucide-react"; // fork-hook: github-issues/sidebar-issues-icon
 import type { ReactNode } from "react";
 import { T, useGT } from "gt-react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useAtomValue } from "@effect/atom-react";
+import {
+  readDesktopProjectWindowRef,
+  resolveSidebarBrandTarget,
+} from "../../desktopProjectWindows";
 import { useFullPageBackOut } from "../../hooks/useLeaveFullPage"; // fork-hook: project-windows/sidebar-back-out-import
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -18,6 +23,9 @@ import { cn } from "../../lib/utils";
 import { useIssuesSupported, usePullRequestsSupported } from "../../state/environments";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
 import { useEnvironments, usePullRequestsSupported } from "../../state/environments"; // fork-hook: github-issues/sidebar-environments-import
+import { resolveSidebarGitHubIssuesPageFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
+import { useGitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -173,6 +181,28 @@ function HistoryNavigationButton({
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   const gt = useGT();
+  const target = resolveSidebarBrandTarget(readDesktopProjectWindowRef());
+  const className = cn(
+    "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+    onBackdrop ? "text-white" : "text-foreground",
+  );
+
+  if (target.kind === "project") {
+    return (
+      <Link
+        aria-label={target.label}
+        className={className}
+        params={{
+          environmentId: target.ref.environmentId,
+          projectId: target.ref.projectId,
+        }}
+        to="/project/$environmentId/$projectId"
+      >
+        <SidebarBrandMark onBackdrop={onBackdrop} />
+      </Link>
+    );
+  }
+
   return (
     <Link
       aria-label={gt("T3 Code home")}
@@ -241,14 +271,12 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const pathname = useLocation({ select: (location) => location.pathname }); // fork-hook: project-windows/sidebar-pathname
   const projectRef = resolveProjectRefFromPathname(pathname); // fork-hook: project-windows/sidebar-project-ref
   const isOnProjectUtilityPage =
-    pathname === "/issues" ||
-    (projectRef !== null && (pathname.endsWith("/pull-requests") || pathname.endsWith("/issues"))); // fork-hook: github-issues/sidebar-issues-footer-page
+    (projectRef !== null && pathname.endsWith("/pull-requests")) || // fork-hook: project-windows/sidebar-project-utility-page
+    resolveSidebarGitHubIssuesPageFork(pathname, projectRef) !== null; // fork-hook: github-issues/sidebar-issues-footer-page
   const pullRequestsSupported = usePullRequestsSupported();
   const issuesSupported = useIssuesSupported();
   const { environments } = useEnvironments(); // fork-hook: github-issues/sidebar-environments
-  const githubIssuesSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
-  );
+  const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
   const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
@@ -265,18 +293,11 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     closeMobileSidebar();
     void navigate({ to: "/issues", search: readIssueListPreferences() });
   };
-  const handleIssuesClick = useCallback(() => {
-    closeMobileSidebar();
-    if (projectRef !== null) {
-      void navigate({
-        to: "/project/$environmentId/$projectId/issues",
-        params: projectRef,
-        search: { state: "open" },
-      });
-      return;
-    }
-    void navigate({ to: "/issues", search: { state: "open" } });
-  }, [closeMobileSidebar, navigate, projectRef]);
+  const handleIssuesClick = useGitHubIssuesSidebarNavigateFork({
+    closeMobileSidebar,
+    navigate,
+    projectRef,
+  }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -319,6 +340,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          {/* fork-hook: github-issues/sidebar-issues-entry */}
           {issuesSupported ? (
             <SidebarUtilityItem
               icon={<IssueGlyph.issue />}
@@ -326,6 +348,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handleIssuesClick}
             />
           ) : null}
+          {/* fork-hook-end */}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label={gt("Usage")}
