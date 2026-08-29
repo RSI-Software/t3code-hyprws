@@ -118,6 +118,7 @@ function makeFakeBrowserWindow() {
     setTitle: vi.fn(),
     setTitleBarOverlay: vi.fn(),
     show: vi.fn(),
+    showInactive: vi.fn(),
     webContents,
   };
 
@@ -139,6 +140,7 @@ function makeFakeBrowserWindow() {
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
     setTitle: window.setTitle,
+    showInactive: window.showInactive,
     webContentsListeners,
     windowListeners,
   };
@@ -226,6 +228,8 @@ function makeTestLayer(input: {
   readonly environmentEnv?: Record<string, string | undefined>;
   readonly restoreEntries?: readonly DesktopWindowSession.WindowRestoreEntry[];
   readonly workspaceMoves?: { key: string; workspace: string }[];
+  readonly workspaceRuleEvents?: { action: "stage" | "clear"; title: string; workspace?: string }[];
+  readonly revealRequests?: number[];
   readonly popupTemplates?: Electron.MenuItemConstructorOptions[][];
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
@@ -267,6 +271,15 @@ function makeTestLayer(input: {
     claim: () => Effect.void,
     forget: () => Effect.void,
     workspaceOf: () => Effect.succeed(Option.none()),
+    stageWorkspaceRule: (title, workspace) =>
+      Effect.sync(() => {
+        input.workspaceRuleEvents?.push({ action: "stage", title, workspace: workspace.name });
+        return true;
+      }),
+    clearWorkspaceRule: (title) =>
+      Effect.sync(() => {
+        input.workspaceRuleEvents?.push({ action: "clear", title });
+      }),
     moveToWorkspace: (key, workspace) =>
       Effect.sync(() => {
         input.workspaceMoves?.push({ key, workspace: workspace.name });
@@ -333,7 +346,10 @@ function makeTestLayer(input: {
     focusedMainOrFirst: Ref.get(input.mainWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
     clearMain: () => Ref.set(input.mainWindow, Option.none()),
-    reveal: () => Effect.void,
+    reveal: () =>
+      Effect.sync(() => {
+        input.revealRequests?.push(1);
+      }),
     sendAll: () => Effect.void,
     destroyAll: Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
@@ -508,6 +524,8 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             claim: () => Effect.void,
             forget: () => Effect.void,
             workspaceOf: () => Effect.succeed(Option.none()),
+            stageWorkspaceRule: () => Effect.succeed(false),
+            clearWorkspaceRule: () => Effect.void,
             moveToWorkspace: () => Effect.void,
           } satisfies HyprlandPlacement.HyprlandPlacement["Service"]),
           Layer.succeed(DesktopWindowSession.DesktopWindowSession, {
@@ -899,6 +917,65 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
 
         assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("maps an agent desktop on its target workspace without requesting focus", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const workspaceMoves: { key: string; workspace: string }[] = [];
+      const workspaceRuleEvents: {
+        action: "stage" | "clear";
+        title: string;
+        workspace?: string;
+      }[] = [];
+      const revealRequests: number[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        workspaceMoves,
+        workspaceRuleEvents,
+        revealRequests,
+        environmentEnv: {
+          T3CODE_DESKTOP_DEVTOOLS: "0",
+          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
+          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-test",
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(createdWindowOptions[0]?.title, "t3code-dev-agent-test");
+        assert.deepEqual(revealRequests, []);
+
+        const readyToShow = fakeWindow.windowListeners.get("ready-to-show");
+        if (!readyToShow) return yield* Effect.die("ready-to-show listener was not registered");
+        readyToShow();
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+        assert.equal(fakeWindow.showInactive.mock.calls.length, 1);
+        assert.deepEqual(revealRequests, []);
+        assert.deepEqual(workspaceRuleEvents, [
+          {
+            action: "stage",
+            title: "t3code-dev-agent-test",
+            workspace: "8",
+          },
+          { action: "clear", title: "t3code-dev-agent-test" },
+        ]);
+        assert.deepEqual(workspaceMoves, [{ key: "hub", workspace: "8" }]);
+        assert.deepEqual(fakeWindow.setTitle.mock.calls, [
+          ["t3code-dev-agent-test"],
+          ["T3 Code (Dev)"],
+        ]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
