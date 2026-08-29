@@ -31,6 +31,7 @@ import {
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
+import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode";
 import { projectEvent } from "./projector.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
@@ -268,7 +269,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.defaultThreadEnvMode !== undefined
-            ? { defaultThreadEnvMode: command.defaultThreadEnvMode }
+            ? { defaultThreadEnvMode: fromWireThreadEnvModeFields(command) }
             : {}),
           ...(command.autoPull !== undefined ? { autoPull: command.autoPull } : {}),
           ...(command.faviconPath !== undefined ? { faviconPath: command.faviconPath } : {}),

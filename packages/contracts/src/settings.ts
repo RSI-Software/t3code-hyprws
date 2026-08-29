@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ForwardCompatibleNullable, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
-import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
+import { EnvironmentMachineKind, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
@@ -376,6 +376,10 @@ export type ClientSettings = typeof ClientSettingsSchema.Type;
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
 // ── Server Settings (server-authoritative) ────────────────────
+
+// Moved to environment.ts so orchestration contracts can use it without an
+// import cycle; re-exported here for compatibility with deep imports.
+export { ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -907,9 +911,12 @@ export const ServerSettings = Schema.Struct({
   environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  defaultThreadEnvMode: ThreadEnvMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
+  defaultThreadEnvMode: WireThreadEnvMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies WireThreadEnvMode)),
   ),
+  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
+  // in for it. A released client ignores this key and reads the wire value.
+  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
@@ -994,6 +1001,27 @@ export const migrateLegacyZmuxSettings = (raw: unknown): unknown => {
     return { ...rest, terminalSessionMode: "zmux" satisfies TerminalSessionMode };
   }
   return rest;
+};
+
+/**
+ * Fork: lift a settings file that stored `defaultThreadEnvMode: "worktrunk"`
+ * into the wire pair. The key is now the value every released client can
+ * decode, and the fork sibling carries the exact mode. Runs on the raw parsed
+ * JSON before schema decode; the file converges on the next write.
+ */
+export const migrateLegacyForkThreadEnvModeSettings = (raw: unknown): unknown => {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return raw;
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.defaultThreadEnvMode !== "worktrunk") {
+    return raw;
+  }
+  return {
+    ...record,
+    defaultThreadEnvMode: "worktree" satisfies WireThreadEnvMode,
+    defaultThreadEnvModeFork: "worktrunk" satisfies ThreadEnvMode,
+  };
 };
 
 /**
@@ -1164,7 +1192,8 @@ export const ServerSettingsPatch = Schema.Struct({
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
-  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.optionalKey(WireThreadEnvMode),
+  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   terminalSessionMode: Schema.optionalKey(TerminalSessionMode),

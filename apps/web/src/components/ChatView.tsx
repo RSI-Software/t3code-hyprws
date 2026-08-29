@@ -7797,8 +7797,8 @@ export default function ChatView(props: ChatViewProps) {
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
         liveActivities={threadActivities}
-        selectedAgentId={activeRightPanelSurface.selectedAgentId}
-        rosterFocusAgentId={activeRightPanelSurface.rosterFocusAgentId}
+        selectedAgentId={renderedRightPanelSurface.selectedAgentId}
+        rosterFocusAgentId={renderedRightPanelSurface.rosterFocusAgentId}
         onSelectionChange={addAgentsSurface}
       />
     ) : (renderedRightPanelSurface?.kind === "files" ||
