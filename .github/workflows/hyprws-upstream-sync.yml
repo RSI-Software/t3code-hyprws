@@ -39,10 +39,10 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout main
+      - name: Checkout fork trunk
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: hyprws
           fetch-depth: 0
           token: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
 
