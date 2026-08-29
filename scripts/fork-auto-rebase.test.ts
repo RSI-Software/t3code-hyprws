@@ -259,7 +259,9 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
             conflictingForkCommitCount: 2,
             conflictingFileCount: 3,
             truncated: false,
+            truncatedBy: null,
             stopLimit: 128,
+            timeLimitSeconds: 360,
           };
         },
       },
@@ -285,7 +287,9 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       conflictingForkCommitCount: 2,
       conflictingFileCount: 3,
       truncated: false,
+      truncatedBy: null,
       stopLimit: 128,
+      timeLimitSeconds: 360,
     });
     assert.include(
       result.blocked?.body ?? "",
@@ -319,9 +323,23 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
         conflictingForkCommitCount: 128,
         conflictingFileCount: 140,
         truncated: true,
+        truncatedBy: "stop-limit",
         stopLimit: 128,
+        timeLimitSeconds: 360,
       })?.body ?? "",
-      "The census stopped at its safety cap of 128 conflict stops, so these are lower-bound counts.",
+      "The census stopped at its conflict-stop limit of 128, so these are lower-bound counts.",
+    );
+    assert.include(
+      buildBlockedIssue(plan, {
+        targetTag: "v1.1.0-nightly.20260828.1209",
+        conflictingForkCommitCount: 12,
+        conflictingFileCount: 20,
+        truncated: true,
+        truncatedBy: "time-limit",
+        stopLimit: 128,
+        timeLimitSeconds: 360,
+      })?.body ?? "",
+      "The census stopped at its wall-clock limit of 360 seconds, so these are lower-bound counts.",
     );
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
@@ -343,8 +361,34 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       conflictingForkCommitCount: 1,
       conflictingFileCount: 1,
       truncated: false,
+      truncatedBy: null,
       stopLimit: 128,
+      timeLimitSeconds: 360,
     });
+    assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+    assert.deepStrictEqual(
+      rehearseStopCensus(
+        fixture.root,
+        fixture.fork,
+        fixture.base,
+        {
+          tag: "v1.1.0-nightly.20260828.1209",
+          sha: fixture.conflict,
+          position: 3,
+          stable: false,
+        },
+        { stopLimit: 128, timeLimitMs: 0, now: () => 0 },
+      ),
+      {
+        targetTag: "v1.1.0-nightly.20260828.1209",
+        conflictingForkCommitCount: 0,
+        conflictingFileCount: 0,
+        truncated: true,
+        truncatedBy: "time-limit",
+        stopLimit: 128,
+        timeLimitSeconds: 0,
+      },
+    );
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
     assert.throws(
       () =>
@@ -357,6 +401,58 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       /census rebase failed/,
     );
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("keeps blocked reports available when the optional census fails", () => {
+  const fixture = fixtureRepository();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    let censusCalls = 0;
+    const blocked = executeAutoRebase(
+      fixture.root,
+      { ...dryRunOptions, mode: "off" },
+      plan,
+      () => "shared-install",
+      {
+        rehearseStopCensus: () => {
+          censusCalls += 1;
+          throw new Error("synthetic census failure");
+        },
+      },
+    );
+    assert.strictEqual(blocked.status, "off");
+    assert.strictEqual(censusCalls, 1);
+    assert.strictEqual(blocked.blocked?.stopCensus, null);
+    assert.strictEqual(blocked.blocked?.stopCensusUnavailableReason, "synthetic census failure");
+    assert.include(
+      blocked.blocked?.body ?? "",
+      "The sequential rebase census was unavailable: `synthetic census failure`.",
+    );
+
+    const clearPlan = {
+      ...plan,
+      feasibility: {
+        ...plan.feasibility,
+        ffBoundary: { ...plan.feasibility.ffBoundary, firstConflict: null },
+      },
+    };
+    const clear = executeAutoRebase(
+      fixture.root,
+      { ...dryRunOptions, mode: "off" },
+      clearPlan,
+      () => "shared-install",
+      {
+        rehearseStopCensus: () => {
+          censusCalls += 1;
+          throw new Error("must not run");
+        },
+      },
+    );
+    assert.strictEqual(clear.blocked, null);
+    assert.strictEqual(censusCalls, 1);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

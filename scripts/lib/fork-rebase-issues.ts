@@ -20,7 +20,9 @@ export interface RebaseStopCensus {
   readonly conflictingForkCommitCount: number;
   readonly conflictingFileCount: number;
   readonly truncated: boolean;
+  readonly truncatedBy: "stop-limit" | "time-limit" | null;
   readonly stopLimit: number;
+  readonly timeLimitSeconds: number;
 }
 
 export interface BlockedIssue {
@@ -33,6 +35,7 @@ export interface BlockedIssue {
   readonly remainingUpstreamCount: number;
   readonly newestUpstreamTagBeyondWindow: string | null;
   readonly stopCensus: RebaseStopCensus | null;
+  readonly stopCensusUnavailableReason: string | null;
   readonly conflicts: ReadonlyArray<{
     readonly path: string;
     readonly hunks: number;
@@ -83,6 +86,7 @@ interface BlockedPlan {
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
+  stopCensusUnavailableReason: string | null = null,
 ): BlockedIssue | null => {
   const first = plan.feasibility.ffBoundary.firstConflict;
   if (first === null) return null;
@@ -107,14 +111,20 @@ export const buildBlockedIssue = (
     "",
     "## Sequential rebase census",
     "",
-    stopCensus === null
-      ? "No upstream release tag exists beyond this block, so there is no tagged rebase target to rehearse."
-      : `A throwaway rebase rehearsal to ${inlineCode(stopCensus.targetTag)} found ${stopCensus.conflictingForkCommitCount} conflicting fork ${stopCensus.conflictingForkCommitCount === 1 ? "commit" : "commits"} and ${stopCensus.conflictingFileCount} conflict-file ${stopCensus.conflictingFileCount === 1 ? "resolution" : "resolutions"}. Repeated paths count at each stop.`,
-    ...(stopCensus?.truncated === true
+    stopCensusUnavailableReason !== null
+      ? `The sequential rebase census was unavailable: ${inlineCode(stopCensusUnavailableReason)}.`
+      : stopCensus === null
+        ? "No upstream release tag exists beyond this block, so there is no tagged rebase target to rehearse."
+        : `A throwaway rebase rehearsal to ${inlineCode(stopCensus.targetTag)} found ${stopCensus.conflictingForkCommitCount} conflicting fork ${stopCensus.conflictingForkCommitCount === 1 ? "commit" : "commits"} and ${stopCensus.conflictingFileCount} conflict-file ${stopCensus.conflictingFileCount === 1 ? "resolution" : "resolutions"}. Repeated paths count at each stop.`,
+    ...(stopCensus?.truncatedBy === "stop-limit"
       ? [
-          `The census stopped at its safety cap of ${stopCensus.stopLimit} conflict stops, so these are lower-bound counts.`,
+          `The census stopped at its conflict-stop limit of ${stopCensus.stopLimit}, so these are lower-bound counts.`,
         ]
-      : []),
+      : stopCensus?.truncatedBy === "time-limit"
+        ? [
+            `The census stopped at its wall-clock limit of ${stopCensus.timeLimitSeconds} seconds, so these are lower-bound counts.`,
+          ]
+        : []),
     "",
     "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
     "",
@@ -144,6 +154,7 @@ export const buildBlockedIssue = (
     remainingUpstreamCount: remaining,
     newestUpstreamTagBeyondWindow: plan.newestTagBeyondWindow?.tag ?? null,
     stopCensus,
+    stopCensusUnavailableReason,
     conflicts,
     body,
   };
