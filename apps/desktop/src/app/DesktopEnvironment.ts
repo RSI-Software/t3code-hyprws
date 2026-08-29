@@ -18,6 +18,11 @@ import { resolveDesktopBaseDir, resolveDesktopStateDir } from "./DesktopStatePat
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
 import type { OtlpProtocol } from "@t3tools/shared/observability";
 
+export type DesktopDevAgentPlacement = {
+  readonly workspace: number;
+  readonly title: string;
+};
+
 export interface MakeDesktopEnvironmentInput {
   readonly dirname: string;
   readonly homeDirectory: string;
@@ -41,6 +46,8 @@ export class DesktopEnvironment extends Context.Service<
     readonly isDevelopment: boolean;
     // Development-only: whether new windows open detached DevTools.
     readonly devToolsEnabled: boolean;
+    // Development-only map-time placement requested by dev:desktop:agent.
+    readonly devAgentPlacement: Option.Option<DesktopDevAgentPlacement>;
     readonly appVersion: string;
     readonly appPath: string;
     readonly resourcesPath: string;
@@ -151,6 +158,21 @@ function resolveDesktopRuntimeInfo(input: {
   };
 }
 
+export function resolveDesktopDevAgentPlacement(input: {
+  readonly isDevelopment: boolean;
+  readonly workspace: Option.Option<number>;
+  readonly title: Option.Option<string>;
+}): Option.Option<DesktopDevAgentPlacement> {
+  if (!input.isDevelopment || Option.isNone(input.workspace) || Option.isNone(input.title)) {
+    return Option.none();
+  }
+  const workspace = input.workspace.value;
+  const title = input.title.value;
+  return Number.isInteger(workspace) && workspace > 0 && !title.includes(",")
+    ? Option.some({ workspace, title })
+    : Option.none();
+}
+
 const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
 ): Effect.fn.Return<DesktopEnvironment["Service"], Config.ConfigError, Path.Path> {
@@ -189,6 +211,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     joinPath: path.join,
     t3Home: config.t3Home,
   });
+  const devAgentPlacement = resolveDesktopDevAgentPlacement({
+    isDevelopment,
+    workspace: config.agentWorkspace,
+    title: config.agentPlacementTitle,
+  });
   const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
   const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
   const linuxApplicationsDir = path.join(
@@ -205,6 +232,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     isPackaged: input.isPackaged,
     isDevelopment,
     devToolsEnabled: config.devToolsEnabled,
+    devAgentPlacement,
     appVersion: input.appVersion,
     appPath: input.appPath,
     resourcesPath,
