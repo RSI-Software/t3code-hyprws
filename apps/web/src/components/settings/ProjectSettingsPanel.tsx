@@ -25,6 +25,7 @@ import {
   type SidebarProjectGroupingMode,
   type T3ProjectFileScript,
   type ThreadEnvMode,
+  type WireThreadEnvMode,
 } from "@t3tools/contracts";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { createModelSelection } from "@t3tools/shared/model";
@@ -34,6 +35,10 @@ import {
   resolveProjectScripts,
 } from "@t3tools/shared/projectScripts";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import {
+  fromWireThreadEnvModeFields,
+  toWireThreadEnvModeOverrideFields,
+} from "@t3tools/shared/threadEnvMode";
 import { useNavigate } from "@tanstack/react-router";
 import * as Equal from "effect/Equal";
 import * as Cause from "effect/Cause";
@@ -527,7 +532,8 @@ function ProjectDetail({
       input: Partial<{
         title: string;
         defaultModelSelection: ModelSelection | null;
-        defaultThreadEnvMode: ThreadEnvMode | null;
+        defaultThreadEnvMode: WireThreadEnvMode | null;
+        defaultThreadEnvModeFork: ThreadEnvMode | undefined;
         autoPull: boolean;
         faviconPath: string | null;
         projectIcon: ProjectIconOverride | null;
@@ -659,14 +665,14 @@ function ProjectDetail({
   };
 
   // ----- new-thread workspace mode -----
-  const storedEnvMode = representative.defaultThreadEnvMode ?? null;
+  const storedEnvMode = fromWireThreadEnvModeFields(representative) ?? null;
   const mixedWorkspace = group.memberProjects.some(
-    (member) => member.defaultThreadEnvMode !== storedEnvMode,
+    (member) => fromWireThreadEnvModeFields(member) !== storedEnvMode,
   );
   const setDefaultThreadEnvMode = useCallback(
     (mode: ThreadEnvMode | null) =>
       void updateAllMembers(
-        { defaultThreadEnvMode: mode },
+        { defaultThreadEnvModeFork: undefined, ...toWireThreadEnvModeOverrideFields(mode) },
         "Failed to update new-thread workspace",
       ),
     [updateAllMembers],
@@ -744,7 +750,8 @@ function ProjectDetail({
   );
   // What the "Default" option resolves to while no override is set: the
   // repo's t3.json value when present, otherwise the global setting.
-  const inheritedEnvMode = t3File.file?.defaultThreadEnvMode ?? scriptSettings.defaultThreadEnvMode;
+  const inheritedEnvMode =
+    t3File.file?.defaultThreadEnvMode ?? fromWireThreadEnvModeFields(scriptSettings);
   const inheritedEnvModeSource = t3File.file?.defaultThreadEnvMode != null ? "t3.json" : "global";
   const importableScripts = useMemo(
     () =>
@@ -1113,7 +1120,9 @@ function ProjectDetail({
                 : "Overridden for this project. Reset to inherit its workspace default."
             }
             resetAction={
-              group.memberProjects.some((member) => member.defaultThreadEnvMode !== null) ? (
+              group.memberProjects.some(
+                (member) => fromWireThreadEnvModeFields(member) !== null,
+              ) ? (
                 <SettingResetButton
                   label="project workspace default"
                   tooltip="Reset to inherited workspace"
