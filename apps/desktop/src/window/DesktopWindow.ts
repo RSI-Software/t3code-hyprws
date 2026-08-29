@@ -368,6 +368,9 @@ export const make = Effect.gen(function* () {
   // Windows carried across an update relaunch. Empty on every other launch, so
   // the hub-only default above still describes a normal cold start.
   const pendingRestoreRef = yield* Ref.make<readonly DesktopWindowSession.WindowRestoreEntry[]>([]);
+  // One map-time placement for dev:desktop:agent. The launcher environment survives
+  // main-process watch restarts; each fresh process consumes its own copy once.
+  const pendingDevAgentPlacementRef = yield* Ref.make(environment.devAgentPlacement);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -415,6 +418,16 @@ export const make = Effect.gen(function* () {
       yield* previewManager.getBrowserSession();
     }
     const applicationUrl = getWindowApplicationUrl(environment.isDevelopment, identity);
+    const normalWindowTitle =
+      identity.kind === "hub" ? environment.displayName : identity.ref.projectId;
+    const devAgentPlacement =
+      identity.kind === "hub"
+        ? yield* Ref.get(pendingDevAgentPlacementRef)
+        : Option.none<DesktopEnvironment.DesktopDevAgentPlacement>();
+    const initialWindowTitle = Option.match(devAgentPlacement, {
+      onNone: () => normalWindowTitle,
+      onSome: (placement) => placement.title,
+    });
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -452,7 +465,7 @@ export const make = Effect.gen(function* () {
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
-      title: identity.kind === "hub" ? environment.displayName : identity.ref.projectId,
+      title: initialWindowTitle,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
         preload: environment.preloadPath,
@@ -874,15 +887,42 @@ export const make = Effect.gen(function* () {
       if (!window.isDestroyed()) {
         window.webContents.setBackgroundThrottling(true);
       }
-      // Reveal the real window, then close the connecting splash (if any) so the
-      // two don't overlap and there's no blank gap between them.
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
+
+      if (Option.isSome(devAgentPlacement)) {
+        const placement = devAgentPlacement.value;
+        const workspace = { id: placement.workspace, name: String(placement.workspace) };
+        const key = windowIdentityKey(identity);
+        // Stage before map, then show without activation. The exact temporary
+        // title isolates concurrent worktree dev apps that share t3code-dev.
+        void runPromise(
+          Effect.gen(function* () {
+            yield* hyprlandPlacement.stageWorkspaceRule(placement.title, workspace);
+            if (!window.isDestroyed()) {
+              // Renderer document titles can replace BrowserWindow's constructor
+              // title while hidden. Restore the exact token synchronously at map.
+              window.setTitle(placement.title);
+              window.showInactive();
+            }
+            yield* dismissConnectingSplash;
+            yield* hyprlandPlacement.claim(key, placement.title);
+            yield* hyprlandPlacement.moveToWorkspace(key, workspace);
+            if (!window.isDestroyed()) window.setTitle(normalWindowTitle);
+          }).pipe(
+            Effect.ensuring(hyprlandPlacement.clearWorkspaceRule(placement.title)),
+            Effect.ensuring(Ref.set(pendingDevAgentPlacementRef, Option.none())),
+          ),
+        );
+        return;
+      }
+
+      // Normal launches reveal and focus. Agent launches above deliberately do
+      // neither, even when the Electron main process restarts under the watcher.
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
       // The compositor maps the window a beat after it is shown, so bind it to
-      // its Hyprland client now while the title is still the one it mapped
-      // with. Only used to remember the workspace across an update relaunch.
+      // its Hyprland client now while the title is still the one it mapped with.
       void runPromise(hyprlandPlacement.claim(windowIdentityKey(identity), window.getTitle()));
     });
 
@@ -924,8 +964,12 @@ export const make = Effect.gen(function* () {
   revealOrCreateIdentity = Effect.fn("desktop.window.revealOrCreateIdentity")(function* (
     identity: WindowIdentity,
   ) {
+    // Read before creation: ready-to-show may settle and clear the ref while
+    // ensureIdentity is still returning, but that must not turn into a late focus.
+    const suppressInitialReveal =
+      identity.kind === "hub" && Option.isSome(yield* Ref.get(pendingDevAgentPlacementRef));
     const window = yield* ensureIdentity(identity);
-    yield* electronWindow.reveal(window);
+    if (!suppressInitialReveal) yield* electronWindow.reveal(window);
     return window;
   });
 
