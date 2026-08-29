@@ -39,6 +39,51 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("sends a stored worktrunk default as the wire pair every client decodes", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          default_thread_env_mode,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-worktrunk',
+          'Worktrunk project',
+          '/tmp/project-worktrunk',
+          NULL,
+          'worktrunk',
+          '[]',
+          '2026-02-24T00:00:00.000Z',
+          '2026-02-24T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      // A released client validates the field against "local" and "worktree"
+      // only, and drops the whole payload on anything else. The exact mode
+      // rides alongside in a key that client ignores.
+      const shellProject = (yield* snapshotQuery.getShellSnapshot()).projects[0];
+      assert.equal(shellProject?.defaultThreadEnvMode, "worktree");
+      assert.equal(shellProject?.defaultThreadEnvModeFork, "worktrunk");
+
+      const project = (yield* snapshotQuery.getSnapshot()).projects[0];
+      assert.equal(project?.defaultThreadEnvMode, "worktree");
+      assert.equal(project?.defaultThreadEnvModeFork, "worktrunk");
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
