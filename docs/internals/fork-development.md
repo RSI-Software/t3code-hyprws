@@ -313,16 +313,16 @@ cuts, and feature-lane recovery.
 
 The bot never merges `upstream/main` into `hyprws`, targets an untagged commit, or interprets a clean
 textual rebase as permission to retire a fork patch. Stable and nightly tags are both upstream states
-chosen for release; stable fork tags remain a separate human action from a bot-owned release
-snapshot.
+chosen for release; stable fork tags require separate human sign-off on a bot-owned release snapshot
+before the agent publishes them.
 
 ### Human unblock
 
 A conflict beyond the clean boundary creates or updates the fork's `rebase-blocked` issue. Resolve it
 through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
 entry point. Its five gates orient on the newest selected upstream tag beyond the block, rehearse on
-`rehearse/<tag>`, scan every active domain, run focused checks, record human decisions and grounding,
-and stop before the human-only leased trunk push.
+`rehearse/<tag>`, scan every active domain, run focused checks, and present the decisions, silent
+seams, and grounding evidence for human sign-off before the agent records and applies them.
 
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
 domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
@@ -334,10 +334,10 @@ have made one obsolete, preserve a buildable result for rehearsal and key the hu
 or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
 semantic review.
 
-The final human push uses the full `expected_old` read by that rehearsal. A rejected lease means the
-published branch moved: fetch and inspect the drift, incorporate it into the rehearsal, and repeat
-the checks and human sanity gate. Never replace the lease with an unguarded force push or silently
-refresh it.
+After sign-off and a passing gate, the agent's final push uses the full `expected_old` read exactly
+once at rehearsal start. Gate refusals are never bypassed. A rejected lease means the published
+branch moved: fetch and inspect the drift, start a new rehearsal, and repeat the checks and human
+sanity gate. Never replace the lease with an unguarded force push or silently refresh it.
 
 Human sync records remain under
 [`docs/operations/fork-sync-records/`](../operations/fork-sync-records/). Automatic rewrites are
