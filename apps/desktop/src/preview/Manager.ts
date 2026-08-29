@@ -60,6 +60,8 @@ import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from ".
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import * as PreviewWindowPolicy from "./WindowPolicy.ts";
+import { makeWheelZoomFork } from "./WindowPolicy.wheel.fork.ts"; // fork-hook: multi-window/preview-wheel-import
 import {
   ANNOTATION_CAPTURED_CHANNEL,
   ANNOTATION_SEND_ENABLED_CHANNEL,
@@ -1651,6 +1653,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
 
   const closeTabUnlocked = Effect.fn("PreviewManager.closeTabUnlocked")(function* (tabId: string) {
     if (!(yield* SynchronizedRef.get(tabsRef)).has(tabId)) return;
+    yield* wheelZoomFork.remove(tabId); // fork-hook: multi-window/preview-wheel-close
     clearPendingRecording(tabId);
     annotationSendEnabled.delete(tabId);
     yield* Effect.all(
@@ -1840,6 +1843,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       return yield* new PreviewTabNotFoundError({ tabId });
     }
     const { state: registered, pendingUrl } = registration.value;
+    yield* wheelZoomFork.install(tabId, wc); // fork-hook: multi-window/preview-wheel-register
     // Concurrent actions targeted the previous guest; reconcile this one with committed zoom and mute.
     yield* assertTabZoom(tabId);
     yield* assertTabAudioMuted(tabId).pipe(Effect.ignore);
@@ -2242,6 +2246,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     yield* update(tabId, { zoomFactor: next });
   });
+
+  const wheelZoomFork = yield* makeWheelZoomFork((tabId, direction) =>
+    applyZoom(tabId, (current) => nextZoomLevel(current, direction)),
+  ); // fork-hook: multi-window/preview-wheel-state
 
   // Media emulation belongs to the debugger session and must be restored after every reattach.
   const applyColorScheme = Effect.fn("PreviewManager.applyColorScheme")(function* (
@@ -3572,7 +3580,7 @@ export class PreviewManager extends Context.Service<
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
 
 type OwnedRecordingInputListener = (
-  identity: WindowIdentity,
+  identity: PreviewWindowPolicy.WindowIdentity,
   input: DesktopPreviewRecordingInputEvent,
 ) => Effect.Effect<void>;
 
@@ -3626,6 +3634,40 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       });
     });
   };
+
+  const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
+  const browserSessions = new Set<Session>(); // fork-hook: multi-window/download-sessions
+  const installers = new Set<(session: Session) => void>(); // fork-hook: multi-window/downloads
+  const trackInstaller = (install: (session: Session) => void) =>
+    Effect.acquireRelease(
+      // Each window's operations tracks the pages its agent drove, so every window
+      // installs its download handler on every browser session, whichever came first.
+      Effect.sync(() => {
+        installers.add(install);
+        for (const session of browserSessions) install(session);
+      }),
+      () => Effect.sync(() => installers.delete(install)),
+    ); // fork-hook: multi-window/download-track
+  const trackSession = (session: Session) =>
+    Effect.sync(() => {
+      browserSessions.add(session);
+      for (const install of installers) install(session);
+    }); // fork-hook: multi-window/download-session-track
+  const ownership = yield* PreviewWindowPolicy.makeWindowOwnership(
+    (scope) =>
+      makeNativeOperations(
+        environment.browserArtifactsDir,
+        environment.path.join(environment.dirname, "preview-pip-preload.cjs"),
+      ).pipe(
+        Effect.tap((operations) => trackInstaller(operations.installDownloadHandler)), // fork-hook: multi-window/download-install
+        Effect.provideService(Scope.Scope, scope),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(DesktopRendererHistory.DesktopRendererHistory, rendererHistory), // fork-hook: multi-window/preview-renderer-history
+        Effect.provide(context),
+      ),
+    (tabId, requestingWindow) => new PreviewTabOwnershipError({ tabId, requestingWindow }),
+  );
 
   const getBrowserSession = Effect.fn("PreviewManager.getBrowserSession")(function* (
     scope?: string,
