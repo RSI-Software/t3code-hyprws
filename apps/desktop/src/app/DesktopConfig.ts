@@ -54,6 +54,8 @@ export const DesktopConfig = Config.all({
   // Development runs open detached DevTools per window; set this to 0/false/off
   // when a run (automation, grounding) wants the windows without them.
   devToolsEnabled: Config.boolean("T3CODE_DESKTOP_DEVTOOLS").pipe(Config.withDefault(true)),
+  agentWorkspace: Config.int("T3CODE_DESKTOP_AGENT_WORKSPACE").pipe(Config.option),
+  agentPlacementTitle: trimmedString("T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"),
   mockUpdateServerPort: Config.port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),
   ),
