@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   readDesktopProjectWindowRef,
+  resolveSidebarBrandTarget,
   supportsDesktopProjectWindows,
 } from "./desktopProjectWindows";
 
@@ -48,5 +49,26 @@ describe("readDesktopProjectWindowRef", () => {
     vi.stubGlobal("window", { desktopBridge: { projectWindowRef } as DesktopBridge });
 
     expect(readDesktopProjectWindowRef()).toEqual(projectWindowRef);
+  });
+});
+
+describe("resolveSidebarBrandTarget", () => {
+  it("sends the hub window brand to the thread list", () => {
+    expect(resolveSidebarBrandTarget(null)).toEqual({ kind: "hub", label: "Go to threads" });
+  });
+
+  // The hub route is outside a project window's scope, so the desktop guard
+  // closes the window on the way there. The brand stays inside the window.
+  it("keeps a project window brand on its own project", () => {
+    const projectWindowRef = {
+      environmentId: EnvironmentId.make("environment-1"),
+      projectId: ProjectId.make("project-1"),
+    };
+
+    expect(resolveSidebarBrandTarget(projectWindowRef)).toEqual({
+      kind: "project",
+      label: "Go to project",
+      ref: projectWindowRef,
+    });
   });
 });
