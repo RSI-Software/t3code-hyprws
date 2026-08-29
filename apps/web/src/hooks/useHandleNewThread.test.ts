@@ -58,6 +58,10 @@ vi.mock("@t3tools/client-runtime/environment", () => ({
 }));
 vi.mock("@t3tools/contracts", () => ({ DEFAULT_RUNTIME_MODE: "default" }));
 vi.mock("@t3tools/shared/threadEnvMode", () => ({
+  fromWireThreadEnvModeFields: (fields: {
+    readonly defaultThreadEnvMode?: "local" | "worktree" | null;
+    readonly defaultThreadEnvModeFork?: "local" | "worktree" | "worktrunk";
+  }) => fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode,
   resolveDefaultThreadEnvMode: (input: {
     readonly projectFile: "local" | "worktree" | null;
     readonly globalDefault: "local" | "worktree";
