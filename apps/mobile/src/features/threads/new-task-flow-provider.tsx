@@ -21,6 +21,7 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import {
+  fromWireThreadEnvModeFields,
   isDefaultThreadEnvModeSettled,
   resolveDefaultThreadEnvMode,
 } from "@t3tools/shared/threadEnvMode";
@@ -451,9 +452,11 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       ? projectSettings.settings.defaultThreadEnvMode
       : undefined;
   const resolvedDefaultThreadEnvMode = resolveDefaultThreadEnvMode({
-    projectSetting: projectThreadEnvMode,
+    projectSetting: selectedProject ? fromWireThreadEnvModeFields(selectedProject) : null,
     projectFile: t3ProjectFileDefaultMode,
-    globalDefault: projectSettings.settings.defaultThreadEnvMode,
+    globalDefault: selectedEnvironmentServerConfig
+      ? fromWireThreadEnvModeFields(selectedEnvironmentServerConfig.settings)
+      : "local",
   });
   // Mobile has no Worktrunk mode: a `worktrunk` default creates a plain
   // worktree without hooks.

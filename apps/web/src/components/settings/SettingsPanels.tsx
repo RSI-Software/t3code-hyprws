@@ -45,6 +45,10 @@ import {
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
+import {
+  fromWireThreadEnvModeFields,
+  toWireThreadEnvModeFields,
+} from "@t3tools/shared/threadEnvMode.fork";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -171,6 +175,10 @@ import {
   useSettingsSearchTargetId,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import {
+  ExternalSymlinksSettingsRowFork,
+  externalSymlinksRestoreLabelFork,
+} from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
@@ -603,10 +611,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles
         ? ["Show ignored files"]
         : []),
-      ...(settings.followExternalWorkspaceSymlinks !==
-      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks
-        ? ["External workspace symlinks"]
-        : []),
+      ...externalSymlinksRestoreLabelFork(settings), // fork-hook: upstream-fixes/settings-restore-symlinks-label
       ...(settings.enableProviderUpdateChecks !==
       DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
         ? ["Provider update checks"]
@@ -616,7 +621,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Continue threads after restarts"]
         : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
       ...(settings.newWorktreesStartFromOrigin !==
@@ -663,6 +668,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.followUpBehavior,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
+      settings.defaultThreadEnvModeFork,
       settings.newWorktreesStartFromOrigin,
       settings.diffFilesCollapsed,
       settings.diffIgnoreWhitespace,
@@ -796,6 +802,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+      defaultThreadEnvModeFork: undefined,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
@@ -1780,8 +1787,8 @@ function TypographySection() {
 }
 
 function TerminalSessionSection() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
 
   return (
     <SettingsSection title="Terminal">
@@ -2788,34 +2795,9 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          serverScoped
-          {...searchableSetting("external-workspace-symlinks")}
-          description="Allow file previews to follow symlinks whose targets are outside the project. Applies to every project on this server."
-          resetAction={
-            settings.followExternalWorkspaceSymlinks !==
-            DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks ? (
-              <SettingResetButton
-                label="external workspace symlinks"
-                onClick={() =>
-                  updateSettings({
-                    followExternalWorkspaceSymlinks:
-                      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.followExternalWorkspaceSymlinks}
-              onCheckedChange={(checked) =>
-                updateSettings({ followExternalWorkspaceSymlinks: Boolean(checked) })
-              }
-              aria-label="Follow external workspace symlinks"
-            />
-          }
-        />
+        {/* fork-hook: upstream-fixes/settings-row-mount */}
+        <ExternalSymlinksSettingsRowFork />
+        {/* fork-hook-end */}
 
         <SettingsRow
           serverScoped
