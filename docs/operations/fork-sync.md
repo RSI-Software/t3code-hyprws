@@ -8,8 +8,8 @@ the complete fork stack, and publishes the result according to the configured mo
 intervenes only to resolve a reported block, enable trunk rewrites, or cut a stable release.
 
 [Fork development](../internals/fork-development.md) owns the repository discipline. The repo-local
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated human procedures for
-unblocking a rebase and cutting a stable release.
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated human sign-off procedures
+for unblocking a rebase and cutting a stable release.
 
 ## Model
 
@@ -236,21 +236,25 @@ gh issue view "$blocked_issue" --comments -R "$repo"
 ```
 
 Then invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
-point. The maintainer chooses the newest upstream stable or nightly tag past the reported block,
-rehearses the complete stack on `rehearse/<tag>`, preserves upstream intent while resolving each
-conflict, runs the fork scan and focused checks, records human decisions and grounding, and stops at
-the human-only apply boundary.
+point. The maintainer chooses the newest upstream stable or nightly tag past the reported block. The
+agent rehearses the complete stack on `rehearse/<tag>`, preserves upstream intent while resolving
+each conflict, runs the fork scan and focused checks, and presents every decision row, silent seam,
+and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
+login/date, and explicit go; missing sign-off is a hard stop. The agent copies that sign-off into the
+record and ledger, commits it, and runs the gate without bypassing any refusal.
 
-The final trunk push always uses the `expected_old` captured from the same run:
+After the gate passes, the agent runs the final trunk push with the `expected_old` read exactly once
+at the start of the same rehearsal:
 
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
 ```
 
-Never move a bot-owned ref as part of the unblock. After the leased push succeeds, comment with the
-resolved blocking SHA and target tag; that comment is the human resolution record. The push starts a
-new bot run. That run automatically closes every open `rebase-blocked` issue when no block remains,
-or updates the open issue when a later conflict remains.
+Never move a bot-owned ref as part of the unblock. After the leased push succeeds, the agent posts
+the resolved blocking SHA and target tag, quoting the human sign-off; that comment records the
+signed-off resolution. The push starts a new bot run. That run automatically closes every open
+`rebase-blocked` issue when no block remains, or updates the open issue when a later conflict remains. A stale lease is never refreshed:
+rehearse again, repeat the checks and sign-off, and then apply with the new rehearsal's lease.
 
 ## Cut a stable release
 
@@ -284,7 +288,7 @@ cd "$worktree_path"
 
 Verify the snapshot and derive the next tag. These repo-wide checks are an explicit stable-release
 gate exception to the targeted-check rule: they match the release workflow preflight before the
-human creates the tag.
+sign-off boundary.
 
 ```bash
 test "$(git rev-parse HEAD)" = "$candidate_sha"
@@ -308,8 +312,10 @@ git ls-remote --exit-code --tags origin "refs/tags/$release_tag" \
   && { echo "refusing to replace existing tag $release_tag" >&2; false; }
 ```
 
-**Human-only publish.** The skill and agent stop before this block. The human creates the annotated
-tag at the verified snapshot SHA and pushes it create-only:
+**Sign-off boundary.** The agent presents the selected issue, source snapshot and SHA, derived tag,
+prior tags, and check results. The human records the exact candidate and an explicit go. Missing
+sign-off is a hard stop. After sign-off, the agent creates the annotated tag at the verified snapshot
+SHA and pushes it create-only:
 
 ```bash
 git tag -a "$release_tag" "$candidate_sha" \
@@ -325,8 +331,8 @@ cd -
 wt remove -D "cut/$candidate"
 ```
 
-The tag push starts the stable channel of `hyprws-release.yml`. Find that exact run, watch it, and
-verify the published release contains an `.AppImage` and `latest-linux.yml`:
+The tag push starts the stable channel of `hyprws-release.yml`. The agent finds that exact run,
+watches it, and verifies the published release contains an `.AppImage` and `latest-linux.yml`:
 
 ```bash
 run_id=
