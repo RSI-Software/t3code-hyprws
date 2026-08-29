@@ -16,6 +16,7 @@ import {
   rehearseStopCensus,
   renderSummary,
   selectNewestTag,
+  selectVerificationDependencySetup,
   SystemGit,
   UsageError,
   verifyReplayMetadata,
@@ -185,6 +186,27 @@ const dryRunOptions = {
   summary: null,
   issueJson: null,
 };
+
+it("selects dependency setup from shared-base-to-target manifest changes", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    assert.strictEqual(
+      selectVerificationDependencySetup(reader, fixture.base, fixture.cleanNightly),
+      "shared-install",
+    );
+
+    git(fixture.root, ["switch", "--detach", fixture.cleanNightly]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "package.json"), '{"private":true}\n');
+    const manifestTarget = commit(fixture.root, "build: change upstream manifest");
+    assert.strictEqual(
+      selectVerificationDependencySetup(reader, fixture.base, manifestTarget),
+      "fresh-install",
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
 
 it("plans a no-op at the base and rejects an override beyond the clean window", () => {
   const fixture = fixtureRepository();
