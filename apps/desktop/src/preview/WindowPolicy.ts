@@ -198,6 +198,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
       closeTab: (tabId) => authorized(tabId, operations.closeTab(tabId)),
       registerWebview: (tabId, webContentsId) =>
         authorized(tabId, operations.registerWebview(tabId, webContentsId)),
+      prepareWebview: operations.prepareWebview,
       navigate: (tabId, url) => authorized(tabId, operations.navigate(tabId, url)),
       goBack: (tabId) => authorized(tabId, operations.goBack(tabId)),
       goForward: (tabId) => authorized(tabId, operations.goForward(tabId)),
