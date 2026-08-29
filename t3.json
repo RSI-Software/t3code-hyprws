@@ -13,6 +13,21 @@
       "command": "vp i && New-Item -ItemType SymbolicLink -Path .env -Target \"$env:T3CODE_PROJECT_ROOT\\.env\" -Force && New-Item -ItemType SymbolicLink -Path \"infra\\relay\\.env\" -Target \"$env:T3CODE_PROJECT_ROOT\\infra\\relay\\.env\" -Force && node apps\\web\\scripts\\warm-dep-cache.ts",
       "icon": "configure",
       "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Dev Desktop Agent",
+      "command": "vp run dev:desktop:agent",
+      "icon": "debug"
+    },
+    {
+      "name": "Dev Desktop Agent URL",
+      "command": "vp run dev:desktop:agent:url",
+      "icon": "debug"
+    },
+    {
+      "name": "Hyprland Workspace",
+      "command": "vp run hypr:workspace",
+      "icon": "configure"
     }
   ]
 }
