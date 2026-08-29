@@ -4,7 +4,7 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { ProviderOptionSelections } from "./model.ts";
-import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
+import { RepositoryIdentity, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -290,7 +290,10 @@ export const OrchestrationProject = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   // Per-project override for where new threads start. Null/absent means
   // "no override": clients fall back to t3.json, then the global setting.
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
+  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
+  // in for it. A released client ignores this key and reads the wire value.
+  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.Array(ProjectScript),
@@ -501,7 +504,10 @@ export const OrchestrationProjectShell = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
+  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
+  // in for it. A released client ignores this key and reads the wire value.
+  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
   // Optional on the wire so cached snapshots from older servers still decode.
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.Array(ProjectScript),
@@ -761,7 +767,10 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   // Absent = leave unchanged; null = clear the override.
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
+  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
+  // in for it. A released client ignores this key and reads the wire value.
+  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
