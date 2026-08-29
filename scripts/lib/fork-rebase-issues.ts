@@ -66,6 +66,7 @@ Follow [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob
 <!-- hyprws-stable-candidate: ${tag}-hyprws -->`;
 
 interface BlockedPlan {
+  readonly target: { readonly tag: string } | null;
   readonly newestTagBeyondWindow: { readonly tag: string } | null;
   readonly feasibility: ForkRebaseFeasibility;
 }
@@ -84,10 +85,12 @@ export const buildBlockedIssue = (plan: BlockedPlan): BlockedIssue | null => {
   const remaining =
     plan.feasibility.ffBoundary.upstreamCommitCount - plan.feasibility.ffBoundary.cleanCommitCount;
   const body = [
-    `The fork can replay through ${plan.feasibility.ffBoundary.cleanCommitCount} of ${plan.feasibility.ffBoundary.upstreamCommitCount} upstream commits.`,
+    plan.target === null
+      ? "The fork stack has no newer clean upstream tag to advance to."
+      : `The fork stack advances to ${inlineCode(plan.target.tag)}, the newest clean upstream tag.`,
+    `${remaining} upstream ${remaining === 1 ? "commit sits" : "commits sit"} behind the blocking commit ${inlineCode(first.sha)}.`,
     "",
     `Blocking upstream commit: ${inlineCode(`${first.sha} ${first.subject}`)}`,
-    `Remaining upstream commits: ${remaining}`,
     `Newest upstream tag beyond the clean window: ${plan.newestTagBeyondWindow === null ? "none" : `\`${plan.newestTagBeyondWindow.tag}\``}`,
     "",
     "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
@@ -109,7 +112,7 @@ export const buildBlockedIssue = (plan: BlockedPlan): BlockedIssue | null => {
     `<!-- blocking-sha:${first.sha} -->`,
   ].join("\n");
   return {
-    title: `[📡#${BLOCKED_ISSUE_TRACKER}] hyprws auto-rebase is blocked at upstream ${first.shortSha}`,
+    title: `[📡#${BLOCKED_ISSUE_TRACKER}] 🔔 hyprws auto-rebase is blocked at upstream ${first.shortSha}`,
     label: "rebase-blocked",
     trackerNumber: BLOCKED_ISSUE_TRACKER,
     blockingSha: first.sha,
