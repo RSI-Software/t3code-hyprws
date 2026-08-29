@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
   type ModelSelection,
   type ProviderInstanceConfig,
@@ -241,7 +242,9 @@ const decodeServerSettingsJsonExit = (raw: string) => {
   if (parsed._tag === "Failure") {
     return parsed;
   }
-  return decodeServerSettingsExit(migrateLegacyZmuxSettings(parsed.value));
+  return decodeServerSettingsExit(
+    migrateLegacyForkThreadEnvModeSettings(migrateLegacyZmuxSettings(parsed.value)),
+  );
 };
 const PersistedOptionalProviderSettings = Schema.Struct({
   providers: Schema.optionalKey(
