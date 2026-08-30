@@ -270,6 +270,58 @@ export function buildBulkTitleRegenerationContextMenuItem(input: {
   };
 }
 
+export type SidebarThreadGroupContextMenuId =
+  | "create-thread-group"
+  | "move-to-group"
+  | `move-to-group:${string}`
+  | "move-out-of-group";
+
+export function buildCreateThreadGroupContextMenuItem(input: {
+  readonly count: number;
+  readonly eligible: boolean;
+}): ContextMenuItem<SidebarThreadGroupContextMenuId> | null {
+  if (!input.eligible || input.count < 2) return null;
+  return {
+    id: "create-thread-group",
+    label: `Create group (${input.count})`,
+    icon: "folder-tree",
+  };
+}
+
+export function buildThreadGroupMembershipContextMenuItems(input: {
+  readonly groups: readonly Pick<SidebarThreadGroup, "id" | "title">[];
+  readonly currentGroupId: string | null;
+}): readonly ContextMenuItem<SidebarThreadGroupContextMenuId>[] {
+  const availableGroups = input.groups.filter((group) => group.id !== input.currentGroupId);
+  return [
+    ...(availableGroups.length > 0
+      ? [
+          {
+            id: "move-to-group" as const,
+            label: "Move to group",
+            icon: "folder-tree",
+            separatorBefore: true,
+            children: availableGroups.map((group) => ({
+              id: `move-to-group:${group.id}` as const,
+              label: group.title,
+              icon: "folder",
+            })),
+          },
+        ]
+      : []),
+    ...(input.currentGroupId === null
+      ? []
+      : [
+          {
+            id: "move-out-of-group" as const,
+            label: "Remove from group",
+            icon: "folder",
+            separatorBefore: availableGroups.length === 0,
+          },
+        ]),
+  ];
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
