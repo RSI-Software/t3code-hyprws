@@ -502,7 +502,14 @@ export type SidebarThreadDropMode = "reorder" | "group";
 
 function orderedGroupThreadIds(threadIds: readonly string[], order: readonly string[]): string[] {
   const members = new Set(threadIds);
-  return order.filter((id) => members.has(id));
+  const ordered = order.filter((id) => members.has(id));
+  const orderedIds = new Set(ordered);
+  const remaining = threadIds.filter((id) => {
+    if (orderedIds.has(id)) return false;
+    orderedIds.add(id);
+    return true;
+  });
+  return [...ordered, ...remaining];
 }
 
 export function moveProjectThread(
@@ -576,6 +583,82 @@ export function moveProjectThread(
   };
 }
 
+export type SidebarThreadGroupMembershipTarget =
+  | { readonly kind: "existing"; readonly groupId: string }
+  | { readonly kind: "new"; readonly group: Pick<SidebarThreadGroup, "id" | "title"> }
+  | { readonly kind: "none" };
+
+export function setThreadGroupMembership(
+  state: UiState,
+  projectKey: string,
+  currentThreadOrder: readonly string[],
+  threadIds: readonly string[],
+  target: SidebarThreadGroupMembershipTarget,
+): UiState {
+  const orderedThreadIds = orderedGroupThreadIds([...new Set(threadIds)], currentThreadOrder);
+  if (orderedThreadIds.length === 0 || (target.kind === "new" && orderedThreadIds.length < 2)) {
+    return state;
+  }
+
+  const currentGroups = state.threadGroupsByProject[projectKey] ?? [];
+  if (target.kind === "existing" && !currentGroups.some((group) => group.id === target.groupId)) {
+    return state;
+  }
+  const movingIds = new Set(orderedThreadIds);
+  let groups = currentGroups.map((group) => ({
+    ...group,
+    threadIds: group.threadIds.filter((threadId) => !movingIds.has(threadId)),
+  }));
+
+  if (target.kind === "existing") {
+    groups = groups.map((group) =>
+      group.id === target.groupId
+        ? {
+            ...group,
+            collapsed: false,
+            threadIds: orderedGroupThreadIds(
+              [...group.threadIds, ...orderedThreadIds],
+              currentThreadOrder,
+            ),
+          }
+        : group,
+    );
+  } else if (target.kind === "new") {
+    groups.push({
+      ...target.group,
+      threadIds: orderedThreadIds,
+      collapsed: false,
+    });
+  }
+
+  groups = groups.filter((group) => group.threadIds.length >= 2);
+  if (
+    groups.length === currentGroups.length &&
+    groups.every((group, index) => {
+      const current = currentGroups[index];
+      return (
+        current?.id === group.id &&
+        current.title === group.title &&
+        current.collapsed === group.collapsed &&
+        current.threadIds.length === group.threadIds.length &&
+        current.threadIds.every(
+          (threadId, threadIndex) => group.threadIds[threadIndex] === threadId,
+        )
+      );
+    })
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threadGroupsByProject: {
+      ...state.threadGroupsByProject,
+      [projectKey]: groups,
+    },
+  };
+}
+
 export function renameThreadGroup(
   state: UiState,
   projectKey: string,
@@ -618,7 +701,7 @@ export function renameThreadGroupIfCurrent(
   return renameThreadGroup(state, projectKey, groupId, title);
 }
 
-export function setThreadGroupCollapsed(
+function setThreadGroupCollapsed(
   state: UiState,
   projectKey: string,
   groupId: string,
@@ -635,7 +718,7 @@ export function setThreadGroupCollapsed(
   };
 }
 
-export function removeThreadGroup(state: UiState, projectKey: string, groupId: string): UiState {
+function removeThreadGroup(state: UiState, projectKey: string, groupId: string): UiState {
   const groups = state.threadGroupsByProject[projectKey] ?? [];
   const nextGroups = groups.filter((group) => group.id !== groupId);
   if (nextGroups.length === groups.length) return state;
@@ -670,6 +753,12 @@ interface UiStateStore extends UiState {
     targetThreadId: string,
     mode: SidebarThreadDropMode,
     newGroup?: { readonly id: string; readonly title: string },
+  ) => void;
+  setThreadGroupMembership: (
+    projectKey: string,
+    currentThreadOrder: readonly string[],
+    threadIds: readonly string[],
+    target: SidebarThreadGroupMembershipTarget,
   ) => void;
   renameThreadGroup: (projectKey: string, groupId: string, title: string) => void;
   renameThreadGroupIfCurrent: (
@@ -722,6 +811,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
         mode,
         newGroup,
       ),
+    ),
+  setThreadGroupMembership: (projectKey, currentThreadOrder, threadIds, target) =>
+    set((state) =>
+      setThreadGroupMembership(state, projectKey, currentThreadOrder, threadIds, target),
     ),
   renameThreadGroup: (projectKey, groupId, title) =>
     set((state) => renameThreadGroup(state, projectKey, groupId, title)),
