@@ -54,7 +54,10 @@ class FakeGitHub implements RebaseGitHubClient {
   readonly bodyEdits: Array<number> = [];
   readonly commentEdits: Array<number> = [];
   readonly closed: Array<number> = [];
+  readonly issueTypeLookups: Array<string> = [];
+  readonly issueTypeEdits: Array<number> = [];
   labelsEnsured = 0;
+  issueTypeLookupError: Error | null = null;
   private nextIssue = 1;
   private nextComment = 100;
 
@@ -75,13 +78,30 @@ class FakeGitHub implements RebaseGitHubClient {
     return (this.comments.get(issueNumber) ?? []).map((comment) => ({ ...comment }));
   }
 
+  lookupIssueTypeId(issueType: "Bug"): string {
+    this.issueTypeLookups.push(issueType);
+    if (this.issueTypeLookupError !== null) throw this.issueTypeLookupError;
+    return "bug-type";
+  }
+
+  applyIssueType(issue: RebaseIssue, issueTypeId: string): void {
+    assert.strictEqual(issueTypeId, "bug-type");
+    const stored = this.issues.find((candidate) => candidate.number === issue.number);
+    if (stored === undefined) throw new Error("missing fake issue");
+    Object.assign(stored, { issueType: "Bug" });
+    this.issueTypeEdits.push(issue.number);
+  }
+
   createIssue(issue: CreateRebaseIssue): RebaseIssue {
     this.created.push(issue);
+    const number = this.nextIssue++;
     const created = {
-      number: this.nextIssue++,
+      number,
+      nodeId: `issue-${number}`,
       state: "open" as const,
       title: issue.title,
       body: issue.body,
+      issueType: null,
     };
     this.issues.push(created);
     return created;
@@ -133,9 +153,10 @@ it("creates one assigned block issue and one Refresh log comment", () => {
     body: report.body,
     labels: ["rebase-blocked", "ci"],
     assignee: "donjor",
-    issueType: "Bug",
     priority: "High",
   });
+  assert.deepStrictEqual(client.issueTypeLookups, ["Bug"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [1]);
   assert.strictEqual(openIssues(client).length, 1);
   const comment = client.comments.get(1)?.[0]?.body ?? "";
   assert.strictEqual(
@@ -193,6 +214,58 @@ it("recognizes Priority only as a plain org single-select option", () => {
   );
 });
 
+it("aborts before creating when the native Bug type lookup fails", () => {
+  const client = new FakeGitHub();
+  client.issueTypeLookupError = new Error("repository issue type Bug lookup failed");
+
+  assert.throws(
+    () => reconcileRebaseBlock(client, input(blocked(SHA_A))),
+    /repository issue type Bug lookup failed/,
+  );
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.issueTypeEdits, []);
+});
+
+it("applies a missing native Bug type when refreshing an open block issue", () => {
+  const report = blocked(SHA_A);
+  const client = new FakeGitHub([
+    {
+      number: 7,
+      nodeId: "issue-7",
+      state: "open",
+      title: report.title,
+      body: report.body,
+      issueType: null,
+    },
+  ]);
+
+  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+
+  assert.deepStrictEqual(client.issueTypeLookups, ["Bug"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [7]);
+  assert.strictEqual(client.issues[0]?.issueType, "Bug");
+  assert.strictEqual(client.created.length, 0);
+});
+
+it("does not look up or apply the native Bug type when refresh already has one", () => {
+  const report = blocked(SHA_A);
+  const client = new FakeGitHub([
+    {
+      number: 7,
+      nodeId: "issue-7",
+      state: "open",
+      title: report.title,
+      body: report.body,
+      issueType: "Bug",
+    },
+  ]);
+
+  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+
+  assert.deepStrictEqual(client.issueTypeLookups, []);
+  assert.deepStrictEqual(client.issueTypeEdits, []);
+});
+
 it("rewrites the body but leaves the Refresh log unchanged for the same tag", () => {
   const client = new FakeGitHub();
   const report = blocked(SHA_A);
@@ -246,7 +319,14 @@ it("closes the resolved sha with one comment and creates nothing", () => {
 it("never refiles a sha already carried by a closed issue", () => {
   const report = blocked(SHA_A);
   const client = new FakeGitHub([
-    { number: 7, state: "closed", title: report.title, body: report.body },
+    {
+      number: 7,
+      nodeId: "issue-7",
+      state: "closed",
+      title: report.title,
+      body: report.body,
+      issueType: "Bug",
+    },
   ]);
 
   reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
@@ -257,7 +337,16 @@ it("never refiles a sha already carried by a closed issue", () => {
 
 it("closes the old identity before creating a new one and leaves at most one open", () => {
   const old = blocked(SHA_A);
-  const client = new FakeGitHub([{ number: 4, state: "open", title: old.title, body: old.body }]);
+  const client = new FakeGitHub([
+    {
+      number: 4,
+      nodeId: "issue-4",
+      state: "open",
+      title: old.title,
+      body: old.body,
+      issueType: "Bug",
+    },
+  ]);
 
   reconcileRebaseBlock(client, input(blocked(SHA_B)), new Date("2026-08-30T00:13:00Z"));
 
