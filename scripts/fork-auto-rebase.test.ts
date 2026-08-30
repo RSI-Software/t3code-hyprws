@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 import { buildBlockedIssue } from "./lib/fork-rebase-issues.ts";
+import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import {
   buildAutoRebasePlan,
   executeAutoRebase,
@@ -16,6 +17,7 @@ import {
   rehearseStopCensus,
   renderSummary,
   selectNewestTag,
+  selectVerificationDependencySetup,
   SystemGit,
   UsageError,
   verifyReplayMetadata,
@@ -52,6 +54,23 @@ it("parses bot modes and output flags", () => {
   );
   assert.throws(() => parseArgs(["--mode", "maybe"]), UsageError);
   assert.throws(() => parseArgs(["--fetch", "--fetch"]), UsageError);
+});
+
+it("keeps push authentication in git config environment variables", () => {
+  const token = "ghs_EXAMPLE-token-123";
+  const invocation = buildPushInvocation(["origin", "hyprws"], token, { PATH: "/bin" });
+  const encodedCredentials = Buffer.from(`x-access-token:${token}`).toString("base64");
+
+  assert.deepStrictEqual(invocation.args, ["push", "origin", "hyprws"]);
+  assert.notInclude(JSON.stringify(invocation.args), token);
+  assert.notInclude(JSON.stringify(invocation.args), encodedCredentials);
+  assert.notInclude(JSON.stringify(invocation.args), "extraheader");
+  assert.deepStrictEqual(invocation.env, {
+    PATH: "/bin",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${encodedCredentials}`,
+  });
 });
 
 it("selects the latest clean position and prefers a stable tag on a tie", () => {
@@ -185,6 +204,27 @@ const dryRunOptions = {
   summary: null,
   issueJson: null,
 };
+
+it("selects dependency setup from shared-base-to-target manifest changes", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    assert.strictEqual(
+      selectVerificationDependencySetup(reader, fixture.base, fixture.cleanNightly),
+      "shared-install",
+    );
+
+    git(fixture.root, ["switch", "--detach", fixture.cleanNightly]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "package.json"), '{"private":true}\n');
+    const manifestTarget = commit(fixture.root, "build: change upstream manifest");
+    assert.strictEqual(
+      selectVerificationDependencySetup(reader, fixture.base, manifestTarget),
+      "fresh-install",
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
 
 it("plans a no-op at the base and rejects an override beyond the clean window", () => {
   const fixture = fixtureRepository();
