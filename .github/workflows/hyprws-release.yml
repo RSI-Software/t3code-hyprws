@@ -210,7 +210,11 @@ jobs:
         name: Resolve upstream base
         run: |
           base_commit="$(git merge-base HEAD upstream/main)"
-          base="$(git tag --points-at "$base_commit" --sort=-v:refname | head -n 1)"
+          tags="$(git tag --points-at "$base_commit" --sort=-v:refname)"
+          base="$(printf '%s\n' "$tags" | grep -v -- '-nightly\.' | head -n 1 || true)"
+          if [[ -z "$base" ]]; then
+            base="$(printf '%s\n' "$tags" | head -n 1)"
+          fi
           if [[ -z "$base" ]]; then
             base="$(git describe --tags --abbrev=0 "$base_commit")"
           fi
