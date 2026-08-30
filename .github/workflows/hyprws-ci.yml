@@ -30,6 +30,9 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -81,30 +84,29 @@ jobs:
       # the body is already published by the time the run starts, so it reports
       # a backlink that has fired rather than preventing one. `vp run
       # fork:upstream-refs` against the body file before publishing is the gate,
-      # and it is the only thing that covers an issue or a comment. Runs before
-      # the squash-body ledger so a failure there cannot hide this one; see
+      # and it is the only thing that covers an issue or a comment. Fetch the
+      # current body once for both checks. Citations run before the squash-body
+      # ledger so a failure there cannot hide this one; see
       # docs/internals/scripts.md for what stays unguarded.
       - name: Upstream citations
         if: github.event_name == 'pull_request'
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
+          gh api "repos/${{ github.repository }}/pulls/${NUMBER}" --jq '.body // ""' > "$RUNNER_TEMP/pull-request-body.md"
           vp run fork:upstream-refs "$RUNNER_TEMP/pull-request-body.md"
 
-      # The squash commit takes the pull-request body as its message, so the
-      # body must already end with the trailer block. `edited` above re-runs
-      # this when the body changes. Draft and non-hyprws pull requests are
-      # rehearsal surfaces that do not land by squash merge.
+      # The squash commit takes the pull-request body as its message, so check
+      # the current body fetched above for its trailer block. Both edited-trigger
+      # runs and failed-job reruns use the live body. Draft and non-hyprws pull
+      # requests are rehearsal surfaces that do not land by squash merge.
       - name: Fork ledger (squash body)
         if: >-
           github.event_name == 'pull_request' &&
           github.event.pull_request.base.ref == 'hyprws' &&
           github.event.pull_request.draft == false
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
           vp run fork:delta --check --squash-body "$RUNNER_TEMP/pull-request-body.md"
 
       - name: Ensure Electron runtime is installed
