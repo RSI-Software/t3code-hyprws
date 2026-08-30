@@ -17,6 +17,13 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { normalizeTrailerValue } from "./lib/fork-trailers.ts";
 import {
+  compareWireShapes,
+  parseForkWireBaseline,
+  wireFindingKey,
+  type ForkWireBaseline,
+  type WireShapeFinding,
+} from "./lib/fork-wire-shapes.ts";
+import {
   EMPTY_RETIREMENT_LEDGER,
   parseForkRetirementLedger,
   retirementDecision,
@@ -37,6 +44,7 @@ export const ForkCommit = Schema.Struct({
   domain: OptionalTrailer,
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
+  wireReviewed: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
 
@@ -52,6 +60,7 @@ export const ForkLedger = Schema.Struct({
   head: Schema.String,
   commits: Schema.Array(ForkCommit),
   findings: Schema.Array(ForkFinding),
+  warnings: Schema.Array(Schema.String),
 });
 export type ForkLedger = typeof ForkLedger.Type;
 
@@ -116,6 +125,7 @@ export const parseForkLog = (raw: string): ReadonlyArray<ForkCommit> =>
       const domain = readTrailer(trailers, "Fork-Domain");
       const tier = readTrailer(trailers, "Fork-Tier");
       const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
+      const wireReviewed = readTrailer(trailers, "Fork-Wire");
       return {
         sha,
         short,
@@ -123,6 +133,7 @@ export const parseForkLog = (raw: string): ReadonlyArray<ForkCommit> =>
         ...(domain === undefined ? {} : { domain }),
         ...(tier === undefined ? {} : { tier }),
         ...(upstreamable === undefined ? {} : { upstreamable }),
+        ...(wireReviewed === undefined ? {} : { wireReviewed }),
       };
     });
 
@@ -156,6 +167,7 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => {
   const domain = readTrailer(trailers, "Fork-Domain");
   const tier = readTrailer(trailers, "Fork-Tier");
   const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
+  const wireReviewed = readTrailer(trailers, "Fork-Wire");
   return {
     sha: "squash",
     short: "squash",
@@ -163,8 +175,12 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
     ...(upstreamable === undefined ? {} : { upstreamable }),
+    ...(wireReviewed === undefined ? {} : { wireReviewed }),
   };
 };
+
+export const isReviewedWireTrailer = (value: string | undefined): boolean =>
+  value !== undefined && /^reviewed\s+\S/i.test(value);
 
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
@@ -190,6 +206,8 @@ export const buildLedger = (
   head: string,
   commits: ReadonlyArray<ForkCommit>,
   retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
+  wireFindings: ReadonlyMap<string, ReadonlyArray<WireShapeFinding>> = new Map(),
+  wireBaseline: ForkWireBaseline = new Map(),
 ): ForkLedger => {
   const retired = commits.filter(
     (commit) => retirementDecision(retirementLedger, commit.subject).decision === "retire",
@@ -197,18 +215,40 @@ export const buildLedger = (
   const active = commits.filter(
     (commit) => retirementDecision(retirementLedger, commit.subject).decision !== "retire",
   );
+  const wireRows = active.flatMap((commit) =>
+    (wireFindings.get(commit.sha) ?? []).map((finding) => ({
+      commit,
+      finding,
+      key: wireFindingKey(commit.subject, finding),
+    })),
+  );
+  const producedWireKeys = new Set(wireRows.map((row) => row.key));
   return {
     base,
     head,
     commits: active,
     findings: [
       ...collectFindings(active),
+      ...wireRows.flatMap(({ commit, finding, key }) =>
+        isReviewedWireTrailer(commit.wireReviewed) || wireBaseline.has(key)
+          ? []
+          : [
+              {
+                short: commit.short,
+                subject: commit.subject,
+                problem: `${finding.schema}: ${finding.change}; ${finding.hint}`,
+              },
+            ],
+      ),
       ...retired.map((commit) => ({
         short: commit.short,
         subject: commit.subject,
         problem: "retired but present",
       })),
     ],
+    warnings: [...wireBaseline.keys()]
+      .filter((key) => !producedWireKeys.has(key))
+      .map((key) => `stale wire baseline: ${key}`),
   };
 };
 
@@ -252,13 +292,19 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
       .filter((c) => c.domain === domain)
       .toSorted((left, right) => tierRank(left.tier) - tierRank(right.tier));
     lines.push(`## ${domain}`, "");
-    lines.push("| Tier | Commit | Change | Upstreamable |");
-    lines.push("| --- | --- | --- | --- |");
+    lines.push("| Tier | Commit | Change | Upstreamable | Wire review |");
+    lines.push("| --- | --- | --- | --- | --- |");
     for (const row of rows) {
       lines.push(
-        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} |`,
+        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} | ${row.wireReviewed ?? ""} |`,
       );
     }
+    lines.push("");
+  }
+
+  if (ledger.warnings.length > 0) {
+    lines.push("## Warnings", "");
+    for (const warning of ledger.warnings) lines.push(`- ${warning}`);
     lines.push("");
   }
 
@@ -286,14 +332,10 @@ const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.
     ),
   );
 
-export const readForkLog = Effect.fn("readForkLog")(function* (
-  base: string,
-  head: string,
-  cwd = process.cwd(),
-) {
+const runGit = Effect.fn("runForkDeltaGit")(function* (args: ReadonlyArray<string>, cwd: string) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const child = yield* spawner
-    .spawn(ChildProcess.make("git", forkLogArguments(base, head), { cwd }))
+    .spawn(ChildProcess.make("git", args, { cwd }))
     .pipe(Effect.mapError((cause) => new ForkLogProcessError({ operation: "spawn", cause })));
   const [stdout, stderr, exitCode] = yield* Effect.all(
     [
@@ -310,10 +352,79 @@ export const readForkLog = Effect.fn("readForkLog")(function* (
     ],
     { concurrency: "unbounded" },
   );
-  if (exitCode !== 0) {
-    return yield* new ForkLogExitError({ exitCode, stderr });
+  return { stdout, stderr, exitCode };
+});
+
+export const readForkLog = Effect.fn("readForkLog")(function* (
+  base: string,
+  head: string,
+  cwd = process.cwd(),
+) {
+  const result = yield* runGit(forkLogArguments(base, head), cwd);
+  if (result.exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
   }
-  return parseForkLog(stdout);
+  return parseForkLog(result.stdout);
+});
+
+const missingRevisionPath = (stderr: string): boolean =>
+  /(?:does not exist in|exists on disk, but not in)/.test(stderr);
+
+const readRevisionPath = Effect.fn("readForkWireRevisionPath")(function* (
+  revisionPath: string,
+  cwd: string,
+) {
+  const result = yield* runGit(["show", revisionPath], cwd);
+  if (result.exitCode === 0) return result.stdout;
+  if (missingRevisionPath(result.stderr)) return "";
+  return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
+});
+
+export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(function* (
+  commits: ReadonlyArray<ForkCommit>,
+  cwd = process.cwd(),
+) {
+  const entries = yield* Effect.forEach(
+    commits,
+    (commit) =>
+      Effect.gen(function* () {
+        if (isReviewedWireTrailer(commit.wireReviewed)) {
+          return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
+        }
+        const changed = yield* runGit(
+          ["show", "--name-only", "--format=", commit.sha, "--", "packages/contracts/src"],
+          cwd,
+        );
+        if (changed.exitCode !== 0) {
+          return yield* new ForkLogExitError({
+            exitCode: changed.exitCode,
+            stderr: changed.stderr,
+          });
+        }
+        const paths = changed.stdout
+          .split("\n")
+          .map((path) => path.trim())
+          .filter((path) => path.startsWith("packages/contracts/src/"));
+        const findings = yield* Effect.forEach(
+          paths,
+          (path) =>
+            Effect.gen(function* () {
+              const [before, after] = yield* Effect.all(
+                [
+                  readRevisionPath(`${commit.sha}^:${path}`, cwd),
+                  readRevisionPath(`${commit.sha}:${path}`, cwd),
+                ],
+                { concurrency: "unbounded" },
+              );
+              return compareWireShapes(before, after, path);
+            }),
+          { concurrency: 4 },
+        );
+        return [commit.sha, findings.flat() as ReadonlyArray<WireShapeFinding>] as const;
+      }),
+    { concurrency: 4 },
+  );
+  return new Map(entries);
 });
 
 const command = Command.make(
@@ -329,7 +440,7 @@ const command = Command.make(
     ),
     check: Flag.boolean("check").pipe(
       Flag.withDescription(
-        "Exit 1 when a fork commit has invalid trailers or is still present after retirement.",
+        "Exit 1 when a fork commit has invalid trailers, changes a shipped wire shape, or is still present after retirement.",
       ),
       Flag.withDefault(false),
     ),
@@ -377,7 +488,12 @@ const command = Command.make(
       const retirementLedger = parseForkRetirementLedger(
         yield* fileSystem.readFileString("docs/internals/fork-delta.md"),
       );
-      const full = buildLedger(base, head, yield* readForkLog(base, head), retirementLedger);
+      const wireBaseline = parseForkWireBaseline(
+        yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
+      );
+      const commits = yield* readForkLog(base, head);
+      const wireFindings = yield* collectWireShapeFindings(commits);
+      const full = buildLedger(base, head, commits, retirementLedger, wireFindings, wireBaseline);
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");
@@ -390,11 +506,14 @@ const command = Command.make(
         return;
       }
       if (check) {
+        for (const warning of ledger.warnings) {
+          process.stderr.write(`warning: ${warning}\n`);
+        }
         for (const finding of ledger.findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
         }
         if (ledger.findings.length > 0) {
-          process.stderr.write(`failed: ${ledger.findings.length} trailer problem(s)\n`);
+          process.stderr.write(`failed: ${ledger.findings.length} fork delta problem(s)\n`);
           process.exitCode = 1;
           return;
         }
