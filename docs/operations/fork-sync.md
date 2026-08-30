@@ -276,6 +276,12 @@ and grounding claim at the sign-off boundary. The human records the decisions, g
 login/date, and explicit go; missing sign-off is a hard stop. The agent copies that sign-off into the
 record and ledger, commits it, and runs the gate without bypassing any refusal.
 
+The path intersection in `fork:scan` cannot see a fork-only file that consumes an upstream-owned
+type: upstream changes the type, but never touches the consuming path. When the scan runs from the
+rehearsed checkout and its `HEAD` is the scanned head, it therefore typechecks the web and server
+workspaces and reports each failing file that belongs to the fork delta as a **Fork-owned typecheck
+gap**. Any such gap fails the scan; a scan of another ref skips the typecheck.
+
 After the gate passes, the agent runs the final trunk push with the `expected_old` read exactly once
 at the start of the same rehearsal:
 
