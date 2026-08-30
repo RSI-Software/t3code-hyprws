@@ -138,10 +138,10 @@ A domain is a reason the fork exists, not a feature area of the app.
 
 ## Current upstream sync
 
-- Upstream base: `v0.0.37-nightly.20260829.1224`.
-- Rehearsed stack: 128 fork commits.
-- Applied stack: 129 fork commits, including the fork-meta commit that records this sync.
-- Retired at `v0.0.37-nightly.20260829.1224`: none.
+- Upstream base: `v0.0.37-nightly.20260830.1226`.
+- Rehearsed stack: 135 fork commits.
+- Applied stack: 136 fork commits, including the fork-meta commit that records this sync.
+- Retired at `v0.0.37-nightly.20260830.1226`: none.
 
 ## Retired
 
