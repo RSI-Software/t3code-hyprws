@@ -94,9 +94,13 @@ jobs:
 
       # The squash commit takes the pull-request body as its message, so the
       # body must already end with the trailer block. `edited` above re-runs
-      # this when the body changes.
+      # this when the body changes. Draft and non-hyprws pull requests are
+      # rehearsal surfaces that do not land by squash merge.
       - name: Fork ledger (squash body)
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.base.ref == 'hyprws' &&
+          github.event.pull_request.draft == false
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |

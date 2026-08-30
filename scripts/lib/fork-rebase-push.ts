@@ -7,9 +7,14 @@ import type { GitCommandResult } from "./fork-rebase-feasibility.ts";
 const PUSH_TOKEN = process.env.HYPRWS_PUSH_TOKEN;
 delete process.env.HYPRWS_PUSH_TOKEN;
 
-const runGit = (cwd: string, args: ReadonlyArray<string>): GitCommandResult => {
+const runGit = (
+  cwd: string,
+  args: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = process.env,
+): GitCommandResult => {
   const result = NodeChildProcess.spawnSync("git", [...args], {
     cwd,
+    env,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -38,15 +43,28 @@ export const remoteBranchSha = (root: string, branch: string): string | null => 
 export const remoteBranchExists = (root: string, branch: string): boolean =>
   remoteBranchSha(root, branch) !== null;
 
+export interface PushInvocation {
+  readonly args: ReadonlyArray<string>;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+export const buildPushInvocation = (
+  args: ReadonlyArray<string>,
+  token: string | undefined,
+  inheritedEnv: NodeJS.ProcessEnv = process.env,
+): PushInvocation => {
+  const env = { ...inheritedEnv };
+  if (token !== undefined && token.length > 0) {
+    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
+    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+  }
+  return { args: ["push", ...args], env };
+};
+
 export const pushResult = (root: string, args: ReadonlyArray<string>): GitCommandResult => {
-  const authentication =
-    PUSH_TOKEN === undefined || PUSH_TOKEN.length === 0
-      ? []
-      : [
-          "-c",
-          `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from(`x-access-token:${PUSH_TOKEN}`).toString("base64")}`,
-        ];
-  return runGit(root, [...authentication, "push", ...args]);
+  const invocation = buildPushInvocation(args, PUSH_TOKEN);
+  return runGit(root, invocation.args, invocation.env);
 };
 
 export const restoreRemoteBranch = (
