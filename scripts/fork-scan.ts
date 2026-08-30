@@ -25,6 +25,7 @@ export interface ScanOptions {
   readonly base: string | null;
   readonly head: string;
   readonly target: string;
+  readonly typecheck: boolean;
 }
 
 export interface ScanRange {
@@ -46,10 +47,16 @@ export interface ScanOverlap {
   readonly covered: boolean;
 }
 
+export interface TypecheckGap {
+  readonly workspace: string;
+  readonly path: string;
+}
+
 export interface ScanResult {
   readonly range: ScanRange;
   readonly domains: ReadonlyArray<DomainScan>;
   readonly overlaps: ReadonlyArray<ScanOverlap>;
+  readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
 }
@@ -65,6 +72,7 @@ Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
+  --no-typecheck  Skip rehearsed-head web and server typechecks
   -h, --help      Show help
 
 Rebase rehearsal, gate 3:
@@ -75,6 +83,7 @@ const defaultOptions = (): ScanOptions => ({
   base: null,
   head: "HEAD",
   target: "upstream/main",
+  typecheck: true,
 });
 
 export const parseArgs = (argv: ReadonlyArray<string>): ScanOptions => {
@@ -85,6 +94,12 @@ export const parseArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
+    if (argument === "--no-typecheck") {
+      if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
+      seen.add(argument);
+      options.typecheck = false;
+      continue;
+    }
     if (!valueFlags.has(argument)) throw new UsageError(`unknown option: ${argument}`);
     if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
     seen.add(argument);
@@ -247,6 +262,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     range: { base: input.base, head: input.head, target: input.target },
     domains,
     overlaps: overlaps.toSorted((left, right) => left.path.localeCompare(right.path)),
+    typecheckGaps: [],
     undeclaredDomains,
     untaggedCommits,
   };
@@ -258,6 +274,9 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
   ...result.domains.flatMap((domain) =>
     domain.gaps.map((path) => `${domain.domain}: rebase scan omits ${path}`),
+  ),
+  ...result.typecheckGaps.map(
+    (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
   ),
 ];
 
@@ -280,6 +299,11 @@ export const renderScanReport = (result: ScanResult): string => {
     lines.push(
       `${domain.domain}: ${domain.commitCount} commit(s), ${domain.sharedCount} shared file(s), ${domain.gaps.length} gap(s)`,
     );
+  }
+  if (result.typecheckGaps.length > 0) {
+    lines.push("", "Fork-owned typecheck gaps:");
+    for (const gap of result.typecheckGaps)
+      lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
   if (result.untaggedCommits.length > 0) {
     lines.push(
@@ -318,6 +342,82 @@ const readLines = (raw: string): ReadonlyArray<string> =>
 const readChangedPaths = (git: GitReader, base: string, head: string): ReadonlyArray<string> =>
   readLines(git.run(["-c", "core.quotePath=false", "diff", "--name-only", `${base}..${head}`]));
 
+export interface TypecheckCommand {
+  readonly workspace: string;
+  readonly packageName: string;
+}
+
+export interface TypecheckCommandResult {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly error?: Error;
+}
+
+export type TypecheckRunner = (root: string, command: TypecheckCommand) => TypecheckCommandResult;
+
+const TYPECHECK_COMMANDS: ReadonlyArray<TypecheckCommand> = [
+  { workspace: "apps/web", packageName: "@t3tools/web" },
+  { workspace: "apps/server", packageName: "t3" },
+];
+
+const systemTypecheckRunner: TypecheckRunner = (root, command) => {
+  const result = NodeChildProcess.spawnSync(
+    "vp",
+    ["run", "--filter", command.packageName, "typecheck"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    ...(result.error === undefined ? {} : { error: result.error }),
+  };
+};
+
+const TYPECHECK_FILE = /^(?<path>.+?)\(\d+,\d+\):\s+error TS\d+:/;
+
+const normalizeTypecheckPath = (root: string, workspace: string, path: string): string | null => {
+  const absoluteRoot = NodePath.resolve(root);
+  if (NodePath.isAbsolute(path)) {
+    const relative = NodePath.relative(absoluteRoot, path);
+    if (relative.startsWith(`..${NodePath.sep}`) || relative === "..") return null;
+    return relative.split(NodePath.sep).join("/");
+  }
+  const normalized = path.replace(/^\.\//, "");
+  return normalized.startsWith("apps/") ? normalized : `${workspace}/${normalized}`;
+};
+
+export const findForkOwnedTypecheckGaps = (
+  root: string,
+  forkOwned: ReadonlySet<string>,
+  runner: TypecheckRunner = systemTypecheckRunner,
+): ReadonlyArray<TypecheckGap> => {
+  const gaps = new Map<string, TypecheckGap>();
+  for (const command of TYPECHECK_COMMANDS) {
+    const result = runner(root, command);
+    if (result.error !== undefined || result.status === null) {
+      throw new Error(
+        `${command.packageName} typecheck failed to run: ${result.error?.message ?? "no exit status"}`,
+      );
+    }
+    if (result.status === 0) continue;
+    for (const line of `${result.stdout}\n${result.stderr}`.replace(/\r\n/g, "\n").split("\n")) {
+      const path = TYPECHECK_FILE.exec(line)?.groups?.path;
+      if (path === undefined) continue;
+      const normalized = normalizeTypecheckPath(root, command.workspace, path);
+      if (normalized !== null && forkOwned.has(normalized)) {
+        gaps.set(normalized, { workspace: command.workspace, path: normalized });
+      }
+    }
+  }
+  return [...gaps.values()].toSorted((left, right) => left.path.localeCompare(right.path));
+};
+
 export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange => ({
   base: options.base ?? git.run(["merge-base", options.target, options.head]).trim(),
   head: options.head,
@@ -350,8 +450,25 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
-    const result = readScan(git, options, ledger);
+    const scanned = readScan(git, options, ledger);
+    const workingHead = git.run(["rev-parse", "HEAD"]).trim();
+    const scannedHead = git.run(["rev-parse", options.head]).trim();
+    const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
+    const result: ScanResult = {
+      ...scanned,
+      typecheckGaps: typecheckCurrentHead
+        ? findForkOwnedTypecheckGaps(
+            root,
+            new Set(readChangedPaths(git, scanned.range.base, scanned.range.head)),
+          )
+        : [],
+    };
     process.stdout.write(renderScanReport(result));
+    if (!options.typecheck) {
+      process.stdout.write("typecheck: skipped (--no-typecheck)\n");
+    } else if (!typecheckCurrentHead) {
+      process.stdout.write(`typecheck: skipped (working tree is not ${scannedHead.slice(0, 7)})\n`);
+    }
 
     const failures = scanFailures(result);
     for (const failure of failures) process.stderr.write(`${failure}\n`);
