@@ -144,6 +144,7 @@ import {
   formatWorkingDurationLabel,
   formatSidebarRelativeTimeLabel,
   firstValidTimestampMs,
+  getSidebarThreadGroupDissolvingKey,
   getSidebarThreadLayoutOrder,
   hasSavedSidebarThreadOrder,
   hasUnseenCompletion,
@@ -1853,6 +1854,11 @@ export default function Sidebar({
     groupDropTargetKeyRef.current = threadKey;
     setGroupDropTargetKey(threadKey);
   }, []);
+  const [dissolvingGroupKey, setDissolvingGroupKey] = useState<string | null>(null);
+  const resetActiveDragPreview = useCallback(() => {
+    updateGroupDropTarget(null);
+    setDissolvingGroupKey(null);
+  }, [updateGroupDropTarget]);
   const [generatingGroupIds, setGeneratingGroupIds] = useState<ReadonlySet<string>>(new Set());
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
@@ -3056,7 +3062,7 @@ export default function Sidebar({
   const handleActiveDrag = useCallback(
     (event: DragMoveEvent | DragOverEvent) => {
       if (event.over === null) {
-        updateGroupDropTarget(null);
+        resetActiveDragPreview();
         return;
       }
       const activeKey = String(event.active.id);
@@ -3074,12 +3080,12 @@ export default function Sidebar({
         (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === overKey,
       );
       if (!activeThread || !overThread) {
-        updateGroupDropTarget(null);
+        resetActiveDragPreview();
         return;
       }
       const projectKey = threadProjectOrderKey(activeThread);
       if (threadProjectOrderKey(overThread) !== projectKey) {
-        updateGroupDropTarget(null);
+        resetActiveDragPreview();
         return;
       }
       const groups = threadGroupsByProject[projectKey] ?? [];
@@ -3088,6 +3094,13 @@ export default function Sidebar({
         overItem?.kind === "group-header"
           ? groups.find((group) => group.id === overItem.groupId)
           : groups.find((group) => group.threadIds.includes(overKey));
+      setDissolvingGroupKey(
+        getSidebarThreadGroupDissolvingKey({
+          projectKey,
+          activeGroup,
+          overGroupId: overGroup?.id ?? null,
+        }),
+      );
       const grouping = isSidebarThreadGroupingTarget({
         activeGroupId: activeGroup?.id ?? null,
         overGroupId: overGroup?.id ?? null,
@@ -3097,12 +3110,18 @@ export default function Sidebar({
       });
       updateGroupDropTarget(grouping ? rawOverKey : null);
     },
-    [activeThreadSortableItemById, activeThreads, threadGroupsByProject, updateGroupDropTarget],
+    [
+      activeThreadSortableItemById,
+      activeThreads,
+      resetActiveDragPreview,
+      threadGroupsByProject,
+      updateGroupDropTarget,
+    ],
   );
   const handleActiveDragEnd = useCallback(
     (event: DragEndEvent) => {
       const intendedGroupTargetKey = groupDropTargetKeyRef.current;
-      updateGroupDropTarget(null);
+      resetActiveDragPreview();
       const activeKey = String(event.active.id);
       const rawOverKey = event.over === null ? null : String(event.over.id);
       const overItem =
@@ -3147,11 +3166,11 @@ export default function Sidebar({
       activeThreadSortableItemById,
       moveProjectThread,
       requestThreadGroupTitle,
+      resetActiveDragPreview,
       sidebarThreadSortOrder,
       threadGroupsByProject,
       threadByKey,
       updateClientSettings,
-      updateGroupDropTarget,
     ],
   );
   // One snooze per thread at a time — same double-dispatch guard as settle.
@@ -4504,7 +4523,7 @@ export default function Sidebar({
                           modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
                           onDragMove={handleActiveDrag}
                           onDragOver={handleActiveDrag}
-                          onDragCancel={() => updateGroupDropTarget(null)}
+                          onDragCancel={resetActiveDragPreview}
                           onDragEnd={handleActiveDragEnd}
                         >
                           <SortableContext
@@ -4532,6 +4551,7 @@ export default function Sidebar({
                                   ];
                                 }
                                 const generatingKey = `${item.projectKey}\0${item.group.id}`;
+                                const isDissolving = dissolvingGroupKey === generatingKey;
                                 const groupRows = item.group.collapsed
                                   ? []
                                   : item.threads.map((thread) => {
@@ -4542,7 +4562,7 @@ export default function Sidebar({
                                         <SortableThreadRow key={threadKey} id={threadKey}>
                                           {(bag) =>
                                             renderThreadRow(thread, "active", bag, {
-                                              grouped: true,
+                                              grouped: !isDissolving,
                                               isGroupDropTarget: groupDropTargetKey === threadKey,
                                             })
                                           }
@@ -4567,6 +4587,7 @@ export default function Sidebar({
                                         group={item.group}
                                         memberCount={item.threads.length}
                                         isGenerating={generatingGroupIds.has(generatingKey)}
+                                        isDissolving={isDissolving}
                                         isGroupDropTarget={
                                           groupDropTargetKey ===
                                           sidebarThreadGroupSortableId(
