@@ -135,7 +135,9 @@ import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animatePinnedLayoutChanges,
   buildBulkTitleRegenerationContextMenuItem,
+  buildCreateThreadGroupContextMenuItem,
   buildSidebarThreadGroupLayout,
+  buildThreadGroupMembershipContextMenuItems,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   formatSidebarRelativeTimeLabel,
@@ -1788,6 +1790,7 @@ export default function Sidebar({
   const threadOrderByProject = useUiStateStore((store) => store.threadOrderByProject);
   const threadGroupsByProject = useUiStateStore((store) => store.threadGroupsByProject);
   const moveProjectThread = useUiStateStore((store) => store.moveProjectThread);
+  const setThreadGroupMembership = useUiStateStore((store) => store.setThreadGroupMembership);
   const renameThreadGroup = useUiStateStore((store) => store.renameThreadGroup);
   const renameThreadGroupIfCurrent = useUiStateStore((store) => store.renameThreadGroupIfCurrent);
   const setThreadGroupCollapsed = useUiStateStore((store) => store.setThreadGroupCollapsed);
@@ -3192,6 +3195,20 @@ export default function Sidebar({
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
+      const selectedProjectKey = selectedThreads[0]
+        ? threadProjectOrderKey(selectedThreads[0])
+        : null;
+      const createGroupMenuItem = buildCreateThreadGroupContextMenuItem({
+        count,
+        eligible:
+          selectedProjectKey !== null &&
+          selectedThreads.length === threadKeys.length &&
+          selectedThreads.every(
+            (thread) =>
+              threadProjectOrderKey(thread) === selectedProjectKey &&
+              activeThreads.includes(thread),
+          ),
+      });
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
@@ -3213,6 +3230,7 @@ export default function Sidebar({
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
+            ...(createGroupMenuItem ? [createGroupMenuItem] : []),
             { id: "settle", label: `Settle (${count})` },
             ...(canSnoozeSelection
               ? [
@@ -3234,6 +3252,34 @@ export default function Sidebar({
         ),
       );
       if (clicked._tag === "Failure") return;
+      if (clicked.value === "create-thread-group" && selectedProjectKey !== null) {
+        const selectedKeys = new Set(threadKeys);
+        const projectThreads = activeThreads.filter(
+          (thread) => threadProjectOrderKey(thread) === selectedProjectKey,
+        );
+        const projectThreadKeys = projectThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        const members = projectThreads.filter((thread) =>
+          selectedKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+        );
+        if (members.length < 2) return;
+        const memberKeys = members.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        const newGroup = { id: randomUUID(), title: "New group" };
+        setThreadGroupMembership(selectedProjectKey, projectThreadKeys, memberKeys, {
+          kind: "new",
+          group: newGroup,
+        });
+        void requestThreadGroupTitle({
+          projectKey: selectedProjectKey,
+          groupId: newGroup.id,
+          members,
+          expectedGroup: { title: newGroup.title, threadIds: memberKeys },
+        });
+        return;
+      }
       if (clicked.value?.startsWith("snooze:")) {
         const preset = snoozePresets.find(
           (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -3411,6 +3457,7 @@ export default function Sidebar({
       removeFromSelection(threadKeys);
     },
     [
+      activeThreads,
       attemptSettle,
       attemptSnooze,
       clearSelection,
@@ -3419,8 +3466,10 @@ export default function Sidebar({
       deleteThread,
       markThreadUnread,
       performSnooze,
+      requestThreadGroupTitle,
       removeFromSelection,
       serverConfigs,
+      setThreadGroupMembership,
       attemptUnsnooze,
       updateThreadMetadata,
       timestampFormat,
@@ -3464,29 +3513,57 @@ export default function Sidebar({
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
-        const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              isPinned,
-              isSettled,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning:
-                thread.session?.status === "running" && thread.session.activeTurnId != null,
-              supports: {
-                settlement: supportsSettlement,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
-            position,
-          ),
+        const projectKey = threadProjectOrderKey(thread);
+        const projectThreads = activeThreads.filter(
+          (candidate) => threadProjectOrderKey(candidate) === projectKey,
         );
+        const projectThreadKeys = projectThreads.map((candidate) =>
+          scopedThreadKey(scopeThreadRef(candidate.environmentId, candidate.id)),
+        );
+        const groups = projectThreadKeys.includes(threadKey)
+          ? (threadGroupsByProject[projectKey] ?? [])
+          : [];
+        const currentGroup = groups.find((group) => group.threadIds.includes(threadKey));
+        const membershipItems = buildThreadGroupMembershipContextMenuItems({
+          groups,
+          currentGroupId: currentGroup?.id ?? null,
+        });
+        const threadActionItems = buildThreadActionMenuItems({
+          branch: thread.branch ?? null,
+          isPinned,
+          isSettled,
+          isSnoozed,
+          canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+          isRegeneratingTitle,
+          isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
+          supports: {
+            settlement: supportsSettlement,
+            snooze: supportsSnooze,
+            pinning: supportsPinning,
+            titleRegeneration: supportsTitleRegeneration,
+          },
+          snoozePresets,
+        });
+        const archiveIndex = threadActionItems.findIndex((item) => item.id === "archive");
+        const menuItems =
+          archiveIndex < 0
+            ? [...threadActionItems, ...membershipItems]
+            : [
+                ...threadActionItems.slice(0, archiveIndex),
+                ...membershipItems,
+                ...threadActionItems.slice(archiveIndex),
+              ];
+        const clicked = await settlePromise(() => api.contextMenu.show(menuItems, position));
         if (clicked._tag === "Failure") return;
+        if (clicked.value?.startsWith("move-to-group:")) {
+          const targetGroupId = clicked.value.slice("move-to-group:".length);
+          if (!groups.some((group) => group.id === targetGroupId)) return;
+          setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], {
+            kind: "existing",
+            groupId: targetGroupId,
+          });
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset = snoozePresets.find(
             (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -3556,6 +3633,9 @@ export default function Sidebar({
           }
           case "mark-unread":
             markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+            return;
+          case "move-out-of-group":
+            setThreadGroupMembership(projectKey, projectThreadKeys, [threadKey], { kind: "none" });
             return;
           case "copy-path":
             if (!threadWorkspacePath) {
@@ -3639,6 +3719,7 @@ export default function Sidebar({
       })();
     },
     [
+      activeThreads,
       archiveThread,
       attemptPin,
       attemptSettle,
@@ -3656,7 +3737,9 @@ export default function Sidebar({
       markThreadUnread,
       projectCwdByKey,
       serverConfigs,
+      setThreadGroupMembership,
       startThreadRename,
+      threadGroupsByProject,
       updateThreadMetadata,
       timestampFormat,
     ],

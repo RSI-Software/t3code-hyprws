@@ -17,6 +17,7 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setThreadGroupMembership,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -202,6 +203,109 @@ describe("uiStateStore pure functions", () => {
       "reorder",
     );
     expect(dissolved.threadGroupsByProject["environment:project"]).toEqual([]);
+  });
+
+  it("changes group membership atomically without changing thread order", () => {
+    const projectKey = "environment:project";
+    const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
+    const initial = makeUiState({
+      threadOrderByProject: { [projectKey]: order },
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            id: "group-1",
+            title: "First",
+            threadIds: ["environment:a", "environment:b"],
+            collapsed: true,
+          },
+          {
+            id: "group-2",
+            title: "Second",
+            threadIds: ["environment:c", "environment:d"],
+            collapsed: false,
+          },
+        ],
+      },
+    });
+
+    const created = setThreadGroupMembership(
+      initial,
+      projectKey,
+      order,
+      ["environment:b", "environment:d"],
+      { kind: "new", group: { id: "group-3", title: "New group" } },
+    );
+    expect(created.threadGroupsByProject[projectKey]).toEqual([
+      {
+        id: "group-3",
+        title: "New group",
+        threadIds: ["environment:b", "environment:d"],
+        collapsed: false,
+      },
+    ]);
+    expect(created.threadOrderByProject).toBe(initial.threadOrderByProject);
+
+    const moved = setThreadGroupMembership(initial, projectKey, order, ["environment:d"], {
+      kind: "existing",
+      groupId: "group-1",
+    });
+    expect(moved.threadGroupsByProject[projectKey]).toEqual([
+      {
+        id: "group-1",
+        title: "First",
+        threadIds: ["environment:a", "environment:b", "environment:d"],
+        collapsed: false,
+      },
+    ]);
+
+    const movedOut = setThreadGroupMembership(initial, projectKey, order, ["environment:a"], {
+      kind: "none",
+    });
+    expect(movedOut.threadGroupsByProject[projectKey]).toEqual([
+      {
+        id: "group-2",
+        title: "Second",
+        threadIds: ["environment:c", "environment:d"],
+        collapsed: false,
+      },
+    ]);
+  });
+
+  it("keeps temporarily hidden members when moving a thread into a group", () => {
+    const projectKey = "environment:project";
+    const order = ["environment:a", "environment:b", "environment:c"];
+    const initial = makeUiState({
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            id: "group-1",
+            title: "Target",
+            threadIds: ["environment:a", "environment:hidden"],
+            collapsed: false,
+          },
+          {
+            id: "group-2",
+            title: "Source",
+            threadIds: ["environment:b", "environment:c"],
+            collapsed: false,
+          },
+        ],
+      },
+    });
+
+    const moved = setThreadGroupMembership(initial, projectKey, order, ["environment:c"], {
+      kind: "existing",
+      groupId: "group-1",
+    });
+
+    expect(moved.threadGroupsByProject[projectKey]).toEqual([
+      {
+        id: "group-1",
+        title: "Target",
+        threadIds: ["environment:a", "environment:c", "environment:hidden"],
+        collapsed: false,
+      },
+    ]);
   });
 
   it("does not apply a generated title after the group changes", () => {
