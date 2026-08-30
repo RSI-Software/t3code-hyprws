@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
 import {
@@ -3052,8 +3053,8 @@ export default function Sidebar({
     },
     [orderedPinnedThreads, reorderPinnedThread, reorderablePinnedKeys],
   );
-  const handleActiveDragOver = useCallback(
-    (event: DragOverEvent) => {
+  const handleActiveDrag = useCallback(
+    (event: DragMoveEvent | DragOverEvent) => {
       if (event.over === null) {
         updateGroupDropTarget(null);
         return;
@@ -4501,7 +4502,8 @@ export default function Sidebar({
                           sensors={threadDndSensors}
                           collisionDetection={closestCenter}
                           modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                          onDragOver={handleActiveDragOver}
+                          onDragMove={handleActiveDrag}
+                          onDragOver={handleActiveDrag}
                           onDragCancel={() => updateGroupDropTarget(null)}
                           onDragEnd={handleActiveDragEnd}
                         >
