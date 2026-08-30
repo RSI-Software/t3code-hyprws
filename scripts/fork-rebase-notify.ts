@@ -29,9 +29,11 @@ export interface NotifyInput {
 
 export interface RebaseIssue {
   readonly number: number;
+  readonly nodeId: string;
   readonly state: "open" | "closed";
   readonly title: string;
   readonly body: string;
+  readonly issueType: string | null;
 }
 
 export interface RebaseIssueComment {
@@ -44,7 +46,6 @@ export interface CreateRebaseIssue {
   readonly body: string;
   readonly labels: ReadonlyArray<typeof BLOCKED_LABEL | typeof DOMAIN_LABEL>;
   readonly assignee: "donjor";
-  readonly issueType: typeof BUG_ISSUE_TYPE;
   readonly priority: typeof HIGH_PRIORITY;
 }
 
@@ -83,6 +84,8 @@ export interface RebaseGitHubClient {
   ensureBlockedLabel(): void;
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment>;
+  lookupIssueTypeId(issueType: typeof BUG_ISSUE_TYPE): string;
+  applyIssueType(issue: RebaseIssue, issueTypeId: string): void;
   createIssue(issue: CreateRebaseIssue): RebaseIssue;
   updateIssueBody(issueNumber: number, body: string): void;
   createIssueComment(issueNumber: number, body: string): RebaseIssueComment;
@@ -207,20 +210,24 @@ export const reconcileRebaseBlock = (
 
   if (input.blocked === null) return;
   if (kept !== null) {
+    if (kept.issueType === null) {
+      client.applyIssueType(kept, client.lookupIssueTypeId(BUG_ISSUE_TYPE));
+    }
     client.updateIssueBody(kept.number, input.blocked.body);
     refreshIssue(client, kept.number, input.blocked, at);
     return;
   }
   if (issues.some((issue) => blockingSha(issue) === desiredSha)) return;
 
+  const issueTypeId = client.lookupIssueTypeId(BUG_ISSUE_TYPE);
   const created = client.createIssue({
     title: input.blocked.title,
     body: input.blocked.body,
     labels: [BLOCKED_LABEL, DOMAIN_LABEL],
     assignee: "donjor",
-    issueType: BUG_ISSUE_TYPE,
     priority: HIGH_PRIORITY,
   });
+  client.applyIssueType(created, issueTypeId);
   client.createIssueComment(created.number, initialRefreshLog(input.blocked, at));
 };
 
@@ -230,6 +237,7 @@ interface ApiIssue {
   readonly state?: string;
   readonly title?: string;
   readonly body?: string | null;
+  readonly type?: { readonly name?: string } | null;
   readonly pull_request?: unknown;
 }
 
@@ -251,11 +259,15 @@ interface PriorityFieldQuery {
 }
 
 interface IssueMetadata {
-  readonly issueTypeId: string | null;
   readonly priority: string | null;
 }
 
 const requireNumber = (value: number | undefined, field: string): number => {
+  if (value === undefined) throw new Error(`GitHub response omitted ${field}`);
+  return value;
+};
+
+const requireString = (value: string | undefined, field: string): string => {
   if (value === undefined) throw new Error(`GitHub response omitted ${field}`);
   return value;
 };
@@ -309,29 +321,6 @@ export class SystemGitHub implements RebaseGitHubClient {
   }
 
   private issueMetadata(issue: CreateRebaseIssue): IssueMetadata {
-    let issueTypeId: string | null = null;
-    try {
-      const result = this.graphql<IssueTypesQuery>(
-        `query($owner: String!, $name: String!) {
-          repository(owner: $owner, name: $name) {
-            issueTypes(first: 50) { nodes { id name isEnabled } }
-          }
-        }`,
-        { owner: this.owner, name: this.name },
-      );
-      issueTypeId = findIssueTypeId(result.repository?.issueTypes.nodes ?? [], issue.issueType);
-      if (issueTypeId === null) {
-        process.stderr.write(
-          `warning: repository issue types are unavailable; creating without native type ${issue.issueType}\n`,
-        );
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      process.stderr.write(
-        `warning: repository issue types are unavailable; creating without native type ${issue.issueType}: ${detail}\n`,
-      );
-    }
-
     let priority: string | null = null;
     try {
       const result = this.graphql<PriorityFieldQuery>(
@@ -365,26 +354,17 @@ export class SystemGitHub implements RebaseGitHubClient {
         `warning: plain org Priority field is unavailable; Priority remains human-set: ${detail}\n`,
       );
     }
-    return { issueTypeId, priority };
+    return { priority };
   }
 
   private applyIssueMetadata(nodeId: string, metadata: IssueMetadata): void {
-    if (metadata.issueTypeId === null && metadata.priority === null) return;
-    const declarations = ["$id: ID!"];
-    const fields = ["id: $id"];
-    const variables: Record<string, string> = { id: nodeId };
-    if (metadata.issueTypeId !== null) {
-      declarations.push("$issueTypeId: ID!");
-      fields.push("issueTypeId: $issueTypeId");
-      variables.issueTypeId = metadata.issueTypeId;
-    }
-    if (metadata.priority !== null) {
-      declarations.push("$priority: String!");
-      fields.push(
-        'issueFieldUpdates: [{ fieldName: "Priority", operation: SET, value: $priority }]',
-      );
-      variables.priority = metadata.priority;
-    }
+    if (metadata.priority === null) return;
+    const declarations = ["$id: ID!", "$priority: String!"];
+    const fields = [
+      "id: $id",
+      'issueFieldUpdates: [{ fieldName: "Priority", operation: SET, value: $priority }]',
+    ];
+    const variables: Record<string, string> = { id: nodeId, priority: metadata.priority };
     this.graphql(
       `mutation(${declarations.join(", ")}) {
         updateIssue(input: { ${fields.join(", ")} }) { issue { id } }
@@ -419,12 +399,45 @@ export class SystemGitHub implements RebaseGitHubClient {
       return [
         {
           number: requireNumber(issue.number, "issue number"),
+          nodeId: requireString(issue.node_id, "issue node id"),
           state: issue.state,
           title: issue.title ?? "",
           body: issue.body ?? "",
+          issueType: issue.type?.name ?? null,
         },
       ];
     });
+  }
+
+  lookupIssueTypeId(issueType: typeof BUG_ISSUE_TYPE): string {
+    let result: IssueTypesQuery;
+    try {
+      result = this.graphql<IssueTypesQuery>(
+        `query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            issueTypes(first: 50) { nodes { id name isEnabled } }
+          }
+        }`,
+        { owner: this.owner, name: this.name },
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`repository issue type ${issueType} lookup failed: ${detail}`);
+    }
+    const issueTypeId = findIssueTypeId(result.repository?.issueTypes.nodes ?? [], issueType);
+    if (issueTypeId === null) {
+      throw new Error(`repository issue type ${issueType} was not found or is disabled`);
+    }
+    return issueTypeId;
+  }
+
+  applyIssueType(issue: RebaseIssue, issueTypeId: string): void {
+    this.graphql(
+      `mutation($id: ID!, $issueTypeId: ID!) {
+        updateIssue(input: { id: $id, issueTypeId: $issueTypeId }) { issue { id } }
+      }`,
+      { id: issue.nodeId, issueTypeId },
+    );
   }
 
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment> {
@@ -449,9 +462,11 @@ export class SystemGitHub implements RebaseGitHubClient {
     this.applyIssueMetadata(nodeId, metadata);
     return {
       number: requireNumber(created.number, "issue number"),
+      nodeId,
       state: "open",
       title: created.title ?? issue.title,
       body: created.body ?? issue.body,
+      issueType: null,
     };
   }
 
