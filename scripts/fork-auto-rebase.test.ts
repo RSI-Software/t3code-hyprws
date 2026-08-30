@@ -308,6 +308,65 @@ it("returns a no-op when no upstream tag exists in the scan window", () => {
   }
 });
 
+it("advances to the census target when pairwise reports a false conflict", () => {
+  const fixture = fixtureRepository();
+  try {
+    git(fixture.root, ["tag", "--delete", "v1.1.0-nightly.20260828.1209"]);
+    const cleanPlan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const pairwiseConflictPlan = {
+      ...cleanPlan,
+      target: {
+        tag: "v1.0.0",
+        sha: fixture.stable,
+        position: 1,
+        stable: true,
+      },
+      newestTagBeyondWindow: cleanPlan.censusTarget,
+      feasibility: {
+        ...cleanPlan.feasibility,
+        ffBoundary: {
+          ...cleanPlan.feasibility.ffBoundary,
+          cleanCommitCount: 1,
+          firstConflict: {
+            sha: fixture.cleanNightly,
+            shortSha: fixture.cleanNightly.slice(0, 7),
+            subject: "pairwise false conflict",
+            tags: ["v1.1.0-nightly.20260828.1208"],
+          },
+        },
+      },
+    };
+    const result = executeAutoRebase(
+      fixture.root,
+      dryRunOptions,
+      pairwiseConflictPlan,
+      () => "shared-install",
+      {
+        rehearseStopCensus: (_root, _headSha, _baseSha, target) => ({
+          targetTag: target.tag,
+          conflictingForkCommitCount: 0,
+          conflictingFileCount: 0,
+          truncated: false,
+          truncatedBy: null,
+          stopLimit: 128,
+          timeLimitSeconds: 360,
+        }),
+      },
+    );
+
+    assert.strictEqual(result.status, "advanced");
+    assert.strictEqual(result.target?.sha, fixture.cleanNightly);
+    assert.strictEqual(result.blocked, null);
+    assert.include(
+      renderSummary(result),
+      `pairwise merge-tree: conflict at ${fixture.cleanNightly.slice(0, 7)}`,
+    );
+    assert.include(renderSummary(result), "decided by: census (0 conflicts)");
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
 it("advances to the newest clean tag, reports the block, and enumerates stable snapshots", () => {
   const fixture = fixtureRepository();
   try {
@@ -380,9 +439,8 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       [{ tag: "v1.0.0", branch: "release/v1.0.0-hyprws" }],
     );
     assert.strictEqual(result.blocked?.blockingSha, fixture.conflict);
-    assert.notStrictEqual(censusHead, fixture.fork);
-    assert.strictEqual(censusHead, result.newSha);
-    assert.strictEqual(censusBase, fixture.cleanNightly);
+    assert.strictEqual(censusHead, fixture.fork);
+    assert.strictEqual(censusBase, fixture.base);
     assert.notInclude(result.blocked?.body ?? "", fixture.fork);
     assert.notInclude(result.blocked?.body ?? "", stalePath);
     assert.deepStrictEqual(result.blocked?.stopCensus, {
@@ -415,6 +473,14 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     );
     assert.strictEqual(result.blocked?.conflicts[0]?.domain, "fork-meta");
     assert.deepStrictEqual(result.verificationDependencySetup, ["shared-install"]);
+    assert.include(
+      renderSummary(result),
+      `pairwise merge-tree: conflict at ${fixture.cleanNightly.slice(0, 7)}`,
+    );
+    assert.include(
+      renderSummary(result),
+      `decided by: census (2 conflicts at ${fixture.conflict.slice(0, 7)})`,
+    );
     assert.include(
       result.stableCandidates[0]?.body ?? "",
       result.stableCandidates[0]?.marker ?? "",
@@ -535,6 +601,10 @@ it("keeps blocked reports available when the optional census fails", () => {
       blocked.blocked?.body ?? "",
       "The sequential rebase census was unavailable: `synthetic census failure`.",
     );
+    assert.include(
+      renderSummary(blocked),
+      "decided by: pairwise (census unavailable: synthetic census failure)",
+    );
 
     const clearPlan = {
       ...plan,
@@ -557,6 +627,42 @@ it("keeps blocked reports available when the optional census fails", () => {
     );
     assert.strictEqual(clear.blocked, null);
     assert.strictEqual(censusCalls, 1);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("falls back to pairwise when the census is truncated", () => {
+  const fixture = fixtureRepository();
+  try {
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const result = executeAutoRebase(
+      fixture.root,
+      { ...dryRunOptions, mode: "off" },
+      plan,
+      () => "shared-install",
+      {
+        rehearseStopCensus: (_root, _headSha, _baseSha, target) => ({
+          targetTag: target.tag,
+          conflictingForkCommitCount: 1,
+          conflictingFileCount: 1,
+          truncated: true,
+          truncatedBy: "stop-limit",
+          stopLimit: 1,
+          timeLimitSeconds: 360,
+        }),
+      },
+    );
+
+    assert.strictEqual(result.blocked?.blockingSha, fixture.conflict);
+    assert.strictEqual(
+      result.blocked?.stopCensusUnavailableReason,
+      "sequential census did not complete before its stop-limit limit",
+    );
+    assert.include(
+      renderSummary(result),
+      "decided by: pairwise (census unavailable: sequential census did not complete before its stop-limit limit)",
+    );
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
