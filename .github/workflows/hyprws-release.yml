@@ -41,6 +41,7 @@ permissions:
 jobs:
   check_changes:
     name: Check for changes since last nightly
+    needs: preflight
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     outputs:
@@ -59,8 +60,10 @@ jobs:
       - id: check
         name: Compare hyprws to last nightly tag
         shell: bash
+        env:
+          PREVIOUS_TAG: ${{ needs.preflight.outputs.previous_tag }}
         run: |
-          last_nightly_tag=$(git tag --list 'v*-hyprws-nightly.*' --sort=-creatordate | head -n 1)
+          last_nightly_tag="$PREVIOUS_TAG"
           if [[ -z "$last_nightly_tag" ]]; then
             echo "No previous hyprws nightly tag found. Proceeding with release."
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -85,10 +88,6 @@ jobs:
 
   preflight:
     name: Preflight
-    needs: [check_changes]
-    if: |
-      !failure() && !cancelled() &&
-      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -188,17 +187,12 @@ jobs:
           fi
 
       - id: previous_tag
-        name: Keep previous release tag on current history
+        name: Resolve previous nightly tag
         shell: bash
-        env:
-          PREVIOUS_TAG: ${{ steps.release_meta.outputs.previous_tag }}
         run: |
-          previous_tag="$PREVIOUS_TAG"
-          if [[ -n "$previous_tag" ]] && ! git merge-base --is-ancestor "$previous_tag" HEAD; then
-            echo "$previous_tag is not on the current history. Omitting it after trunk rewrite."
-            previous_tag=
-          fi
+          previous_tag=$(git tag --list 'v*-hyprws-nightly.*' --sort=-v:refname | head -n 1)
           echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${previous_tag:-none}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fork ledger
         run: |
@@ -232,8 +226,10 @@ jobs:
 
   build:
     name: Build Linux x64
-    needs: preflight
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    needs: [preflight, check_changes]
+    if: |
+      !failure() && !cancelled() && needs.preflight.result == 'success' &&
+      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -329,7 +325,6 @@ jobs:
           path: release-assets
 
       - name: Publish release
-        if: needs.preflight.outputs.previous_tag != ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
@@ -340,25 +335,6 @@ jobs:
             Channel: `${{ needs.preflight.outputs.release_channel }}`
           generate_release_notes: true
           previous_tag: ${{ needs.preflight.outputs.previous_tag }}
-          prerelease: ${{ needs.preflight.outputs.is_prerelease }}
-          make_latest: ${{ needs.preflight.outputs.make_latest }}
-          files: |
-            release-assets/*.AppImage
-            release-assets/*.yml
-          fail_on_unmatched_files: true
-          token: ${{ github.token }}
-
-      - name: Publish first release
-        if: needs.preflight.outputs.previous_tag == ''
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.preflight.outputs.tag }}
-          target_commitish: ${{ needs.preflight.outputs.ref }}
-          name: ${{ needs.preflight.outputs.release_name }}
-          body: |
-            Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
-            Channel: `${{ needs.preflight.outputs.release_channel }}`
-          generate_release_notes: true
           prerelease: ${{ needs.preflight.outputs.is_prerelease }}
           make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: |
@@ -381,24 +357,21 @@ jobs:
 
           releases="$(gh release list \
             --limit 1000 \
-            --json tagName,isPrerelease,isDraft,publishedAt)"
+            --json tagName,isPrerelease,isDraft)"
           stale_tags="$(
             jq -r \
-              --arg current "$CURRENT_TAG" \
-              --argjson keep "$NIGHTLY_KEEP" \
               '
-                map(select(
-                  .isPrerelease == true and
-                  .isDraft == false and
-                  (.tagName | test("^.*-hyprws-nightly\\..*$"))
-                ))
-                | sort_by(.publishedAt)
-                | reverse
-                | .[$keep:]
-                | .[]
-                | select(.tagName != $current)
+                .[]
+                | select(
+                    .isPrerelease == true and
+                    .isDraft == false and
+                    (.tagName | test("^.*-hyprws-nightly\\..*$"))
+                  )
                 | .tagName
-              ' <<< "$releases"
+              ' <<< "$releases" \
+              | sort -Vr \
+              | tail -n "+$((NIGHTLY_KEEP + 1))" \
+              | grep -Fvx "$CURRENT_TAG" || true
           )"
 
           {
