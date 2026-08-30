@@ -204,6 +204,29 @@ export function isSidebarThreadGroupingTarget(input: {
   return input.overGroupHeader || isSidebarThreadGroupDrop(input);
 }
 
+export function isSidebarThreadUngroupBeforeTarget(input: {
+  readonly activeThreadId: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overItem: SidebarThreadSortableItem | undefined;
+}): boolean {
+  return (
+    input.activeGroup !== undefined &&
+    input.overItem?.kind === "group-header" &&
+    input.overItem.groupId === input.activeGroup.id &&
+    input.overItem.anchorThreadId === input.activeThreadId
+  );
+}
+
+export function getSidebarThreadGroupDissolvingKey(input: {
+  readonly projectKey: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overGroupId: string | null;
+}): string | null {
+  if (!input.activeGroup || input.activeGroup.threadIds.length !== 2) return null;
+  if (input.activeGroup.id === input.overGroupId) return null;
+  return `${input.projectKey}\0${input.activeGroup.id}`;
+}
+
 export function orderThreadsByProjectPreference<T>(input: {
   threads: readonly T[];
   preferredIdsByProject: Readonly<Record<string, readonly string[]>>;
