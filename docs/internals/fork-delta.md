@@ -106,15 +106,42 @@ Fork-Tier: bugfix
 Fork-Upstreamable: yes
 ```
 
-| Trailer             | Values                        | Required on       |
-| ------------------- | ----------------------------- | ----------------- |
-| `Fork-Domain`       | A domain from the index below | Every fork commit |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
+| Trailer             | Values                        | Required on              |
+| ------------------- | ----------------------------- | ------------------------ |
+| `Fork-Domain`       | A domain from the index below | Every fork commit        |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit        |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`           |
+| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
 
 `vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
 On a pull request, fork CI also runs `vp run fork:delta --check --squash-body <file>` against the pull-request body, because that body becomes the squash commit's message; a body that does not end with the trailer block fails the required check before it can land untagged.
 A rebase preserves trailers, so the log stays queryable after every sync.
+
+[`fork-wire-baseline.md`](./fork-wire-baseline.md) records wire findings that shipped before this
+check existed. A new commit uses `Fork-Wire: reviewed <reason>` for an approved exception; it never
+adds itself to the baseline. A baseline key that the stack no longer produces is a stale warning and
+should be deleted during normal maintenance.
+
+## Wire compatibility
+
+`vp run fork:delta --check` refuses a fork commit that changes a shipped contract under
+`packages/contracts/src/` in one of these ways:
+
+- adds a member to an existing exported `Schema.Literals` binding;
+- adds a required field to an existing exported `Schema.Struct` binding;
+- removes or renames a field in an existing exported `Schema.Struct` binding;
+- changes `packages/contracts/src/ipc.ts`, unless its only extracted changes add optional fields.
+
+A struct field is optional when its value expression uses `Schema.optional`, `Schema.optionalKey`,
+`Schema.optionalWith`, `withDecodingDefault`, or `withConstructorDefault`.
+
+Keep fork-only contract data in an optional sibling field so released clients can continue to decode
+the upstream wire shape. A reviewed exception carries `Fork-Wire: reviewed <reason>` and remains
+visible in the generated ledger.
+
+The check is textual rather than a TypeScript AST pass. It cannot see type widening, on-disk settings
+migrations, mobile deep-link parameters, or anything outside exported `Schema.Literals` and
+`Schema.Struct` bindings. Review those compatibility boundaries separately.
 
 ## Domain index
 
