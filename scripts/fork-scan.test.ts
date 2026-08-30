@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import {
   buildScanResult,
   commitFilesArguments,
+  findForkOwnedTypecheckGaps,
   matchesScanPattern,
   parseArgs,
   parseCommitFiles,
@@ -188,14 +189,62 @@ it("attributes one shared file to every domain whose commits touch it", () => {
   );
 });
 
+it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", () => {
+  const calls: Array<string> = [];
+  const gaps = findForkOwnedTypecheckGaps(
+    "/repo",
+    new Set([
+      "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+      "apps/server/src/fork-only.ts",
+    ]),
+    (_root, command) => {
+      calls.push(command.packageName);
+      if (command.workspace === "apps/web") {
+        return {
+          status: 2,
+          stdout:
+            "src/components/githubIssue/GitHubIssueDetailPanel.test.tsx(20,7): error TS2741: Property 'files' is missing.\n" +
+            "src/upstream-owned.ts(1,1): error TS2322: Type mismatch.\n",
+          stderr: "",
+        };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  );
+
+  assert.deepStrictEqual(calls, ["@t3tools/web", "t3"]);
+  assert.deepStrictEqual(gaps, [
+    {
+      workspace: "apps/web",
+      path: "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+    },
+  ]);
+  const result = { ...buildScanResult(scanInput()), typecheckGaps: gaps };
+  assert.include(
+    scanFailures(result),
+    "typecheck: fork-owned file fails on rehearsed head: apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+  );
+  assert.include(renderScanReport(result), "Fork-owned typecheck gaps:");
+});
+
 it("defaults the target to upstream/main and the base to the merge base", () => {
-  assert.deepStrictEqual(parseArgs([]), { base: null, head: "HEAD", target: "upstream/main" });
-  assert.deepStrictEqual(parseArgs(["--head", "origin/hyprws", "--target", "v0.0.35"]), {
+  assert.deepStrictEqual(parseArgs([]), {
     base: null,
-    head: "origin/hyprws",
-    target: "v0.0.35",
+    head: "HEAD",
+    target: "upstream/main",
+    typecheck: true,
   });
+  assert.deepStrictEqual(
+    parseArgs(["--head", "origin/hyprws", "--target", "v0.0.35", "--no-typecheck"]),
+    {
+      base: null,
+      head: "origin/hyprws",
+      target: "v0.0.35",
+      typecheck: false,
+    },
+  );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
   assert.throws(() => parseArgs(["--target", "a", "--target", "b"]), UsageError);
   assert.throws(() => parseArgs(["--target"]), UsageError);
+  assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
 });
