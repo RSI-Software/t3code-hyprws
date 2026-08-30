@@ -165,7 +165,7 @@ import {
   hasUnseenCompletion,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
-  isSidebarThreadGroupDrop,
+  isSidebarThreadGroupingTarget,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
@@ -3599,8 +3599,15 @@ export default function Sidebar({
       const groups = threadGroupsByProject[projectKey] ?? [];
       const activeGroup = groups.find((group) => group.threadIds.includes(input.activeKey));
       const overGroup = groups.find((group) => group.threadIds.includes(input.overKey));
-      if (activeGroup !== undefined && activeGroup.id === overGroup?.id) return null;
-      return isSidebarThreadGroupDrop({ activeRect: input.activeRect, overRect: input.overRect })
+      return isSidebarThreadGroupingTarget({
+        activeGroupId: activeGroup?.id ?? null,
+        overGroupId: overGroup?.id ?? null,
+        // Group headers are not sortable targets on upstream's list, so a drop
+        // only ever lands on a member row's central band.
+        overGroupHeader: false,
+        activeRect: input.activeRect,
+        overRect: input.overRect,
+      })
         ? input.overKey
         : null;
     },
