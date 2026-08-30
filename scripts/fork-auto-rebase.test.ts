@@ -400,7 +400,7 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     );
     assert.strictEqual(
       result.blocked?.title,
-      `[📡#217] 🔔 hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
+      `🔔 hyprws auto-rebase blocked at v1.1.0-nightly.20260828.1209 (upstream ${fixture.conflict.slice(0, 7)})`,
     );
     assert.include(result.blocked?.body ?? "", `<!-- blocking-sha:${fixture.conflict} -->`);
     assert.notInclude(result.blocked?.body ?? "", "stale pre-advance blocker");
