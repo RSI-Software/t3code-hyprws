@@ -172,50 +172,13 @@ jobs:
             printf 'Auto-rebase failed: `%s`. See the Rebase fork stack step.\n' "$failure" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upsert blocked issue
+      - name: Reconcile blocked issue
         if: ${{ always() && (steps.rebase.outputs.status == 'blocked' || steps.rebase.outputs.status == 'clear' || steps.rebase.outputs.status == 'stable-candidate') }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
-        run: |
-          gh label create rebase-blocked --color B60205 \
-            --description "The fork stack conflicts with newer upstream history" --force
-          if [ "$(jq -r '.blocked == null' "$ISSUE_JSON")" = "true" ]; then
-            gh issue list --label rebase-blocked --state open --limit 100 \
-              --json number --jq '.[].number' | while read -r number; do
-                [ -z "$number" ] || gh issue close "$number" \
-                  --comment "The current auto-rebase scan has no blocking upstream commit."
-              done
-            exit 0
-          fi
-
-          number=$(gh issue list --label rebase-blocked --state open --limit 100 \
-            --json number --jq '.[0].number // empty')
-          jq -r '.blocked.body' "$ISSUE_JSON" > "$RUNNER_TEMP/rebase-blocked.md"
-          if [ -z "$number" ]; then
-            issue_url=$(gh issue create --title "$(jq -r '.blocked.title' "$ISSUE_JSON")" \
-              --label rebase-blocked --body-file "$RUNNER_TEMP/rebase-blocked.md")
-            tracker=$(jq -r '.blocked.trackerNumber' "$ISSUE_JSON")
-            parent_id=$(gh api "repos/$GH_REPO/issues/$tracker" --jq .node_id)
-            gh api graphql \
-              -f query='mutation($parent: ID!, $child: String!) { addSubIssue(input: { issueId: $parent, subIssueUrl: $child }) { issue { id } } }' \
-              -f parent="$parent_id" -f child="$issue_url"
-            exit 0
-          fi
-
-          sha=$(jq -r '.blocked.blockingSha' "$ISSUE_JSON")
-          title=$(jq -r '.blocked.title' "$ISSUE_JSON")
-          gh issue view "$number" --json title,body,comments > "$RUNNER_TEMP/rebase-blocked-history.json"
-          current_title=$(jq -r '.title' "$RUNNER_TEMP/rebase-blocked-history.json")
-          if [ "$current_title" != "$title" ]; then
-            gh issue edit "$number" --title "$title"
-          fi
-          jq -r '[.body, (.comments[].body)] | join("\n")' \
-            "$RUNNER_TEMP/rebase-blocked-history.json" > "$RUNNER_TEMP/rebase-blocked-history.md"
-          if ! grep -Fq -- "<!-- blocking-sha:$sha -->" "$RUNNER_TEMP/rebase-blocked-history.md"; then
-            gh issue comment "$number" --body-file "$RUNNER_TEMP/rebase-blocked.md"
-          fi
+        run: bun scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
 
       - name: Open stable candidate issues
         if: ${{ always() && (steps.rebase.outputs.status == 'stable-candidate' || steps.rebase.outputs.stable_status == 'stable-candidate') }}

@@ -408,9 +408,10 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       result.blocked?.body ?? "",
       `The fork stack advances to \`v1.1.0-nightly.20260828.1208\`, the newest clean upstream tag.\n1 upstream commit sits behind the blocking commit \`${fixture.conflict}\`.`,
     );
+    assert.notInclude(result.blocked?.body ?? "", "Parent:");
     assert.include(
       result.blocked?.body ?? "",
-      "Parent: RSI-Software/t3code-hyprws#217\n\n<!-- gh-bot:relationships:start -->\nRelationships: none (`--no-relationship`).",
+      "<!-- gh-bot:relationships:start -->\nRelationships: none (`--no-relationship`).",
     );
     assert.strictEqual(result.blocked?.conflicts[0]?.domain, "fork-meta");
     assert.deepStrictEqual(result.verificationDependencySetup, ["shared-install"]);

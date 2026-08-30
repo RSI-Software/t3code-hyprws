@@ -1,7 +1,6 @@
 import type { ForkRebaseFeasibility } from "./fork-rebase-feasibility.ts";
 
 // Rebase conflict handling: blocked-rebase issues and RSI bot resolution.
-export const BLOCKED_ISSUE_TRACKER = 217;
 
 export type RebaseMode = "off" | "candidate" | "on";
 
@@ -28,7 +27,6 @@ export interface RebaseStopCensus {
 export interface BlockedIssue {
   readonly title: string;
   readonly label: "rebase-blocked";
-  readonly trackerNumber: number;
   readonly blockingSha: string;
   readonly blockingShortSha: string;
   readonly subject: string;
@@ -167,8 +165,6 @@ export const buildBlockedIssue = (
         `| ${inlineCode(conflict.path.replaceAll("|", "\\|"))} | ${conflict.hunks} | ${inlineCode(`${conflict.forkCommitShort} ${conflict.forkSubject.replaceAll("|", "\\|")}`)} | ${conflict.domain ?? "?"} |`,
     ),
     "",
-    `Parent: RSI-Software/t3code-hyprws#${BLOCKED_ISSUE_TRACKER}`,
-    "",
     "<!-- gh-bot:relationships:start -->",
     "Relationships: none (`--no-relationship`).",
     '<!-- gh-bot:relationships {"v":2,"blockedBy":[],"blocking":[],"relatesTo":[],"noRelationship":true,"position":null} -->',
@@ -179,7 +175,6 @@ export const buildBlockedIssue = (
   return {
     title: blockedIssueTitle(horizon.tag, first.shortSha),
     label: "rebase-blocked",
-    trackerNumber: BLOCKED_ISSUE_TRACKER,
     blockingSha: first.sha,
     blockingShortSha: first.shortSha,
     subject: first.subject,

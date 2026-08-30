@@ -20,7 +20,6 @@ const SHA_B = "b".repeat(40);
 const blocked = (sha: string, tag = "v1.2.0-nightly.20260830.1000"): BlockedIssue => ({
   title: blockedIssueTitle(tag, sha.slice(0, 7)),
   label: "rebase-blocked",
-  trackerNumber: 217,
   blockingSha: sha,
   blockingShortSha: sha.slice(0, 7),
   subject: "upstream conflict",
