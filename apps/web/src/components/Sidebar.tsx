@@ -2349,12 +2349,10 @@ export default function Sidebar({
   );
   const visibleActiveThreads = useMemo(
     () =>
-      sidebarThreadSortOrder === "manual"
-        ? activeThreadGroupLayout.flatMap((item) =>
-            item.kind === "thread" ? [item.thread] : item.group.collapsed ? [] : item.threads,
-          )
-        : activeThreads,
-    [activeThreadGroupLayout, activeThreads, sidebarThreadSortOrder],
+      activeThreadGroupLayout.flatMap((item) =>
+        item.kind === "thread" ? [item.thread] : item.group.collapsed ? [] : item.threads,
+      ),
+    [activeThreadGroupLayout],
   );
 
   const requestThreadGroupTitle = useCallback(
@@ -3042,7 +3040,7 @@ export default function Sidebar({
   );
   const handleActiveDragMove = useCallback(
     (event: DragMoveEvent) => {
-      if (sidebarThreadSortOrder !== "manual" || event.over === null) {
+      if (event.over === null) {
         updateGroupDropTarget(null);
         return;
       }
@@ -3078,7 +3076,7 @@ export default function Sidebar({
         });
       updateGroupDropTarget(grouping ? overKey : null);
     },
-    [activeThreads, sidebarThreadSortOrder, threadGroupsByProject, updateGroupDropTarget],
+    [activeThreads, threadGroupsByProject, updateGroupDropTarget],
   );
   const handleActiveDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -4411,83 +4409,71 @@ export default function Sidebar({
                               aria-label="Active threads"
                               className="flex flex-col gap-px"
                             >
-                              {sidebarThreadSortOrder === "manual"
-                                ? activeThreadGroupLayout.flatMap((item) => {
-                                    if (item.kind === "thread") {
+                              {activeThreadGroupLayout.flatMap((item) => {
+                                if (item.kind === "thread") {
+                                  const threadKey = scopedThreadKey(
+                                    scopeThreadRef(item.thread.environmentId, item.thread.id),
+                                  );
+                                  return [
+                                    <SortableThreadRow key={threadKey} id={threadKey}>
+                                      {(bag) =>
+                                        renderThreadRow(item.thread, "active", bag, {
+                                          isGroupDropTarget: groupDropTargetKey === threadKey,
+                                        })
+                                      }
+                                    </SortableThreadRow>,
+                                  ];
+                                }
+                                const generatingKey = `${item.projectKey}\0${item.group.id}`;
+                                const groupRows = item.group.collapsed
+                                  ? []
+                                  : item.threads.map((thread) => {
                                       const threadKey = scopedThreadKey(
-                                        scopeThreadRef(item.thread.environmentId, item.thread.id),
+                                        scopeThreadRef(thread.environmentId, thread.id),
                                       );
-                                      return [
+                                      return (
                                         <SortableThreadRow key={threadKey} id={threadKey}>
                                           {(bag) =>
-                                            renderThreadRow(item.thread, "active", bag, {
+                                            renderThreadRow(thread, "active", bag, {
+                                              grouped: true,
                                               isGroupDropTarget: groupDropTargetKey === threadKey,
                                             })
                                           }
-                                        </SortableThreadRow>,
-                                      ];
+                                        </SortableThreadRow>
+                                      );
+                                    });
+                                return [
+                                  <SidebarThreadGroupHeader
+                                    key={`group:${generatingKey}`}
+                                    group={item.group}
+                                    memberCount={item.threads.length}
+                                    isGenerating={generatingGroupIds.has(generatingKey)}
+                                    onCollapsedChange={(collapsed) =>
+                                      setThreadGroupCollapsed(
+                                        item.projectKey,
+                                        item.group.id,
+                                        collapsed,
+                                      )
                                     }
-                                    const generatingKey = `${item.projectKey}\0${item.group.id}`;
-                                    const groupRows = item.group.collapsed
-                                      ? []
-                                      : item.threads.map((thread) => {
-                                          const threadKey = scopedThreadKey(
-                                            scopeThreadRef(thread.environmentId, thread.id),
-                                          );
-                                          return (
-                                            <SortableThreadRow key={threadKey} id={threadKey}>
-                                              {(bag) =>
-                                                renderThreadRow(thread, "active", bag, {
-                                                  grouped: true,
-                                                  isGroupDropTarget:
-                                                    groupDropTargetKey === threadKey,
-                                                })
-                                              }
-                                            </SortableThreadRow>
-                                          );
-                                        });
-                                    return [
-                                      <SidebarThreadGroupHeader
-                                        key={`group:${generatingKey}`}
-                                        group={item.group}
-                                        memberCount={item.threads.length}
-                                        isGenerating={generatingGroupIds.has(generatingKey)}
-                                        onCollapsedChange={(collapsed) =>
-                                          setThreadGroupCollapsed(
-                                            item.projectKey,
-                                            item.group.id,
-                                            collapsed,
-                                          )
-                                        }
-                                        onRename={(title) =>
-                                          renameThreadGroup(item.projectKey, item.group.id, title)
-                                        }
-                                        onRegenerate={() =>
-                                          void requestThreadGroupTitle({
-                                            projectKey: item.projectKey,
-                                            groupId: item.group.id,
-                                            members: item.threads,
-                                            expectedGroup: item.group,
-                                            previousTitle: item.group.title,
-                                          })
-                                        }
-                                        onRemove={() =>
-                                          removeThreadGroup(item.projectKey, item.group.id)
-                                        }
-                                      />,
-                                      ...groupRows,
-                                    ];
-                                  })
-                                : activeThreads.map((thread) => {
-                                    const threadKey = scopedThreadKey(
-                                      scopeThreadRef(thread.environmentId, thread.id),
-                                    );
-                                    return (
-                                      <SortableThreadRow key={threadKey} id={threadKey}>
-                                        {(bag) => renderThreadRow(thread, "active", bag)}
-                                      </SortableThreadRow>
-                                    );
-                                  })}
+                                    onRename={(title) =>
+                                      renameThreadGroup(item.projectKey, item.group.id, title)
+                                    }
+                                    onRegenerate={() =>
+                                      void requestThreadGroupTitle({
+                                        projectKey: item.projectKey,
+                                        groupId: item.group.id,
+                                        members: item.threads,
+                                        expectedGroup: item.group,
+                                        previousTitle: item.group.title,
+                                      })
+                                    }
+                                    onRemove={() =>
+                                      removeThreadGroup(item.projectKey, item.group.id)
+                                    }
+                                  />,
+                                  ...groupRows,
+                                ];
+                              })}
                             </ul>
                           </SortableContext>
                         </DndContext>
