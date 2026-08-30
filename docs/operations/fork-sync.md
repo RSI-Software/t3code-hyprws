@@ -150,6 +150,11 @@ unattended:
 A direct non-bypass push to `hyprws` cannot be demonstrated because the repository has no non-admin
 collaborator, so the pull-request rule is documented as admin-only until one exists.
 
+The fork CI checks the pull-request body for squash-commit ledger trailers only on a ready pull
+request whose base branch is `hyprws`. It skips drafts and every non-`hyprws` base, including
+rebase-rehearsal branches, because those rehearsals land by a leased force-push rather than a squash
+merge.
+
 ### Runners
 
 Both fork workflows run on `ubuntu-latest`.
