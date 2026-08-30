@@ -2,9 +2,10 @@ name: hyprws upstream sync
 
 # Mirrors upstream/main onto the fork's main, uploads the fork-sync orientation,
 # then rebases the fork stack onto the newest upstream tag inside the clean
-# feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on; an unset
-# variable uses candidate mode. Auto-rebase drops the checkout token before it
-# runs rebased code; the mirror PAT reaches only the push helper.
+# feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on and gates
+# only the rebase push; reporting and tickets always run. An unset variable uses
+# candidate mode. Auto-rebase drops the checkout token before it runs rebased
+# code; the mirror PAT reaches only the push helper.
 
 on:
   push:

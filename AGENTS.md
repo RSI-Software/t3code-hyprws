@@ -13,8 +13,8 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
 - Keep local `main` identical to `upstream/main`; never add fork commits to it.
 - Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
-- Rebase `hyprws` onto upstream release tags; never merge upstream into the fork branch.
-- Rebase onto an upstream stable tag through the `fork-sync` skill.
+- Rebase `hyprws` onto any upstream release tag, stable or nightly; never merge upstream into the fork branch.
+- Never target an untagged upstream commit; use the `fork-sync` skill for the rebase.
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
 - Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.

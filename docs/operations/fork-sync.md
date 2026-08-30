@@ -13,24 +13,24 @@ for unblocking a rebase and cutting a stable release.
 
 ## Model
 
-`hyprws` is the single fork trunk. Its upstream base is the newest stable or nightly upstream tag at
-or before the rebase report's conflict-free boundary; when stable and nightly tags point at the same
-position, stable wins the tie. The bot never merges upstream into the fork and never drops, squashes,
-reorders, or rewords a fork commit.
+`hyprws` is the single fork trunk. The bot scans only through the newest stable or nightly upstream
+tag on the first-parent lane, never through an untagged `upstream/main` head. Its upstream base is the
+newest clean tag within that horizon; when stable and nightly tags point at the same position, stable
+wins the tie. The bot never merges upstream into the fork and never drops, squashes, reorders, or
+rewords a fork commit.
 
 On each scheduled, pushed, or manually dispatched run, the workflow:
 
 1. fast-forwards the fork's `main` mirror to `upstream/main`;
-2. generates the feasibility report and finds the newest clean upstream release tag;
+2. scans through the newest upstream release tag and finds the newest clean tag within that horizon;
 3. snapshots any newly crossed stable upstream tag on a create-only release branch;
 4. replays and verifies the whole fork stack on the selected tag;
 5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
 6. creates or updates stable-candidate and `rebase-blocked` issues.
 
-A run that has no newer clean release tag is a successful no-op. A conflict beyond the clean target
-does not prevent the bot from advancing to that target; the same run reports the next block for a
-human. Every `rebase-blocked` issue files under conflict-handling tracker
-RSI-Software/t3code-hyprws#217.
+A run that has no newer clean release tag is a successful no-op. A conflict before the newest tagged
+horizon does not prevent the bot from advancing to an earlier clean target; the same run reports the
+block for a human. A conflict in untagged commits past the horizon is not a block.
 
 ## Bot-owned refs
 
@@ -60,6 +60,23 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 
 In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
 commit and one for the bot-pushed rebased head.
+
+### Block issue lifecycle
+
+The bot keeps at most one open `rebase-blocked` issue and identifies it by the exact
+`blocking-sha` marker in its body. A blocking SHA is filed at most once, including after its issue is
+manually closed. When the first conflict changes, the bot closes the old issue by identity before it
+creates a new one.
+
+While a block remains, each run silently rewrites the issue body without changing its title. One
+**Refresh log** comment records the tagged horizon in an ASCII lane: `o` is a commit, `X` is the
+block, `N` is a nightly tag, `S` is a stable tag, and `Nc` is the number of conflicting fork commits
+to that tag. The bot edits that comment in place and appends a row only when the newest tag past the
+block changes.
+
+The issue is assigned to `donjor` when created and receives a one-line comment when closed. Those are
+the only human notifications for a block; routine body and Refresh log edits are silent. Reporting
+and this lifecycle run in every `HYPRWS_AUTO_REBASE` mode.
 
 The repository intentionally starts in candidate mode. After reading a successful candidate run and
 preparing local lanes for recovery, enable automatic trunk rewrites with:
@@ -259,8 +276,10 @@ git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
 
 Never move a bot-owned ref as part of the unblock. After the leased push succeeds, the agent posts
 the resolved blocking SHA and target tag, quoting the human sign-off; that comment records the
-signed-off resolution. The push starts a new bot run. That run automatically closes every open
-`rebase-blocked` issue when no block remains, or updates the open issue when a later conflict remains. A stale lease is never refreshed:
+signed-off resolution. The push starts a new bot run. That run closes the issue carrying the resolved
+blocking SHA when it is no longer first, then creates a new issue only if a later first conflict has
+never been filed. A
+stale lease is never refreshed:
 rehearse again, repeat the checks and sign-off, and then apply with the new rehearsal's lease.
 
 ## Cut a stable release
