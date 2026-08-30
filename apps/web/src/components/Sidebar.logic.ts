@@ -91,6 +91,59 @@ export type SidebarThreadGroupLayoutItem<T> =
       readonly threads: readonly T[];
     };
 
+export type SidebarThreadSortableItem =
+  | { readonly kind: "thread"; readonly id: string }
+  | {
+      readonly kind: "group-header";
+      readonly id: string;
+      readonly projectKey: string;
+      readonly groupId: string;
+      readonly anchorThreadId: string;
+    };
+
+export function sidebarThreadGroupSortableId(projectKey: string, groupId: string): string {
+  return `sidebar-thread-group\0${projectKey}\0${groupId}`;
+}
+
+export function buildSidebarThreadSortableItems<T>(input: {
+  readonly layout: readonly SidebarThreadGroupLayoutItem<T>[];
+  readonly getId: (thread: T) => string;
+}): SidebarThreadSortableItem[] {
+  return input.layout.flatMap((item): SidebarThreadSortableItem[] => {
+    if (item.kind === "thread") {
+      return [{ kind: "thread", id: input.getId(item.thread) }];
+    }
+    const anchorThread = item.threads[0];
+    if (!anchorThread) return [];
+    const header: SidebarThreadSortableItem = {
+      kind: "group-header",
+      id: sidebarThreadGroupSortableId(item.projectKey, item.group.id),
+      projectKey: item.projectKey,
+      groupId: item.group.id,
+      anchorThreadId: input.getId(anchorThread),
+    };
+    if (item.group.collapsed) return [header];
+    return [
+      header,
+      ...item.threads.map(
+        (thread): SidebarThreadSortableItem => ({
+          kind: "thread",
+          id: input.getId(thread),
+        }),
+      ),
+    ];
+  });
+}
+
+export function getSidebarThreadLayoutOrder<T>(input: {
+  readonly layout: readonly SidebarThreadGroupLayoutItem<T>[];
+  readonly getId: (thread: T) => string;
+}): string[] {
+  return input.layout.flatMap((item) =>
+    item.kind === "thread" ? [input.getId(item.thread)] : item.threads.map(input.getId),
+  );
+}
+
 export function buildSidebarThreadGroupLayout<T>(input: {
   readonly threads: readonly T[];
   readonly groupsByProject: Readonly<Record<string, readonly SidebarThreadGroup[]>>;
