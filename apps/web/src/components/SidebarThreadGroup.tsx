@@ -6,7 +6,7 @@ import {
   SquarePenIcon,
   UnlinkIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties, type Ref } from "react";
 
 import type { SidebarThreadGroup } from "../uiStateStore";
 import { cn } from "../lib/utils";
@@ -22,6 +22,8 @@ export function SidebarThreadGroupHeader(props: {
   readonly onRename: (title: string) => void;
   readonly onRegenerate: () => void;
   readonly onRemove: () => void;
+  readonly rootRef?: Ref<HTMLLIElement>;
+  readonly rootStyle?: CSSProperties;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(props.group.title);
@@ -40,6 +42,8 @@ export function SidebarThreadGroupHeader(props: {
 
   return (
     <li
+      ref={props.rootRef}
+      style={props.rootStyle}
       data-thread-selection-safe
       data-testid={`sidebar-thread-group-${props.group.id}`}
       className="group/thread-group mt-1 list-none px-1.5"
