@@ -118,10 +118,12 @@ export const initialRefreshLog = (blocked: BlockedIssue, at: Date): string => {
     REFRESH_LOG_MARKER,
     "Refresh log  (1 update)",
     "",
+    "```text",
     rowFor(blocked, 0, at),
     "",
     `block ${blocked.blockingShortSha} unchanged since #0`,
     "o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag",
+    "```",
     `<!-- hyprws-rebase-refresh-tag:${tag} -->`,
   ].join("\n");
 };
