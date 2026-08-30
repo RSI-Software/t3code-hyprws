@@ -57,7 +57,9 @@ class FakeGitHub implements RebaseGitHubClient {
   readonly issueTypeLookups: Array<string> = [];
   readonly issueTypeEdits: Array<number> = [];
   labelsEnsured = 0;
+  listCalls = 0;
   issueTypeLookupError: Error | null = null;
+  beforeList: ((call: number) => void) | null = null;
   private nextIssue = 1;
   private nextComment = 100;
 
@@ -71,6 +73,8 @@ class FakeGitHub implements RebaseGitHubClient {
   }
 
   listBlockedIssues(): ReadonlyArray<RebaseIssue> {
+    this.listCalls += 1;
+    this.beforeList?.(this.listCalls);
     return this.issues.map((issue) => ({ ...issue }));
   }
 
@@ -333,6 +337,29 @@ it("never refiles a sha already carried by a closed issue", () => {
 
   assert.strictEqual(client.created.length, 0);
   assert.strictEqual(openIssues(client).length, 0);
+});
+
+it("refreshes a matching issue found by the pre-create re-read instead of creating", () => {
+  const report = blocked(SHA_A);
+  const client = new FakeGitHub();
+  client.beforeList = (call) => {
+    if (call !== 2) return;
+    client.issues.push({
+      number: 9,
+      nodeId: "issue-9",
+      state: "open",
+      title: report.title,
+      body: report.body,
+      issueType: "Bug",
+    });
+  };
+
+  reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
+
+  assert.strictEqual(client.listCalls, 2);
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.bodyEdits, [9]);
+  assert.strictEqual(client.comments.get(9)?.length, 1);
 });
 
 it("closes the old identity before creating a new one and leaves at most one open", () => {
