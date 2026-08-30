@@ -6,11 +6,13 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
   buildSidebarThreadGroupLayout,
+  buildSidebarThreadSortableItems,
   buildMultiSelectThreadContextMenuItems,
   buildThreadGroupMembershipContextMenuItems,
   createThreadJumpHintVisibilityController,
   filterSidebarProjectScopeItems,
   getSidebarThreadIdsToPrewarm,
+  getSidebarThreadLayoutOrder,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
   reduceSidebarProjectScopeMenuState,
@@ -99,6 +101,111 @@ describe("sidebar thread groups", () => {
         },
         threads: [threads[1], threads[2]],
       },
+    ]);
+  });
+
+  it("keeps saved groups in the current automatic thread sequence", () => {
+    const automaticThreads = [threads[2]!, threads[0]!, threads[1]!];
+
+    expect(
+      buildSidebarThreadGroupLayout({
+        threads: automaticThreads,
+        groupsByProject: {
+          "project-a": [
+            {
+              id: "group-1",
+              title: "Related work",
+              threadIds: ["thread-b", "thread-c"],
+              collapsed: false,
+            },
+          ],
+        },
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.projectKey,
+      }),
+    ).toEqual([
+      {
+        kind: "group",
+        projectKey: "project-a",
+        group: {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["thread-b", "thread-c"],
+          collapsed: false,
+        },
+        threads: [threads[2], threads[1]],
+      },
+      { kind: "thread", thread: threads[0] },
+    ]);
+  });
+
+  it("keeps group headers in the sortable geometry and threads in visual order", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: false,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+
+    expect(buildSidebarThreadSortableItems({ layout, getId: (thread) => thread.id })).toEqual([
+      { kind: "thread", id: "thread-a" },
+      {
+        kind: "group-header",
+        id: "sidebar-thread-group\0project-a\0group-1",
+        projectKey: "project-a",
+        groupId: "group-1",
+        anchorThreadId: "thread-b",
+      },
+      { kind: "thread", id: "thread-b" },
+      { kind: "thread", id: "thread-c" },
+    ]);
+    expect(getSidebarThreadLayoutOrder({ layout, getId: (thread) => thread.id })).toEqual([
+      "thread-a",
+      "thread-b",
+      "thread-c",
+    ]);
+  });
+
+  it("keeps a collapsed group header measurable without rendering its rows", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: true,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+
+    expect(buildSidebarThreadSortableItems({ layout, getId: (thread) => thread.id })).toEqual([
+      { kind: "thread", id: "thread-a" },
+      {
+        kind: "group-header",
+        id: "sidebar-thread-group\0project-a\0group-1",
+        projectKey: "project-a",
+        groupId: "group-1",
+        anchorThreadId: "thread-b",
+      },
+    ]);
+    expect(getSidebarThreadLayoutOrder({ layout, getId: (thread) => thread.id })).toEqual([
+      "thread-a",
+      "thread-b",
+      "thread-c",
     ]);
   });
 
