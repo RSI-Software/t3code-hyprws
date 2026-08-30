@@ -138,10 +138,10 @@ A domain is a reason the fork exists, not a feature area of the app.
 
 ## Current upstream sync
 
-- Upstream base: `v0.0.37-nightly.20260829.1224`.
-- Rehearsed stack: 128 fork commits.
-- Applied stack: 129 fork commits, including the fork-meta commit that records this sync.
-- Retired at `v0.0.37-nightly.20260829.1224`: none.
+- Upstream base: `v0.0.37-nightly.20260830.1226`.
+- Rehearsed stack: 135 fork commits.
+- Applied stack: 136 fork commits, including the fork-meta commit that records this sync.
+- Retired at `v0.0.37-nightly.20260830.1226`: none.
 
 ## Retired
 
@@ -160,7 +160,7 @@ reports it as `retired but present` until the rebase drops it.
 | ------------------------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | refactor(web): add physical project sidebar scope                              | project-windows  | `pingdotgg/t3code#8231` refactored the same comparator but still lists every project's threads; `isProjectInSidebarScope` remains the only project-window sidebar scope.                       | v0.0.35                       |
 | fix(web): upload media in pull request descriptions                            | upstream-fixes   | Partial remains correct: `pingdotgg/t3code#8235` supplies typed, streamed attachment plumbing, while the fork-only `gh-image` publication path, editor flow, RPC, and settings surface remain. | v0.0.37-nightly.20260829.1224 |
-| feat(web): add rich Markdown editing (#28)                                     | markdown-editing | The Expo SDK 57 lockfile regeneration retains Milkdown and frontmatter dependencies. The target still has no Rich/Source editor, safe frontmatter round trip, or equivalent MDX boundary.      | v0.0.37-nightly.20260829.1224 |
+| feat(web): add rich Markdown editing (#28)                                     | markdown-editing | The Expo/Uniwind mobile lockfile update retains Milkdown and frontmatter dependencies and does not touch the Rich/Source editor, safe frontmatter round trip, or MDX boundary.                 | v0.0.37-nightly.20260830.1226 |
 | refactor(web): centralize thread route navigation                              | project-windows  | Upstream changed the new-thread hook nearby but did not add project-window route scoping.                                                                                                      | v0.0.37-nightly.20260829.1224 |
 | feat(web): render scoped project shell                                         | project-windows  | The target's root-route work does not provide a scoped project shell.                                                                                                                          | v0.0.37-nightly.20260829.1224 |
 | fix(desktop): isolate project preview and drafts                               | project-windows  | Generic file attachments widened the draft shape but do not replace project-window preview and draft namespacing.                                                                              | v0.0.37-nightly.20260829.1224 |
