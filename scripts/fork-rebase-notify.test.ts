@@ -138,12 +138,19 @@ it("creates one assigned block issue and one Refresh log comment", () => {
   });
   assert.strictEqual(openIssues(client).length, 1);
   const comment = client.comments.get(1)?.[0]?.body ?? "";
-  assert.include(comment, "Refresh log  (1 update)");
-  assert.include(
+  assert.strictEqual(
     comment,
-    "#0 08-30 00:13  hyprws  o--X--o--o--N  v1.2.0-nightly.20260830.1000  2c",
+    `<!-- hyprws-rebase-refresh-log -->
+Refresh log  (1 update)
+
+\`\`\`text
+#0 08-30 00:13  hyprws  o--X--o--o--N  v1.2.0-nightly.20260830.1000  2c
+
+block aaaaaaa unchanged since #0
+o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag
+\`\`\`
+<!-- hyprws-rebase-refresh-tag:v1.2.0-nightly.20260830.1000 -->`,
   );
-  assert.include(comment, "o commit  X block  N nightly tag  S stable tag");
 });
 
 it("looks up the enabled native Bug type by repository issue-type name", () => {
@@ -217,6 +224,8 @@ it("appends one row when the newest tag moves without retitling", () => {
   assert.include(comment, "#0 08-30 00:13");
   assert.include(comment, "#1 08-30 06:17  hyprws  o--X--o--o--S  v1.2.0  2c");
   assert.strictEqual(comment.match(/^#\d+ /gm)?.length, 2);
+  assert.strictEqual(comment.match(/^```text$/gm)?.length, 1);
+  assert.strictEqual(comment.match(/^```$/gm)?.length, 1);
   assert.deepStrictEqual(client.commentEdits, [100]);
   assert.strictEqual(client.issues[0]?.title, originalTitle);
 });
