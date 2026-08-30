@@ -166,6 +166,41 @@ describe("sidebar thread groups", () => {
     ]);
   });
 
+  it("keeps saved groups in the current automatic thread sequence", () => {
+    const automaticThreads = [threads[2]!, threads[0]!, threads[1]!];
+
+    expect(
+      buildSidebarThreadGroupLayout({
+        threads: automaticThreads,
+        groupsByProject: {
+          "project-a": [
+            {
+              id: "group-1",
+              title: "Related work",
+              threadIds: ["thread-b", "thread-c"],
+              collapsed: false,
+            },
+          ],
+        },
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.projectKey,
+      }),
+    ).toEqual([
+      {
+        kind: "group",
+        projectKey: "project-a",
+        group: {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["thread-b", "thread-c"],
+          collapsed: false,
+        },
+        threads: [threads[2], threads[1]],
+      },
+      { kind: "thread", thread: threads[0] },
+    ]);
+  });
+
   it("only treats the center of a row as a grouping drop target", () => {
     const overRect = { top: 100, bottom: 200 };
     expect(isSidebarThreadGroupDrop({ activeRect: { top: 130, bottom: 170 }, overRect })).toBe(
