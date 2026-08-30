@@ -105,11 +105,11 @@ it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
   assert.ok(projectWindows !== -1 && forkMeta !== -1);
   assert.strictEqual(
     lines[projectWindows + 4],
-    "| core | `bbbbbbbbb` | feat(desktop): register windows \\| by identity |  |",
+    "| core | `bbbbbbbbb` | feat(desktop): register windows \\| by identity |  |  |",
   );
   assert.strictEqual(
     lines[projectWindows + 5],
-    "| bugfix | `aaaaaaaaa` | fix(web): scope markdown actions | yes |",
+    "| bugfix | `aaaaaaaaa` | fix(web): scope markdown actions | yes |  |",
   );
   assert.ok(lines.includes("## Untagged"));
   assert.ok(
@@ -149,6 +149,101 @@ it("keeps a partial subject active when its retired and kept portions are both r
     ledger.findings.map((finding) => finding.problem),
     "retired but present",
   );
+});
+
+it("records a reviewed Fork-Wire trailer and skips that commit's wire findings", () => {
+  const [commit] = parseForkLog(
+    record(
+      "ababababa",
+      "feat(contracts): reviewed wire change",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Wire: reviewed released clients accept the sibling\n",
+    ),
+  );
+  assert.isDefined(commit);
+  const wireFinding = {
+    schema: "ThreadEnvMode",
+    change: "literal added: worktrunk",
+    hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+  };
+  const ledger = buildLedger(
+    "upstream/main",
+    "HEAD",
+    [commit],
+    undefined,
+    new Map([[commit.sha, [wireFinding]]]),
+  );
+  assert.strictEqual(commit.wireReviewed, "reviewed released clients accept the sibling");
+  assert.deepStrictEqual(ledger.findings, []);
+  assert.include(renderMarkdown(ledger), "reviewed released clients accept the sibling");
+});
+
+it("skips a shipped wire finding listed in the baseline", () => {
+  const [commit] = parseForkLog(
+    record(
+      "adadadada",
+      "feat(contracts): shipped wire change",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    ),
+  );
+  assert.isDefined(commit);
+  const finding = {
+    schema: "Mode",
+    change: "literal added: fork",
+    hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+  };
+  const ledger = buildLedger(
+    "upstream/main",
+    "HEAD",
+    [commit],
+    undefined,
+    new Map([[commit.sha, [finding]]]),
+    new Map([["Mode: literal added: fork", "shipped before the wire check"]]),
+  );
+  assert.deepStrictEqual(ledger.findings, []);
+  assert.deepStrictEqual(ledger.warnings, []);
+});
+
+it("warns without failing when a wire baseline key becomes stale", () => {
+  const ledger = buildLedger(
+    "upstream/main",
+    "HEAD",
+    [],
+    undefined,
+    new Map(),
+    new Map([["Mode: literal added: retired", "shipped before the wire check"]]),
+  );
+  assert.deepStrictEqual(ledger.findings, []);
+  assert.deepStrictEqual(ledger.warnings, ["stale wire baseline: Mode: literal added: retired"]);
+});
+
+it("does not accept a Fork-Wire trailer without a review reason", () => {
+  const [commit] = parseForkLog(
+    record(
+      "acacacaca",
+      "feat(contracts): unreviewed wire change",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Wire: reviewed\n",
+    ),
+  );
+  assert.isDefined(commit);
+  const ledger = buildLedger(
+    "upstream/main",
+    "HEAD",
+    [commit],
+    undefined,
+    new Map([
+      [
+        commit.sha,
+        [
+          {
+            schema: "Mode",
+            change: "literal added: fork",
+            hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+          },
+        ],
+      ],
+    ]),
+  );
+  assert.strictEqual(ledger.findings.length, 1);
 });
 
 it("selects one domain with its findings in stack order", () => {
