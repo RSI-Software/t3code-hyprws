@@ -401,6 +401,18 @@ jobs:
               ' <<< "$releases"
           )"
 
+          {
+            echo "### Nightly prune"
+            echo
+            if [[ -z "$stale_tags" ]]; then
+              echo "none"
+            else
+              while IFS= read -r tag; do
+                echo "- \`$tag\`"
+              done <<< "$stale_tags"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
           if [[ -z "$stale_tags" ]]; then
             echo "No old nightly releases to prune."
             exit 0
