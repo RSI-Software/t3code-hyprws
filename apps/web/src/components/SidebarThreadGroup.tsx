@@ -1,16 +1,17 @@
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  FolderIcon,
+  Layers3Icon,
   RefreshCwIcon,
   SquarePenIcon,
   UnlinkIcon,
 } from "lucide-react";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState } from "react";
 
 import type { SidebarThreadGroup } from "../uiStateStore";
 import { cn } from "../lib/utils";
-import { Input } from "./ui/input";
+import { Badge } from "./ui/badge";
+import { SidebarRenameInput } from "./SidebarRenameInput";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export function SidebarThreadGroupHeader(props: {
@@ -32,12 +33,9 @@ export function SidebarThreadGroupHeader(props: {
     else setTitle(props.group.title);
     setIsEditing(false);
   };
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") commitRename();
-    if (event.key === "Escape") {
-      setTitle(props.group.title);
-      setIsEditing(false);
-    }
+  const cancelRename = () => {
+    setTitle(props.group.title);
+    setIsEditing(false);
   };
 
   return (
@@ -60,16 +58,15 @@ export function SidebarThreadGroupHeader(props: {
             <ChevronDownIcon className="size-3.5" />
           )}
         </button>
-        <FolderIcon className="size-3.5 shrink-0" />
+        <Layers3Icon aria-hidden className="size-3.5 shrink-0" />
         {isEditing ? (
-          <Input
-            autoFocus
-            aria-label="Thread group name"
+          <SidebarRenameInput
+            ariaLabel="Thread group title"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onBlur={commitRename}
-            onKeyDown={handleKeyDown}
-            className="h-6 min-w-0 flex-1 border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-1"
+            onValueChange={setTitle}
+            onCommit={commitRename}
+            onCancel={cancelRename}
+            className="h-6 text-xs"
           />
         ) : (
           <button
@@ -81,10 +78,17 @@ export function SidebarThreadGroupHeader(props: {
             {props.group.title}
           </button>
         )}
-        <span className="shrink-0 tabular-nums text-muted-foreground/65">{props.memberCount}</span>
+        <Badge
+          variant="secondary"
+          size="sm"
+          aria-label={`${props.memberCount} threads`}
+          className="min-w-5 rounded-full px-1 tabular-nums"
+        >
+          {props.memberCount}
+        </Badge>
         <div
           className={cn(
-            "flex shrink-0 items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100",
+            "flex w-18 shrink-0 items-center opacity-0 transition-opacity group-hover/thread-group:opacity-100 group-focus-within/thread-group:opacity-100",
             props.isGenerating && "opacity-100",
           )}
         >
