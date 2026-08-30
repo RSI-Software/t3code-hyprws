@@ -9,6 +9,7 @@ import {
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
   buildSidebarThreadGroupLayout,
+  buildSidebarThreadSortableItems,
   buildMultiSelectThreadContextMenuItems,
   buildThreadGroupMembershipContextMenuItems,
   createThreadJumpHintVisibilityController,
