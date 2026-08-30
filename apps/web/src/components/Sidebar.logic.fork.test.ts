@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildSidebarThreadGroupLayout,
+  buildCreateThreadGroupContextMenuItem,
+  buildThreadGroupMembershipContextMenuItems,
   isSidebarThreadGroupDrop,
   formatSidebarRelativeTimeLabel,
   isProjectInSidebarScope,
@@ -58,6 +60,42 @@ describe("sidebar thread groups", () => {
     expect(isSidebarThreadGroupDrop({ activeRect: { top: 80, bottom: 110 }, overRect })).toBe(
       false,
     );
+  });
+
+  it("offers group creation only for an eligible multi-selection", () => {
+    expect(buildCreateThreadGroupContextMenuItem({ count: 2, eligible: true })).toMatchObject({
+      id: "create-thread-group",
+      label: "Create group (2)",
+      icon: "folder-tree",
+    });
+    expect(buildCreateThreadGroupContextMenuItem({ count: 1, eligible: true })).toBeNull();
+    expect(buildCreateThreadGroupContextMenuItem({ count: 3, eligible: false })).toBeNull();
+  });
+
+  it("offers moves to other groups and out of the current group", () => {
+    expect(
+      buildThreadGroupMembershipContextMenuItems({
+        groups: [
+          { id: "group-1", title: "Current" },
+          { id: "group-2", title: "Destination" },
+        ],
+        currentGroupId: "group-1",
+      }),
+    ).toEqual([
+      {
+        id: "move-to-group",
+        label: "Move to group",
+        icon: "folder-tree",
+        separatorBefore: true,
+        children: [{ id: "move-to-group:group-2", label: "Destination", icon: "folder" }],
+      },
+      {
+        id: "move-out-of-group",
+        label: "Remove from group",
+        icon: "folder",
+        separatorBefore: false,
+      },
+    ]);
   });
 });
 
