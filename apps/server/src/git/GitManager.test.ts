@@ -258,6 +258,7 @@ function initRepo(
     for (const entry of [".git", "README.md"]) {
       yield* fs.copy(NodePath.join(templates.repo, entry), NodePath.join(cwd, entry));
     }
+    yield* runGit(cwd, ["config", "core.hooksPath", ".git/hooks"]);
   });
 }
 
