@@ -189,8 +189,19 @@ export function isSidebarThreadGroupDrop(input: {
   const center = (input.activeRect.top + input.activeRect.bottom) / 2;
   const height = input.overRect.bottom - input.overRect.top;
   return (
-    center >= input.overRect.top + height * 0.3 && center <= input.overRect.bottom - height * 0.3
+    center >= input.overRect.top + height * 0.15 && center <= input.overRect.bottom - height * 0.15
   );
+}
+
+export function isSidebarThreadGroupingTarget(input: {
+  readonly activeGroupId: string | null;
+  readonly overGroupId: string | null;
+  readonly overGroupHeader: boolean;
+  readonly activeRect: { readonly top: number; readonly bottom: number } | null;
+  readonly overRect: { readonly top: number; readonly bottom: number } | null;
+}): boolean {
+  if (input.activeGroupId !== null && input.activeGroupId === input.overGroupId) return false;
+  return input.overGroupHeader || isSidebarThreadGroupDrop(input);
 }
 
 export function orderThreadsByProjectPreference<T>(input: {
