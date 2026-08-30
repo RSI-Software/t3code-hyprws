@@ -22,6 +22,7 @@ import {
   isContextMenuPointerDown,
   isSidebarThreadGroupDrop,
   isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
