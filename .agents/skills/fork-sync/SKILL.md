@@ -187,6 +187,12 @@ preparation and verification blocks through `vp run test`. They derive the snaps
 release number from the selected issue, create a disposable Worktrunk lane at the exact remote
 commit, and run the same preflight checks as the stable release workflow.
 
+Before tagging, run `vp run fork:uat --ref origin/release/vX.Y.Z-hyprws --relates-to N` under the
+[`fork-uat`](../fork-uat/SKILL.md) judgment boundary on the exact ref you intend to tag, then read the
+created UAT issue. The candidate issue is optional relationship context, never the UAT input. The
+checked rows and latest human `Signed off` or `Blocked: <reason>` comment are sign-off evidence; they
+inform the release judgment and never gate it automatically.
+
 **Stop.** Show the human the issue, snapshot branch and SHA, derived new tag, prior matching tags,
 and all check results. Continue only when the worktree is clean, every check passes,
 the remote snapshot still resolves to the checked SHA, the tag does not already exist locally or
