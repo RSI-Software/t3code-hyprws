@@ -68,6 +68,12 @@ The bot keeps at most one open `rebase-blocked` issue and identifies it by the e
 manually closed. When the first conflict changes, the bot closes the old issue by identity before it
 creates a new one.
 
+#### Assumptions
+
+The workflow concurrency group is the single writer for block issues. Dedupe also assumes that the
+`blocking-sha` marker and `rebase-blocked` label remain intact on every open or closed block issue.
+Stripping either can let the same SHA be filed again.
+
 While a block remains, each run silently rewrites the issue body without changing its title. One
 **Refresh log** comment records the tagged horizon in an ASCII lane: `o` is a commit, `X` is the
 block, `N` is a nightly tag, `S` is a stable tag, and `Nc` is the number of conflicting fork commits
