@@ -205,6 +205,54 @@ describe("uiStateStore pure functions", () => {
     expect(dissolved.threadGroupsByProject["environment:project"]).toEqual([]);
   });
 
+  it("moves a thread between groups at the dropped position", () => {
+    const projectKey = "environment:project";
+    const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
+    const initial = makeUiState({
+      threadOrderByProject: { [projectKey]: order },
+      threadGroupsByProject: {
+        [projectKey]: [
+          {
+            id: "group-1",
+            title: "First",
+            threadIds: ["environment:a", "environment:b"],
+            collapsed: false,
+          },
+          {
+            id: "group-2",
+            title: "Second",
+            threadIds: ["environment:c", "environment:d"],
+            collapsed: false,
+          },
+        ],
+      },
+    });
+
+    const moved = moveProjectThread(
+      initial,
+      projectKey,
+      order,
+      "environment:b",
+      "environment:c",
+      "group",
+    );
+
+    expect(moved.threadOrderByProject[projectKey]).toEqual([
+      "environment:a",
+      "environment:c",
+      "environment:b",
+      "environment:d",
+    ]);
+    expect(moved.threadGroupsByProject[projectKey]).toEqual([
+      {
+        id: "group-2",
+        title: "Second",
+        threadIds: ["environment:c", "environment:b", "environment:d"],
+        collapsed: false,
+      },
+    ]);
+  });
+
   it("changes group membership atomically without changing thread order", () => {
     const projectKey = "environment:project";
     const order = ["environment:a", "environment:b", "environment:c", "environment:d"];
