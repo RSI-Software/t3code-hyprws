@@ -174,6 +174,19 @@ const refreshIssue = (
   if (updated !== null) client.updateIssueComment(comment.id, updated);
 };
 
+const refreshBlockIssue = (
+  client: RebaseGitHubClient,
+  issue: RebaseIssue,
+  blocked: BlockedIssue,
+  at: Date,
+): void => {
+  if (issue.issueType === null) {
+    client.applyIssueType(issue, client.lookupIssueTypeId(BUG_ISSUE_TYPE));
+  }
+  client.updateIssueBody(issue.number, blocked.body);
+  refreshIssue(client, issue.number, blocked, at);
+};
+
 const closeByIdentity = (client: RebaseGitHubClient, issue: RebaseIssue, comment: string): void => {
   if (blockingSha(issue) === null) {
     throw new Error(`open rebase-blocked issue #${issue.number} has no blocking-sha marker`);
@@ -210,14 +223,19 @@ export const reconcileRebaseBlock = (
 
   if (input.blocked === null) return;
   if (kept !== null) {
-    if (kept.issueType === null) {
-      client.applyIssueType(kept, client.lookupIssueTypeId(BUG_ISSUE_TYPE));
-    }
-    client.updateIssueBody(kept.number, input.blocked.body);
-    refreshIssue(client, kept.number, input.blocked, at);
+    refreshBlockIssue(client, kept, input.blocked, at);
     return;
   }
   if (issues.some((issue) => blockingSha(issue) === desiredSha)) return;
+
+  const preCreateMatch = client
+    .listBlockedIssues()
+    .filter((issue) => issue.state === "open" && blockingSha(issue) === desiredSha)
+    .toSorted((left, right) => left.number - right.number)[0];
+  if (preCreateMatch !== undefined) {
+    refreshBlockIssue(client, preCreateMatch, input.blocked, at);
+    return;
+  }
 
   const issueTypeId = client.lookupIssueTypeId(BUG_ISSUE_TYPE);
   const created = client.createIssue({
