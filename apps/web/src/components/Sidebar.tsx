@@ -148,7 +148,7 @@ import {
   hasUnseenCompletion,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
-  isSidebarThreadGroupDrop,
+  isSidebarThreadGroupingTarget,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   orderThreadsByProjectPreference,
@@ -3087,14 +3087,14 @@ export default function Sidebar({
         overItem?.kind === "group-header"
           ? groups.find((group) => group.id === overItem.groupId)
           : groups.find((group) => group.threadIds.includes(overKey));
-      const grouping =
-        overItem?.kind !== "group-header" &&
-        (activeGroup === undefined || activeGroup.id !== overGroup?.id) &&
-        isSidebarThreadGroupDrop({
-          activeRect: event.active.rect.current.translated,
-          overRect: event.over.rect,
-        });
-      updateGroupDropTarget(grouping ? overKey : null);
+      const grouping = isSidebarThreadGroupingTarget({
+        activeGroupId: activeGroup?.id ?? null,
+        overGroupId: overGroup?.id ?? null,
+        overGroupHeader: overItem?.kind === "group-header",
+        activeRect: event.active.rect.current.translated,
+        overRect: event.over.rect,
+      });
+      updateGroupDropTarget(grouping ? rawOverKey : null);
     },
     [activeThreadSortableItemById, activeThreads, threadGroupsByProject, updateGroupDropTarget],
   );
@@ -3121,7 +3121,7 @@ export default function Sidebar({
         const thread = threadByKey.get(threadKey);
         return thread !== undefined && threadProjectOrderKey(thread) === projectKey;
       });
-      const mode = intendedGroupTargetKey === overKey ? "group" : "reorder";
+      const mode = intendedGroupTargetKey === rawOverKey ? "group" : "reorder";
       const targetGroup = (threadGroupsByProject[projectKey] ?? []).find((group) =>
         group.threadIds.includes(overKey),
       );
@@ -4565,6 +4565,13 @@ export default function Sidebar({
                                         group={item.group}
                                         memberCount={item.threads.length}
                                         isGenerating={generatingGroupIds.has(generatingKey)}
+                                        isGroupDropTarget={
+                                          groupDropTargetKey ===
+                                          sidebarThreadGroupSortableId(
+                                            item.projectKey,
+                                            item.group.id,
+                                          )
+                                        }
                                         onCollapsedChange={(collapsed) =>
                                           setThreadGroupCollapsed(
                                             item.projectKey,
