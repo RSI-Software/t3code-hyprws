@@ -4,10 +4,12 @@ import {
   buildCreateThreadGroupContextMenuItem,
   buildThreadGroupMembershipContextMenuItems,
   buildSidebarThreadSortableItems,
+  getSidebarThreadGroupDissolvingKey,
   getSidebarThreadLayoutOrder,
   isSidebarThreadGroupDrop,
   formatSidebarRelativeTimeLabel,
   isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   isProjectInSidebarScope,
   resolveCompletedTurnTiming,
   shouldShowSidebarDoneStatus,
@@ -187,6 +189,75 @@ describe("sidebar thread groups", () => {
         overRect: null,
       }),
     ).toBe(false);
+  });
+
+  it("uses the first member's own group header as an ungroup-before target", () => {
+    const activeGroup = {
+      id: "group-1",
+      title: "Related work",
+      threadIds: ["thread-a", "thread-b"],
+      collapsed: false,
+    };
+    const groupHeader = {
+      kind: "group-header" as const,
+      id: "group-header-1",
+      projectKey: "project-a",
+      groupId: "group-1",
+      anchorThreadId: "thread-a",
+    };
+
+    expect(
+      isSidebarThreadUngroupBeforeTarget({
+        activeThreadId: "thread-a",
+        activeGroup,
+        overItem: groupHeader,
+      }),
+    ).toBe(true);
+    expect(
+      isSidebarThreadUngroupBeforeTarget({
+        activeThreadId: "thread-b",
+        activeGroup,
+        overItem: groupHeader,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarThreadUngroupBeforeTarget({
+        activeThreadId: "thread-a",
+        activeGroup,
+        overItem: { ...groupHeader, groupId: "group-2" },
+      }),
+    ).toBe(false);
+  });
+
+  it("previews dissolution only while leaving a two-thread group", () => {
+    const activeGroup = {
+      id: "group-1",
+      title: "Related work",
+      threadIds: ["thread-a", "thread-b"],
+      collapsed: false,
+    };
+
+    expect(
+      getSidebarThreadGroupDissolvingKey({
+        projectKey: "project-a",
+        activeGroup,
+        overGroupId: null,
+      }),
+    ).toBe("project-a\0group-1");
+    expect(
+      getSidebarThreadGroupDissolvingKey({
+        projectKey: "project-a",
+        activeGroup,
+        overGroupId: "group-1",
+      }),
+    ).toBeNull();
+    expect(
+      getSidebarThreadGroupDissolvingKey({
+        projectKey: "project-a",
+        activeGroup: { ...activeGroup, threadIds: [...activeGroup.threadIds, "thread-c"] },
+        overGroupId: null,
+      }),
+    ).toBeNull();
   });
 
   it("offers group creation only for an eligible multi-selection", () => {
