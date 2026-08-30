@@ -314,6 +314,27 @@ const verificationEnvironment = (): NodeJS.ProcessEnv => {
   return env;
 };
 
+export const selectVerificationDependencySetup = (
+  git: Pick<FeasibilityGit, "runResult">,
+  baseSha: string,
+  targetSha: string,
+): VerificationDependencySetup => {
+  const dependencyDiff = git.runResult([
+    "diff",
+    "--quiet",
+    baseSha,
+    targetSha,
+    "--",
+    "pnpm-lock.yaml",
+    "package.json",
+    ":(glob)**/package.json",
+  ]);
+  if (dependencyDiff.status !== 0 && dependencyDiff.status !== 1) {
+    requireSuccess("inspect dependency manifest changes", dependencyDiff);
+  }
+  return dependencyDiff.status === 1 ? "fresh-install" : "shared-install";
+};
+
 const verifyReplay = (
   root: string,
   worktree: string,
@@ -337,21 +358,7 @@ const verifyReplay = (
     forkReplay(rebased, targetSha, newSha),
   );
 
-  const dependencyDiff = original.runResult([
-    "diff",
-    "--quiet",
-    oldSha,
-    targetSha,
-    "--",
-    "pnpm-lock.yaml",
-    "package.json",
-    ":(glob)**/package.json",
-  ]);
-  if (dependencyDiff.status !== 0 && dependencyDiff.status !== 1) {
-    requireSuccess("inspect dependency manifest changes", dependencyDiff);
-  }
-  const dependencySetup: VerificationDependencySetup =
-    dependencyDiff.status === 1 ? "fresh-install" : "shared-install";
+  const dependencySetup = selectVerificationDependencySetup(original, baseSha, targetSha);
   const env = verificationEnvironment();
   if (dependencySetup === "fresh-install") {
     requireSuccess("vp i", commandResult("vp", ["i"], worktree, env));
