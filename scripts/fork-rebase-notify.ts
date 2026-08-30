@@ -477,7 +477,7 @@ export class SystemGitHub implements RebaseGitHubClient {
 
 export class UsageError extends Error {}
 
-const HELP = `Usage: bun scripts/fork-rebase-notify.ts --input <path>\n`;
+const HELP = `Usage: node scripts/fork-rebase-notify.ts --input <path>\n`;
 
 export const parseArgs = (argv: ReadonlyArray<string>): { readonly input: string } => {
   if (argv.length !== 2 || argv[0] !== "--input" || argv[1] === undefined) {
