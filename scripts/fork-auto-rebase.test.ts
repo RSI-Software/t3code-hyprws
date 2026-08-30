@@ -245,6 +245,69 @@ it("plans a no-op at the base and rejects an override beyond the clean window", 
   }
 });
 
+it("ignores an untagged conflict beyond the newest upstream tag", () => {
+  const fixture = fixtureRepository();
+  try {
+    git(fixture.root, ["tag", "--delete", "v1.1.0-nightly.20260828.1209"]);
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    assert.strictEqual(plan.horizon?.tag, "v1.1.0-nightly.20260828.1208");
+    assert.strictEqual(plan.target?.sha, fixture.cleanNightly);
+    assert.strictEqual(plan.feasibility.ffBoundary.firstConflict, null);
+
+    const result = executeAutoRebase(fixture.root, dryRunOptions, plan, () => "shared-install");
+    assert.strictEqual(result.status, "advanced");
+    assert.strictEqual(result.blocked, null);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("reports a conflict before the newest upstream tag in that tag's context", () => {
+  const fixture = fixtureRepository();
+  try {
+    git(fixture.root, ["switch", "upstream-lane"]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "after-conflict.txt"), "tagged horizon\n");
+    const horizon = commit(fixture.root, "feat: tagged horizon after conflict");
+    git(fixture.root, ["tag", "v1.2.0-nightly.20260828.1210"]);
+    git(fixture.root, ["update-ref", "refs/remotes/upstream/main", horizon]);
+
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    assert.strictEqual(plan.horizon?.sha, horizon);
+    assert.strictEqual(plan.feasibility.ffBoundary.firstConflict?.sha, fixture.conflict);
+    assert.strictEqual(plan.newestTagBeyondWindow?.tag, "v1.2.0-nightly.20260828.1210");
+    assert.strictEqual(
+      buildBlockedIssue(plan)?.newestUpstreamTagBeyondWindow,
+      "v1.2.0-nightly.20260828.1210",
+    );
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("returns a no-op when no upstream tag exists in the scan window", () => {
+  const fixture = fixtureRepository();
+  try {
+    for (const tag of [
+      "v0.9.0",
+      "v1.0.0",
+      "v1.1.0-nightly.20260828.1208",
+      "v1.1.0-nightly.20260828.1209",
+    ]) {
+      git(fixture.root, ["tag", "--delete", tag]);
+    }
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    assert.strictEqual(plan.horizon, null);
+    assert.strictEqual(plan.target, null);
+    assert.strictEqual(plan.feasibility.ffBoundary.upstreamCommitCount, 0);
+
+    const result = executeAutoRebase(fixture.root, dryRunOptions, plan, () => "shared-install");
+    assert.strictEqual(result.status, "no-op");
+    assert.strictEqual(result.blocked, null);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
 it("advances to the newest clean tag, reports the block, and enumerates stable snapshots", () => {
   const fixture = fixtureRepository();
   try {
@@ -337,7 +400,7 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     );
     assert.strictEqual(
       result.blocked?.title,
-      `[📡#217] 🔔 hyprws auto-rebase is blocked at upstream ${fixture.conflict.slice(0, 7)}`,
+      `🔔 hyprws auto-rebase blocked at v1.1.0-nightly.20260828.1209 (upstream ${fixture.conflict.slice(0, 7)})`,
     );
     assert.include(result.blocked?.body ?? "", `<!-- blocking-sha:${fixture.conflict} -->`);
     assert.notInclude(result.blocked?.body ?? "", "stale pre-advance blocker");
@@ -345,9 +408,10 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
       result.blocked?.body ?? "",
       `The fork stack advances to \`v1.1.0-nightly.20260828.1208\`, the newest clean upstream tag.\n1 upstream commit sits behind the blocking commit \`${fixture.conflict}\`.`,
     );
+    assert.notInclude(result.blocked?.body ?? "", "Parent:");
     assert.include(
       result.blocked?.body ?? "",
-      "Parent: RSI-Software/t3code-hyprws#217\n\n<!-- gh-bot:relationships:start -->\nRelationships: none (`--no-relationship`).",
+      "<!-- gh-bot:relationships:start -->\nRelationships: none (`--no-relationship`).",
     );
     assert.strictEqual(result.blocked?.conflicts[0]?.domain, "fork-meta");
     assert.deepStrictEqual(result.verificationDependencySetup, ["shared-install"]);
