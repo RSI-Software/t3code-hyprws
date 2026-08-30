@@ -28,9 +28,12 @@ On each scheduled, pushed, or manually dispatched run, the workflow:
 5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
 6. creates or updates stable-candidate and `rebase-blocked` issues.
 
-A run that has no newer clean release tag is a successful no-op. A conflict before the newest tagged
-horizon does not prevent the bot from advancing to an earlier clean target; the same run reports the
-block for a human. A conflict in untagged commits past the horizon is not a block.
+A run that has no newer clean release tag is a successful no-op. The sequential rebase census to the
+newest tagged horizon decides the outcome when available: zero conflicting fork commits advances to
+that tag, while one or more confirms a block at the pairwise scan's first conflicting upstream
+commit. If the census fails or reaches a limit, the pairwise result decides and the block records why
+the census was unavailable. A confirmed block does not prevent the bot from advancing to an earlier
+clean target. A conflict in untagged commits past the horizon is not a block.
 
 ## Bot-owned refs
 

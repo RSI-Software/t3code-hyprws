@@ -56,6 +56,7 @@ export interface AutoRebasePlan {
   readonly upstreamSha: string;
   readonly baseSha: string;
   readonly horizon: PositionedTag | null;
+  readonly censusTarget: PositionedTag | null;
   readonly target: PositionedTag | null;
   readonly stableTags: ReadonlyArray<PositionedTag>;
   readonly newestTagBeyondWindow: PositionedTag | null;
@@ -75,6 +76,15 @@ export interface AutoRebaseResult {
   readonly newSha: string | null;
   readonly stableCandidates: ReadonlyArray<StableCandidate>;
   readonly verificationDependencySetup: ReadonlyArray<VerificationDependencySetup>;
+  readonly decision: {
+    readonly pairwiseFirstConflict: {
+      readonly sha: string;
+      readonly shortSha: string;
+      readonly subject: string;
+    } | null;
+    readonly census: RebaseStopCensus | null;
+    readonly censusUnavailableReason: string | null;
+  };
   readonly blocked: BlockedIssue | null;
 }
 
@@ -248,12 +258,7 @@ export const buildAutoRebasePlan = (
   const tags = readPositionedTags(git, positions);
   const horizon = selectNewestTag(tags);
   const feasibility = buildFeasibility(git, oldSha, horizon?.sha ?? baseSha, baseSha);
-  const cleanTags = tags.filter(
-    (tag) =>
-      tag.position <= (horizon?.position ?? 0) &&
-      tag.position <= feasibility.ffBoundary.cleanCommitCount,
-  );
-  let target = selectNewestTag(cleanTags);
+  let censusTarget = horizon;
   if (targetOverride !== null) {
     if (!UPSTREAM_TAG.test(targetOverride)) {
       throw new UsageError(`--target must be an upstream release tag: ${targetOverride}`);
@@ -265,19 +270,26 @@ export const buildAutoRebasePlan = (
         `--target must be inside the clean upstream first-parent window: ${targetOverride}`,
       );
     }
-    target = {
+    censusTarget = {
       tag: targetOverride,
       sha,
       position,
       stable: STABLE_TAG.test(targetOverride),
     };
   }
-  const targetPosition = target?.position ?? 0;
+  const targetPosition = censusTarget?.position ?? 0;
+  const target = selectNewestTag(
+    tags.filter(
+      (tag) =>
+        tag.position <= targetPosition && tag.position <= feasibility.ffBoundary.cleanCommitCount,
+    ),
+  );
   return {
     oldSha,
     upstreamSha,
     baseSha,
     horizon,
+    censusTarget,
     target,
     stableTags: tags
       .filter(
@@ -624,18 +636,48 @@ const censusUnavailableReason = (root: string, error: unknown): string => {
 };
 
 const blockedReport = (
-  root: string,
   plan: Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility">,
-  headSha: string,
-  baseSha: string,
-  census: StopCensusRunner,
+  census: RebaseStopCensus | null,
+  censusUnavailable: string | null,
 ): BlockedIssue | null => {
   if (plan.feasibility.ffBoundary.firstConflict === null) return null;
-  if (plan.newestTagBeyondWindow === null) return buildBlockedIssue(plan);
+  if (census?.conflictingForkCommitCount === 0) return null;
+  return buildBlockedIssue(plan, census, censusUnavailable);
+};
+
+const decideByCensus = (
+  root: string,
+  plan: AutoRebasePlan,
+  census: StopCensusRunner,
+): Pick<AutoRebaseResult["decision"], "census" | "censusUnavailableReason"> => {
+  if (plan.feasibility.ffBoundary.firstConflict === null || plan.censusTarget === null) {
+    return { census: null, censusUnavailableReason: null };
+  }
+  if (plan.censusTarget.sha === plan.baseSha) {
+    return {
+      census: {
+        targetTag: plan.censusTarget.tag,
+        conflictingForkCommitCount: 0,
+        conflictingFileCount: 0,
+        truncated: false,
+        truncatedBy: null,
+        stopLimit: STOP_CENSUS_LIMIT,
+        timeLimitSeconds: STOP_CENSUS_TIME_LIMIT_MS / 1000,
+      },
+      censusUnavailableReason: null,
+    };
+  }
   try {
-    return buildBlockedIssue(plan, census(root, headSha, baseSha, plan.newestTagBeyondWindow));
+    const result = census(root, plan.oldSha, plan.baseSha, plan.censusTarget);
+    if (result.truncated) {
+      return {
+        census: null,
+        censusUnavailableReason: `sequential census did not complete before its ${result.truncatedBy ?? "unknown"} limit`,
+      };
+    }
+    return { census: result, censusUnavailableReason: null };
   } catch (error) {
-    return buildBlockedIssue(plan, null, censusUnavailableReason(root, error));
+    return { census: null, censusUnavailableReason: censusUnavailableReason(root, error) };
   }
 };
 
@@ -646,10 +688,12 @@ const postAdvanceBlockedPlan = (
 ): Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility"> => {
   if (plan.target === null) throw new Error("cannot refresh a blocked plan without a target");
   const baseSha = plan.target.sha;
-  if (plan.horizon === null) throw new Error("cannot refresh a blocked plan without a horizon");
-  const feasibility = buildFeasibility(git, newSha, plan.horizon.sha, baseSha);
+  if (plan.censusTarget === null) {
+    throw new Error("cannot refresh a blocked plan without a census target");
+  }
+  const feasibility = buildFeasibility(git, newSha, plan.censusTarget.sha, baseSha);
   const upstreamCommits = lines(
-    git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.horizon.sha}`]),
+    git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.censusTarget.sha}`]),
   );
   const positions = new Map<string, number>([[baseSha, 0]]);
   upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));
@@ -679,9 +723,15 @@ export const executeAutoRebase = (
   const git = new SystemGit(root);
   const stableCandidates: Array<StableCandidate> = [];
   const dependencySetups = new Set<VerificationDependencySetup>();
-  const census = hooks.rehearseStopCensus ?? rehearseStopCensus;
+  const censusRunner = hooks.rehearseStopCensus ?? rehearseStopCensus;
+  const pairwiseFirstConflict = plan.feasibility.ffBoundary.firstConflict;
+  const { census, censusUnavailableReason } = decideByCensus(root, plan, censusRunner);
+  const censusConflictCount = census?.conflictingForkCommitCount ?? null;
+  const target = censusConflictCount === 0 ? plan.censusTarget : plan.target;
+  const decidedPlan = { ...plan, target };
+  const decision = { pairwiseFirstConflict, census, censusUnavailableReason };
   if (options.mode === "off") {
-    const blocked = blockedReport(root, plan, plan.oldSha, plan.baseSha, census);
+    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason);
     return {
       schemaVersion: 1,
       mode: options.mode,
@@ -689,14 +739,17 @@ export const executeAutoRebase = (
       status: "off",
       oldSha: plan.oldSha,
       baseSha: plan.baseSha,
-      target: plan.target === null ? null : { tag: plan.target.tag, sha: plan.target.sha },
+      target: target === null ? null : { tag: target.tag, sha: target.sha },
       newSha: null,
       stableCandidates,
       verificationDependencySetup: [],
+      decision,
       blocked,
     };
   }
-  for (const stable of plan.stableTags) {
+  for (const stable of plan.stableTags.filter(
+    (candidate) => candidate.position <= (target?.position ?? 0),
+  )) {
     const branch = `release/${stable.tag}-hyprws`;
     if (trackingBranchExists(git, branch)) continue;
     const stack =
@@ -721,8 +774,8 @@ export const executeAutoRebase = (
     });
   }
 
-  if (plan.target === null || plan.target.sha === plan.baseSha) {
-    const blocked = blockedReport(root, plan, plan.oldSha, plan.baseSha, census);
+  if (target === null || target.sha === plan.baseSha) {
+    const blocked = blockedReport(decidedPlan, census, censusUnavailableReason);
     if (!options.dryRun) createStableSnapshots(root, stableCandidates, true);
     return {
       schemaVersion: 1,
@@ -731,21 +784,23 @@ export const executeAutoRebase = (
       status: "no-op",
       oldSha: plan.oldSha,
       baseSha: plan.baseSha,
-      target: plan.target === null ? null : { tag: plan.target.tag, sha: plan.target.sha },
+      target: target === null ? null : { tag: target.tag, sha: target.sha },
       newSha: null,
       stableCandidates,
       verificationDependencySetup: [],
+      decision,
       blocked,
     };
   }
 
   // Verify every replay before the first mutation. A feasibility mismatch or
   // failed check therefore leaves all remote refs untouched.
-  const targetStack = createRebasedStack(root, plan.oldSha, plan.baseSha, plan.target.sha, verify);
+  const targetStack = createRebasedStack(root, plan.oldSha, plan.baseSha, target.sha, verify);
   dependencySetups.add(targetStack.dependencySetup);
   const newSha = targetStack.sha;
-  const refreshedPlan = postAdvanceBlockedPlan(git, plan, newSha);
-  const blocked = blockedReport(root, refreshedPlan, newSha, plan.target.sha, census);
+  const refreshedPlan =
+    censusConflictCount === 0 ? decidedPlan : postAdvanceBlockedPlan(git, decidedPlan, newSha);
+  const blocked = blockedReport(refreshedPlan, census, censusUnavailableReason);
   if (!options.dryRun) {
     const previousBeforeRun =
       options.mode === "on" ? remoteBranchSha(root, "hyprws-previous") : null;
@@ -793,10 +848,11 @@ export const executeAutoRebase = (
     status: "advanced",
     oldSha: plan.oldSha,
     baseSha: plan.baseSha,
-    target: { tag: plan.target.tag, sha: plan.target.sha },
+    target: { tag: target.tag, sha: target.sha },
     newSha,
     stableCandidates,
     verificationDependencySetup: [...dependencySetups].toSorted(),
+    decision,
     blocked,
   };
 };
@@ -822,6 +878,22 @@ export const renderSummary = (result: AutoRebaseResult): string => {
     `- Stable candidates: ${result.stableCandidates.length}`,
     `- Dependency setup: ${result.verificationDependencySetup.length === 0 ? "not run" : result.verificationDependencySetup.join(", ")}`,
     `- Push ordering: ${pushOrdering}`,
+    `- pairwise merge-tree: ${
+      result.decision.pairwiseFirstConflict === null
+        ? "clean"
+        : `conflict at ${result.decision.pairwiseFirstConflict.shortSha}`
+    }`,
+    `- decided by: ${
+      result.decision.censusUnavailableReason !== null
+        ? `pairwise (census unavailable: ${result.decision.censusUnavailableReason})`
+        : result.decision.census === null
+          ? "pairwise (census not needed)"
+          : `census (${
+              result.decision.census.conflictingForkCommitCount === 0
+                ? "0 conflicts"
+                : `${result.decision.census.conflictingForkCommitCount} conflicts at ${result.blocked?.blockingShortSha ?? result.decision.pairwiseFirstConflict?.shortSha ?? "unknown"}`
+            })`
+    }`,
   ];
   if (result.status === "no-op") {
     lines.push("", "No clean upstream tag lies beyond the current base.");
