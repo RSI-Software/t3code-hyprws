@@ -23,6 +23,7 @@ import {
   hasUnseenCompletion,
   isContextMenuPointerDown,
   isSidebarThreadGroupDrop,
+  isSidebarThreadGroupingTarget,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
@@ -275,14 +276,33 @@ describe("sidebar thread groups", () => {
     ]);
   });
 
-  it("only treats the center of a row as a grouping drop target", () => {
+  it("reserves only the row edges for reordering", () => {
     const overRect = { top: 100, bottom: 200 };
-    expect(isSidebarThreadGroupDrop({ activeRect: { top: 130, bottom: 170 }, overRect })).toBe(
-      true,
-    );
+    expect(isSidebarThreadGroupDrop({ activeRect: { top: 96, bottom: 136 }, overRect })).toBe(true);
     expect(isSidebarThreadGroupDrop({ activeRect: { top: 80, bottom: 110 }, overRect })).toBe(
       false,
     );
+  });
+
+  it("accepts the full group header as a grouping target", () => {
+    expect(
+      isSidebarThreadGroupingTarget({
+        activeGroupId: null,
+        overGroupId: "group-1",
+        overGroupHeader: true,
+        activeRect: null,
+        overRect: null,
+      }),
+    ).toBe(true);
+    expect(
+      isSidebarThreadGroupingTarget({
+        activeGroupId: "group-1",
+        overGroupId: "group-1",
+        overGroupHeader: true,
+        activeRect: null,
+        overRect: null,
+      }),
+    ).toBe(false);
   });
 
   it("offers group creation only for an eligible multi-selection", () => {
