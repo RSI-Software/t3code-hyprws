@@ -273,8 +273,21 @@ gh issue list --state open --label release \
   -R RSI-Software/t3code-hyprws
 ```
 
-Set `issue` to a number from that list. Derive the bot-owned snapshot, fetch it, and create a
-disposable worktree from the exact remote branch:
+Set `issue` to a number from that list, then derive and fetch `release_branch` below. After that
+fetch and before tagging, follow the repo-local
+[`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgment boundary and run
+`vp run fork:uat --ref "origin/$release_branch" --relates-to "$issue"` on the exact ref you intend to
+tag. The ref is the UAT input; the candidate issue is optional relationship context only. The default
+dry-run writes source material for agent and human review. After the agent writes observable UAT
+rows and removes the reviewer-only `## Sources` and `## Excluded` sections, an explicit human go permits
+`vp run fork:uat --create --body <path>` to post the reviewed file as-is. The script never launches
+the ref or edits the candidate issue.
+
+The human runs the candidate, ticks accepted rows, records findings in comments, then comments
+`Signed off` or `Blocked: <reason>`. The cut reads that UAT issue as sign-off evidence. Unticked or
+blocked rows inform the human decision but never gate the cut automatically.
+
+Derive the bot-owned snapshot, fetch it, and create a disposable worktree from the exact remote branch:
 
 ```bash
 issue=<number>
