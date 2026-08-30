@@ -18,6 +18,7 @@ export function SidebarThreadGroupHeader(props: {
   readonly group: SidebarThreadGroup;
   readonly memberCount: number;
   readonly isGenerating: boolean;
+  readonly isGroupDropTarget?: boolean;
   readonly onCollapsedChange: (collapsed: boolean) => void;
   readonly onRename: (title: string) => void;
   readonly onRegenerate: () => void;
@@ -48,7 +49,14 @@ export function SidebarThreadGroupHeader(props: {
       data-testid={`sidebar-thread-group-${props.group.id}`}
       className="group/thread-group mt-1 list-none px-1.5"
     >
-      <div className="flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 text-xs text-muted-foreground">
+      <div
+        data-group-drop-target={props.isGroupDropTarget || undefined}
+        className={cn(
+          "flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 text-xs text-muted-foreground transition-colors",
+          props.isGroupDropTarget &&
+            "border-sidebar-ring bg-sidebar-accent/60 ring-2 ring-sidebar-ring",
+        )}
+      >
         <button
           type="button"
           aria-label={props.group.collapsed ? "Expand thread group" : "Collapse thread group"}
