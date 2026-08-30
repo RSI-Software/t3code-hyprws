@@ -178,12 +178,10 @@ export function buildSidebarThreadSortableItems<T>(input: {
     if (item.group.collapsed) return [header];
     return [
       header,
-      ...item.threads.map(
-        (thread): SidebarThreadSortableItem => ({
-          kind: "thread",
-          id: input.getId(thread),
-        }),
-      ),
+      ...item.threads.map((thread): SidebarThreadSortableItem => ({
+        kind: "thread",
+        id: input.getId(thread),
+      })),
     ];
   });
 }
@@ -255,6 +253,29 @@ export function isSidebarThreadGroupingTarget(input: {
 }): boolean {
   if (input.activeGroupId !== null && input.activeGroupId === input.overGroupId) return false;
   return input.overGroupHeader || isSidebarThreadGroupDrop(input);
+}
+
+export function isSidebarThreadUngroupBeforeTarget(input: {
+  readonly activeThreadId: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overItem: SidebarThreadSortableItem | undefined;
+}): boolean {
+  return (
+    input.activeGroup !== undefined &&
+    input.overItem?.kind === "group-header" &&
+    input.overItem.groupId === input.activeGroup.id &&
+    input.overItem.anchorThreadId === input.activeThreadId
+  );
+}
+
+export function getSidebarThreadGroupDissolvingKey(input: {
+  readonly projectKey: string;
+  readonly activeGroup: SidebarThreadGroup | undefined;
+  readonly overGroupId: string | null;
+}): string | null {
+  if (!input.activeGroup || input.activeGroup.threadIds.length !== 2) return null;
+  if (input.activeGroup.id === input.overGroupId) return null;
+  return `${input.projectKey}\0${input.activeGroup.id}`;
 }
 
 export function orderThreadsByProjectPreference<T>(input: {
