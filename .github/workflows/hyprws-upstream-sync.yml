@@ -179,7 +179,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
-        run: bun scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
+        run: node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
 
       - name: Open stable candidate issues
         if: ${{ always() && (steps.rebase.outputs.status == 'stable-candidate' || steps.rebase.outputs.stable_status == 'stable-candidate') }}
