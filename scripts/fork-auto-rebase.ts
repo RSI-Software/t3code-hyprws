@@ -29,7 +29,7 @@ import {
 } from "./lib/fork-rebase-issues.ts";
 import { linkInstalledModules } from "./lib/fork-rebase-worktree.ts";
 
-const UPSTREAM_TAG = /^v\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?$/;
+const UPSTREAM_TAG = /^v\d+\.\d+\.\d+(?:-nightly\..+)?$/;
 const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
 
 export type RebaseMode = "off" | "candidate" | "on";
@@ -55,6 +55,7 @@ export interface AutoRebasePlan {
   readonly oldSha: string;
   readonly upstreamSha: string;
   readonly baseSha: string;
+  readonly horizon: PositionedTag | null;
   readonly target: PositionedTag | null;
   readonly stableTags: ReadonlyArray<PositionedTag>;
   readonly newestTagBeyondWindow: PositionedTag | null;
@@ -239,14 +240,19 @@ export const buildAutoRebasePlan = (
 ): AutoRebasePlan => {
   const upstreamSha = git.run(["rev-parse", "upstream/main^{commit}"]).trim();
   const baseSha = git.run(["merge-base", oldSha, upstreamSha]).trim();
-  const feasibility = buildFeasibility(git, oldSha, upstreamSha, baseSha);
   const upstreamCommits = lines(
     git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${upstreamSha}`]),
   );
   const positions = new Map<string, number>([[baseSha, 0]]);
   upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));
   const tags = readPositionedTags(git, positions);
-  const cleanTags = tags.filter((tag) => tag.position <= feasibility.ffBoundary.cleanCommitCount);
+  const horizon = selectNewestTag(tags);
+  const feasibility = buildFeasibility(git, oldSha, horizon?.sha ?? baseSha, baseSha);
+  const cleanTags = tags.filter(
+    (tag) =>
+      tag.position <= (horizon?.position ?? 0) &&
+      tag.position <= feasibility.ffBoundary.cleanCommitCount,
+  );
   let target = selectNewestTag(cleanTags);
   if (targetOverride !== null) {
     if (!UPSTREAM_TAG.test(targetOverride)) {
@@ -271,6 +277,7 @@ export const buildAutoRebasePlan = (
     oldSha,
     upstreamSha,
     baseSha,
+    horizon,
     target,
     stableTags: tags
       .filter(
@@ -639,9 +646,10 @@ const postAdvanceBlockedPlan = (
 ): Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility"> => {
   if (plan.target === null) throw new Error("cannot refresh a blocked plan without a target");
   const baseSha = plan.target.sha;
-  const feasibility = buildFeasibility(git, newSha, plan.upstreamSha, baseSha);
+  if (plan.horizon === null) throw new Error("cannot refresh a blocked plan without a horizon");
+  const feasibility = buildFeasibility(git, newSha, plan.horizon.sha, baseSha);
   const upstreamCommits = lines(
-    git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.upstreamSha}`]),
+    git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.horizon.sha}`]),
   );
   const positions = new Map<string, number>([[baseSha, 0]]);
   upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));

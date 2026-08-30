@@ -295,9 +295,11 @@ Fork branding and local workstation preferences belong in documentation or the d
 ### Bot-first sync
 
 `hyprws` remains one linear fork stack, but the normal upstream sync is automated. The
-`hyprws upstream sync` workflow uses the feasibility scan to select the newest upstream stable or
-nightly tag at or before the conflict-free boundary, replays the whole stack, verifies its commit
-messages and fork trailers, and publishes according to `HYPRWS_AUTO_REBASE`.
+`hyprws upstream sync` workflow caps the feasibility scan at the newest upstream stable or nightly
+tag on the first-parent lane, selects the newest clean tag within that horizon, replays the whole
+stack, verifies its commit messages and fork trailers, and publishes according to
+`HYPRWS_AUTO_REBASE`. A conflict is a block only when it makes that newest tagged horizon
+unreachable; conflicts in untagged commits beyond the horizon are ignored.
 
 The bot owns three supporting refs:
 
@@ -318,8 +320,9 @@ before the agent publishes them.
 
 ### Human unblock
 
-A conflict beyond the clean boundary creates or updates the fork's `rebase-blocked` issue. Resolve it
-through the repo-local [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
+When the newest upstream tag is unreachable, the bot creates or updates the fork's
+`rebase-blocked` issue. Resolve it through the repo-local
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
 entry point. Its five gates orient on the newest selected upstream tag beyond the block, rehearse on
 `rehearse/<tag>`, scan every active domain, run focused checks, and present the decisions, silent
 seams, and grounding evidence for human sign-off before the agent records and applies them.
