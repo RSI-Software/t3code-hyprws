@@ -52,7 +52,7 @@ export function SidebarThreadGroupHeader(props: {
       <div
         data-group-drop-target={props.isGroupDropTarget || undefined}
         className={cn(
-          "flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 text-xs text-muted-foreground transition-colors",
+          "relative flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 pr-3 text-xs text-muted-foreground transition-colors",
           props.isGroupDropTarget &&
             "border-sidebar-ring bg-sidebar-accent/60 ring-2 ring-sidebar-ring",
         )}
@@ -94,7 +94,7 @@ export function SidebarThreadGroupHeader(props: {
           variant="secondary"
           size="sm"
           aria-label={`${props.memberCount} threads`}
-          className="min-w-5 rounded-full px-1 tabular-nums"
+          className="pointer-events-none absolute -right-0.5 -top-1 z-10 h-3.5 min-w-3.5 rounded-full px-0.5 font-sans text-[0.5625rem] font-normal leading-none text-muted-foreground tabular-nums ring-1 ring-sidebar-background"
         >
           {props.memberCount}
         </Badge>
