@@ -162,6 +162,7 @@ import {
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
   buildSidebarThreadGroupLayout,
+  buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
