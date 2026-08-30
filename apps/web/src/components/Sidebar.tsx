@@ -137,11 +137,13 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
   buildSidebarThreadGroupLayout,
+  buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
   filterSidebarProjectScopeItems,
   formatWorkingDurationLabel,
   formatSidebarRelativeTimeLabel,
   firstValidTimestampMs,
+  getSidebarThreadLayoutOrder,
   hasSavedSidebarThreadOrder,
   hasUnseenCompletion,
   isProjectInSidebarScope,
@@ -159,6 +161,7 @@ import {
   resolveSidebarThreadOrderMarker,
   searchSidebarThreadsByTitle,
   resolveSidebarThreadSortOrderAfterDrop,
+  sidebarThreadGroupSortableId,
   shouldCreateNewThreadInCurrentProject,
   resolveWorkingStartedAt,
   shouldShowSidebarDoneStatus,
@@ -517,6 +520,23 @@ function SortableThreadRow(props: {
     animateLayoutChanges: animatePinnedLayoutChanges,
   });
   return props.children({ listeners, setNodeRef, transform, transition, isDragging });
+}
+
+type SortableThreadGroupHeaderBag = Pick<
+  ReturnType<typeof useSortable>,
+  "setNodeRef" | "transform" | "transition"
+>;
+
+function SortableThreadGroupHeader(props: {
+  id: string;
+  children: (bag: SortableThreadGroupHeaderBag) => ReactNode;
+}) {
+  const { setNodeRef, transform, transition } = useSortable({
+    id: props.id,
+    disabled: { draggable: true },
+    animateLayoutChanges: animatePinnedLayoutChanges,
+  });
+  return props.children({ setNodeRef, transform, transition });
 }
 
 // One unsent draft session the user has invested content in. Two lines,
@@ -2321,6 +2341,26 @@ export default function Sidebar({
       }),
     [activeThreads, threadGroupsByProject],
   );
+  const activeThreadSortableItems = useMemo(
+    () =>
+      buildSidebarThreadSortableItems({
+        layout: activeThreadGroupLayout,
+        getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [activeThreadGroupLayout],
+  );
+  const activeThreadSortableItemById = useMemo(
+    () => new Map(activeThreadSortableItems.map((item) => [item.id, item] as const)),
+    [activeThreadSortableItems],
+  );
+  const activeThreadLayoutOrder = useMemo(
+    () =>
+      getSidebarThreadLayoutOrder({
+        layout: activeThreadGroupLayout,
+        getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [activeThreadGroupLayout],
+  );
   const visibleActiveThreads = useMemo(
     () =>
       activeThreadGroupLayout.flatMap((item) =>
@@ -3019,7 +3059,9 @@ export default function Sidebar({
         return;
       }
       const activeKey = String(event.active.id);
-      const overKey = String(event.over.id);
+      const rawOverKey = String(event.over.id);
+      const overItem = activeThreadSortableItemById.get(rawOverKey);
+      const overKey = overItem?.kind === "group-header" ? overItem.anchorThreadId : rawOverKey;
       if (activeKey === overKey) {
         updateGroupDropTarget(null);
         return;
@@ -3041,8 +3083,12 @@ export default function Sidebar({
       }
       const groups = threadGroupsByProject[projectKey] ?? [];
       const activeGroup = groups.find((group) => group.threadIds.includes(activeKey));
-      const overGroup = groups.find((group) => group.threadIds.includes(overKey));
+      const overGroup =
+        overItem?.kind === "group-header"
+          ? groups.find((group) => group.id === overItem.groupId)
+          : groups.find((group) => group.threadIds.includes(overKey));
       const grouping =
+        overItem?.kind !== "group-header" &&
         (activeGroup === undefined || activeGroup.id !== overGroup?.id) &&
         isSidebarThreadGroupDrop({
           activeRect: event.active.rect.current.translated,
@@ -3050,14 +3096,17 @@ export default function Sidebar({
         });
       updateGroupDropTarget(grouping ? overKey : null);
     },
-    [activeThreads, threadGroupsByProject, updateGroupDropTarget],
+    [activeThreadSortableItemById, activeThreads, threadGroupsByProject, updateGroupDropTarget],
   );
   const handleActiveDragEnd = useCallback(
     (event: DragEndEvent) => {
       const intendedGroupTargetKey = groupDropTargetKeyRef.current;
       updateGroupDropTarget(null);
       const activeKey = String(event.active.id);
-      const overKey = event.over === null ? null : String(event.over.id);
+      const rawOverKey = event.over === null ? null : String(event.over.id);
+      const overItem =
+        rawOverKey === null ? undefined : activeThreadSortableItemById.get(rawOverKey);
+      const overKey = overItem?.kind === "group-header" ? overItem.anchorThreadId : rawOverKey;
       if (overKey === null || activeKey === overKey) return;
       const activeThread = activeThreads.find(
         (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeKey,
@@ -3068,9 +3117,10 @@ export default function Sidebar({
       if (!activeThread || !overThread) return;
       const projectKey = threadProjectOrderKey(activeThread);
       if (threadProjectOrderKey(overThread) !== projectKey) return;
-      const projectThreadKeys = activeThreads
-        .filter((thread) => threadProjectOrderKey(thread) === projectKey)
-        .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+      const projectThreadKeys = activeThreadLayoutOrder.filter((threadKey) => {
+        const thread = threadByKey.get(threadKey);
+        return thread !== undefined && threadProjectOrderKey(thread) === projectKey;
+      });
       const mode = intendedGroupTargetKey === overKey ? "group" : "reorder";
       const targetGroup = (threadGroupsByProject[projectKey] ?? []).find((group) =>
         group.threadIds.includes(overKey),
@@ -3092,10 +3142,13 @@ export default function Sidebar({
     },
     [
       activeThreads,
+      activeThreadLayoutOrder,
+      activeThreadSortableItemById,
       moveProjectThread,
       requestThreadGroupTitle,
       sidebarThreadSortOrder,
       threadGroupsByProject,
+      threadByKey,
       updateClientSettings,
       updateGroupDropTarget,
     ],
@@ -4453,9 +4506,7 @@ export default function Sidebar({
                           onDragEnd={handleActiveDragEnd}
                         >
                           <SortableContext
-                            items={activeThreads.map((thread) =>
-                              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                            )}
+                            items={activeThreadSortableItems.map((item) => item.id)}
                             strategy={verticalListSortingStrategy}
                           >
                             <ul
@@ -4497,34 +4548,48 @@ export default function Sidebar({
                                       );
                                     });
                                 return [
-                                  <SidebarThreadGroupHeader
+                                  <SortableThreadGroupHeader
                                     key={`group:${generatingKey}`}
-                                    group={item.group}
-                                    memberCount={item.threads.length}
-                                    isGenerating={generatingGroupIds.has(generatingKey)}
-                                    onCollapsedChange={(collapsed) =>
-                                      setThreadGroupCollapsed(
-                                        item.projectKey,
-                                        item.group.id,
-                                        collapsed,
-                                      )
-                                    }
-                                    onRename={(title) =>
-                                      renameThreadGroup(item.projectKey, item.group.id, title)
-                                    }
-                                    onRegenerate={() =>
-                                      void requestThreadGroupTitle({
-                                        projectKey: item.projectKey,
-                                        groupId: item.group.id,
-                                        members: item.threads,
-                                        expectedGroup: item.group,
-                                        previousTitle: item.group.title,
-                                      })
-                                    }
-                                    onRemove={() =>
-                                      removeThreadGroup(item.projectKey, item.group.id)
-                                    }
-                                  />,
+                                    id={sidebarThreadGroupSortableId(
+                                      item.projectKey,
+                                      item.group.id,
+                                    )}
+                                  >
+                                    {(bag) => (
+                                      <SidebarThreadGroupHeader
+                                        rootRef={bag.setNodeRef}
+                                        rootStyle={{
+                                          transform: CSS.Transform.toString(bag.transform),
+                                          transition: bag.transition,
+                                        }}
+                                        group={item.group}
+                                        memberCount={item.threads.length}
+                                        isGenerating={generatingGroupIds.has(generatingKey)}
+                                        onCollapsedChange={(collapsed) =>
+                                          setThreadGroupCollapsed(
+                                            item.projectKey,
+                                            item.group.id,
+                                            collapsed,
+                                          )
+                                        }
+                                        onRename={(title) =>
+                                          renameThreadGroup(item.projectKey, item.group.id, title)
+                                        }
+                                        onRegenerate={() =>
+                                          void requestThreadGroupTitle({
+                                            projectKey: item.projectKey,
+                                            groupId: item.group.id,
+                                            members: item.threads,
+                                            expectedGroup: item.group,
+                                            previousTitle: item.group.title,
+                                          })
+                                        }
+                                        onRemove={() =>
+                                          removeThreadGroup(item.projectKey, item.group.id)
+                                        }
+                                      />
+                                    )}
+                                  </SortableThreadGroupHeader>,
                                   ...groupRows,
                                 ];
                               })}
