@@ -91,10 +91,10 @@ export function SidebarThreadGroupHeader(props: {
           </button>
         )}
         <Badge
-          variant="default"
+          variant="secondary"
           size="sm"
           aria-label={`${props.memberCount} threads`}
-          className="pointer-events-none absolute -right-1.5 -top-1.5 z-10 h-4 min-w-4 rounded-full px-1 text-[0.625rem] tabular-nums ring-2 ring-sidebar-background"
+          className="pointer-events-none absolute -right-0.5 -top-1 z-10 h-3.5 min-w-3.5 rounded-full px-0.5 font-sans text-[0.5625rem] font-normal leading-none text-muted-foreground tabular-nums ring-1 ring-sidebar-background"
         >
           {props.memberCount}
         </Badge>
