@@ -24,6 +24,7 @@ import {
   hasUnseenCompletion,
   isContextMenuPointerDown,
   isSidebarThreadGroupDrop,
+  isSidebarThreadGroupingTarget,
   isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
