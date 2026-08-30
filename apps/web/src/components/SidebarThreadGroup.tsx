@@ -19,6 +19,7 @@ export function SidebarThreadGroupHeader(props: {
   readonly memberCount: number;
   readonly isGenerating: boolean;
   readonly isGroupDropTarget?: boolean;
+  readonly isDissolving?: boolean;
   readonly onCollapsedChange: (collapsed: boolean) => void;
   readonly onRename: (title: string) => void;
   readonly onRegenerate: () => void;
@@ -46,15 +47,20 @@ export function SidebarThreadGroupHeader(props: {
       ref={props.rootRef}
       style={props.rootStyle}
       data-thread-selection-safe
+      data-group-dissolving={props.isDissolving || undefined}
       data-testid={`sidebar-thread-group-${props.group.id}`}
-      className="group/thread-group mt-1 list-none px-1.5"
+      className={cn(
+        "group/thread-group mt-1 list-none px-1.5",
+        props.isDissolving && "pointer-events-none mt-0 overflow-hidden",
+      )}
     >
       <div
         data-group-drop-target={props.isGroupDropTarget || undefined}
         className={cn(
-          "relative flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 pr-3 text-xs text-muted-foreground transition-colors",
+          "relative flex h-8 min-w-0 items-center gap-1 rounded-md border border-sidebar-border/65 bg-sidebar-accent/25 px-1.5 pr-3 text-xs text-muted-foreground transition-[height,opacity,background-color,border-color] duration-150 ease-out",
           props.isGroupDropTarget &&
             "border-sidebar-ring bg-sidebar-accent/60 ring-2 ring-sidebar-ring",
+          props.isDissolving && "h-0 opacity-0",
         )}
       >
         <button
