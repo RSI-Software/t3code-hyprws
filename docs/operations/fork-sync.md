@@ -312,12 +312,8 @@ The issue comment is the durable human rehearsal record. Existing files under
 add to that directory. A clean rehearsal can therefore apply with no new stack commit; a committed
 keep/retire ledger change is delta input, not an operational record.
 
-After the gate passes, the agent runs the final trunk push with the `expected_old` read exactly once
-at the start of the same rehearsal:
-
-```bash
-git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
-```
+After the gate passes, the agent runs the skill's final trunk push with the `expected_old` read
+exactly once at the start of the same rehearsal.
 
 Never move a bot-owned ref as part of the unblock. After the leased push succeeds, the agent posts
 the resolved blocking SHA, target tag, and rehearsal-record comment URL. The record comment and
