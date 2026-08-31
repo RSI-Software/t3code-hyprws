@@ -17,17 +17,35 @@ const record = (expectedOld = SHA, sanity = "donjor 2026-08-27") => `# Rehearsal
 - Human sanity: ${sanity}\n`;
 
 it("keeps stable-only as the default and opts into nightly tags", () => {
-  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3"]), {
+  assert.deepStrictEqual(parseArgs(["--tag", "v1.2.3", "--record", "/tmp/record.md"]), {
     tag: "v1.2.3",
+    recordPath: "/tmp/record.md",
     allowNightly: false,
   });
-  assert.deepStrictEqual(parseArgs(["--allow-nightly", "--tag", "v1.2.3-nightly.20260828.4"]), {
-    tag: "v1.2.3-nightly.20260828.4",
-    allowNightly: true,
-  });
-  assert.throws(() => parseArgs(["--tag", "v1.2.3-nightly.20260828.4"]), UsageError);
-  assert.throws(() => parseArgs(["--tag", "v1.2.3-nightly.4", "--allow-nightly"]), UsageError);
-  assert.throws(() => parseArgs(["--tag", "../../tmp"]), UsageError);
+  assert.deepStrictEqual(
+    parseArgs([
+      "--allow-nightly",
+      "--record",
+      "/tmp/record.md",
+      "--tag",
+      "v1.2.3-nightly.20260828.4",
+    ]),
+    {
+      tag: "v1.2.3-nightly.20260828.4",
+      recordPath: "/tmp/record.md",
+      allowNightly: true,
+    },
+  );
+  assert.throws(
+    () => parseArgs(["--tag", "v1.2.3-nightly.20260828.4", "--record", "/tmp/record.md"]),
+    UsageError,
+  );
+  assert.throws(
+    () => parseArgs(["--tag", "v1.2.3-nightly.4", "--record", "/tmp/record.md", "--allow-nightly"]),
+    UsageError,
+  );
+  assert.throws(() => parseArgs(["--tag", "../../tmp", "--record", "/tmp/record.md"]), UsageError);
+  assert.throws(() => parseArgs(["--tag", "v1.2.3"]), UsageError);
   assert.throws(() => parseArgs([]), UsageError);
 });
 
@@ -75,8 +93,14 @@ const collector = () => {
   };
 };
 
-const fixtureRepository = (): { root: string; head: string; recordPath: string } => {
+const fixtureRepository = (): {
+  root: string;
+  recordRoot: string;
+  head: string;
+  recordPath: string;
+} => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-gate-"));
+  const recordRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-record-"));
   git(root, ["init", "-b", "fixture"]);
   git(root, ["config", "user.name", "Test User"]);
   git(root, ["config", "user.email", "test@example.com"]);
@@ -84,31 +108,55 @@ const fixtureRepository = (): { root: string; head: string; recordPath: string }
   git(root, ["add", "README.md"]);
   git(root, ["commit", "-m", "fixture"]);
   const head = git(root, ["rev-parse", "HEAD"]);
-  const directory = NodePath.join(root, "docs/operations/fork-sync-records");
-  NodeFS.mkdirSync(directory, { recursive: true });
-  const recordPath = NodePath.join(directory, "v1.2.3.md");
+  const recordPath = NodePath.join(recordRoot, "v1.2.3.md");
   NodeFS.writeFileSync(recordPath, record(head));
-  return { root, head, recordPath };
+  return { root, recordRoot, head, recordPath };
 };
 
-it("runs against the repository record and the preflight's freshly fetched head", () => {
-  const { root, head, recordPath } = fixtureRepository();
+it("runs against an external record and the preflight's freshly fetched head", () => {
+  const { root, recordRoot, head, recordPath } = fixtureRepository();
   try {
     const { stdout, stderr, output } = collector();
     const preflight = { preflight: () => passingPreflight(head) };
-    assert.strictEqual(run(["--tag", "v1.2.3"], root, output, preflight), 0);
+    assert.strictEqual(
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, preflight),
+      0,
+    );
     assert.match(stdout.join(""), /^ready: v1\.2\.3 apply gate passed/);
 
     NodeFS.writeFileSync(recordPath, record(head, "absent"));
-    assert.strictEqual(run(["--tag", "v1.2.3"], root, output, preflight), 1);
+    assert.strictEqual(
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, preflight),
+      1,
+    );
     assert.include(stderr.join(""), "missing Human sanity mark");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(recordRoot, { recursive: true, force: true });
+  }
+});
+
+it("refuses a record inside the replayed repository", () => {
+  const { root, recordRoot, head } = fixtureRepository();
+  const recordPath = NodePath.join(root, "rehearsal.md");
+  NodeFS.writeFileSync(recordPath, record(head));
+  try {
+    const { stderr, output } = collector();
+    assert.strictEqual(
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+        preflight: () => passingPreflight(head),
+      }),
+      1,
+    );
+    assert.include(stderr.join(""), "rehearsal record must be outside the repository");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(recordRoot, { recursive: true, force: true });
   }
 });
 
 it("refuses on an unmet precondition and names it before reading the record", () => {
-  const { root } = fixtureRepository();
+  const { root, recordRoot, recordPath } = fixtureRepository();
   try {
     const { stderr, output } = collector();
     const preflight = {
@@ -130,26 +178,33 @@ it("refuses on an unmet precondition and names it before reading the record", ()
         originHyprwsSha: null,
       }),
     };
-    assert.strictEqual(run(["--tag", "v1.2.3"], root, output, preflight), 1);
+    assert.strictEqual(
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, preflight),
+      1,
+    );
     const written = stderr.join("");
     assert.include(written, "blocked: precondition unmet: rerere.enabled: unset");
     assert.include(written, "fix: git config --global rerere.enabled true");
     assert.notInclude(written, "dependencies installed");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(recordRoot, { recursive: true, force: true });
   }
 });
 
 it("never falls back to resolving origin/hyprws itself", () => {
-  const { root } = fixtureRepository();
+  const { root, recordRoot, recordPath } = fixtureRepository();
   try {
     const { stderr, output } = collector();
     assert.strictEqual(
-      run(["--tag", "v1.2.3"], root, output, { preflight: () => passingPreflight(null) }),
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+        preflight: () => passingPreflight(null),
+      }),
       1,
     );
     assert.include(stderr.join(""), "no freshly fetched origin/hyprws head");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(recordRoot, { recursive: true, force: true });
   }
 });
