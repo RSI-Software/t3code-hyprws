@@ -12,7 +12,6 @@ import {
   type PreflightReport,
 } from "./fork-preflight.ts";
 
-const RECORD_DIRECTORY = "docs/operations/fork-sync-records";
 const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
 const NIGHTLY_TAG = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
 const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
@@ -23,6 +22,7 @@ export class UsageError extends Error {}
 
 export interface GateOptions {
   readonly tag: string;
+  readonly recordPath: string;
   readonly allowNightly: boolean;
 }
 
@@ -36,6 +36,7 @@ const systemDependencies: GateDependencies = {
 
 export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
   let tag: string | null = null;
+  let recordPath: string | null = null;
   let allowNightly = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -44,15 +45,24 @@ export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
       allowNightly = true;
       continue;
     }
-    if (argument !== "--tag" || tag !== null) {
-      throw new UsageError("expected --tag <tag> [--allow-nightly]");
+    if (argument !== "--tag" && argument !== "--record") {
+      throw new UsageError("expected --tag <tag> --record <path> [--allow-nightly]");
+    }
+    if (
+      (argument === "--tag" && tag !== null) ||
+      (argument === "--record" && recordPath !== null)
+    ) {
+      throw new UsageError(`duplicate option: ${argument}`);
     }
     const value = argv[index + 1];
-    if (!value || value.startsWith("-")) throw new UsageError("missing value for --tag");
-    tag = value;
+    if (!value || value.startsWith("-")) throw new UsageError(`missing value for ${argument}`);
+    if (argument === "--tag") tag = value;
+    else recordPath = value;
     index += 1;
   }
-  if (tag === null) throw new UsageError("expected --tag <tag> [--allow-nightly]");
+  if (tag === null || recordPath === null) {
+    throw new UsageError("expected --tag <tag> --record <path> [--allow-nightly]");
+  }
   if (!STABLE_TAG.test(tag) && !(allowNightly && NIGHTLY_TAG.test(tag))) {
     throw new UsageError(
       allowNightly
@@ -60,7 +70,7 @@ export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
         : `tag must be stable vX.Y.Z: ${tag}`,
     );
   }
-  return { tag, allowNightly };
+  return { tag, recordPath, allowNightly };
 };
 
 const isCalendarDate = (value: string): boolean => {
@@ -93,6 +103,11 @@ export const inspectRecord = (record: string, liveExpectedOld: string): Readonly
   return findings;
 };
 
+const isInside = (directory: string, candidate: string): boolean => {
+  const relative = NodePath.relative(directory, candidate);
+  return relative === "" || (!relative.startsWith(`..${NodePath.sep}`) && relative !== "..");
+};
+
 export interface GateOutput {
   readonly stdout: (message: string) => void;
   readonly stderr: (message: string) => void;
@@ -110,7 +125,7 @@ export const run = (
   dependencies: GateDependencies = systemDependencies,
 ): number => {
   try {
-    const { tag } = parseArgs(argv);
+    const { tag, recordPath } = parseArgs(argv);
     const root = repositoryRoot(cwd);
 
     // Preconditions first, and the published head only from the preflight that
@@ -131,14 +146,25 @@ export const run = (
       return 1;
     }
 
-    const relativeRecord = `${RECORD_DIRECTORY}/${tag}.md`;
-    const recordPath = NodePath.join(root, relativeRecord);
-    if (!NodeFS.existsSync(recordPath)) {
-      output.stderr(`blocked: missing rehearsal record ${relativeRecord}\n`);
+    const resolvedRecordPath = NodePath.resolve(cwd, recordPath);
+    if (!NodeFS.existsSync(resolvedRecordPath)) {
+      output.stderr(`blocked: missing rehearsal record ${resolvedRecordPath}\n`);
+      return 1;
+    }
+    if (!NodeFS.statSync(resolvedRecordPath).isFile()) {
+      output.stderr(`blocked: rehearsal record is not a file: ${resolvedRecordPath}\n`);
+      return 1;
+    }
+    const realRoot = NodeFS.realpathSync(root);
+    const realRecordPath = NodeFS.realpathSync(resolvedRecordPath);
+    if (isInside(root, resolvedRecordPath) || isInside(realRoot, realRecordPath)) {
+      output.stderr(
+        `blocked: rehearsal record must be outside the repository: ${resolvedRecordPath}\n`,
+      );
       return 1;
     }
 
-    const findings = inspectRecord(NodeFS.readFileSync(recordPath, "utf8"), liveExpectedOld);
+    const findings = inspectRecord(NodeFS.readFileSync(realRecordPath, "utf8"), liveExpectedOld);
     if (findings.length > 0) {
       for (const finding of findings) output.stderr(`blocked: ${finding}\n`);
       return 1;
