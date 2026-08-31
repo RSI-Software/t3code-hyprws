@@ -1,7 +1,8 @@
 # Rehearsal procedure
 
-A rehearsal is disposable Git topology but durable evidence. It runs only on `rehearse/<target-tag>`
-created from `origin/hyprws`; it never writes `hyprws`, `main`, a tag, or a remote ref.
+A rehearsal uses disposable Git topology and an external draft that becomes durable issue evidence.
+It runs only on `rehearse/<target-tag>` created from `origin/hyprws`; before apply, it never writes
+`hyprws`, `main`, a tag, or a remote ref. Its operational record never enters the repository.
 
 ## Before the rebase
 
@@ -11,7 +12,8 @@ created from `origin/hyprws`; it never writes `hyprws`, `main`, a tag, or a remo
 2. Install with `vp i` in the rehearsal worktree.
 3. Read the feasibility conflicts, automerged overlap, each active domain's rebase scan, and open
    `upstream-watch` issues before changing a hunk.
-4. Create `docs/operations/fork-sync-records/<tag>.md` from [the schema](record.md).
+4. Create `$record_path` with `mktemp` outside the repository and fill it from
+   [the schema](record.md). Never stage it or copy it into the worktree.
 
 ## At every rebase stop
 
@@ -102,9 +104,11 @@ hard stop. The agent copies those decisions into the matching `Kept` or `Retired
 `docs/internals/fork-delta.md` and writes `Human sanity: <login> YYYY-MM-DD` from the recorded
 sign-off; it never performs or infers the approval.
 
-After committing that record, the agent runs `vp run fork:sync-gate --tag <tag>` for a stable target
-or `vp run fork:sync-gate --tag <tag> --allow-nightly` for a nightly target. The gate's refusals are
-never bypassed. Once it passes, the agent pushes with
-`--force-with-lease=refs/heads/hyprws:<expected_old>` and posts the runbook issue comment. A stale
-lease is never refreshed: start a new rehearsal, read its lease once, repeat the evidence and human
-sign-off, and only then apply.
+After any durable ledger decision commit, refresh the external record's final head and stack count,
+rerun the checks, and post the signed record as a new comment on the blocked issue. The agent then
+runs `vp run fork:sync-gate --tag <tag> --record "$record_path"` for a stable target or adds
+`--allow-nightly` for a nightly target. The gate refuses a record inside the repository, and its
+refusals are never bypassed. Once it passes, the agent pushes with
+`--force-with-lease=refs/heads/hyprws:<expected_old>` and posts the runbook apply comment with the
+record-comment URL. A stale lease is never refreshed: start a new rehearsal, read its lease once,
+repeat the evidence and human sign-off, and post a fresh record comment before applying.
