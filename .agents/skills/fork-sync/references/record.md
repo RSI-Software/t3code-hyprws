@@ -1,7 +1,10 @@
 # Rehearsal record
 
-Records live at `docs/operations/fork-sync-records/<target-tag>.md` and are committed on the
-rehearsed stack. They are evidence carried into the next tag, not disposable agent notes.
+Draft each record in a temporary Markdown file outside the repository. After human sign-off and the
+post-sign-off checks, post it unchanged as a comment on the current `rebase-blocked` issue. The issue
+comment is durable operational evidence; the record never becomes a stack file or commit. Existing
+files under `docs/operations/fork-sync-records/` are read-only historical records from the former
+flow.
 
 A record states what the rehearsal decided and what it proved. A section that only restates the
 stack is not evidence, so every shape below has a form for the case where there is nothing to report.
@@ -18,10 +21,10 @@ A squash appends `(#<number>)` to the subject, and that number is a fork pull re
 is a live reference: GitHub resolves it against `pingdotgg/t3code` and posts a backlink on an
 unrelated upstream thread. `fork:upstream-refs` fails the file for exactly this reason.
 
-Run the guard on the record before committing it:
+Run the guard on the record before posting it:
 
 ```bash
-vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
+vp run fork:upstream-refs "$record_path"
 ```
 
 The same rule covers upstream citations, always as `pingdotgg/t3code#<number>` inside a code span.
@@ -52,16 +55,10 @@ before rehearsal and is never shortened. If the published head moves, the drift 
 both Source and `expected_old` after the new commits have been read and incorporated.
 
 `Stack size` is `git rev-list --count <target-tag>..HEAD` at `Rebased head`. It counts the rehearsed
-stack, which is what the conflicts, commit table, and checks are evidence about.
-
-One record states one stack size. Two counts may both be true at different heads, and the header
-owns reconciling them in the same place it states the number:
-
-- Gate 4 commits the record itself onto the stack, so the pushed head carries one more commit and
-  `fork:delta --check` reports `<count> + 1` against it. The record commit cannot name its own SHA,
-  so identify it by subject.
-- A retirement drop and a drift cherry-pick each move the count. Say which head each number belongs
-  to, and never leave a bare second number standing in Verification.
+stack, which is what the conflicts, commit table, and checks are evidence about. The record adds no
+commit, so a clean rehearsal leaves that count unchanged. If Gate 4 commits a durable keep/retire
+ledger decision, refresh `Rebased head`, `Stack size`, and every affected rehearsal SHA before
+posting the comment.
 
 A retirement drop also rewrites every SHA above the dropped commit. Re-derive the SHA column after
 the drop; the subjects are what survive, the SHAs are not.
@@ -154,11 +151,13 @@ or `docs/internals/fork-delta.md#kept`; do not treat a mutable SHA as its identi
 
 ## Worked examples
 
-[`v0.0.34`](../../../../docs/operations/fork-sync-records/v0.0.34.md) is the conflicted case. It
-contains 16 conflict-file rows across eight commits, the targeted checks and one typecheck-only
-silent seam, and three exact grounding claims. It predates the sanity gate, so its header
-deliberately says `Human sanity: absent` and the apply gate refuses it.
+The historical [`v0.0.34`](../../../../docs/operations/fork-sync-records/v0.0.34.md) record is the
+conflicted case. It contains 16 conflict-file rows across eight commits, the targeted checks and one
+typecheck-only silent seam, and three exact grounding claims. It predates the sanity gate, so its
+header deliberately says `Human sanity: absent` and the apply gate refuses it.
 
-[`v0.0.35`](../../../../docs/operations/fork-sync-records/v0.0.35.md) is the zero-conflict case. It
-replays the whole stack with no stop, so its evidence is the replay proof, the automerged overlap
-review, and one retirement the orientation report raised without any conflict.
+The historical [`v0.0.35`](../../../../docs/operations/fork-sync-records/v0.0.35.md) record is the
+zero-conflict case. It replays the whole stack with no stop, so its evidence is the replay proof, the
+automerged overlap review, and one retirement the orientation report raised without any conflict.
+Use their schema content as examples, but post new records to the blocked issue instead of copying
+their stack location.
