@@ -26,8 +26,26 @@ Preserve upstream intent first. Reapply only the smallest fork behavior at the s
 provides. Review rerere output; it is a proposal, not proof. Keep the commit's subject and every
 `Fork-*` trailer. Never `--skip`, squash, reorder, or casually reword a commit.
 
+`pnpm-lock.yaml` is generated state, not a semantic seam. When it is part of the stop, discard both
+the textual conflict and any rerere proposal by restoring the current replay base. Resolve and stage
+all other conflicts first, then regenerate the lockfile from the combined manifests:
+
+```bash
+git restore --source=HEAD --staged --worktree -- pnpm-lock.yaml
+# Resolve and stage every remaining conflict before running the generator.
+vp install --lockfile-only
+git add pnpm-lock.yaml
+```
+
+During a rebase, `HEAD` is the incoming upstream base plus fork commits already replayed. The
+repository-native `vp install --lockfile-only` command is equivalent to
+`pnpm install --lockfile-only`; it applies the current fork commit's manifest changes without
+carrying its old generated lockfile forward.
+
 Record one conflict row per file using exactly one class:
 
+- **`generated`** — a registered regenerable path. Keep the new-base side and run its registered
+  generator; never splice generated entries or accept a cached textual resolution.
 - **`mechanical`** — both changes are additive or adjacent with no semantic overlap. Combine them
   without weakening either side.
 - **`seam-moved`** — upstream moved or renamed the hook point. Rebuild the same fork behavior at the
@@ -47,7 +65,11 @@ judgement remains.
    keyed by exact subjects.
 2. Walk rebase-scan paths and automerged overlap for every involved domain. A clean merge is not
    evidence that behavior survived.
-3. Run `vp i` again if the target changed the lockfile, then `vp run fork:delta --check`.
+3. If the target or replay changed a package manifest or `pnpm-lock.yaml`, run
+   `vp install --lockfile-only` again on the completed replay and require an unchanged worktree. If
+   it produces drift, fold the regenerated lockfile into the fork commit that changed the matching
+   manifests without changing that commit's subject or trailers, then repeat the rebase checks. Run
+   `vp i` when installed dependencies also need refreshing, then `vp run fork:delta --check`.
 4. Run targeted typecheck for every touched package and `vp test run` with tests beside every touched
    source/test file. Do not run repo-wide checks.
 5. Put typecheck-only findings under **Silent seams**, fix them in the owning fork commit with a fixup
