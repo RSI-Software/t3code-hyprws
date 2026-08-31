@@ -279,6 +279,12 @@ Run it before publishing an issue, a comment, or a pull-request body.
 Treat every fork commit as a patch that may need to survive hundreds of upstream commits.
 Small, coherent commits are easier to rebase, review, reorder, and drop.
 
+Apply that granularity where it preserves rebase intent. A commit that edits an upstream file — and
+therefore touches a seam — carries one intent and stays small, because that intent is what re-derives
+a conflict resolution on rebase. Inside fork-only paths, granularity is economically irrelevant and
+needs no curation. Once commits land, never squash the stack. See
+[Fork strategy principle 4](./fork-strategy.md#principles) for the reasoning behind this asymmetry.
+
 - Keep one concern per commit and use the repository's conventional commit style.
 - Separate mechanical refactors from behavior changes.
 - Avoid drive-by formatting, renames, dependency bumps, and generated-file churn.
