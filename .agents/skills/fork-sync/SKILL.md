@@ -24,8 +24,9 @@ rewrite is rehearsed away from the `hyprws` worktree. After sign-off, the agent 
 expected-old lease read once at the start of that same rehearsal.
 
 Set `tag` to the newest upstream release tag beyond the blocking commit that the human intends to
-reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. The record is
-`docs/operations/fork-sync-records/$tag.md`; follow [the record schema](references/record.md) and
+reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. Draft the record in a
+temporary file outside the repository; after sign-off, post that file as a comment on the blocked
+issue. Never add it to the replayed stack. Follow [the record schema](references/record.md) and
 [the rehearsal procedure](references/rehearse.md), treating `$tag` as the selected release tag when
 it is a nightly.
 
@@ -69,6 +70,8 @@ wt switch --create "rehearse/$tag" --base origin/hyprws
 vp i
 expected_old="$(git rev-parse origin/hyprws)"
 target_sha="$(git rev-parse "$tag^{commit}")"
+record_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}.XXXXXX.md")"
+chmod 600 "$record_path"
 git rebase "$tag"
 ```
 
@@ -89,7 +92,7 @@ git add pnpm-lock.yaml
 resolution; generated state is not a reusable resolution. Never squash, reorder, reword, or
 `git rebase --skip` a fork commit. Classify every other conflicted file as `mechanical`,
 `seam-moved`, `retire-candidate`, or `human`; preserve every `Fork-*` trailer. Start the human-sync
-record immediately.
+record immediately at `$record_path`, never under the repository root.
 
 **Stop.** Show the human the rebased head, stack size, conflicts by class, all
 `retire-candidate`/`human` rows, and any unresolved block. Continue only after every conflict has a
@@ -124,8 +127,8 @@ scan, ledger, every targeted typecheck, and every adjacent test pass. Never subs
 At the sign-off boundary, the human reads only decision rows and grounding claims:
 
 ```bash
-rg '\| (retire-candidate|human) \|' "docs/operations/fork-sync-records/$tag.md"
-rg 'Grounding (claim|pending)' "docs/operations/fork-sync-records/$tag.md"
+rg '\| (retire-candidate|human) \|' "$record_path"
+rg 'Grounding (claim|pending)' "$record_path"
 ```
 
 **Stop.** Present every decision by exact fork commit subject, every silent seam, and all grounding
@@ -135,19 +138,26 @@ hard stop; the agent must not perform or infer this approval.
 
 After sign-off, the agent copies the decisions into the matching `Retired` or `Kept` section of
 `docs/internals/fork-delta.md` and writes `Human sanity: <login> YYYY-MM-DD` with the login and date
-from that sign-off. Commit the record and durable decisions on the rehearsal branch:
+from that sign-off. Commit only durable delta decisions, never the rehearsal record. After any such
+commit, refresh the record's rebased head, stack count, and affected rehearsal SHAs before posting
+it:
 
 ```bash
-vp run fork:upstream-refs "docs/operations/fork-sync-records/$tag.md"
-git add "docs/operations/fork-sync-records/$tag.md" docs/internals/fork-delta.md
-git commit -m "docs(fork): record $tag rehearsal" \
-  -m $'Fork-Domain: fork-meta\nFork-Tier: qol'
+git add docs/internals/fork-delta.md
+if ! git diff --cached --quiet; then
+  git commit -m "docs(fork): apply rehearsal decisions" \
+    -m $'Fork-Domain: fork-meta\nFork-Tier: qol'
+fi
+vp run fork:upstream-refs "$record_path"
 vp run fork:delta --check
 vp run fork:scan --head origin/hyprws --target "$tag"
+record_comment_url="$(gh issue comment "$blocked_issue" -R "$repo" --body-file "$record_path")"
 ```
 
-Any failure returns the rehearsal to Gate 3. A red check voids the sign-off, so the human must
-sign off again after the fix.
+The issue comment is the durable operational record. A clean rehearsal may leave no new commit; a
+keep/retire ledger edit remains replayable delta input. Any failure returns the rehearsal to Gate 3.
+A red check or source edit voids the sign-off and requires a fresh record comment after the fix; do
+not edit or delete an earlier rehearsal comment.
 
 ### Gate 5 — Apply
 
@@ -155,12 +165,13 @@ Run the deterministic guard from the rehearsed branch. `--allow-nightly` permits
 shapes while preserving stable-only behaviour when the flag is absent.
 
 ```bash
-vp run fork:sync-gate --tag "$tag" --allow-nightly
+vp run fork:sync-gate --tag "$tag" --record "$record_path" --allow-nightly
 ```
 
-The guard fetches and refuses an unmet preflight, invalid tag, missing record, stale `expected_old`,
-or absent human sanity mark. Its refusals are never bypassed. If `origin/hyprws` moved, do not refresh
-only the SHA: start a new rehearsal, read its lease once, incorporate the drift through [the rehearsal
+The guard fetches and refuses an unmet preflight, invalid tag, record inside the repository, missing
+record, stale `expected_old`, or absent human sanity mark. Its refusals are never bypassed. If
+`origin/hyprws` moved, do not refresh only the SHA: start a new rehearsal, read its lease once,
+incorporate the drift through [the rehearsal
 procedure](references/rehearse.md), update the evidence, and repeat Gates 3–4.
 
 After the gate passes against the recorded sign-off, the agent resolves the exact values, rewrites
@@ -169,11 +180,13 @@ the trunk with the recorded lease, and posts the runbook issue comment:
 ```bash
 git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
 gh issue comment "$blocked_issue" -R RSI-Software/t3code-hyprws --body \
-  "Resolved blocking upstream commit \`$blocking_sha\` while rebasing \`hyprws\` onto \`$tag\`; the leased rewrite replaced \`$expected_old\`."
+  "Resolved blocking upstream commit \`$blocking_sha\` while rebasing \`hyprws\` onto \`$tag\`; the leased rewrite replaced \`$expected_old\`. Rehearsal record: $record_comment_url"
+rm "$record_path"
 ```
 
-A refused lease returns to a full rehearsal; it is never silently refreshed. Do not update a
-bot-owned ref as part of this apply. The successful `hyprws` push starts a new bot run. That run
+A refused lease returns to a full rehearsal; it is never silently refreshed. Keep the external
+record until a successful apply comment, but never commit it. Do not update a bot-owned ref as part
+of this apply. The successful `hyprws` push starts a new bot run. That run
 closes every open `rebase-blocked` issue if no block remains, or updates the issue when it finds a
 later block.
 
@@ -222,6 +235,5 @@ workflow URL.
 
 A failed push or existing tag is a stop, not permission to increment again without re-running the
 stable gates and obtaining fresh sign-off. A failed workflow leaves the candidate issue open. Bot
-run summaries record automatic rewrites; human sync records remain under
-`docs/operations/fork-sync-records/` and are not created for an ordinary stable cut from a bot
-snapshot.
+run summaries record automatic rewrites; human rehearsal records are comments on their blocked
+issues. An ordinary stable cut from a bot snapshot creates neither kind of rehearsal record.
