@@ -99,6 +99,7 @@ jobs:
       is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
+      delta_revision: ${{ steps.delta_revision.outputs.delta_revision }}
       ref: ${{ steps.release_ref.outputs.sha }}
     steps:
       - id: release_channel
@@ -214,6 +215,10 @@ jobs:
           fi
           echo "tag=$base" >> "$GITHUB_OUTPUT"
           echo "upstream base: $base"
+
+      - id: delta_revision
+        name: Resolve delta revision
+        run: node scripts/fork-release-delta-rev.ts --base upstream/main --head HEAD --github-output
 
       - name: Check
         run: vp check
@@ -332,6 +337,7 @@ jobs:
           name: ${{ needs.preflight.outputs.release_name }}
           body: |
             Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
+            Delta revision: `${{ needs.preflight.outputs.delta_revision }}`
             Channel: `${{ needs.preflight.outputs.release_channel }}`
           generate_release_notes: true
           previous_tag: ${{ needs.preflight.outputs.previous_tag }}

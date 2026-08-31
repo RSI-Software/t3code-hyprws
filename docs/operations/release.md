@@ -32,6 +32,35 @@ This document covers the unified release workflow for stable and nightly desktop
   - nightly releases are aliased to the `nightly` hosted app channel
 - Signing is optional and auto-detected per platform from secrets.
 
+## Fork release provenance
+
+The fork-only `.github/workflows/hyprws-release.yml` workflow stamps every stable and nightly
+GitHub Release body with two adjacent provenance fields:
+
+```text
+Upstream base: `vX.Y.Z`
+Delta revision: `sha256:<64 lowercase hexadecimal characters>`
+```
+
+Together they identify the evaluated fork delta even after `hyprws` is rebased again. The canonical
+command is:
+
+```sh
+node scripts/fork-release-delta-rev.ts --base upstream/main --head HEAD
+```
+
+The workflow fetches the canonical upstream `main`, finds `git merge-base upstream/main HEAD`, and
+uses the range from that base (exclusive) through the release head. It rejects merge commits, then
+walks the range oldest-first and runs each non-empty patch through `git patch-id --stable`. The
+revision is `sha256:` plus the SHA-256 digest of the ordered lowercase patch IDs encoded as ASCII,
+with one line-feed after every ID. Empty commits emit no patch ID and therefore do not affect the
+revision.
+
+Patch content, commit boundaries, or stack order change the stamp. Commit messages and rebased
+commit SHAs do not. The workflow's `upstream/main` is the fetched canonical counterpart of the
+fork's mirrored `main`, so this is the operational form of the
+`merge-base(hyprws, main)..hyprws` stack range.
+
 ## Required release credentials
 
 Stable releases require these GitHub Actions secrets in addition to the platform and deployment
