@@ -108,14 +108,15 @@ authenticated.
   worktree. `--dry-run` performs the selection, rebase, and verification without any push. `--target`
   accepts only an upstream release tag inside the clean window. The workflow consumes `--summary`,
   `--issue-json`, and `--github-output` for its run summary and fork-local issues.
-- `vp run fork:sync-gate --tag vX.Y.Z`: Guards the signed-off agent apply step
+- `vp run fork:sync-gate --tag vX.Y.Z --record <path>`: Guards the signed-off agent apply step
   (`scripts/fork-sync-gate.ts`). Stable tags remain the default; `--allow-nightly` also accepts
-  `vX.Y.Z-nightly.YYYYMMDD.N` for a deliberate nightly-target rehearsal. The gate refuses on any
-  unmet preflight precondition and exits 1 unless the committed rehearsal record has a full
+  `vX.Y.Z-nightly.YYYYMMDD.N` for a deliberate nightly-target rehearsal. The record path must resolve
+  outside the repository so operational evidence cannot enter the replayed stack. The gate refuses
+  on any unmet preflight precondition and exits 1 unless that external record has a full
   `expected_old` equal to the `origin/hyprws` head the preflight fetched, plus a human sanity login
   and ISO date. It takes that head from the preflight rather than resolving the ref itself, so it
   cannot pass a lease against a ref nothing fetched. It only reports readiness; it never pushes,
-  tags, or releases.
+  tags, releases, or posts the record.
 - `vp run fork:upstream-refs <file>`: Scans a fork issue, comment, or pull-request body for a live
   upstream reference (`scripts/fork-upstream-refs.ts`). Fenced blocks, code spans, and HTML comments
   are ignored; anything left live exits 1, one finding per line as
