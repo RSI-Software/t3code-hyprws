@@ -11,12 +11,12 @@ the instruments prove where it pays. No hurry; each wave stands on its own.
 
 ## Wave 1 — quick wins
 
-| Dimension           | Now | Target | Value  | Effort | Gap                                                                                                                                          |
-| ------------------- | :-: | :----: | :----: | :----: | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Regenerable files   |  D  |   A    | 💎💎💎 |   🟢   | `pnpm-lock.yaml` is 3-way merged every sync: a guaranteed conflict carrying zero fork intent. Adopt the rule: re-derive, never merge.        |
-| Operational records | C+  |   A    |  💎💎  |   🟢   | Automatic syncs already record to run summaries, but human rehearsal records still land as stack commits. Route them to issues or summaries. |
-| Release provenance  |  B  |   A    |   💎   |   🟢   | Release bodies name the base tag but not a delta revision. Stamp a stack range-hash so an old release's exact patchset is addressable.       |
-| Granularity policy  | B+  |   A−   |   💎   |   🟢   | Practice is already correct — small commits, never squashed. Write it down: seam commits stay atomic; fork-only paths are free.              |
+| Dimension           | Now | Target | Value  | Effort | Gap                                                                                                                                                          |
+| ------------------- | :-: | :----: | :----: | :----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Regenerable files   |  A  |   A    | 💎💎💎 |   🟢   | At target. `pnpm-lock.yaml` is the registered `generated` class: restored from `HEAD`, re-derived with `vp install --lockfile-only`, never merged.           |
+| Operational records |  A  |   A    |  💎💎  |   🟢   | At target. Human rehearsal records post as blocked-issue comments; the apply gate requires `--record <path>` and refuses a record inside the repository.     |
+| Release provenance  |  A  |   A    |   💎   |   🟢   | At target. Release bodies stamp `Delta revision:`, a stable range-hash over the stack's ordered patch-ids (`scripts/fork-release-delta-rev.ts`).             |
+| Granularity policy  | A−  |   A−   |   💎   |   🟢   | At target. The development guide states it: a seam commit carries one intent and stays small; fork-only paths need no curation; the stack is never squashed. |
 
 ## Wave 2 — instruments
 
