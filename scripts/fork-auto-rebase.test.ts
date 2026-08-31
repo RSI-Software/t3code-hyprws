@@ -94,7 +94,7 @@ it("selects the latest clean position and prefers a stable tag on a tie", () => 
 it("verifies replay count and byte-identical subjects plus trailers", () => {
   assert.doesNotThrow(() => verifyReplayMetadata(2, 2, "same\n", "same\n"));
   assert.throws(() => verifyReplayMetadata(2, 1, "same", "same"), /commit count changed/);
-  assert.throws(() => verifyReplayMetadata(2, 2, "first", "changed"), /trailers changed/);
+  assert.throws(() => verifyReplayMetadata(2, 2, "first", "changed"), /commit messages changed/);
 });
 
 interface Fixture {
