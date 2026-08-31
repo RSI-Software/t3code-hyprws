@@ -96,7 +96,9 @@ authenticated.
   commits change with the files upstream changed over the same base, and exits 1 naming each domain
   and file the domain's scan table does not list. `--target <ref>` picks the upstream ref to compare
   against (default `upstream/main`), `--head <ref>` the fork ref, and `--base <ref>` overrides their
-  merge base. `vp run fork:scan --head origin/hyprws --target vX.Y.Z` is the gate 3 overlap walk.
+  merge base. Gate 3 runs it from the rehearsed worktree as `vp run fork:scan --target vX.Y.Z`: the
+  rehearsed-head typechecks that surface silent seams run only when `--head` resolves to the checkout
+  `HEAD`, so naming any other ref reports declarations alone.
 - `vp run fork:auto-rebase --fetch --mode candidate`: Reads the rebase feasibility window directly,
   selects its newest upstream stable or nightly tag, and replays the complete fork stack in a
   detached temporary worktree (`scripts/fork-auto-rebase.ts`). It snapshots each intermediate stable
