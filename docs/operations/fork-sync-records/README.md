@@ -1,23 +1,23 @@
-# Fork sync records
+# Historical fork sync records
 
-This directory contains durable evidence for **human-run** fork sync rehearsals. A record captures the
-selected upstream tag, expected-old lease, conflicts and automerged overlap, fork decisions, focused
-checks, grounding, and human sanity approval.
+This directory preserves rehearsal records created before operational history moved out of the
+replayed stack. Do not add new records here and do not migrate or delete the existing files.
 
-Automatic bot rewrites do not add a record commit to `hyprws`. Their immutable evidence is the
-`hyprws upstream sync` workflow run summary: source and target refs, mode, replay verification,
-stable snapshots, pushes, and any next conflict. See the [fork sync runbook](../fork-sync.md#reading-a-bot-run).
+For a new human rehearsal, the
+[`fork-sync` skill](../../../.agents/skills/fork-sync/SKILL.md) drafts the record outside the
+repository and posts it as a comment on the current `rebase-blocked` issue after sign-off. Automatic
+rewrites use the immutable `hyprws upstream sync` workflow run summary. Neither path adds an
+operational record commit to `hyprws`; see the [fork sync runbook](../fork-sync.md).
 
-Keep existing records and add a new `<target-tag>.md` record whenever a maintainer uses the
-[`fork-sync` skill](../../../.agents/skills/fork-sync/SKILL.md) to resolve a block or otherwise
-performs a human sync. Cutting a stable tag from an unchanged bot-owned release snapshot is not a
-human sync and does not add a file here; the candidate issue, tag, workflow run, and release are that
-cut's record.
+Cutting a stable tag from an unchanged bot-owned release snapshot creates no rehearsal record. The
+candidate issue, tag, workflow run, and release are that cut's record.
 
-## Recorded human syncs
+## Historical human syncs
 
 - [`v0.0.34`](./v0.0.34.md)
 - [`v0.0.35`](./v0.0.35.md)
 - [`v0.0.36`](./v0.0.36.md)
 - [`v0.0.37-nightly.20260829.1217`](./v0.0.37-nightly.20260829.1217.md)
 - [`v0.0.37-nightly.20260829.1224`](./v0.0.37-nightly.20260829.1224.md)
+- [`v0.0.37-nightly.20260830.1226`](./v0.0.37-nightly.20260830.1226.md)
+- [`v0.0.37-nightly.20260830.1227`](./v0.0.37-nightly.20260830.1227.md)
