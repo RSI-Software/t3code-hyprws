@@ -294,14 +294,22 @@ agent rehearses the complete stack on `rehearse/<tag>`, preserves upstream inten
 each semantic conflict, and applies the [regeneration rule](#regenerable-files) to registered
 generated paths. It then runs the fork scan and focused checks and presents every decision row,
 silent seam, and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
-login/date, and explicit go; missing sign-off is a hard stop. The agent copies that sign-off into the
-record and ledger, commits it, and runs the gate without bypassing any refusal.
+login/date, and explicit go; missing sign-off is a hard stop. The agent copies durable keep/retire
+decisions into the ledger, but keeps the operational rehearsal record in a temporary file outside
+the repository. After the post-sign-off checks pass, the agent posts that file unchanged as a
+comment on the blocked issue and runs the gate against the external file. No rehearsal record file
+or record-only commit enters the replayed stack.
 
 The path intersection in `fork:scan` cannot see a fork-only file that consumes an upstream-owned
 type: upstream changes the type, but never touches the consuming path. When the scan runs from the
 rehearsed checkout and its `HEAD` is the scanned head, it therefore typechecks the web and server
 workspaces and reports each failing file that belongs to the fork delta as a **Fork-owned typecheck
 gap**. Any such gap fails the scan; a scan of another ref skips the typecheck.
+
+The issue comment is the durable human rehearsal record. Existing files under
+`docs/operations/fork-sync-records/` are historical and remain in place, but new rehearsals do not
+add to that directory. A clean rehearsal can therefore apply with no new stack commit; a committed
+keep/retire ledger change is delta input, not an operational record.
 
 After the gate passes, the agent runs the final trunk push with the `expected_old` read exactly once
 at the start of the same rehearsal:
@@ -311,8 +319,9 @@ git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
 ```
 
 Never move a bot-owned ref as part of the unblock. After the leased push succeeds, the agent posts
-the resolved blocking SHA and target tag, quoting the human sign-off; that comment records the
-signed-off resolution. The push starts a new bot run. That run closes the issue carrying the resolved
+the resolved blocking SHA, target tag, and rehearsal-record comment URL. The record comment and
+apply comment together preserve the signed-off resolution without changing the stack. The push
+starts a new bot run. That run closes the issue carrying the resolved
 blocking SHA when it is no longer first, then creates a new issue only if a later first conflict has
 never been filed. A
 stale lease is never refreshed:
