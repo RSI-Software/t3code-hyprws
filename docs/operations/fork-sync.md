@@ -35,6 +35,26 @@ commit. If the census fails or reaches a limit, the pairwise result decides and 
 the census was unavailable. A confirmed block does not prevent the bot from advancing to an earlier
 clean target. A conflict in untagged commits past the horizon is not a block.
 
+## Regenerable files
+
+The regeneration shape covers lockfiles, generated indexes, and version stamps. These files carry
+no independently reviewable fork intent: a sync keeps the incoming new-base version and runs the
+registered generator after applying the fork's source inputs. It never 3-way merges generated
+entries or treats a rerere result as a resolution.
+
+The only path currently registered in this class is:
+
+| Path             | Generator                    | Rebase rule                                                                                                                           |
+| ---------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm-lock.yaml` | `vp install --lockfile-only` | At a stop, restore from `HEAD`, resolve the remaining source conflicts, run the generator, stage the result, and continue the rebase. |
+
+`vp install --lockfile-only` is the repository-native equivalent of
+`pnpm install --lockfile-only`. During a rebase, `HEAD` is the selected upstream base plus fork
+commits already replayed, so restoring from it discards the old fork lockfile while retaining the
+new-base side. Re-run the generator on the completed replay when either side changed package
+manifests or the lockfile; it must be stable before apply. No generated index or version stamp is
+currently registered—add one only with its deterministic generator and an update to this table.
+
 ## Bot-owned refs
 
 Do not create, move, delete, or force-push these refs by hand:
@@ -271,8 +291,9 @@ gh issue view "$blocked_issue" --comments -R "$repo"
 Then invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
 point. The maintainer chooses the newest upstream stable or nightly tag past the reported block. The
 agent rehearses the complete stack on `rehearse/<tag>`, preserves upstream intent while resolving
-each conflict, runs the fork scan and focused checks, and presents every decision row, silent seam,
-and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
+each semantic conflict, and applies the [regeneration rule](#regenerable-files) to registered
+generated paths. It then runs the fork scan and focused checks and presents every decision row,
+silent seam, and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
 login/date, and explicit go; missing sign-off is a hard stop. The agent copies that sign-off into the
 record and ledger, commits it, and runs the gate without bypassing any refusal.
 
