@@ -34,6 +34,7 @@ Agent rules live in [AGENTS.md](../AGENTS.md).
 - [Architecture overview](./internals/overview.md)
 - [Fork development](./internals/fork-development.md)
 - [Fork delta](./internals/fork-delta.md)
+- [Fork strategy](./internals/fork-strategy.md) and its [scorecard](./internals/fork-strategy-scorecard.md)
 - [Workspace layout](./internals/workspace-layout.md)
 - [Glossary](./internals/glossary.md)
 - [Scripts](./internals/scripts.md)
