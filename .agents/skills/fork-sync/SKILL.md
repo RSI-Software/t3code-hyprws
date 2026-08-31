@@ -73,9 +73,23 @@ git rebase "$tag"
 ```
 
 At each stop, read upstream intent first, preserve it, and reapply the smallest fork behaviour at the
-current seam. Never squash, reorder, reword, or `git rebase --skip` a fork commit. Classify every
-conflicted file as `mechanical`, `seam-moved`, `retire-candidate`, or `human`; review rerere output as
-a proposal, not proof; preserve every `Fork-*` trailer. Start the human-sync record immediately.
+current seam. `pnpm-lock.yaml` is the registered `generated` conflict class: restore it from `HEAD`
+(the incoming upstream base plus already replayed fork commits), resolve every non-generated
+conflict, then re-derive and stage it instead of merging lockfile entries:
+
+```bash
+git restore --source=HEAD --staged --worktree -- pnpm-lock.yaml
+# Resolve and stage every remaining conflict before running the generator.
+vp install --lockfile-only
+git add pnpm-lock.yaml
+```
+
+`vp install --lockfile-only` is the repository-native equivalent of
+`pnpm install --lockfile-only`. Apply this rule even when rerere proposes or stages a prior lockfile
+resolution; generated state is not a reusable resolution. Never squash, reorder, reword, or
+`git rebase --skip` a fork commit. Classify every other conflicted file as `mechanical`,
+`seam-moved`, `retire-candidate`, or `human`; preserve every `Fork-*` trailer. Start the human-sync
+record immediately.
 
 **Stop.** Show the human the rebased head, stack size, conflicts by class, all
 `retire-candidate`/`human` rows, and any unresolved block. Continue only after every conflict has a
