@@ -221,6 +221,80 @@ const currentCommit = (
 const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<string> =>
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
+export const rehearsalRebaseArgs = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
+  "-c",
+  "core.commentChar=auto",
+  "-c",
+  "rerere.enabled=true",
+  "-c",
+  "rerere.autoupdate=false",
+  ...args,
+];
+
+export const identifyRerereResolvedPaths = (
+  conflicts: ReadonlyArray<string>,
+  remaining: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
+  const unresolved = new Set(remaining);
+  return conflicts.filter((path) => !unresolved.has(path));
+};
+
+const rerereResolvedPaths = (
+  runner: CommandRunner,
+  cwd: string,
+  conflicts: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  identifyRerereResolvedPaths(
+    conflicts,
+    lines(git(runner, cwd, ["-c", "rerere.enabled=true", "rerere", "remaining"], true)),
+  );
+
+export const rehearsalConflictRows = (
+  commit: { readonly sha: string; readonly subject: string; readonly domain: string },
+  conflicts: ReadonlyArray<string>,
+  rerereResolved: ReadonlyArray<string>,
+): ReadonlyArray<ConflictRow> => {
+  const reused = new Set(rerereResolved);
+  return conflicts.map((path) => ({
+    ...commit,
+    commit: commit.sha,
+    path,
+    class: path === "pnpm-lock.yaml" ? "generated" : "TODO",
+    resolution:
+      path === "pnpm-lock.yaml"
+        ? "restore HEAD and regenerate"
+        : reused.has(path)
+          ? "review rerere's recorded resolution and stage"
+          : "TODO",
+    agentSafe: path === "pnpm-lock.yaml" ? "pending regeneration" : "TODO",
+  }));
+};
+
+export const rehearsalConflictStop = (
+  reportPath: string,
+  recordPath: string,
+  commit: { readonly sha: string; readonly subject: string },
+  conflicts: ReadonlyArray<string>,
+  rerereResolved: ReadonlyArray<string> = [],
+): string => {
+  const reused = new Set(rerereResolved);
+  const action =
+    reused.size === 0
+      ? "Resolve and stage non-generated files"
+      : "Review and stage rerere-resolved files; resolve and stage remaining non-generated files";
+  return [
+    reportPath,
+    `Stop. Rebase conflict in ${commit.subject} (${commit.sha.slice(0, 12)}).`,
+    "Conflicted paths:",
+    ...conflicts.map(
+      (path) =>
+        `  - ${path}${reused.has(path) ? " (rerere reused a recorded resolution; review before staging)" : ""}`,
+    ),
+    `${action}, complete every TODO row in ${recordPath}, then rerun unblock-rehearse.`,
+    "",
+  ].join("\n");
+};
+
 const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
@@ -299,7 +373,7 @@ const unblockRehearse = (
     report = { ...report, lane: { branch, worktree }, originalMessages, originalCount };
     const rebase = runner.run(
       "git",
-      ["-c", "core.commentChar=auto", "rebase", target.sha],
+      rehearsalRebaseArgs(["rebase", target.sha]),
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
@@ -356,7 +430,7 @@ const unblockRehearse = (
     };
     const continued = runner.run(
       "git",
-      ["-c", "core.commentChar=auto", "rebase", "--continue"],
+      rehearsalRebaseArgs(["rebase", "--continue"]),
       lane.worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
@@ -370,21 +444,19 @@ const unblockRehearse = (
   const conflicts = pendingConflicts(runner, report.lane.worktree);
   if (conflicts.length > 0) {
     const commit = currentCommit(runner, report.lane.worktree);
-    const additions = conflicts.map(
-      (path): ConflictRow => ({
-        ...commit,
-        commit: commit.sha,
-        path,
-        class: path === "pnpm-lock.yaml" ? "generated" : "TODO",
-        resolution: path === "pnpm-lock.yaml" ? "restore HEAD and regenerate" : "TODO",
-        agentSafe: path === "pnpm-lock.yaml" ? "pending regeneration" : "TODO",
-      }),
-    );
+    const rerereResolved = rerereResolvedPaths(runner, report.lane.worktree, conflicts);
+    const additions = rehearsalConflictRows(commit, conflicts, rerereResolved);
     report = { ...report, stage: "conflicts", conflicts: [...report.conflicts, ...additions] };
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
-      `${report.reportPath}\nStop. Resolve and stage non-generated files, complete every TODO row in ${report.recordPath}, then rerun unblock-rehearse.\n`,
+      rehearsalConflictStop(
+        report.reportPath,
+        report.recordPath,
+        commit,
+        conflicts,
+        rerereResolved,
+      ),
     );
     return report;
   }
