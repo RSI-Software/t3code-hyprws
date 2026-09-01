@@ -22,6 +22,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
+  WINDOW_DEMAND_STATE_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -714,6 +715,22 @@ export const make = Effect.gen(function* () {
         identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
       );
     });
+
+    const publishWindowDemandState = () => {
+      if (window.isDestroyed()) return;
+      window.webContents.send(
+        WINDOW_DEMAND_STATE_CHANNEL,
+        window.isVisible() && !window.isMinimized(),
+      );
+    };
+    // Electron show/hide and minimize/restore are the explicit desktop
+    // visibility boundary. Focus is intentionally excluded: another visible
+    // window receiving focus does not hide this retained surface.
+    window.on("show", publishWindowDemandState);
+    window.on("hide", publishWindowDemandState);
+    window.on("minimize", publishWindowDemandState);
+    window.on("restore", publishWindowDemandState);
+
     if (identity.kind === "hub") {
       window.on("resize", scheduleBoundsPersist);
       window.on("move", scheduleBoundsPersist);
@@ -788,6 +805,7 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
+      publishWindowDemandState();
       if (identity.kind === "hub") {
         window.setTitle(environment.displayName);
       }

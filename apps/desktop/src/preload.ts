@@ -16,6 +16,14 @@ exposeClerkBridge({ passkeys: true });
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
 const clientPlatform = process.platform;
 
+let windowDemandState = true;
+const windowDemandStateListeners = new Set<(demanded: boolean) => void>();
+ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unknown) => {
+  if (typeof demanded !== "boolean" || demanded === windowDemandState) return;
+  windowDemandState = demanded;
+  for (const listener of windowDemandStateListeners) listener(demanded);
+});
+
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
     typeof result === "object" &&
@@ -144,6 +152,11 @@ const desktopBridgeWithoutPreview = {
     return () => {
       ipcRenderer.removeListener(IpcChannels.QUIT_SHORTCUT_CHANNEL, wrappedListener);
     };
+  },
+  getWindowDemandState: () => windowDemandState,
+  onWindowDemandStateChange: (listener) => {
+    windowDemandStateListeners.add(listener);
+    return () => windowDemandStateListeners.delete(listener);
   },
   getWindowFullscreenState: () =>
     ipcRenderer.sendSync(IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL) === true,
