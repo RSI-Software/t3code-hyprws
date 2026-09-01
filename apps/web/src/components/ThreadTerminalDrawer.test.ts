@@ -8,10 +8,13 @@ import {
 } from "@t3tools/contracts";
 import { type ShortcutEventLike } from "../keybindings";
 import {
+  isTerminalAttachmentDemanded,
+  resolveTerminalWindowDemand,
   shouldClearTerminalSelectionAction,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
+  shouldRestoreTerminalFocusAfterResume,
   terminalContextMenuItems,
   terminalSelectionLineRange,
   terminalSelectionMenuItems,
