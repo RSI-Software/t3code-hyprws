@@ -294,42 +294,34 @@ reported the next human task. It does not mean the entire upstream lane was clea
 ## Unblocking a `rebase-blocked` issue
 
 Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
-point. Its Orient gate requires exactly one current blocked issue and opens it for review. Before the
-human selects a target, read the blocking upstream commit, affected fork commits, domains, files, and
-newest upstream tag beyond the block. The maintainer chooses the newest upstream stable or nightly
-tag past the reported block. The agent rehearses the complete stack on `rehearse/<tag>-from-<expected_old:12>` and
-preserves upstream intent at each semantic conflict. For registered generated paths, it follows the
-[regeneration rule](#regenerable-files). It then runs the fork scan and focused checks and presents every decision row,
-silent seam, and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
-login/date, and explicit go; missing sign-off is a hard stop. The agent copies durable keep/retire
-decisions into the ledger, but keeps the operational rehearsal record in a temporary file outside
-the repository. After the post-sign-off checks pass, the agent posts that file unchanged as a
-comment on the blocked issue and runs the gate against the external file. No rehearsal record file
-or record-only commit enters the replayed stack.
+point. `vp run fork:sync` owns the mechanics as five report transitions:
 
-The path intersection in `fork:scan` cannot see a fork-only file that consumes an upstream-owned
-type: upstream changes the type, but never touches the consuming path. The scan closes that hole by
-typechecking every workspace the fork delta touches and reporting each failing delta file as a
-**Fork-owned typecheck gap**. Any such gap fails the scan. Those typechecks read the working tree, so
-they run only when the scanned head is the checkout `HEAD`; a scan naming any other ref reports
-declarations alone and is not a Gate 3 result.
+1. `unblock-list` fetches and preflights, requires one current block, and writes an external report
+   containing the full blocking SHA and selectable release tags. It accepts no target.
+2. After the maintainer selects a tag, `unblock-orient` consumes that report, proves the target was
+   offered and is beyond the block, and pins the target, shared base, and one `expected_old`.
+3. `unblock-rehearse` creates the bound Worktrunk lane or resumes its rebase. Every rehearsal Git
+   call carries `core.commentChar=auto`. At a stop it renders required conflict rows; for
+   `pnpm-lock.yaml` it discards the textual/rerere result and applies the [regeneration
+   rule](#regenerable-files) itself.
+4. `unblock-check` classifies post-replay lock drift, installs after the replay's manifests are
+   present, and only then runs the fork scan, ledger, derived typechecks, and adjacent tests. It
+   renders the complete decision and grounding surface rather than relying on an operator regex.
+5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, posts the external record,
+   and performs the exact expected-old leased push and apply comment.
 
-The issue comment is the durable human rehearsal record. Existing files under
-`docs/operations/fork-sync-records/` are historical and remain in place, but new rehearsals do not
-add to that directory. A clean rehearsal can therefore apply with no new stack commit; a committed
-keep/retire ledger change is delta input, not an operational record.
+Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
+variable carries gate state. The script also renders and validates the Markdown record schema. Its
+focused tests are the schema definition, so there is no separate prose template to drift from it.
+The report and record stay outside the repository and new rehearsals never add to
+`docs/operations/fork-sync-records/`.
 
-After the gate passes, the agent runs the skill's final trunk push with the `expected_old` read
-exactly once at the start of the same rehearsal.
-
-Never move a bot-owned ref as part of the unblock. After the leased push succeeds, the agent posts
-the resolved blocking SHA, target tag, and rehearsal-record comment URL. The record comment and
-apply comment together preserve the signed-off resolution without changing the stack. The push
-starts a new bot run. That run closes the issue carrying the resolved
-blocking SHA when it is no longer first, then creates a new issue only if a later first conflict has
-never been filed. A
-stale lease is never refreshed:
-rehearse again, repeat the checks and sign-off, and then apply with the new rehearsal's lease.
+The human still owns target selection, semantic conflict classification, retirement/product
+judgement, grounding, login/date, and the explicit go. Every other transition refuses stale refs,
+wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed checks, or a
+missing sign-off. A stale lease voids the report; restart at `unblock-list` instead of refreshing it.
+Never move a bot-owned ref as part of the unblock. A successful leased push starts the bot run that
+reconciles the resolved blocking SHA and any later block.
 
 ## Cut a stable release
 

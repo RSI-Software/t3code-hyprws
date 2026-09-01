@@ -1,236 +1,74 @@
 ---
 name: fork-sync
-description: Unblock an RSI-Software/t3code-hyprws upstream rebase with a gated rehearsal and leased apply, or cut a stable fork release from a bot-owned snapshot.
+description: Unblock an RSI-Software/t3code-hyprws upstream rebase with a reported rehearsal and leased apply, or cut a stable fork release from a bot-owned snapshot.
 ---
 
 # Fork sync
 
-Choose exactly one entry point:
-
-- **unblock** — resolve the current `rebase-blocked` issue by rehearsing the complete fork stack on
-  the selected upstream stable or nightly tag;
-- **cut stable** — verify a bot-owned `release/vX.Y.Z-hyprws` snapshot, obtain human sign-off on the
-  exact candidate, and publish its immutable stable tag.
-
-Never post to `pingdotgg/t3code`. Never merge upstream into `hyprws`. Never move
-`hyprws-previous`, `hyprws-next`, or `release/vX.Y.Z-hyprws` by hand. The
-[fork-sync runbook](../../../docs/operations/fork-sync.md) owns the bot model, ref meanings,
-repository setup, failure handling, and local-lane recovery.
+Choose exactly one entry point: **unblock** or **cut stable**. Never post to `pingdotgg/t3code`,
+merge upstream into `hyprws`, or move a bot-owned ref by hand. The
+[fork-sync runbook](../../../docs/operations/fork-sync.md) owns the bot model and recovery.
 
 ## Entry point: unblock
 
-This flow has five gates with hard stops for unmet prerequisites and missing human sign-off. The
-rewrite is rehearsed away from the `hyprws` worktree. After sign-off, the agent applies it with the
-expected-old lease read once at the start of that same rehearsal.
+Each command consumes the prior external report. Never alter its state, continue a rebase directly,
+or bypass a refusal or `fork:sync-gate`.
 
-Set `tag` to the newest upstream release tag beyond the blocking commit that the human intends to
-reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. Draft the record in a
-temporary file outside the repository; after sign-off, post that file as a comment on the blocked
-issue. Never add it to the replayed stack. Follow [the record schema](references/record.md) and
-[the rehearsal procedure](references/rehearse.md), treating `$tag` as the selected release tag when
-it is a nightly. The block below assigns `tag` after the tag listing, because the listing is what the
-selection is made from.
+1. List the current block and selectable targets:
 
-### Gate 1 — Orient
+   ```bash
+   vp run fork:sync unblock-list
+   ```
 
-The preflight fetches both lanes and proves the `main` mirror is current. Read the open block, sweep
-upstream watches, list reachable release tags, and orient against the human's selection:
+   **Stop.** Show the blocker and offered tags. Continue only after the human selects one; recency
+   is not permission to infer it.
 
-```bash
-node scripts/fork-preflight.ts
-repo=RSI-Software/t3code-hyprws
-blocked_issue="$(gh issue list --state open --label rebase-blocked -R "$repo" \
-  --json number --jq 'if length == 1 then .[0].number else error("expected one open rebase-blocked issue") end')"
-gh issue view "$blocked_issue" -R "$repo"
-gh issue view "$blocked_issue" --comments -R "$repo"
-node scripts/fork-upstream-watch.ts
-git tag --list 'v*' --sort=-v:refname \
-  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-nightly\.[0-9]{8}\.[0-9]+)?$' \
-  | head -n 10
-tag= # fill from the list above with the release tag the human selects
-node scripts/fork-orient.ts --target "$tag"
-```
+2. Bind that selection and render orientation:
 
-`node` is deliberate: these scripts use Node builtins and can name preflight failures before `vp i`.
-The blocked issue is read twice because `--comments` replaces the body view rather than adding to
-it: the body carries the full `blocking-sha`, and the comments carry the bot's refresh log, which
-abbreviates it.
-Orientation proves the target exists as a tag, is reachable from `upstream/main`, and reports
-feasibility, automerged overlap, retire candidates, and `upstream-watch` verdicts. The selected tag
-must be beyond the blocking upstream commit; choosing the last clean tag only reproduces the bot's
-current result.
+   ```bash
+   vp run fork:sync unblock-orient --report <report> --target <human-selected-tag>
+   ```
 
-**Stop.** Show the human the issue's blocking SHA, target tag and SHA, source and shared base,
-conflict/overlap summary, and watch verdicts. Record the full blocking SHA as `blocking_sha` for the
-closing comment. Continue only after the human confirms the target. Orientation is not permission to
-modify a ref.
+   **Stop.** Show target/source/shared-base SHAs, conflicts, automerged overlap, retire candidates,
+   and watch verdicts. Continue only after the human confirms the exact target.
 
-### Gate 2 — Rehearse
+3. Start or resume the reported rehearsal:
 
-Create a disposable lane from the published fork; never rebase the current checkout. Read
-`expected_old` exactly once, before the lane exists, and name the lane after it:
+   ```bash
+   vp run fork:sync unblock-rehearse --report <report>
+   ```
 
-```bash
-git fetch origin --quiet
-expected_old="$(git rev-parse origin/hyprws)"
-wt switch --create "rehearse/$tag-from-${expected_old:0:12}" --base "$expected_old"
-# Continue in the worktree path printed by Worktrunk.
-vp i
-# `vp i` re-resolves floating transitive versions, so it can leave the registered generated
-# lockfile dirty, and `git rebase` refuses to start on a dirty tree. Restore it: the replay
-# re-derives it at each stop, and the after-rebase check owns the final drift.
-git restore --source=HEAD --worktree -- pnpm-lock.yaml
-# Git strips comment-char lines from any message it rewrites, which silently deletes the `##`
-# headings fork bodies use. Export it so every later git call in this shell inherits it,
-# including `rebase --continue`; never write it into the shared repository config.
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.commentChar GIT_CONFIG_VALUE_0=auto
-target_sha="$(git rev-parse "$tag^{commit}")"
-base_sha="$(git merge-base "$expected_old" "$tag")"
-record_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}.XXXXXX.md")"
-messages_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}-messages.XXXXXX")"
-chmod 600 "$record_path" "$messages_path"
-git log --reverse --topo-order --format='%B%x1e' "$base_sha..$expected_old" > "$messages_path"
-git rebase "$tag"
-```
+   At a stop, preserve upstream intent and complete non-generated rows with `mechanical`,
+   `seam-moved`, `retire-candidate`, or `human`; judgement stays human-owned. The verb regenerates
+   `pnpm-lock.yaml` and owns comment-safe continuation. Rerun it until replay complete.
 
-The lane name carries the published head it replays, so a target rehearsed against a since-advanced
-trunk gets a new lane instead of colliding with the stale one. Basing the lane on `$expected_old`
-rather than `origin/hyprws` keeps the name and the replayed head the same commit even if the remote
-advances mid-run. The stale lane stays where it is; it is evidence, and its resolutions are reuse
-candidates rather than proof.
+   **Stop.** Present every conflict row and any unresolved human choice. Continue only when every
+   row is complete; a clean replay still owes the report's count and byte-identical-message proof.
 
-At each stop, read upstream intent first, preserve it, and reapply the smallest fork behaviour at the
-current seam. `pnpm-lock.yaml` is the registered `generated` conflict class: restore it from `HEAD`
-(the incoming upstream base plus already replayed fork commits), resolve every non-generated
-conflict, then re-derive and stage it instead of merging lockfile entries:
+4. Check the completed replay:
 
-```bash
-git restore --source=HEAD --staged --worktree -- pnpm-lock.yaml
-# Resolve and stage every remaining conflict before running the generator.
-vp install --lockfile-only
-git add pnpm-lock.yaml
-```
+   ```bash
+   vp run fork:sync unblock-check --report <report>
+   ```
 
-`vp install --lockfile-only` is the repository-native equivalent of
-`pnpm install --lockfile-only`. Apply this rule even when rerere proposes or stages a prior lockfile
-resolution; generated state is not a reusable resolution. Never squash, reorder, reword, or
-`git rebase --skip` a fork commit. Classify every other conflicted file as `mechanical`,
-`seam-moved`, `retire-candidate`, or `human`; preserve every `Fork-*` trailer. Start the human-sync
-record immediately at `$record_path`, never under the repository root.
+   The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
+   installs at the final replay head, then runs scan, ledger, derived typechecks, and adjacent tests.
+   Fix a refused silent seam in its owning fork commit and repeat the rehearsal/check; never weaken a
+   check or substitute a repo-wide command.
 
-**Stop.** Show the human the rebased head, stack size, conflicts by class, all
-`retire-candidate`/`human` rows, and any unresolved block. Continue only after every conflict has a
-record row, or a zero-stop replay has the record schema's replay evidence.
+   **Stop.** Present the emitted Gate 4 decision surface, silent seams, and grounding evidence.
+   Continue only when the human gives every keep/retire/partial decision by exact subject, confirms
+   grounding, records `Human sanity: <login> YYYY-MM-DD`, and gives an explicit go. Put those values
+   in the rendered record; the agent must not infer them.
 
-### Gate 3 — Check
+5. Apply the reviewed record:
 
-Walk every involved domain against the selected tag and run focused checks:
+   ```bash
+   vp run fork:sync unblock-apply --report <report> --record <record>
+   ```
 
-```bash
-vp i
-git restore --source=HEAD --worktree -- pnpm-lock.yaml
-git log --reverse --topo-order --format='%B%x1e' "$tag..HEAD" | diff -u "$messages_path" -
-vp run fork:scan --target "$tag"
-vp run fork:delta --check
-vp run --filter <touched-package> typecheck
-vp test run <tests-beside-every-touched-file>
-```
-
-The `diff` proves no commit message changed during the replay; any output is a hard stop, not a
-finding to record.
-
-The install comes first because `fork:scan` typechecks the rehearsed head, and the tree installed at
-Gate 2 predates every manifest the replay carried. A scan against that stale tree reads exactly like
-a fresh one. The restore clears the same floating re-resolution Gate 2 clears.
-
-`fork:scan` takes no `--head` here on purpose: it defaults to the checkout `HEAD`, and only a scan
-of the checkout `HEAD` runs the typechecks that surface silent seams. The pre-rebase overlap walk
-already happened at Gate 1 through `fork-orient.ts`.
-
-Replace the final two command arguments from the conflict and automerged-overlap file set; do not
-leave those sample tokens in a command. Review every automerged overlap even when the rebase never
-stopped.
-
-`fork:scan` fails in two classes and prints the repair for each. A `MISSING` result is a gap in
-`docs/internals/fork-delta.md` and must be recorded for the human to repair at Gate 4. A `TYPECHECK`
-result is a silent seam: fix it in the fork commit that owns the file, as
-[rehearse](references/rehearse.md) describes, and rerun. No ledger entry repairs a compile error.
-
-Record exact commands and results. Product claims name the exact UI label and expected outcome; a
-thread-sync claim uses a sent message, never a draft. Put typecheck-only findings under **Silent
-seams**.
-
-**Stop.** Show the human failed checks, silent seams, and the complete record. Continue only when the
-scan, ledger, every targeted typecheck, and every adjacent test pass. Never substitute repo-wide
-`vp check`, typecheck, or test for the targeted set; fork CI owns the full suite.
-
-### Gate 4 — Human sanity
-
-At the sign-off boundary, the human reads only decision rows and grounding claims:
-
-```bash
-rg '\| (retire-candidate|human) \|' "$record_path"
-rg 'Grounding (claim|pending)' "$record_path"
-```
-
-**Stop.** Present every decision by exact fork commit subject, every silent seam, and all grounding
-evidence. Continue only when the human replies with the keep/retire/partial decisions, confirms the
-grounding evidence, records their login and date, and gives an explicit go. Missing sign-off is a
-hard stop; the agent must not perform or infer this approval.
-
-After sign-off, the agent copies the decisions into the matching `Retired` or `Kept` section of
-`docs/internals/fork-delta.md` and writes `Human sanity: <login> YYYY-MM-DD` with the login and date
-from that sign-off. Commit only durable delta decisions, never the rehearsal record. After any such
-commit, refresh the record's rebased head, stack count, and affected rehearsal SHAs before posting
-it:
-
-```bash
-git add docs/internals/fork-delta.md
-if ! git diff --cached --quiet; then
-  git commit -m "docs(fork): apply rehearsal decisions" \
-    -m $'Fork-Domain: fork-meta\nFork-Tier: qol'
-fi
-vp run fork:upstream-refs "$record_path"
-vp run fork:delta --check
-vp run fork:scan --target "$tag"
-record_comment_url="$(gh issue comment "$blocked_issue" -R "$repo" --body-file "$record_path")"
-```
-
-The issue comment is the durable operational record. A clean rehearsal may leave no new commit; a
-keep/retire ledger edit remains replayable delta input. Any failure returns the rehearsal to Gate 3.
-A red check or source edit voids the sign-off and requires a fresh record comment after the fix; do
-not edit or delete an earlier rehearsal comment.
-
-### Gate 5 — Apply
-
-Run the deterministic guard from the rehearsed branch. `--allow-nightly` permits both supported tag
-shapes while preserving stable-only behaviour when the flag is absent.
-
-```bash
-vp run fork:sync-gate --tag "$tag" --record "$record_path" --allow-nightly
-```
-
-The guard fetches and refuses an unmet preflight, invalid tag, record inside the repository, missing
-record, stale `expected_old`, or absent human sanity mark. Its refusals are never bypassed. If
-`origin/hyprws` moved, do not refresh only the SHA: start a new rehearsal, read its lease once,
-incorporate the drift through [the rehearsal
-procedure](references/rehearse.md), update the evidence, and repeat Gates 3–4.
-
-After the gate passes against the recorded sign-off, the agent resolves the exact values, rewrites
-the trunk with the recorded lease, and posts the runbook issue comment:
-
-```bash
-git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
-gh issue comment "$blocked_issue" -R RSI-Software/t3code-hyprws --body \
-  "Resolved blocking upstream commit \`$blocking_sha\` while rebasing \`hyprws\` onto \`$tag\`; the leased rewrite replaced \`$expected_old\`. Rehearsal record: $record_comment_url"
-rm "$record_path"
-```
-
-A refused lease returns to a full rehearsal; it is never silently refreshed. Keep the external
-record until a successful apply comment, but never commit it. Do not update a bot-owned ref as part
-of this apply. The successful `hyprws` push starts a new bot run. That run
-closes every open `rebase-blocked` issue if no block remains, or updates the issue when it finds a
-later block.
+   This calls `fork:sync-gate`, posts the record, and uses only its expected-old lease. Rejection
+   voids the report: retain its external files and restart at step 1. Never commit them.
 
 ## Entry point: cut stable
 
