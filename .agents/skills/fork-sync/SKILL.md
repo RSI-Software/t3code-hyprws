@@ -74,6 +74,10 @@ expected_old="$(git rev-parse origin/hyprws)"
 wt switch --create "rehearse/$tag-from-${expected_old:0:12}" --base "$expected_old"
 # Continue in the worktree path printed by Worktrunk.
 vp i
+# `vp i` re-resolves floating transitive versions, so it can leave the registered generated
+# lockfile dirty, and `git rebase` refuses to start on a dirty tree. Restore it: the replay
+# re-derives it at each stop, and the after-rebase check owns the final drift.
+git restore --source=HEAD --worktree -- pnpm-lock.yaml
 # Git strips comment-char lines from any message it rewrites, which silently deletes the `##`
 # headings fork bodies use. Export it so every later git call in this shell inherits it,
 # including `rebase --continue`; never write it into the shared repository config.
