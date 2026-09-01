@@ -1184,6 +1184,8 @@ function AgentInstallTerminal({
             autoFocus
             visible
             keybindings={keybindings}
+            attached
+            restoreFocusOnReattach={false}
           />
         ) : null}
       </div>
