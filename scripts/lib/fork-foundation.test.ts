@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { parseArgs, UsageError } from "./fork-cli.ts";
-import { commandText } from "./fork-command.ts";
+import { commandText, requireCommandSuccess } from "./fork-command.ts";
 import { readForkRetirementLedger } from "./fork-retirement-ledger.ts";
 import {
   FORK_LOG_FIELD_SEPARATOR as FS,
@@ -30,6 +30,23 @@ it("parses shared value, flag, and positional CLI arguments", () => {
 
 it("renders command diagnostics with shell-unsafe values quoted", () => {
   assert.equal(commandText("vp", ["run", "hello world"]), 'vp run "hello world"');
+});
+
+it("keeps stdout detail when a failed command also writes stderr", () => {
+  assert.throws(
+    () =>
+      requireCommandSuccess(
+        {
+          status: 1,
+          stdout:
+            "apps/web/src/a.ts: no-console\npackages/shared/src/b.ts: @typescript-eslint/no-explicit-any",
+          stderr: "Formatting issues found",
+        },
+        "vp",
+        ["check"],
+      ),
+    /vp check failed: apps\/web\/src\/a\.ts: no-console\npackages\/shared\/src\/b\.ts: @typescript-eslint\/no-explicit-any\nFormatting issues found/,
+  );
 });
 
 it("parses trailers from the full body above a co-author paragraph", () => {
