@@ -15,9 +15,12 @@ import {
 } from "@t3tools/contracts";
 import { type ShortcutEventLike } from "../keybindings";
 import {
+  isTerminalAttachmentDemanded,
+  resolveTerminalWindowDemand,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
+  shouldRestoreTerminalFocusAfterResume,
   synchronizeTerminalOutput,
   synchronizeTerminalSession,
 } from "./ThreadTerminalDrawer";
