@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - This standalone GitHub bot runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 
+import { parseArgs as parseCliArgs, UsageError } from "./lib/fork-cli.ts";
+import { runCommand } from "./lib/fork-command.ts";
 import {
   closeComment,
   refreshRow,
@@ -226,8 +227,6 @@ export const reconcileRebaseBlock = (
     refreshBlockIssue(client, kept, input.blocked, at);
     return;
   }
-  if (issues.some((issue) => blockingSha(issue) === desiredSha)) return;
-
   const preCreateMatch = client
     .listBlockedIssues()
     .filter((issue) => issue.state === "open" && blockingSha(issue) === desiredSha)
@@ -306,10 +305,9 @@ export class SystemGitHub implements RebaseGitHubClient {
   }
 
   private run(args: ReadonlyArray<string>, input?: string): string {
-    const result = NodeChildProcess.spawnSync("gh", [...args], {
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
+    const result = runCommand("gh", args, {
       ...(input === undefined ? {} : { input }),
+      maxBuffer: 32 * 1024 * 1024,
     });
     if (result.status === 0 && result.error === undefined) return result.stdout;
     const detail = result.error?.message ?? (result.stderr.trim() || result.stdout.trim());
@@ -510,16 +508,18 @@ export class SystemGitHub implements RebaseGitHubClient {
   }
 }
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: node scripts/fork-rebase-notify.ts --input <path>\n`;
 
-export const parseArgs = (argv: ReadonlyArray<string>): { readonly input: string } => {
-  if (argv.length !== 2 || argv[0] !== "--input" || argv[1] === undefined) {
-    throw new UsageError("expected --input <path>");
-  }
-  return { input: argv[1] };
+export const parseNotifyArgs = (argv: ReadonlyArray<string>): { readonly input: string } => {
+  const parsed = parseCliArgs(argv, { values: ["--input"] });
+  const input = parsed.values.get("--input");
+  if (input === undefined) throw new UsageError("expected --input <path>");
+  return { input };
 };
+
+export { parseNotifyArgs as parseArgs };
 
 export const run = (argv: ReadonlyArray<string>): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -527,7 +527,7 @@ export const run = (argv: ReadonlyArray<string>): number => {
     return 0;
   }
   try {
-    const options = parseArgs(argv);
+    const options = parseNotifyArgs(argv);
     if (!process.env.GH_TOKEN) throw new UsageError("GH_TOKEN is required");
     const repository = process.env.GH_REPO;
     if (!repository) throw new UsageError("GH_REPO is required");

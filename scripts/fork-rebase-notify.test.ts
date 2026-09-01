@@ -320,7 +320,7 @@ it("closes the resolved sha with one comment and creates nothing", () => {
   assert.strictEqual(openIssues(client).length, 0);
 });
 
-it("never refiles a sha already carried by a closed issue", () => {
+it("refiles a still-live sha when its previous issue was closed", () => {
   const report = blocked(SHA_A);
   const client = new FakeGitHub([
     {
@@ -335,8 +335,9 @@ it("never refiles a sha already carried by a closed issue", () => {
 
   reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
 
-  assert.strictEqual(client.created.length, 0);
-  assert.strictEqual(openIssues(client).length, 0);
+  assert.strictEqual(client.created.length, 1);
+  assert.strictEqual(openIssues(client).length, 1);
+  assert.include(client.created[0]?.body ?? "", `<!-- blocking-sha:${SHA_A} -->`);
 });
 
 it("refreshes a matching issue found by the pre-create re-read instead of creating", () => {

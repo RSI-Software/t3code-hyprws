@@ -105,8 +105,18 @@ it("writes a listed report without accepting or inferring a target", () => {
     ],
     { stdout: issueJson },
   );
-  runner.set("git", ["tag", "--list", "v*", "--sort=-version:refname"], { stdout: "v1.2.3\n" });
-  runner.set("git", ["rev-parse", "v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["rev-list", "--first-parent", "--reverse", "upstream/main"], {
+    stdout: `${A}\n${B}\n`,
+  });
+  runner.set(
+    "git",
+    [
+      "for-each-ref",
+      "--format=%(refname:strip=2)%09%(objectname)%09%(*objectname)",
+      "refs/tags/v*",
+    ],
+    { stdout: `v1.2.3\t${B}\t\nv1.2.4-nightly.20260831.2\t${C}\t\n` },
+  );
 
   try {
     const listed = execute(["unblock-list", "--output", output], root, runner);
