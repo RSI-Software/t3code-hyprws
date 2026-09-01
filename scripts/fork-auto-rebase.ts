@@ -311,7 +311,9 @@ const forkReplay = (git: SystemGit, base: string, head: string): string =>
     "log",
     "--reverse",
     "--topo-order",
-    "--format=%s%n%(trailers:only,unfold=true)%x1e",
+    // %B, not %s plus parsed trailers: a rebase that rewrites a message can drop body lines
+    // (git strips comment-char lines when it cleans one up) without touching subject or trailers.
+    "--format=%B%x1e",
     `${base}..${head}`,
   ]);
 
@@ -324,7 +326,7 @@ export const verifyReplayMetadata = (
   if (originalCount !== replayedCount) {
     throw new Error(`replay commit count changed: ${originalCount} -> ${replayedCount}`);
   }
-  if (originalLog !== replayedLog) throw new Error("replay subjects or trailers changed");
+  if (originalLog !== replayedLog) throw new Error("replay commit messages changed");
 };
 
 const verificationEnvironment = (): NodeJS.ProcessEnv => {
