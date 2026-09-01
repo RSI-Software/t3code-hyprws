@@ -1,3 +1,10 @@
+// @effect-diagnostics nodeBuiltinImport:off - Standalone fork gates read this required file before Effect.
+
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
+export const FORK_RETIREMENT_LEDGER_PATH = "docs/internals/fork-delta.md";
+
 export type RetirementDecision = "retire" | "keep" | "partial" | "none";
 
 export interface RetiredCommit {
@@ -121,6 +128,11 @@ export const parseForkRetirementLedger = (markdown: string): ForkRetirementLedge
     kept: keyedRows("Kept", kept),
   };
 };
+
+export const readForkRetirementLedger = (root: string): ForkRetirementLedger =>
+  parseForkRetirementLedger(
+    NodeFS.readFileSync(NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH), "utf8"),
+  );
 
 export const retirementDecision = (
   ledger: ForkRetirementLedger,

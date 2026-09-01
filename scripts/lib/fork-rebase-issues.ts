@@ -1,4 +1,5 @@
 import type { ForkRebaseFeasibility } from "./fork-rebase-feasibility.ts";
+import { parseUpstreamReleaseTag } from "./fork-policy.ts";
 
 // Rebase conflict handling: blocked-rebase issues and RSI bot resolution.
 
@@ -72,7 +73,7 @@ const refreshLane = (tag: string, upstreamCommitCount: number): string => {
     commitsAfterBlock <= 8
       ? Array.from({ length: commitsAfterBlock }, () => "o")
       : [`o x${commitsAfterBlock}`];
-  const tagNode = tag.includes("-nightly.") ? "N" : "S";
+  const tagNode = parseUpstreamReleaseTag(tag)?.channel === "nightly" ? "N" : "S";
   return ["o", "X", ...commits, tagNode].join("--");
 };
 

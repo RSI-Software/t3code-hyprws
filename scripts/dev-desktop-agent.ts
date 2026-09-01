@@ -2,6 +2,10 @@
 
 /** Start, restart, or inspect this worktree's agent-placed desktop dev app. */
 
+import { UsageError as DesktopAgentUsageError } from "./lib/fork-cli.ts";
+
+export { UsageError as DesktopAgentUsageError } from "./lib/fork-cli.ts";
+
 const HELP = `Start or inspect the worktree's agent-placed desktop development app.
 
 Usage:
@@ -47,13 +51,6 @@ export type DesktopAgentCommand =
   | { readonly kind: "help" }
   | { readonly kind: "run"; readonly dryRun: boolean; readonly workspace: string | undefined }
   | { readonly kind: "url" };
-
-export class DesktopAgentUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DesktopAgentUsageError";
-  }
-}
 
 function parseWorkspaceOption(value: string | undefined): string {
   if (value === undefined || value.length === 0) {
