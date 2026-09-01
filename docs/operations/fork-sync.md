@@ -278,21 +278,13 @@ reported the next human task. It does not mean the entire upstream lane was clea
 
 ## Unblocking a `rebase-blocked` issue
 
-Open the single current blocked issue and read the blocking upstream commit, affected fork commits,
-domains, files, and newest upstream tag beyond the block:
-
-```bash
-repo=RSI-Software/t3code-hyprws
-blocked_issue="$(gh issue list --state open --label rebase-blocked -R "$repo" \
-  --json number --jq 'if length == 1 then .[0].number else error("expected one open rebase-blocked issue") end')"
-gh issue view "$blocked_issue" --comments -R "$repo"
-```
-
-Then invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
-point. The maintainer chooses the newest upstream stable or nightly tag past the reported block. The
-agent rehearses the complete stack on `rehearse/<tag>`, preserves upstream intent while resolving
-each semantic conflict, and applies the [regeneration rule](#regenerable-files) to registered
-generated paths. It then runs the fork scan and focused checks and presents every decision row,
+Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
+point. Its Orient gate requires exactly one current blocked issue and opens it for review. Before the
+human selects a target, read the blocking upstream commit, affected fork commits, domains, files, and
+newest upstream tag beyond the block. The maintainer chooses the newest upstream stable or nightly
+tag past the reported block. The agent rehearses the complete stack on `rehearse/<tag>` and
+preserves upstream intent at each semantic conflict. For registered generated paths, it follows the
+[regeneration rule](#regenerable-files). It then runs the fork scan and focused checks and presents every decision row,
 silent seam, and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
 login/date, and explicit go; missing sign-off is a hard stop. The agent copies durable keep/retire
 decisions into the ledger, but keeps the operational rehearsal record in a temporary file outside
@@ -326,15 +318,12 @@ rehearse again, repeat the checks and sign-off, and then apply with the new rehe
 
 ## Cut a stable release
 
-The bot opens one `release` issue per create-only stable snapshot. Start by listing those issues and
-choose the issue number for the version to release:
+The bot opens one `release` issue per create-only stable snapshot. Invoke the
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point. Its
+Identify gate lists the open candidates; the human chooses the issue number for the version to
+release rather than letting recency choose implicitly.
 
-```bash
-gh issue list --state open --label release \
-  -R RSI-Software/t3code-hyprws
-```
-
-Set `issue` to a number from that list, then derive and fetch `release_branch` below. After that
+Set `issue` to the selected number, then derive and fetch `release_branch` below. After that
 fetch and before tagging, follow the repo-local
 [`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgment boundary and run
 `vp run fork:uat --ref "origin/$release_branch" --relates-to "$issue"` on the exact ref you intend to
