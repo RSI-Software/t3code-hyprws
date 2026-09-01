@@ -10,6 +10,7 @@ import { type ShortcutEventLike } from "../keybindings";
 import {
   isTerminalAttachmentDemanded,
   resolveTerminalSelectionActionPosition,
+  resolveTerminalWindowDemand,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
@@ -48,9 +49,16 @@ function binding(command: KeybindingCommand): ResolvedKeybindingsConfig {
 
 describe("terminal attachment demand", () => {
   it("requires both a visible surface and a foreground project window", () => {
-    expect(isTerminalAttachmentDemanded(true, "visible")).toBe(true);
-    expect(isTerminalAttachmentDemanded(false, "visible")).toBe(false);
-    expect(isTerminalAttachmentDemanded(true, "hidden")).toBe(false);
+    expect(isTerminalAttachmentDemanded(true, true)).toBe(true);
+    expect(isTerminalAttachmentDemanded(false, true)).toBe(false);
+    expect(isTerminalAttachmentDemanded(true, false)).toBe(false);
+  });
+
+  it("prefers Electron demand and falls back to browser document visibility", () => {
+    expect(resolveTerminalWindowDemand(false, "visible")).toBe(false);
+    expect(resolveTerminalWindowDemand(true, "hidden")).toBe(true);
+    expect(resolveTerminalWindowDemand(undefined, "visible")).toBe(true);
+    expect(resolveTerminalWindowDemand(undefined, "hidden")).toBe(false);
   });
 });
 

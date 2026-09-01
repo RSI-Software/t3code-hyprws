@@ -22,6 +22,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
+  WINDOW_DEMAND_STATE_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -714,6 +715,24 @@ export const make = Effect.gen(function* () {
         identity.kind === "hub" || title.trim().length === 0 ? environment.displayName : title,
       );
     });
+
+    const publishWindowDemandState = () => {
+      if (window.isDestroyed()) return;
+      window.webContents.send(
+        WINDOW_DEMAND_STATE_CHANNEL,
+        window.isVisible() && !window.isMinimized() && window.isFocused(),
+      );
+    };
+    // Chromium document visibility stays "visible" when Hyprland moves a
+    // BrowserWindow off the active workspace. Main-process focus/lifecycle
+    // events are the desktop demand source; web clients retain their browser fallback.
+    window.on("show", publishWindowDemandState);
+    window.on("hide", publishWindowDemandState);
+    window.on("minimize", publishWindowDemandState);
+    window.on("restore", publishWindowDemandState);
+    window.on("focus", publishWindowDemandState);
+    window.on("blur", publishWindowDemandState);
+
     if (identity.kind === "hub") {
       window.on("resize", scheduleBoundsPersist);
       window.on("move", scheduleBoundsPersist);
@@ -788,6 +807,7 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
+      publishWindowDemandState();
       if (identity.kind === "hub") {
         window.setTitle(environment.displayName);
       }

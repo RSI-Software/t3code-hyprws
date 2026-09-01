@@ -94,29 +94,47 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
 
 export function isTerminalAttachmentDemanded(
   surfaceVisible: boolean,
-  documentVisibility: DocumentVisibilityState,
+  windowDemanded: boolean,
 ): boolean {
-  return surfaceVisible && documentVisibility === "visible";
+  return surfaceVisible && windowDemanded;
 }
 
-function subscribeDocumentVisibility(onChange: () => void): () => void {
+export function resolveTerminalWindowDemand(
+  desktopDemand: boolean | undefined,
+  documentVisibility: DocumentVisibilityState,
+): boolean {
+  return desktopDemand ?? documentVisibility === "visible";
+}
+
+function subscribeWindowDemand(onChange: () => void): () => void {
+  const bridge = window.desktopBridge;
+  if (
+    typeof bridge?.getWindowDemandState === "function" &&
+    typeof bridge.onWindowDemandStateChange === "function"
+  ) {
+    return bridge.onWindowDemandStateChange(onChange);
+  }
   document.addEventListener("visibilitychange", onChange);
   return () => document.removeEventListener("visibilitychange", onChange);
 }
 
-function documentVisibilitySnapshot(): DocumentVisibilityState {
-  return document.visibilityState;
+function windowDemandSnapshot(): boolean {
+  const getWindowDemandState = window.desktopBridge?.getWindowDemandState;
+  return resolveTerminalWindowDemand(
+    typeof getWindowDemandState === "function" ? getWindowDemandState() : undefined,
+    document.visibilityState,
+  );
 }
 
-function serverDocumentVisibilitySnapshot(): DocumentVisibilityState {
-  return "visible";
+function serverWindowDemandSnapshot(): boolean {
+  return true;
 }
 
-function useDocumentVisibility(): DocumentVisibilityState {
+function useWindowDemand(): boolean {
   return useSyncExternalStore(
-    subscribeDocumentVisibility,
-    documentVisibilitySnapshot,
-    serverDocumentVisibilitySnapshot,
+    subscribeWindowDemand,
+    windowDemandSnapshot,
+    serverWindowDemandSnapshot,
   );
 }
 
@@ -1211,9 +1229,9 @@ export default function ThreadTerminalDrawer({
   terminalLaunchLocationsById,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
-  const documentVisibility = useDocumentVisibility();
-  const attachmentDemanded = isTerminalAttachmentDemanded(visible, documentVisibility);
-  const restoreFocusOnReattach = visible && documentVisibility !== "visible";
+  const windowDemanded = useWindowDemand();
+  const attachmentDemanded = isTerminalAttachmentDemanded(visible, windowDemanded);
+  const restoreFocusOnReattach = visible && !windowDemanded;
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
