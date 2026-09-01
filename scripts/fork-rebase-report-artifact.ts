@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone GitHub artifact check runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-const DEFAULT_REPOSITORY = "RSI-Software/t3code-hyprws";
+import { UsageError } from "./lib/fork-cli.ts";
+import { runCommandText } from "./lib/fork-command.ts";
+import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
+
+const DEFAULT_REPOSITORY = FORK_REPOSITORY;
 const DEFAULT_OUTPUT = ".dump/runs/fork-rebase-report";
 const WORKFLOW = "hyprws-rebase-report.yml";
 const WORKFLOW_NAME = "hyprws rebase report";
@@ -16,8 +19,8 @@ const EXPECTED_REPOSITORIES = {
     webUrl: "https://github.com/pingdotgg/t3code",
   },
   hyprws: {
-    slug: "RSI-Software/t3code-hyprws",
-    webUrl: "https://github.com/RSI-Software/t3code-hyprws",
+    slug: FORK_REPOSITORY,
+    webUrl: `https://github.com/${FORK_REPOSITORY}`,
   },
 } as const;
 
@@ -53,7 +56,7 @@ interface CommandReader {
   readonly run: (command: string, args: ReadonlyArray<string>, cwd: string) => string;
 }
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 export class ValidationError extends Error {}
 
@@ -62,7 +65,7 @@ const defaultOptions = (): ArtifactOptions => ({
   output: DEFAULT_OUTPUT,
 });
 
-export const parseArgs = (argv: ReadonlyArray<string>): ArtifactOptions => {
+export const parseArtifactArgs = (argv: ReadonlyArray<string>): ArtifactOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const valueFlags = new Set(["--run", "--output"]);
@@ -91,12 +94,7 @@ export const parseArgs = (argv: ReadonlyArray<string>): ArtifactOptions => {
 
 class SystemCommands implements CommandReader {
   run(command: string, args: ReadonlyArray<string>, cwd: string): string {
-    return NodeChildProcess.execFileSync(command, [...args], {
-      cwd,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    return runCommandText(command, args, { cwd, maxBuffer: 16 * 1024 * 1024 });
   }
 }
 
@@ -260,7 +258,7 @@ export const run = (
   }
 
   try {
-    const options = parseArgs(argv);
+    const options = parseArtifactArgs(argv);
     const root = commands.run("git", ["rev-parse", "--show-toplevel"], cwd).trim();
     const workflowRun =
       options.runId === null
@@ -318,5 +316,7 @@ export const run = (
     return 1;
   }
 };
+
+export { parseArtifactArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));
