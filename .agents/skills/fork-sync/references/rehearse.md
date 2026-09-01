@@ -68,8 +68,8 @@ judgement remains.
 3. If the target or replay changed a package manifest or `pnpm-lock.yaml`, run
    `vp install --lockfile-only` again on the completed replay and require an unchanged worktree. If
    it produces drift, fold the regenerated lockfile into the fork commit that changed the matching
-   manifests without changing that commit's subject or trailers, then repeat the rebase checks. Run
-   `vp i` when installed dependencies also need refreshing, then `vp run fork:delta --check`.
+   manifests without changing that commit's subject or trailers, then repeat the rebase checks.
+   Gate 3 owns the `vp i` that refreshes the installed tree, because its scan typechecks against it.
 4. Run targeted typecheck for every touched package and `vp test run` with tests beside every touched
    source/test file. Do not run repo-wide checks.
 5. Put typecheck-only findings under **Silent seams**, fix them in the owning fork commit, then rerun
