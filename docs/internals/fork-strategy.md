@@ -49,9 +49,12 @@ Three consequences:
    compatibility verdict; a human selects which tag to adopt.
 7. **Retirement is the success path.** Every domain and seam carries a retirement condition,
    machine-watched where possible. Carrying a superseded patch is a defect.
-8. **Humans decide semantics; machines verify the rest.** Four human decision points: adopt-base
-   selection, contested conflict resolution, keep/retire calls, stable sign-off. Any other step
-   that asks for a human is a tooling bug.
+8. **Humans decide semantics; agents execute; machines verify the rest.** Three actors, three
+   lanes. The bot lane applies clean fast-forwards and stops on conflict — no AI resolves anything
+   there. An agent drives every rehearsal, conflict resolution, and record in the unblock lane,
+   under human supervision. The human owns four decision points: adopt-base selection, contested
+   conflict resolution, keep/retire calls, and stable sign-off via guided UAT. Any other step that
+   asks for a human is a tooling bug; any lane where a human resolves conflicts by hand is one too.
 
 ## Element shapes and replay rules
 
@@ -108,7 +111,7 @@ Refs keep their current shape: `main` as an exact upstream mirror, `hyprws` as t
 ```text
 every upstream tag T:   candidate(T) = apply(delta, T)
                         verdict(T) ∈ { clean | textual-block(seams) | semantic-block(checks) }
-adoption:               human selects T* → rehearse → keep/retire pass → leased promote → release
+adoption:               human selects T* → agent rehearses, human watching → keep/retire pass → leased promote → human UAT → release
 ```
 
 The per-tag verdict lattice is the fork's radar: a standing answer to "if we moved to any tag right
