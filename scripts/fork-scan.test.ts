@@ -10,6 +10,7 @@ import {
   parseRebaseScans,
   renderScanReport,
   scanFailures,
+  scanFailureSummary,
   UsageError,
   type ScanInput,
 } from "./fork-scan.ts";
@@ -242,6 +243,23 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
     "typecheck: fork-owned file fails on rehearsed head: apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
   );
   assert.include(renderScanReport(result), "Fork-owned typecheck gaps:");
+});
+
+it("summarises each gap class with its own repair", () => {
+  const clean = buildScanResult(scanInput({ upstreamChanged: new Set() }));
+  assert.deepStrictEqual(scanFailureSummary(clean), []);
+
+  const ledgerOnly = buildScanResult(scanInput());
+  assert.deepStrictEqual(scanFailureSummary(ledgerOnly), [
+    "failed: 1 rebase-scan gap(s); add each path to its domain's Rebase scan table in docs/internals/fork-delta.md",
+  ]);
+
+  const seam = [{ workspace: "apps/web", path: "apps/web/src/fork-only.ts" }];
+  assert.deepStrictEqual(scanFailureSummary({ ...clean, typecheckGaps: seam }), [
+    "failed: 1 typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun",
+  ]);
+
+  assert.lengthOf(scanFailureSummary({ ...ledgerOnly, typecheckGaps: seam }), 2);
 });
 
 it("defaults the target to upstream/main and the base to the merge base", () => {
