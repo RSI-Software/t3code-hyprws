@@ -28,7 +28,8 @@ reach. Both `vX.Y.Z` and `vX.Y.Z-nightly.YYYYMMDD.<run>` are valid targets. Draf
 temporary file outside the repository; after sign-off, post that file as a comment on the blocked
 issue. Never add it to the replayed stack. Follow [the record schema](references/record.md) and
 [the rehearsal procedure](references/rehearse.md), treating `$tag` as the selected release tag when
-it is a nightly.
+it is a nightly. The block below assigns `tag` after the tag listing, because the listing is what the
+selection is made from.
 
 ### Gate 1 — Orient
 
@@ -46,6 +47,7 @@ node scripts/fork-upstream-watch.ts
 git tag --list 'v*' --sort=-v:refname \
   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-nightly\.[0-9]{8}\.[0-9]+)?$' \
   | head -n 10
+tag= # fill from the list above with the release tag the human selects
 node scripts/fork-orient.ts --target "$tag"
 ```
 
