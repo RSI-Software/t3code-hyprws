@@ -296,9 +296,7 @@ it("round-trips escaped pipes and backslashes in conflict cells", () => {
     rendered,
     "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`)",
   );
-  assert.deepStrictEqual(parseConflictRows(rendered), [
-    { ...conflict, commit: C.slice(0, 12) },
-  ]);
+  assert.deepStrictEqual(parseConflictRows(rendered), [{ ...conflict, commit: C.slice(0, 12) }]);
   assert.throws(
     () => parseConflictRows(rendered.replace("keep left \\| right", "keep left \\q right")),
     /invalid conflict Resolution cell: unsupported escape \\q/,
