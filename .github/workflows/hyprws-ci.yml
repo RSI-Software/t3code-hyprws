@@ -7,11 +7,19 @@ name: hyprws CI
 # every rebase (docs/internals/fork-delta.md, distribution).
 
 on:
+  # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
+  # matrix has normally passed on this exact head before the draft is marked
+  # ready, and listing the event only discards those results and reruns them.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - hyprws
       - "release/**"
+  # A merge queue builds `gh-readonly-queue/<base>/**` and waits for the
+  # contexts the branch ruleset requires. Every one of them comes from this
+  # workflow, so without this trigger a queued entry reports nothing and sits
+  # until it times out.
+  merge_group:
   push:
     branches:
       - hyprws
@@ -19,7 +27,7 @@ on:
       - "release/**"
 
 concurrency:
-  group: hyprws-ci-${{ github.event.pull_request.number || github.sha }}
+  group: hyprws-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
