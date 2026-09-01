@@ -148,9 +148,13 @@ of the checkout `HEAD` runs the typechecks that surface silent seams. The pre-re
 already happened at Gate 1 through `fork-orient.ts`.
 
 Replace the final two command arguments from the conflict and automerged-overlap file set; do not
-leave those sample tokens in a command. A `MISSING` scan result is a gap in
-`docs/internals/fork-delta.md` and must be recorded for the human to repair at Gate 4. Review every
-automerged overlap even when the rebase never stopped.
+leave those sample tokens in a command. Review every automerged overlap even when the rebase never
+stopped.
+
+`fork:scan` fails in two classes and prints the repair for each. A `MISSING` result is a gap in
+`docs/internals/fork-delta.md` and must be recorded for the human to repair at Gate 4. A `TYPECHECK`
+result is a silent seam: fix it in the fork commit that owns the file, as
+[rehearse](references/rehearse.md) describes, and rerun. No ledger entry repairs a compile error.
 
 Record exact commands and results. Product claims name the exact UI label and expected outcome; a
 thread-sync claim uses a sent message, never a draft. Put typecheck-only findings under **Silent
