@@ -7,6 +7,7 @@ import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 
 import {
   buildTerminalMenuSessions,
+  getTerminalStatusLabel,
   nextOpenTerminalId,
   previousLiveTerminalId,
   resolveProjectScriptTerminalId,
@@ -66,7 +67,7 @@ function makeKnownSession(input: {
 }
 
 describe("buildTerminalMenuSessions", () => {
-  it("only lists server-known sessions that are running or starting (plus current)", () => {
+  it("lists live and suspended server-known sessions (plus current)", () => {
     expect(
       buildTerminalMenuSessions({
         knownSessions: [
@@ -78,14 +79,22 @@ describe("buildTerminalMenuSessions", () => {
           }),
           makeKnownSession({
             terminalId: "term-2",
-            status: "exited",
-            cwd: "/workspace/exited",
+            status: "suspended",
+            cwd: "/workspace/suspended",
             updatedAt: "2026-04-15T20:06:00.000Z",
           }),
         ],
         workspaceRoot: "/workspace/root",
       }),
     ).toEqual([
+      {
+        terminalId: "term-2",
+        cwd: "/workspace/suspended",
+        status: "suspended",
+        hasRunningSubprocess: false,
+        displayLabel: "Terminal 2",
+        updatedAt: "2026-04-15T20:06:00.000Z",
+      },
       {
         terminalId: "term-3",
         cwd: "/workspace/feature",
@@ -95,6 +104,10 @@ describe("buildTerminalMenuSessions", () => {
         updatedAt: "2026-04-15T20:05:00.000Z",
       },
     ]);
+  });
+
+  it("labels suspended managed attachments explicitly", () => {
+    expect(getTerminalStatusLabel({ status: "suspended" })).toBe("Suspended");
   });
 
   it("keeps the current terminal visible even if it is no longer running", () => {
@@ -174,6 +187,18 @@ describe("previousLiveTerminalId", () => {
         exitedTerminalId: "term-3",
       }),
     ).toBe("term-2");
+  });
+
+  it("treats a suspended managed attachment as a resumable live session", () => {
+    expect(
+      previousLiveTerminalId({
+        sessions: [
+          makeMenuSession({ terminalId: DEFAULT_TERMINAL_ID, status: "suspended" }),
+          makeMenuSession({ terminalId: "term-2", status: "exited" }),
+        ],
+        exitedTerminalId: "term-2",
+      }),
+    ).toBe(DEFAULT_TERMINAL_ID);
   });
 
   it("falls back to the nearest live session above when the exited id was lowest", () => {
