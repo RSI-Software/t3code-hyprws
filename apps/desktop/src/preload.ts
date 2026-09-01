@@ -46,6 +46,13 @@ if (clientPlatform === "darwin") {
   window.addEventListener("DOMContentLoaded", syncWindowControlInset, { once: true });
   window.addEventListener("resize", syncWindowControlInset);
 }
+let windowDemandState = true;
+const windowDemandStateListeners = new Set<(demanded: boolean) => void>();
+ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded: unknown) => {
+  if (typeof demanded !== "boolean" || demanded === windowDemandState) return;
+  windowDemandState = demanded;
+  for (const listener of windowDemandStateListeners) listener(demanded);
+});
 
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (
@@ -231,6 +238,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(IpcChannels.QUIT_SHORTCUT_CHANNEL, wrappedListener);
     };
+  },
+  getWindowDemandState: () => windowDemandState,
+  onWindowDemandStateChange: (listener) => {
+    windowDemandStateListeners.add(listener);
+    return () => windowDemandStateListeners.delete(listener);
   },
   getWindowFullscreenState: () =>
     ipcRenderer.sendSync(IpcChannels.GET_WINDOW_FULLSCREEN_STATE_CHANNEL) === true,
