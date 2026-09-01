@@ -1124,6 +1124,8 @@ function AgentInstallTerminal({
             resizeEpoch={0}
             drawerHeight={256}
             keybindings={keybindings}
+            attached
+            restoreFocusOnReattach={false}
           />
         ) : null}
       </div>
