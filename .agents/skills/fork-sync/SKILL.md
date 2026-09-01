@@ -127,6 +127,8 @@ record row, or a zero-stop replay has the record schema's replay evidence.
 Walk every involved domain against the selected tag and run focused checks:
 
 ```bash
+vp i
+git restore --source=HEAD --worktree -- pnpm-lock.yaml
 git log --reverse --topo-order --format='%B%x1e' "$tag..HEAD" | diff -u "$messages_path" -
 vp run fork:scan --target "$tag"
 vp run fork:delta --check
@@ -136,6 +138,10 @@ vp test run <tests-beside-every-touched-file>
 
 The `diff` proves no commit message changed during the replay; any output is a hard stop, not a
 finding to record.
+
+The install comes first because `fork:scan` typechecks the rehearsed head, and the tree installed at
+Gate 2 predates every manifest the replay carried. A scan against that stale tree reads exactly like
+a fresh one. The restore clears the same floating re-resolution Gate 2 clears.
 
 `fork:scan` takes no `--head` here on purpose: it defaults to the checkout `HEAD`, and only a scan
 of the checkout `HEAD` runs the typechecks that surface silent seams. The pre-rebase overlap walk
