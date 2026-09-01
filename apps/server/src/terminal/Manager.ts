@@ -461,6 +461,9 @@ function isDuplicateAttachSnapshotEvent(
   event: TerminalEvent,
   initialSnapshot: TerminalSessionSnapshot,
 ) {
+  // The snapshot carries error status but not its diagnostic. Preserve the
+  // buffered error event even when both share the same sequence.
+  if (event.type === "error") return false;
   return typeof event.sequence === "number" && typeof initialSnapshot.sequence === "number"
     ? event.sequence <= initialSnapshot.sequence
     : event.type === "started" &&
