@@ -15,7 +15,13 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import { normalizeTrailerValue } from "./lib/fork-trailers.ts";
+import {
+  forkLogArguments,
+  isForkDomain,
+  isForkUpstreamable,
+  parseForkLog,
+  parseForkTrailers,
+} from "./lib/fork-trailers.ts";
 import {
   compareWireShapes,
   parseForkWireBaseline,
@@ -25,7 +31,7 @@ import {
 } from "./lib/fork-wire-shapes.ts";
 import {
   EMPTY_RETIREMENT_LEDGER,
-  parseForkRetirementLedger,
+  readForkRetirementLedger,
   retirementDecision,
   type ForkRetirementLedger,
 } from "./lib/fork-retirement-ledger.ts";
@@ -90,52 +96,7 @@ export class ForkLogExitError extends Schema.TaggedErrorClass<ForkLogExitError>(
   }
 }
 
-const RECORD_SEPARATOR = "";
-const FIELD_SEPARATOR = "";
-
-// `--reverse` keeps stack order: oldest fork commit first, closest to upstream.
-// The whole body is read, not `%(trailers)`: a GitHub UI squash of an App-opened
-// pull request appends `Co-authored-by` after a blank line, which would hide the
-// fork trailers in the paragraph above it.
-export const forkLogArguments = (base: string, head: string) =>
-  [
-    "log",
-    "--reverse",
-    `--format=%H${FIELD_SEPARATOR}%h${FIELD_SEPARATOR}%s${FIELD_SEPARATOR}%b${RECORD_SEPARATOR}`,
-    `${base}..${head}`,
-  ] as const;
-
-const readTrailer = (trailers: string, key: string): string | undefined => {
-  for (const line of trailers.split("\n")) {
-    const separator = line.indexOf(":");
-    if (separator === -1) continue;
-    if (line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) continue;
-    return normalizeTrailerValue(line.slice(separator + 1));
-  }
-  return undefined;
-};
-
-export const parseForkLog = (raw: string): ReadonlyArray<ForkCommit> =>
-  raw
-    .split(RECORD_SEPARATOR)
-    .map((record) => record.replace(/^\n/, ""))
-    .filter((record) => record.trim().length > 0)
-    .map((record) => {
-      const [sha = "", short = "", subject = "", trailers = ""] = record.split(FIELD_SEPARATOR);
-      const domain = readTrailer(trailers, "Fork-Domain");
-      const tier = readTrailer(trailers, "Fork-Tier");
-      const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
-      const wireReviewed = readTrailer(trailers, "Fork-Wire");
-      return {
-        sha,
-        short,
-        subject,
-        ...(domain === undefined ? {} : { domain }),
-        ...(tier === undefined ? {} : { tier }),
-        ...(upstreamable === undefined ? {} : { upstreamable }),
-        ...(wireReviewed === undefined ? {} : { wireReviewed }),
-      };
-    });
+export { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
 
 // A pull request lands as one squash commit whose body is the pull-request
 // body, so the trailer block git will see is that body's last paragraph. Trailing
@@ -162,22 +123,12 @@ export const squashTrailers = (body: string): string => {
     : "";
 };
 
-export const parseSquashBody = (subject: string, body: string): ForkCommit => {
-  const trailers = squashTrailers(body);
-  const domain = readTrailer(trailers, "Fork-Domain");
-  const tier = readTrailer(trailers, "Fork-Tier");
-  const upstreamable = readTrailer(trailers, "Fork-Upstreamable");
-  const wireReviewed = readTrailer(trailers, "Fork-Wire");
-  return {
-    sha: "squash",
-    short: "squash",
-    subject,
-    ...(domain === undefined ? {} : { domain }),
-    ...(tier === undefined ? {} : { tier }),
-    ...(upstreamable === undefined ? {} : { upstreamable }),
-    ...(wireReviewed === undefined ? {} : { wireReviewed }),
-  };
-};
+export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
+  sha: "squash",
+  short: "squash",
+  subject,
+  ...parseForkTrailers(squashTrailers(body)),
+});
 
 export const isReviewedWireTrailer = (value: string | undefined): boolean =>
   value !== undefined && /^reviewed\s+\S/i.test(value);
@@ -189,6 +140,9 @@ export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArr
   commits.flatMap((commit) => {
     const problems: Array<string> = [];
     if (commit.domain === undefined) problems.push("missing Fork-Domain");
+    else if (!isForkDomain(commit.domain)) {
+      problems.push(`unknown Fork-Domain "${commit.domain}"`);
+    }
     if (commit.tier === undefined) problems.push("missing Fork-Tier");
     else if (!isForkTier(commit.tier)) {
       problems.push(
@@ -197,6 +151,8 @@ export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArr
     }
     if (commit.tier === "bugfix" && commit.upstreamable === undefined) {
       problems.push("bugfix without Fork-Upstreamable");
+    } else if (commit.upstreamable !== undefined && !isForkUpstreamable(commit.upstreamable)) {
+      problems.push(`unknown Fork-Upstreamable "${commit.upstreamable}" (expected yes or no)`);
     }
     return problems.map((problem) => ({ short: commit.short, subject: commit.subject, problem }));
   });
@@ -485,9 +441,7 @@ const command = Command.make(
         return;
       }
       const fileSystem = yield* FileSystem.FileSystem;
-      const retirementLedger = parseForkRetirementLedger(
-        yield* fileSystem.readFileString("docs/internals/fork-delta.md"),
-      );
+      const retirementLedger = readForkRetirementLedger(process.cwd());
       const wireBaseline = parseForkWireBaseline(
         yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
       );
