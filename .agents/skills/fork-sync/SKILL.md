@@ -40,6 +40,7 @@ node scripts/fork-preflight.ts
 repo=RSI-Software/t3code-hyprws
 blocked_issue="$(gh issue list --state open --label rebase-blocked -R "$repo" \
   --json number --jq 'if length == 1 then .[0].number else error("expected one open rebase-blocked issue") end')"
+gh issue view "$blocked_issue" -R "$repo"
 gh issue view "$blocked_issue" --comments -R "$repo"
 node scripts/fork-upstream-watch.ts
 git tag --list 'v*' --sort=-v:refname \
@@ -49,6 +50,9 @@ node scripts/fork-orient.ts --target "$tag"
 ```
 
 `node` is deliberate: these scripts use Node builtins and can name preflight failures before `vp i`.
+The blocked issue is read twice because `--comments` replaces the body view rather than adding to
+it: the body carries the full `blocking-sha`, and the comments carry the bot's refresh log, which
+abbreviates it.
 Orientation proves the target exists as a tag, is reachable from `upstream/main`, and reports
 feasibility, automerged overlap, retire candidates, and `upstream-watch` verdicts. The selected tag
 must be beyond the blocking upstream commit; choosing the last clean tag only reproduces the bot's
