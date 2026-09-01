@@ -326,111 +326,39 @@ reconciles the resolved blocking SHA and any later block.
 ## Cut a stable release
 
 The bot opens one `release` issue per create-only stable snapshot. Invoke the
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point. Its
-Identify gate lists the open candidates; the human chooses the issue number for the version to
-release rather than letting recency choose implicitly.
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point. The
+stable lane is three external-report transitions; no shell variable or pasted multi-command block
+carries gate state:
 
-Set `issue` to the selected number, then derive and fetch `release_branch` below. After that
-fetch and before tagging, follow the repo-local
-[`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgment boundary and run
-`vp run fork:uat --ref "origin/$release_branch" --relates-to "$issue"` on the exact ref you intend to
-tag. The ref is the UAT input; the candidate issue is optional relationship context only. The default
-dry-run writes source material for agent and human review. After the agent writes observable UAT
-rows and removes the reviewer-only `## Sources` and `## Excluded` sections, an explicit human go permits
-`vp run fork:uat --create --body <path>` to post the reviewed file as-is. The script never launches
-the ref or edits the candidate issue.
+1. `vp run fork:sync stable-list` runs fork preflight, reads every open stable candidate, validates
+   each candidate title/body/marker, and writes an external selection report. It accepts no issue
+   number. The human selects one of the reported issues; recency is not permission to infer it.
+2. `vp run fork:sync stable-prepare --report <report> --issue <selected-issue>` rereads the exact
+   selected issue, fetches its bot-owned snapshot and tags, binds the remote commit, and creates the
+   collision-refusing `cut/vX.Y.Z-hyprws` Worktrunk lane. It installs and runs `fork:delta --check`,
+   `vp check`, `vp run typecheck`, and `vp run test`, derives the next stable tag through the release
+   helper, refuses a local or remote tag collision, and revalidates the snapshot, clean lane, and
+   checked head. It also calls the existing `fork:uat` dry-run surface for the exact snapshot and
+   writes the draft beside the external report.
+3. `vp run fork:sync stable-publish --report <report> --go <exact-candidate>` requires the human to
+   repeat the selected `vX.Y.Z-hyprws` candidate after UAT judgement. It rereads the open candidate,
+   refetches and revalidates the bound snapshot, clean lane, and absent tag, creates the annotated
+   tag at the exact snapshot SHA, and pushes only that new tag. It asks Worktrunk to trash the cut
+   lane, finds and watches the exact `hyprws-release.yml` tag run, requires an `.AppImage` and
+   `latest-linux.yml`, then closes the candidate with the tag, snapshot SHA, and workflow URL.
 
-The human runs the candidate, ticks accepted rows, records findings in comments, then comments
-`Signed off` or `Blocked: <reason>`. The cut reads that UAT issue as sign-off evidence. Unticked or
-blocked rows inform the human decision but never gate the cut automatically.
+The preparation stop is the [`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgement boundary.
+The agent reviews the rendered sources, writes observable UAT rows, removes the reviewer-only
+sections, and shows the exact draft to the human. Only an explicit human go permits creating that UAT
+issue. The human runs the candidate, ticks accepted rows, records findings, and comments `Signed off`
+or `Blocked: <reason>`; those facts inform the release judgement and are never converted into an
+automatic pass/fail rule.
 
-Derive the bot-owned snapshot, fetch it, and create a disposable worktree from the exact remote branch:
-
-```bash
-issue=<number>
-repo=RSI-Software/t3code-hyprws
-candidate="$(gh issue view "$issue" -R "$repo" --json title --jq '.title | capture("^Stable candidate (?<name>v[0-9]+\\.[0-9]+\\.[0-9]+-hyprws)$").name')"
-release_branch="release/$candidate"
-upstream_version="${candidate#v}"
-upstream_version="${upstream_version%-hyprws}"
-
-git fetch --tags origin \
-  "refs/heads/$release_branch:refs/remotes/origin/$release_branch"
-candidate_sha="$(git rev-parse "origin/$release_branch^{commit}")"
-wt switch --create "cut/$candidate" --base "origin/$release_branch"
-# Worktrunk has no path subcommand; copy the absolute path it prints above.
-worktree_path=<path printed by Worktrunk>
-cd "$worktree_path"
-```
-
-Verify the snapshot and derive the next tag. These repo-wide checks are an explicit stable-release
-gate exception to the targeted-check rule: they match the release workflow preflight before the
-sign-off boundary.
-
-```bash
-test "$(git rev-parse HEAD)" = "$candidate_sha"
-vp i
-vp run fork:delta --check
-vp check
-vp run typecheck
-vp run test
-
-last_n="$(git tag --list "v${upstream_version}-hyprws.*" \
-  | sed -n "s/^v${upstream_version//./\\.}-hyprws\\.\([0-9][0-9]*\)$/\1/p" \
-  | sort -n | tail -n 1)"
-release_n="$(( ${last_n:-0} + 1 ))"
-release_tag="v${upstream_version}-hyprws.${release_n}"
-
-git fetch --no-tags origin \
-  "refs/heads/$release_branch:refs/remotes/origin/$release_branch"
-test "$(git rev-parse "origin/$release_branch^{commit}")" = "$candidate_sha"
-
-git ls-remote --exit-code --tags origin "refs/tags/$release_tag" \
-  && { echo "refusing to replace existing tag $release_tag" >&2; false; }
-```
-
-**Sign-off boundary.** The agent presents the selected issue, source snapshot and SHA, derived tag,
-prior tags, and check results. The human records the exact candidate and an explicit go. Missing
-sign-off is a hard stop. After sign-off, the agent creates the annotated tag at the verified snapshot
-SHA and pushes it create-only:
-
-```bash
-git tag -a "$release_tag" "$candidate_sha" \
-  -m "T3 Code hyprws ${release_tag#v}"
-git push origin "refs/tags/$release_tag"
-```
-
-After the tag push, return to the original checkout and let Worktrunk trash the disposable worktree
-and delete its tagged `cut/*` branch. Never remove the directory with `rm`:
-
-```bash
-cd -
-wt remove -D "cut/$candidate"
-```
-
-The tag push starts the stable channel of `hyprws-release.yml`. The agent finds that exact run,
-watches it, and verifies the published release contains an `.AppImage` and `latest-linux.yml`:
-
-```bash
-run_id=
-for attempt in $(seq 1 12); do
-  run_id="$(gh run list --workflow hyprws-release.yml --event push --limit 20 \
-    -R "$repo" --json databaseId,headBranch \
-    --jq "map(select(.headBranch == \"$release_tag\"))[0].databaseId // empty")"
-  test -n "$run_id" && break
-  sleep 5
-done
-test -n "$run_id"
-gh run watch "$run_id" -R "$repo"
-assets="$(gh release view "$release_tag" -R "$repo" --json assets \
-  --jq '.assets[].name')"
-printf '%s\n' "$assets"
-grep -Eq '\.AppImage$' <<<"$assets"
-grep -Fxq 'latest-linux.yml' <<<"$assets"
-run_url="$(gh run view "$run_id" -R "$repo" --json url --jq .url)"
-gh issue close "$issue" -R "$repo" --comment \
-  "Released \`$release_tag\` from \`$release_branch@$candidate_sha\`. Workflow: $run_url"
-```
+At the stable sign-off stop, present the selected issue, snapshot branch and SHA, derived tag, prior
+matching tags, all preparation results, the clean/ref checks, and the UAT evidence. Missing sign-off
+or an inexact candidate/go is a hard stop. A stale snapshot, dirty or moved cut lane, issue change,
+tag collision, failed push, failed workflow, or missing asset refuses advancement. Never increment
+again after a refusal without returning to `stable-list` and obtaining fresh human sign-off.
 
 The issue close, immutable tag, workflow run, and GitHub release are the stable-cut record. Do not
 add a human sync record for an ordinary bot snapshot. An `upstream-watch` issue closes only after the
