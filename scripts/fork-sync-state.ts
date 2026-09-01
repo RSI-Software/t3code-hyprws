@@ -37,6 +37,14 @@ export interface ConflictRow {
   readonly agentSafe: string;
 }
 
+export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
+
+export interface OrientationDecisionRow {
+  readonly subject: string;
+  readonly domain: string;
+  readonly verdict: OrientationVerdict;
+}
+
 export interface SyncReport {
   readonly schemaVersion: 1;
   readonly stage: SyncStage;
@@ -56,6 +64,7 @@ export interface SyncReport {
   readonly originalCount?: number;
   readonly conflicts: ReadonlyArray<ConflictRow>;
   readonly orientation?: string;
+  readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly verification: ReadonlyArray<{ readonly command: string; readonly result: string }>;
   readonly rebasedHead?: string;
@@ -234,12 +243,39 @@ export const renderRecord = (report: SyncReport, existingSanity = "absent"): str
     (row) =>
       `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} |`,
   );
-  const decisions = new Map<string, ConflictRow>();
-  for (const row of report.conflicts)
-    if (row.class === "retire-candidate" || row.class === "human") decisions.set(row.subject, row);
+  const decisions = new Map<
+    string,
+    {
+      readonly subject: string;
+      readonly domain: string;
+      readonly classSummary: string;
+      readonly action: string;
+    }
+  >();
+  for (const row of report.orientationDecisions ?? []) {
+    decisions.set(row.subject, {
+      subject: row.subject,
+      domain: row.domain,
+      classSummary:
+        row.verdict === "candidate"
+          ? "orientation: candidate; retire-candidate"
+          : `orientation: ${row.verdict}`,
+      action: row.verdict === "candidate" ? "TODO" : row.verdict,
+    });
+  }
+  for (const row of report.conflicts) {
+    if (row.class !== "retire-candidate" && row.class !== "human") continue;
+    const existing = decisions.get(row.subject);
+    decisions.set(row.subject, {
+      subject: row.subject,
+      domain: row.domain,
+      classSummary: existing === undefined ? row.class : `${existing.classSummary}; ${row.class}`,
+      action: existing?.action ?? "TODO",
+    });
+  }
   const decisionRows = [...decisions.values()].map(
     (row) =>
-      `| \`${row.subject}\` | ${row.domain} | ${row.class} | TODO | n/a — no product grounding claim |`,
+      `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | n/a — no product grounding claim |`,
   );
   return [
     "## Header",
@@ -399,15 +435,13 @@ export const orientationTouchedPaths = (orientation: string): ReadonlyArray<stri
     .toSorted();
 };
 
-export const orientationDecisionRows = (orientation: string): ReadonlyArray<ConflictRow> =>
-  [...orientation.matchAll(/^\s+\[(?:candidate|keep|retire|partial)\] (.+) \(([^)]+)\)$/gm)].map(
+export const orientationDecisionRows = (
+  orientation: string,
+): ReadonlyArray<OrientationDecisionRow> =>
+  [...orientation.matchAll(/^\s+\[(candidate|keep|retire|partial)\] (.+) \(([^)]+)\)$/gm)].map(
     (match) => ({
-      commit: "orientation",
-      subject: match[1] ?? "",
-      domain: match[2] ?? "?",
-      path: "orientation retire signal",
-      class: "retire-candidate",
-      resolution: "review upstream signal",
-      agentSafe: "no — human retirement decision",
+      verdict: (match[1] ?? "candidate") as OrientationVerdict,
+      subject: match[2] ?? "",
+      domain: match[3] ?? "?",
     }),
   );

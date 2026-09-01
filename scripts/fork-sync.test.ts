@@ -177,7 +177,8 @@ it("orients only to a tag carried by the previous report", () => {
     runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
     runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
     runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
-      stdout: "orientation\n",
+      stdout:
+        "## Retire candidates\n  [keep] feat(web): preserve fork behavior (workspace-files)\n",
     });
     const oriented = execute(
       ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
@@ -186,28 +187,60 @@ it("orients only to a tag carried by the previous report", () => {
     );
     assert.strictEqual(oriented.stage, "oriented");
     assert.deepStrictEqual(oriented.source, { sha: C, expectedOld: C, sharedBase: A });
+    assert.deepStrictEqual(oriented.conflicts, []);
+    assert.deepStrictEqual(oriented.orientationDecisions, [
+      {
+        verdict: "keep",
+        subject: "feat(web): preserve fork behavior",
+        domain: "workspace-files",
+      },
+    ]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
   }
 });
 
-it("carries orientation overlap and retire candidates into the structured report", () => {
-  const orientation =
-    "## Automerged overlap\nAutomerged files:\n  - apps/web/src/a.ts\n  - package.json\n\n## Retire candidates\n  [candidate] fix(web): upstream overlap (project-windows)\n";
+it("carries orientation overlap and every retirement verdict into structured state", () => {
+  const orientation = [
+    "## Automerged overlap",
+    "Automerged files:",
+    "  - apps/web/src/a.ts",
+    "  - package.json",
+    "",
+    "## Retire candidates",
+    "  [candidate] fix(web): review upstream overlap (project-windows)",
+    "  [keep] feat(web): keep fork behavior (workspace-files)",
+    "  [retire] fix(server): use upstream behavior (fork-meta)",
+    "  [partial] feat(desktop): retain one seam (custom-agents)",
+    "",
+  ].join("\n");
   assert.deepStrictEqual(orientationTouchedPaths(orientation), [
     "apps/web/src/a.ts",
     "package.json",
   ]);
-  assert.deepInclude(orientationDecisionRows(orientation), {
-    commit: "orientation",
-    subject: "fix(web): upstream overlap",
-    domain: "project-windows",
-    path: "orientation retire signal",
-    class: "retire-candidate",
-    resolution: "review upstream signal",
-    agentSafe: "no — human retirement decision",
-  });
+  assert.deepStrictEqual(orientationDecisionRows(orientation), [
+    {
+      verdict: "candidate",
+      subject: "fix(web): review upstream overlap",
+      domain: "project-windows",
+    },
+    {
+      verdict: "keep",
+      subject: "feat(web): keep fork behavior",
+      domain: "workspace-files",
+    },
+    {
+      verdict: "retire",
+      subject: "fix(server): use upstream behavior",
+      domain: "fork-meta",
+    },
+    {
+      verdict: "partial",
+      subject: "feat(desktop): retain one seam",
+      domain: "custom-agents",
+    },
+  ]);
 });
 
 it("refuses a rehearsal lane collision for the exact target and source", () => {
@@ -387,6 +420,45 @@ it("distinguishes importer ownership drift from registry snapshot drift", () => 
     lockDriftClass(base, base.replace("specifiers: {}", "specifiers: { x: 1 }")),
     "importers",
   );
+});
+
+it("round-trips orientation verdicts outside conflicts and selects them for Gate 4", () => {
+  const root = fixtureRoot();
+  const orientationDecisions = orientationDecisionRows(
+    [
+      "  [candidate] fix(web): review upstream overlap (project-windows)",
+      "  [keep] feat(web): keep fork behavior (workspace-files)",
+      "  [retire] fix(server): use upstream behavior (fork-meta)",
+      "  [partial] feat(desktop): retain one seam (custom-agents)",
+    ].join("\n"),
+  );
+  const record = renderRecord(report(root, { orientationDecisions }));
+
+  const conflicts = record.split("## Conflicts\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
+  assert.include(conflicts, "None.");
+  assert.notInclude(conflicts, "orientation");
+  assert.include(
+    record,
+    "| `fix(web): review upstream overlap` | project-windows | orientation: candidate; retire-candidate | TODO |",
+  );
+  assert.include(
+    record,
+    "| `feat(web): keep fork behavior` | workspace-files | orientation: keep | keep |",
+  );
+  assert.include(
+    record,
+    "| `fix(server): use upstream behavior` | fork-meta | orientation: retire | retire |",
+  );
+  assert.include(
+    record,
+    "| `feat(desktop): retain one seam` | custom-agents | orientation: partial | partial |",
+  );
+
+  const surface = decisionSurface(record);
+  for (const subject of orientationDecisions.map(({ subject }) => subject)) {
+    assert.include(surface, subject);
+  }
+  NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
 it("produces Gate 4 decisions structurally rather than with a typed rg command", () => {
