@@ -10,7 +10,9 @@ name records; before apply, it never writes
 1. Confirm the target is exactly `vX.Y.Z` or `vX.Y.Z-nightly.YYYYMMDD.<run>`, resolve
    `<tag>^{commit}`, and record both the full target SHA and
    `expected_old=$(git rev-parse origin/hyprws)`. Read that lease exactly once at rehearsal start.
-2. Install with `vp i` in the rehearsal worktree.
+2. Install with `vp i` in the rehearsal worktree, then restore `pnpm-lock.yaml` from `HEAD`. The
+   install re-resolves floating transitive versions, and `git rebase` will not start on a dirty
+   tree.
 3. Read the feasibility conflicts, automerged overlap, each active domain's rebase scan, and open
    `upstream-watch` issues before changing a hunk.
 4. Create `$record_path` with `mktemp` outside the repository and fill it from
