@@ -1,16 +1,44 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git bot runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodePerfHooks from "node:perf_hooks";
 
+import { UsageError } from "./lib/fork-cli.ts";
+import {
+  buildAutoRebasePlan,
+  commandResult,
+  createRebasedStack,
+  lines,
+  requireSuccess,
+  selectNewestTag,
+  selectVerificationDependencySetup,
+  verifyReplay,
+  type AutoRebasePlan,
+  type PositionedTag,
+  type ReplayVerifier,
+  type VerificationDependencySetup,
+} from "./fork-auto-rebase-plan.ts";
+
+export {
+  buildAutoRebasePlan,
+  createRebasedStack,
+  selectNewestTag,
+  selectVerificationDependencySetup,
+  verifyReplayMetadata,
+  type AutoRebasePlan,
+  type PositionedTag,
+  type ReplayVerifier,
+  type VerificationDependencySetup,
+} from "./fork-auto-rebase-plan.ts";
+import { SystemGit } from "./lib/fork-command.ts";
+
+export { SystemGit } from "./lib/fork-command.ts";
 import {
   buildFeasibility,
   type FeasibilityGit,
-  type ForkRebaseFeasibility,
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
 import {
@@ -27,10 +55,7 @@ import {
   type RebaseStopCensus,
   type StableCandidate,
 } from "./lib/fork-rebase-issues.ts";
-import { linkInstalledModules } from "./lib/fork-rebase-worktree.ts";
-
-const UPSTREAM_TAG = /^v\d+\.\d+\.\d+(?:-nightly\..+)?$/;
-const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
+import { HYPRWS_REF, positionUpstreamReleaseTags } from "./lib/fork-policy.ts";
 
 export type RebaseMode = "off" | "candidate" | "on";
 
@@ -43,27 +68,6 @@ export interface AutoRebaseOptions {
   readonly summary: string | null;
   readonly issueJson: string | null;
 }
-
-export interface PositionedTag {
-  readonly tag: string;
-  readonly sha: string;
-  readonly position: number;
-  readonly stable: boolean;
-}
-
-export interface AutoRebasePlan {
-  readonly oldSha: string;
-  readonly upstreamSha: string;
-  readonly baseSha: string;
-  readonly horizon: PositionedTag | null;
-  readonly censusTarget: PositionedTag | null;
-  readonly target: PositionedTag | null;
-  readonly stableTags: ReadonlyArray<PositionedTag>;
-  readonly newestTagBeyondWindow: PositionedTag | null;
-  readonly feasibility: ForkRebaseFeasibility;
-}
-
-export type VerificationDependencySetup = "shared-install" | "fresh-install";
 
 export interface AutoRebaseResult {
   readonly schemaVersion: 1;
@@ -88,7 +92,7 @@ export interface AutoRebaseResult {
   readonly blocked: BlockedIssue | null;
 }
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: vp run fork:auto-rebase [options]
 
@@ -115,7 +119,7 @@ const defaultOptions = (): AutoRebaseOptions => ({
   issueJson: null,
 });
 
-export const parseArgs = (argv: ReadonlyArray<string>): AutoRebaseOptions => {
+export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const booleans = new Set(["--fetch", "--dry-run", "--github-output"]);
@@ -148,305 +152,6 @@ export const parseArgs = (argv: ReadonlyArray<string>): AutoRebaseOptions => {
     else options.issueJson = value;
   }
   return options;
-};
-
-export class SystemGit implements FeasibilityGit {
-  readonly cwd: string;
-
-  constructor(cwd: string) {
-    this.cwd = cwd;
-  }
-
-  run(args: ReadonlyArray<string>): string {
-    return NodeChildProcess.execFileSync("git", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  }
-
-  runResult(args: ReadonlyArray<string>, timeout?: number): GitCommandResult {
-    const result = NodeChildProcess.spawnSync("git", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      ...(timeout === undefined ? {} : { timeout }),
-    });
-    return {
-      status: result.status,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      ...(result.error === undefined ? {} : { error: result.error }),
-    };
-  }
-}
-
-const commandResult = (
-  command: string,
-  args: ReadonlyArray<string>,
-  cwd: string,
-  env: NodeJS.ProcessEnv = process.env,
-): GitCommandResult => {
-  const result = NodeChildProcess.spawnSync(command, [...args], {
-    cwd,
-    env,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    ...(result.error === undefined ? {} : { error: result.error }),
-  };
-};
-
-const requireSuccess = (operation: string, result: GitCommandResult): string => {
-  if (result.status === 0 && result.error === undefined) return result.stdout;
-  const detail = result.error?.message ?? (result.stderr.trim() || result.stdout.trim());
-  throw new Error(`${operation} failed${detail.length === 0 ? "" : `: ${detail}`}`);
-};
-
-const lines = (value: string): ReadonlyArray<string> =>
-  value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-export const selectNewestTag = (tags: ReadonlyArray<PositionedTag>): PositionedTag | null =>
-  tags.toSorted((left, right) => {
-    if (left.position !== right.position) return right.position - left.position;
-    if (left.stable !== right.stable) return left.stable ? -1 : 1;
-    return right.tag.localeCompare(left.tag, undefined, { numeric: true });
-  })[0] ?? null;
-
-const originHasStableRelease = (git: Pick<FeasibilityGit, "run">, tag: string): boolean =>
-  git
-    .run(["ls-remote", "origin", `refs/heads/release/${tag}-hyprws`, `refs/tags/${tag}-hyprws.*`])
-    .trim().length > 0;
-
-const readPositionedTags = (
-  git: Pick<FeasibilityGit, "run">,
-  positions: ReadonlyMap<string, number>,
-): ReadonlyArray<PositionedTag> =>
-  lines(
-    git.run([
-      "for-each-ref",
-      "--format=%(refname:strip=2)%09%(objectname)%09%(*objectname)",
-      "refs/tags/v*",
-    ]),
-  ).flatMap((record) => {
-    const [tag = "", objectSha = "", peeledSha = ""] = record.split("\t");
-    if (!UPSTREAM_TAG.test(tag)) return [];
-    const sha = peeledSha || objectSha;
-    const position = positions.get(sha);
-    return position === undefined ? [] : [{ tag, sha, position, stable: STABLE_TAG.test(tag) }];
-  });
-
-export const buildAutoRebasePlan = (
-  git: FeasibilityGit,
-  oldSha: string,
-  targetOverride: string | null,
-): AutoRebasePlan => {
-  const upstreamSha = git.run(["rev-parse", "upstream/main^{commit}"]).trim();
-  const baseSha = git.run(["merge-base", oldSha, upstreamSha]).trim();
-  const upstreamCommits = lines(
-    git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${upstreamSha}`]),
-  );
-  const positions = new Map<string, number>([[baseSha, 0]]);
-  upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));
-  const tags = readPositionedTags(git, positions);
-  const horizon = selectNewestTag(tags);
-  const feasibility = buildFeasibility(git, oldSha, horizon?.sha ?? baseSha, baseSha);
-  let censusTarget = horizon;
-  if (targetOverride !== null) {
-    if (!UPSTREAM_TAG.test(targetOverride)) {
-      throw new UsageError(`--target must be an upstream release tag: ${targetOverride}`);
-    }
-    const sha = git.run(["rev-parse", `${targetOverride}^{commit}`]).trim();
-    const position = positions.get(sha);
-    if (position === undefined || position > feasibility.ffBoundary.cleanCommitCount) {
-      throw new UsageError(
-        `--target must be inside the clean upstream first-parent window: ${targetOverride}`,
-      );
-    }
-    censusTarget = {
-      tag: targetOverride,
-      sha,
-      position,
-      stable: STABLE_TAG.test(targetOverride),
-    };
-  }
-  const targetPosition = censusTarget?.position ?? 0;
-  const target = selectNewestTag(
-    tags.filter(
-      (tag) =>
-        tag.position <= targetPosition && tag.position <= feasibility.ffBoundary.cleanCommitCount,
-    ),
-  );
-  return {
-    oldSha,
-    upstreamSha,
-    baseSha,
-    horizon,
-    censusTarget,
-    target,
-    stableTags: tags
-      .filter(
-        (tag) =>
-          tag.stable && tag.position <= targetPosition && !originHasStableRelease(git, tag.tag),
-      )
-      .toSorted(
-        (left, right) => left.position - right.position || left.tag.localeCompare(right.tag),
-      ),
-    newestTagBeyondWindow: selectNewestTag(
-      tags.filter((tag) => tag.position > feasibility.ffBoundary.cleanCommitCount),
-    ),
-    feasibility,
-  };
-};
-
-const forkReplay = (git: SystemGit, base: string, head: string): string =>
-  git.run([
-    "log",
-    "--reverse",
-    "--topo-order",
-    // %B, not %s plus parsed trailers: a rebase that rewrites a message can drop body lines
-    // (git strips comment-char lines when it cleans one up) without touching subject or trailers.
-    "--format=%B%x1e",
-    `${base}..${head}`,
-  ]);
-
-export const verifyReplayMetadata = (
-  originalCount: number,
-  replayedCount: number,
-  originalLog: string,
-  replayedLog: string,
-): void => {
-  if (originalCount !== replayedCount) {
-    throw new Error(`replay commit count changed: ${originalCount} -> ${replayedCount}`);
-  }
-  if (originalLog !== replayedLog) throw new Error("replay commit messages changed");
-};
-
-const verificationEnvironment = (): NodeJS.ProcessEnv => {
-  const env = { ...process.env };
-  delete env.HYPRWS_PUSH_TOKEN;
-  return env;
-};
-
-export const selectVerificationDependencySetup = (
-  git: Pick<FeasibilityGit, "runResult">,
-  baseSha: string,
-  targetSha: string,
-): VerificationDependencySetup => {
-  const dependencyDiff = git.runResult([
-    "diff",
-    "--quiet",
-    baseSha,
-    targetSha,
-    "--",
-    "pnpm-lock.yaml",
-    "package.json",
-    ":(glob)**/package.json",
-  ]);
-  if (dependencyDiff.status !== 0 && dependencyDiff.status !== 1) {
-    requireSuccess("inspect dependency manifest changes", dependencyDiff);
-  }
-  return dependencyDiff.status === 1 ? "fresh-install" : "shared-install";
-};
-
-const verifyReplay = (
-  root: string,
-  worktree: string,
-  oldSha: string,
-  baseSha: string,
-  targetSha: string,
-  newSha: string,
-): VerificationDependencySetup => {
-  const original = new SystemGit(root);
-  const rebased = new SystemGit(worktree);
-  const originalCount = Number(
-    original.run(["rev-list", "--count", `${baseSha}..${oldSha}`]).trim(),
-  );
-  const replayedCount = Number(
-    rebased.run(["rev-list", "--count", `${targetSha}..${newSha}`]).trim(),
-  );
-  verifyReplayMetadata(
-    originalCount,
-    replayedCount,
-    forkReplay(original, baseSha, oldSha),
-    forkReplay(rebased, targetSha, newSha),
-  );
-
-  const dependencySetup = selectVerificationDependencySetup(original, baseSha, targetSha);
-  const env = verificationEnvironment();
-  if (dependencySetup === "fresh-install") {
-    requireSuccess("vp i", commandResult("vp", ["i"], worktree, env));
-  } else {
-    linkInstalledModules(root, worktree);
-  }
-  for (const [command, args] of [
-    ["vp", ["run", "fork:delta", "--check"]],
-    ["vp", ["check"]],
-    ["vp", ["run", "typecheck"]],
-  ] as const) {
-    requireSuccess(`${command} ${args.join(" ")}`, commandResult(command, args, worktree, env));
-  }
-  return dependencySetup;
-};
-
-export type ReplayVerifier = (
-  root: string,
-  worktree: string,
-  oldSha: string,
-  baseSha: string,
-  targetSha: string,
-  newSha: string,
-) => VerificationDependencySetup;
-
-interface RebasedStack {
-  readonly sha: string;
-  readonly dependencySetup: VerificationDependencySetup;
-}
-
-export const createRebasedStack = (
-  root: string,
-  oldSha: string,
-  baseSha: string,
-  targetSha: string,
-  verify: ReplayVerifier = verifyReplay,
-): RebasedStack => {
-  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-auto-rebase-"));
-  const rootGit = new SystemGit(root);
-  try {
-    rootGit.run(["worktree", "add", "--detach", worktree, oldSha]);
-    const worktreeGit = new SystemGit(worktree);
-    const rebase = worktreeGit.runResult([
-      "-c",
-      "rerere.enabled=false",
-      "-c",
-      "rerere.autoupdate=false",
-      "rebase",
-      "--onto",
-      targetSha,
-      baseSha,
-      oldSha,
-    ]);
-    if (rebase.status !== 0 || rebase.error !== undefined) {
-      worktreeGit.runResult(["rebase", "--abort"]);
-      requireSuccess(`git rebase --onto ${targetSha} ${baseSha} ${oldSha}`, rebase);
-    }
-    const newSha = worktreeGit.run(["rev-parse", "HEAD"]).trim();
-    return {
-      sha: newSha,
-      dependencySetup: verify(root, worktree, oldSha, baseSha, targetSha, newSha),
-    };
-  } finally {
-    rootGit.runResult(["worktree", "remove", "--force", worktree]);
-    rootGit.runResult(["worktree", "prune"]);
-    NodeFS.rmSync(worktree, { recursive: true, force: true });
-  }
 };
 
 const trackingBranchExists = (git: Pick<FeasibilityGit, "runResult">, branch: string): boolean =>
@@ -697,12 +402,10 @@ const postAdvanceBlockedPlan = (
   const upstreamCommits = lines(
     git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.censusTarget.sha}`]),
   );
-  const positions = new Map<string, number>([[baseSha, 0]]);
-  upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));
   return {
     target: plan.target,
     newestTagBeyondWindow: selectNewestTag(
-      readPositionedTags(git, positions).filter(
+      positionUpstreamReleaseTags(git, [baseSha, ...upstreamCommits]).filter(
         (tag) => tag.position > feasibility.ffBoundary.cleanCommitCount,
       ),
     ),
@@ -812,8 +515,8 @@ export const executeAutoRebase = (
         pushResult(root, [
           "--dry-run",
           "origin",
-          `${newSha}:refs/heads/hyprws`,
-          `--force-with-lease=refs/heads/hyprws:${plan.oldSha}`,
+          `${newSha}:${HYPRWS_REF}`,
+          `--force-with-lease=${HYPRWS_REF}:${plan.oldSha}`,
         ]),
       );
     }
@@ -821,18 +524,18 @@ export const executeAutoRebase = (
     if (options.mode === "candidate") {
       requireSuccess(
         "push hyprws-next",
-        pushResult(root, ["--force", "origin", `${newSha}:refs/heads/hyprws-next`]),
+        pushResult(root, ["--force", "origin", `${newSha}:${HYPRWS_REF}-next`]),
       );
     } else {
       requireSuccess(
         "push hyprws-previous",
-        pushResult(root, ["--force", "origin", `${plan.oldSha}:refs/heads/hyprws-previous`]),
+        pushResult(root, ["--force", "origin", `${plan.oldSha}:${HYPRWS_REF}-previous`]),
       );
       hooks.beforeHyprwsPush?.();
       const leasedPush = pushResult(root, [
         "origin",
-        `${newSha}:refs/heads/hyprws`,
-        `--force-with-lease=refs/heads/hyprws:${plan.oldSha}`,
+        `${newSha}:${HYPRWS_REF}`,
+        `--force-with-lease=${HYPRWS_REF}:${plan.oldSha}`,
       ]);
       if (leasedPush.status !== 0 || leasedPush.error !== undefined) {
         for (const branch of pushedSnapshots.toReversed()) {
@@ -933,7 +636,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 0;
   }
   try {
-    const options = parseArgs(argv);
+    const options = parseAutoRebaseArgs(argv);
     const bootstrap = new SystemGit(cwd);
     const root = bootstrap.run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
@@ -980,5 +683,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 1;
   }
 };
+
+export { parseAutoRebaseArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));
