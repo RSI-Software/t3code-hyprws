@@ -68,10 +68,17 @@ Create a disposable lane from the published fork; never rebase the current check
 wt switch --create "rehearse/$tag" --base origin/hyprws
 # Continue in the worktree path printed by Worktrunk.
 vp i
+# Git strips comment-char lines from any message it rewrites, which silently deletes the `##`
+# headings fork bodies use. Export it so every later git call in this shell inherits it,
+# including `rebase --continue`; never write it into the shared repository config.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.commentChar GIT_CONFIG_VALUE_0=auto
 expected_old="$(git rev-parse origin/hyprws)"
 target_sha="$(git rev-parse "$tag^{commit}")"
+base_sha="$(git merge-base "$expected_old" "$tag")"
 record_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}.XXXXXX.md")"
-chmod 600 "$record_path"
+messages_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}-messages.XXXXXX")"
+chmod 600 "$record_path" "$messages_path"
+git log --reverse --topo-order --format='%B%x1e' "$base_sha..$expected_old" > "$messages_path"
 git rebase "$tag"
 ```
 
@@ -103,11 +110,15 @@ record row, or a zero-stop replay has the record schema's replay evidence.
 Walk every involved domain against the selected tag and run focused checks:
 
 ```bash
+git log --reverse --topo-order --format='%B%x1e' "$tag..HEAD" | diff -u "$messages_path" -
 vp run fork:scan --target "$tag"
 vp run fork:delta --check
 vp run --filter <touched-package> typecheck
 vp test run <tests-beside-every-touched-file>
 ```
+
+The `diff` proves no commit message changed during the replay; any output is a hard stop, not a
+finding to record.
 
 `fork:scan` takes no `--head` here on purpose: it defaults to the checkout `HEAD`, and only a scan
 of the checkout `HEAD` runs the typechecks that surface silent seams. The pre-rebase overlap walk

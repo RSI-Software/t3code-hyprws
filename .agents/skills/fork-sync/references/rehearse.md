@@ -74,8 +74,17 @@ judgement remains.
    `vp i` when installed dependencies also need refreshing, then `vp run fork:delta --check`.
 4. Run targeted typecheck for every touched package and `vp test run` with tests beside every touched
    source/test file. Do not run repo-wide checks.
-5. Put typecheck-only findings under **Silent seams**, fix them in the owning fork commit with a fixup
-   and autosquash, then rerun the affected checks. Do not weaken upstream tests.
+5. Put typecheck-only findings under **Silent seams**, fix them in the owning fork commit, then rerun
+   the affected checks. Commit the fix as `git commit --fixup <fork-commit>` and fold it in with the
+   form below; bare `git rebase --autosquash` needs Git 2.44, so it silently leaves the `fixup!`
+   commit in the stack on an older Git.
+
+   ```bash
+   GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash "$tag"
+   ```
+
+   Do not weaken upstream tests.
+
 6. Complete exact grounding claims. The desktop Electron surface is authoritative before a fork
    release; browser operation and evidence remain human/host-owned.
 

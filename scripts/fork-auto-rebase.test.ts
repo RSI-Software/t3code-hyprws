@@ -91,10 +91,29 @@ it("selects the latest clean position and prefers a stable tag on a tie", () => 
   assert.strictEqual(selectNewestTag([]), null);
 });
 
-it("verifies replay count and byte-identical subjects plus trailers", () => {
+it("verifies replay count and byte-identical full commit messages", () => {
   assert.doesNotThrow(() => verifyReplayMetadata(2, 2, "same\n", "same\n"));
   assert.throws(() => verifyReplayMetadata(2, 1, "same", "same"), /commit count changed/);
-  assert.throws(() => verifyReplayMetadata(2, 2, "first", "changed"), /trailers changed/);
+
+  const original = `feat: preserve the body
+
+## Intent
+The behavior remains replayable.
+
+Fork-Domain: fork-meta
+Fork-Tier: qol
+\x1e`;
+  const commentLinesStripped = `feat: preserve the body
+
+The behavior remains replayable.
+
+Fork-Domain: fork-meta
+Fork-Tier: qol
+\x1e`;
+  assert.throws(
+    () => verifyReplayMetadata(1, 1, original, commentLinesStripped),
+    /commit messages changed/,
+  );
 });
 
 interface Fixture {
