@@ -161,7 +161,7 @@ it("names a nightly target as outside what the apply gate accepts", () => {
       },
     }),
   );
-  assert.include(rendered, "not a stable vX.Y.Z tag; the apply gate accepts stable tags only");
+  assert.include(rendered, "nightly tag; the apply gate needs --allow-nightly");
 });
 
 const preflight = (
