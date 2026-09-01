@@ -1,7 +1,8 @@
 # Rehearsal procedure
 
 A rehearsal uses disposable Git topology and an external draft that becomes durable issue evidence.
-It runs only on `rehearse/<target-tag>` created from `origin/hyprws`; before apply, it never writes
+It runs only on `rehearse/<target-tag>-from-<expected_old:12>` created from the published head that
+name records; before apply, it never writes
 `hyprws`, `main`, a tag, or a remote ref. Its operational record never enters the repository.
 
 ## Before the rebase
@@ -89,8 +90,9 @@ A stale published head is a hard stop. Never refresh `expected_old` in the exist
 record.
 
 1. Fetch `origin` and inspect `git log --oneline <recorded-expected-old>..origin/hyprws`.
-2. Start a new rehearsal from the updated `origin/hyprws` and read its new `expected_old` exactly
-   once at rehearsal start.
+2. Start a new rehearsal from the updated `origin/hyprws`, reading its new `expected_old` exactly
+   once before creating the lane. The new head gives the lane a new name, so it never collides with
+   the stale one; leave that lane and its worktree in place as evidence.
 3. On that new lane, incorporate every newly published fork commit without changing its subject or
    trailers, then record the new Source, rebased head, and stack size. Prior conflict resolutions,
    including rerere, are candidates for reuse, not proof; run the checks below in full.
