@@ -4,7 +4,10 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { UsageError } from "./lib/fork-cli.ts";
-import type { CwdCommandRunner as CommandRunner } from "./lib/fork-command.ts";
+import {
+  requireCommandSuccess,
+  type CwdCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 
 export const REPOSITORY = FORK_REPOSITORY;
@@ -90,9 +93,7 @@ export const requireSuccess = (
   env?: NodeJS.ProcessEnv,
 ): string => {
   const result = runner.run(command, args, cwd, input, env);
-  if (result.status === 0) return result.stdout;
-  const detail = result.stderr.trim() || result.stdout.trim();
-  throw new Error(`${commandText(command, args)} failed${detail ? `: ${detail}` : ""}`);
+  return requireCommandSuccess(result, command, args);
 };
 
 export const gitRaw = (
