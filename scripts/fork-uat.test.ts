@@ -54,6 +54,8 @@ it("selects the next stable down when the ref itself carries a stable tag", () =
 it("derives the target version from nightly and stable upstream base tags", () => {
   assert.strictEqual(targetVersionFromUpstreamTag("v1.4.0-nightly.20260830.1217"), "v1.4.0-hyprws");
   assert.strictEqual(targetVersionFromUpstreamTag("v1.5.2"), "v1.5.2-hyprws");
+  assert.throws(() => targetVersionFromUpstreamTag("v1.5.2-rc.1"), /unsupported/);
+  assert.throws(() => targetVersionFromUpstreamTag("v1.5.2-nightly.99999999.1"), /unsupported/);
 });
 
 it("keys the UAT title on the target version", () => {
@@ -86,6 +88,7 @@ it("accepts an existing stable --since override and refuses other tags", () => {
   );
   assert.throws(() => parseArgs(["--since", "v1.3.0-hyprws"]), /must match/);
   assert.throws(() => parseArgs(["--since", "v1.3.0-hyprws-nightly.1"]), /must match/);
+  assert.throws(() => parseArgs(["--since", "v1.3.0-hyprws.0"]), /must match/);
 });
 
 it("reduces a multiline PR body to its first paragraph", () => {
