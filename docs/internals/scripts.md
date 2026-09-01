@@ -99,6 +99,15 @@ authenticated.
   merge base. Gate 3 runs it from the rehearsed worktree as `vp run fork:scan --target vX.Y.Z`: the
   rehearsed-head typechecks that surface silent seams run only when `--head` resolves to the checkout
   `HEAD`, so naming any other ref reports declarations alone.
+- `vp run fork:sync <verb>`: Owns the human unblock state machine in one versioned external report
+  (`scripts/fork-sync.ts`). `unblock-list` emits selectable targets without accepting one;
+  `unblock-orient` binds the human's explicit selection; repeatable `unblock-rehearse` calls create
+  or resume the collision-free Worktrunk lane and own generated lockfile handling plus every
+  comment-char-neutralised rebase continuation; `unblock-check` stabilises lock drift, installs the
+  replayed manifests, runs focused checks, and emits the structured decision surface; and
+  `unblock-apply` validates the signed record, calls `fork:sync-gate`, and performs only the recorded
+  leased apply. The script renders and validates the Markdown record schema; its focused tests are
+  the schema definition.
 - `vp run fork:auto-rebase --fetch --mode candidate`: Reads the rebase feasibility window directly,
   selects its newest upstream stable or nightly tag, and replays the complete fork stack in a
   detached temporary worktree (`scripts/fork-auto-rebase.ts`). It snapshots each intermediate stable
