@@ -82,17 +82,17 @@ class FakeGitHub implements RebaseGitHubClient {
     return (this.comments.get(issueNumber) ?? []).map((comment) => ({ ...comment }));
   }
 
-  lookupIssueTypeId(issueType: "Bug"): string {
+  lookupIssueTypeId(issueType: "Notification"): string {
     this.issueTypeLookups.push(issueType);
     if (this.issueTypeLookupError !== null) throw this.issueTypeLookupError;
-    return "bug-type";
+    return "notification-type";
   }
 
   applyIssueType(issue: RebaseIssue, issueTypeId: string): void {
-    assert.strictEqual(issueTypeId, "bug-type");
+    assert.strictEqual(issueTypeId, "notification-type");
     const stored = this.issues.find((candidate) => candidate.number === issue.number);
     if (stored === undefined) throw new Error("missing fake issue");
-    Object.assign(stored, { issueType: "Bug" });
+    Object.assign(stored, { issueType: "Notification" });
     this.issueTypeEdits.push(issue.number);
   }
 
@@ -159,7 +159,7 @@ it("creates one assigned block issue and one Refresh log comment", () => {
     assignee: "donjor",
     priority: "High",
   });
-  assert.deepStrictEqual(client.issueTypeLookups, ["Bug"]);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
   assert.deepStrictEqual(client.issueTypeEdits, [1]);
   assert.strictEqual(openIssues(client).length, 1);
   const comment = client.comments.get(1)?.[0]?.body ?? "";
@@ -178,19 +178,19 @@ o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag
   );
 });
 
-it("looks up the enabled native Bug type by repository issue-type name", () => {
+it("looks up the enabled native Notification type by repository issue-type name", () => {
   assert.strictEqual(
     findIssueTypeId(
       [
-        { id: "disabled", name: "Bug", isEnabled: false },
-        { id: "bug", name: "Bug 🐛", isEnabled: true },
+        { id: "disabled", name: "Notification", isEnabled: false },
+        { id: "notification", name: "Notification 🔔", isEnabled: true },
         { id: "task", name: "Task 🔨", isEnabled: true },
       ],
-      "Bug",
+      "Notification",
     ),
-    "bug",
+    "notification",
   );
-  assert.strictEqual(findIssueTypeId([], "Bug"), null);
+  assert.strictEqual(findIssueTypeId([], "Notification"), null);
 });
 
 it("recognizes Priority only as a plain org single-select option", () => {
@@ -218,19 +218,19 @@ it("recognizes Priority only as a plain org single-select option", () => {
   );
 });
 
-it("aborts before creating when the native Bug type lookup fails", () => {
+it("aborts before creating when the native Notification type lookup fails", () => {
   const client = new FakeGitHub();
-  client.issueTypeLookupError = new Error("repository issue type Bug lookup failed");
+  client.issueTypeLookupError = new Error("repository issue type Notification lookup failed");
 
   assert.throws(
     () => reconcileRebaseBlock(client, input(blocked(SHA_A))),
-    /repository issue type Bug lookup failed/,
+    /repository issue type Notification lookup failed/,
   );
   assert.deepStrictEqual(client.created, []);
   assert.deepStrictEqual(client.issueTypeEdits, []);
 });
 
-it("applies a missing native Bug type when refreshing an open block issue", () => {
+it("updates the native issue type when refreshing an open block issue", () => {
   const report = blocked(SHA_A);
   const client = new FakeGitHub([
     {
@@ -239,19 +239,19 @@ it("applies a missing native Bug type when refreshing an open block issue", () =
       state: "open",
       title: report.title,
       body: report.body,
-      issueType: null,
+      issueType: "Bug 🐛",
     },
   ]);
 
   reconcileRebaseBlock(client, input(report), new Date("2026-08-30T00:13:00Z"));
 
-  assert.deepStrictEqual(client.issueTypeLookups, ["Bug"]);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
   assert.deepStrictEqual(client.issueTypeEdits, [7]);
-  assert.strictEqual(client.issues[0]?.issueType, "Bug");
+  assert.strictEqual(client.issues[0]?.issueType, "Notification");
   assert.strictEqual(client.created.length, 0);
 });
 
-it("does not look up or apply the native Bug type when refresh already has one", () => {
+it("does not look up or apply the native Notification type when refresh already has one", () => {
   const report = blocked(SHA_A);
   const client = new FakeGitHub([
     {
@@ -260,7 +260,7 @@ it("does not look up or apply the native Bug type when refresh already has one",
       state: "open",
       title: report.title,
       body: report.body,
-      issueType: "Bug",
+      issueType: "Notification 🔔",
     },
   ]);
 
