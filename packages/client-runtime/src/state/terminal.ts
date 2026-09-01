@@ -43,6 +43,9 @@ export function createTerminalEnvironmentAtoms<R, E>(
         subscribe(WS_METHODS.terminalAttach, input).pipe(
           Stream.scan(EMPTY_TERMINAL_BUFFER_STATE, applyTerminalAttachStreamEvent),
         ),
+      // Terminal attachment demand is server-graced. Retaining this atom's stream
+      // would keep the server lease alive for the generic five-minute idle TTL.
+      idleTtlMs: 0,
     }),
     events: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:terminal:events",
