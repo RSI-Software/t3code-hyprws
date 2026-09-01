@@ -72,11 +72,17 @@ Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
-  --no-typecheck  Skip rehearsed-head web and server typechecks
+  --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
-Rebase rehearsal, gate 3:
-  vp run fork:scan --head origin/hyprws --target vX.Y.Z
+The typechecks run only when --head resolves to the checkout HEAD, because they read the
+working tree. A scan of any other ref reports declarations alone.
+
+Pre-rebase overlap walk, declarations only:
+  vp run fork:scan --head <fork-ref> --target vX.Y.Z --no-typecheck
+
+Rebase rehearsal, gate 3 (silent seams, from the rehearsed worktree):
+  vp run fork:scan --target vX.Y.Z
 `;
 
 const defaultOptions = (): ScanOptions => ({
@@ -356,9 +362,16 @@ export interface TypecheckCommandResult {
 
 export type TypecheckRunner = (root: string, command: TypecheckCommand) => TypecheckCommandResult;
 
+// Every typecheck-capable workspace the fork delta touches. A workspace missing here is a
+// workspace whose silent seams the rehearsal cannot see, so add one whenever the delta grows.
 const TYPECHECK_COMMANDS: ReadonlyArray<TypecheckCommand> = [
   { workspace: "apps/web", packageName: "@t3tools/web" },
   { workspace: "apps/server", packageName: "t3" },
+  { workspace: "apps/desktop", packageName: "@t3tools/desktop" },
+  { workspace: "apps/mobile", packageName: "@t3tools/mobile" },
+  { workspace: "packages/contracts", packageName: "@t3tools/contracts" },
+  { workspace: "packages/client-runtime", packageName: "@t3tools/client-runtime" },
+  { workspace: "packages/shared", packageName: "@t3tools/shared" },
 ];
 
 const systemTypecheckRunner: TypecheckRunner = (root, command) => {
@@ -389,7 +402,8 @@ const normalizeTypecheckPath = (root: string, workspace: string, path: string): 
     return relative.split(NodePath.sep).join("/");
   }
   const normalized = path.replace(/^\.\//, "");
-  return normalized.startsWith("apps/") ? normalized : `${workspace}/${normalized}`;
+  const repoRooted = /^(?:apps|packages)\//.test(normalized);
+  return repoRooted ? normalized : `${workspace}/${normalized}`;
 };
 
 export const findForkOwnedTypecheckGaps = (
