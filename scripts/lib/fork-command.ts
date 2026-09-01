@@ -49,7 +49,9 @@ export const requireCommandSuccess = (
   args: ReadonlyArray<string>,
 ): string => {
   if (result.status === 0 && result.error === undefined) return result.stdout;
-  const detail = result.error?.message ?? (result.stderr.trim() || result.stdout.trim());
+  const detail = [result.stdout.trim(), result.stderr.trim(), result.error?.message]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join("\n");
   throw new Error(
     `${commandText(command, args)} failed${detail.length === 0 ? "" : `: ${detail}`}`,
   );
