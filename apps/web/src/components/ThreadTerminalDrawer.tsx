@@ -45,6 +45,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
@@ -121,6 +122,52 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ]);
+
+export function isTerminalAttachmentDemanded(
+  surfaceVisible: boolean,
+  windowDemanded: boolean,
+): boolean {
+  return surfaceVisible && windowDemanded;
+}
+
+export function resolveTerminalWindowDemand(
+  desktopDemand: boolean | undefined,
+  documentVisibility: DocumentVisibilityState,
+): boolean {
+  return desktopDemand ?? documentVisibility === "visible";
+}
+
+function subscribeWindowDemand(onChange: () => void): () => void {
+  const bridge = window.desktopBridge;
+  if (
+    typeof bridge?.getWindowDemandState === "function" &&
+    typeof bridge.onWindowDemandStateChange === "function"
+  ) {
+    return bridge.onWindowDemandStateChange(onChange);
+  }
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+function windowDemandSnapshot(): boolean {
+  const getWindowDemandState = window.desktopBridge?.getWindowDemandState;
+  return resolveTerminalWindowDemand(
+    typeof getWindowDemandState === "function" ? getWindowDemandState() : undefined,
+    document.visibilityState,
+  );
+}
+
+function serverWindowDemandSnapshot(): boolean {
+  return true;
+}
+
+function useWindowDemand(): boolean {
+  return useSyncExternalStore(
+    subscribeWindowDemand,
+    windowDemandSnapshot,
+    serverWindowDemandSnapshot,
+  );
+}
 
 export function shouldForwardThreadTerminalShortcut(
   event: ShortcutEventLike,
@@ -504,6 +551,17 @@ export function shouldHandleTerminalFocusRequest(input: {
   );
 }
 
+export function shouldRestoreTerminalFocusAfterResume(input: {
+  attached: boolean;
+  status: TerminalSessionState["status"];
+  restoreRequested: boolean;
+  focusPending: boolean;
+}): boolean {
+  return (
+    input.attached && input.status === "running" && input.restoreRequested && input.focusPending
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -520,6 +578,8 @@ interface TerminalViewportProps {
   autoFocus?: boolean;
   visible: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  attached: boolean;
+  restoreFocusOnReattach: boolean;
 }
 
 interface TerminalLaunchLocation {
@@ -555,6 +615,8 @@ function TerminalSessionViewport({
   autoFocus = false,
   visible,
   keybindings,
+  attached,
+  restoreFocusOnReattach,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const autoFocusedRef = useRef(false);
@@ -623,6 +685,8 @@ function TerminalSessionViewport({
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
+  const restoreFocusAfterAttachRef = useRef(false);
+  const wasAttachedRef = useRef(attached);
   const focusOnRequestRef = useRef(focusOnRequest);
   focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
@@ -1343,6 +1407,8 @@ function TerminalSplitPanes({
   onAddTerminalContext,
   visible,
   keybindings,
+  attached, // fork-hook: zmux-estate/terminal-attachment-props
+  restoreFocusOnReattach, // fork-hook: zmux-estate/terminal-attachment-props
 }: {
   terminalIds: readonly string[];
   splitDirection: "horizontal" | "vertical";
@@ -1357,6 +1423,8 @@ function TerminalSplitPanes({
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   visible: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  attached: boolean; // fork-hook: zmux-estate/terminal-attachment-props
+  restoreFocusOnReattach: boolean; // fork-hook: zmux-estate/terminal-attachment-props
 }) {
   return (
     <div
@@ -1405,6 +1473,8 @@ function TerminalSplitPanes({
                 onAddTerminalContext={onAddTerminalContext}
                 visible={visible}
                 keybindings={keybindings}
+                attached={attached} // fork-hook: zmux-estate/terminal-attachment-props
+                restoreFocusOnReattach={restoreFocusOnReattach} // fork-hook: zmux-estate/terminal-attachment-props
               />
             </div>
           </div>
@@ -1543,6 +1613,9 @@ export default function ThreadTerminalDrawer({
   const canOperateTerminal = useEnvironmentScope(threadRef.environmentId, AuthTerminalOperateScope);
   const terminalArea = workspaceAreaProps("terminal", 5, "Terminal");
   const isPanel = mode === "panel";
+  const windowDemanded = useWindowDemand();
+  const attachmentDemanded = isTerminalAttachmentDemanded(visible, windowDemanded);
+  const restoreFocusOnReattach = visible && !windowDemanded;
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
@@ -1801,7 +1874,7 @@ export default function ThreadTerminalDrawer({
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the drawer before visible paint and observes window and chat column resizes while visible
   useLayoutEffect(() => {
-    if (!visible) {
+    if (!attachmentDemanded) {
       return;
     }
     // The column and window may have resized while the drawer was hidden and
@@ -1820,7 +1893,7 @@ export default function ThreadTerminalDrawer({
       stopObserving?.();
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [isPanel, visible]);
+  }, [isPanel, attachmentDemanded]); // fork-hook: zmux-estate/terminal-attachment-demand-height
 
   const resizeHandle = isPanel ? null : (
     <div
@@ -1952,6 +2025,8 @@ export default function ThreadTerminalDrawer({
               onAddTerminalContext={onAddTerminalContext}
               visible={visible}
               keybindings={keybindings}
+              attached={attachmentDemanded}
+              restoreFocusOnReattach={restoreFocusOnReattach}
             />
           </div>
 

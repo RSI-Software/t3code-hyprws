@@ -48,6 +48,7 @@ import {
 } from "./WindowIdentity.ts"; // fork-hook: multi-window/window-identity-import
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { bindWindowDemandStateFork } from "./WindowDemandState.fork.ts"; // fork-hook: zmux-estate/window-demand-state-import
 import { trimAppContextMenuFork } from "./AppContextMenu.fork.ts"; // fork-hook: upstream-fixes/themed-context-menu-import
 
 const TITLEBAR_HEIGHT = 40;
@@ -859,6 +860,7 @@ export const make = Effect.gen(function* () {
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
+    const publishWindowDemandStateFork = bindWindowDemandStateFork(window); // fork-hook: zmux-estate/window-demand-state
     window.on("resize", scheduleBoundsPersist);
     window.on("move", scheduleBoundsPersist);
     window.on("maximize", scheduleBoundsPersist);
@@ -938,6 +940,7 @@ export const make = Effect.gen(function* () {
       }
       clearDevelopmentLoadRetry();
       developmentLoadRetryIndex = 0;
+      publishWindowDemandStateFork(); // fork-hook: zmux-estate/window-demand-state
       if (environment.platform === "darwin") syncMacosWindowButtons(window);
     });
     window.webContents.on(
