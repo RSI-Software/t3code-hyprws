@@ -47,13 +47,19 @@ function makeKnownSession(input: {
             terminalId: input.terminalId,
             cwd: input.cwd,
             worktreePath: input.cwd,
-            status: input.status === "closed" ? "error" : input.status,
+            status:
+              input.status === "closed"
+                ? "error"
+                : input.status === "suspended"
+                  ? "running"
+                  : input.status,
             pid: input.status === "running" ? 123 : null,
             exitCode: null,
             exitSignal: null,
             hasRunningSubprocess: false,
             label: getTerminalLabel(input.terminalId),
             updatedAt: input.updatedAt ?? "2026-04-15T20:00:00.000Z",
+            ...(input.status === "suspended" ? { attachmentStatus: "suspended" as const } : {}),
           }
         : null,
       buffer: "",

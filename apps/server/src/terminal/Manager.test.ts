@@ -416,7 +416,7 @@ it.layer(
     }),
   );
 
-  it.effect("suspends a managed open that loses its surface before attach", () =>
+  it.effect("keeps a managed open alive until UI demand has been acquired and released", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
       const { manager, ptyAdapter } = yield* createManager(5, {
@@ -430,10 +430,8 @@ it.layer(
       expect(opened.status).toBe("running");
       expect(ptyProcess).toBeDefined();
 
-      yield* TestClock.adjust("1499 millis");
+      yield* TestClock.adjust("3 seconds");
       expect(ptyProcess?.killSignals).toEqual([]);
-      yield* TestClock.adjust("1 milli");
-      expect(ptyProcess?.killSignals[0]).toBe("SIGTERM");
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
@@ -532,10 +530,10 @@ it.layer(
       expect(ptyAdapter.spawnInputs[2]).toMatchObject({
         shell: "zmux",
         args: ["open", "zmux", "main"],
-        cols: 100,
-        rows: 24,
+        cols: 140,
+        rows: 40,
       });
-      expect(resumedProcess.resizeCalls).toContainEqual({ cols: 140, rows: 40 });
+      expect(resumedProcess.resizeCalls).toEqual([]);
 
       yield* manager.write({
         threadId: "thread-1",
@@ -547,6 +545,80 @@ it.layer(
       resumedRelease();
       siblingRelease();
       yield* manager.close({ threadId: "thread-1" });
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("preserves last-known tmux activity and metadata while suspended", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, getEvents } = yield* createManager(5, {
+        terminalSessionMode: "zmux",
+        managedAttachmentSuspendGraceMs: 1_500,
+        subprocessPollIntervalMs: 20,
+        subprocessInspector: () =>
+          Effect.succeed({
+            hasRunningSubprocess: true,
+            childCommand: "vim",
+            processIds: [9_000, 9_001],
+          }),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      yield* Effect.addFinalizer(() => manager.close({ threadId: "thread-1" }).pipe(Effect.ignore));
+
+      const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      const release = yield* manager.attachStream(
+        openInput({ worktreePath: process.cwd() }),
+        (event) => Ref.update(attachEvents, (events) => [...events, event]),
+      );
+      const initialSnapshot = (yield* Ref.get(attachEvents))[0];
+      expect(initialSnapshot?.type).toBe("snapshot");
+      yield* TestClock.adjust("40 millis");
+      yield* Effect.yieldNow;
+      expect(
+        (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
+      ).toBe(true);
+
+      release();
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1500 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1500 millis");
+
+      const suspendedEvent = (yield* getEvents).findLast(
+        (event) => event.type === "activity" && event.attachmentStatus === "suspended",
+      );
+      expect(suspendedEvent).toMatchObject({
+        type: "activity",
+        hasRunningSubprocess: true,
+        label: "zmux/main",
+        attachmentStatus: "suspended",
+      });
+
+      const metadata = yield* Ref.make<ReadonlyArray<TerminalMetadataStreamEvent>>([]);
+      const unsubscribe = yield* manager.subscribeMetadata((event) =>
+        Ref.update(metadata, (events) => [...events, event]),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      const metadataSnapshot = (yield* Ref.get(metadata))[0];
+      expect(metadataSnapshot).toMatchObject({
+        type: "snapshot",
+        terminals: [
+          {
+            status: "running",
+            attachmentStatus: "suspended",
+            hasRunningSubprocess: true,
+            label: "zmux/main",
+          },
+        ],
+      });
+      if (
+        initialSnapshot?.type === "snapshot" &&
+        metadataSnapshot?.type === "snapshot" &&
+        metadataSnapshot.terminals[0]
+      ) {
+        expect(metadataSnapshot.terminals[0].updatedAt).not.toBe(
+          initialSnapshot.snapshot.updatedAt,
+        );
+      }
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
@@ -601,7 +673,15 @@ it.layer(
         (event) => Ref.update(failedEvents, (events) => [...events, event]),
       );
       expect(yield* Ref.get(failedEvents)).toMatchObject([
-        { type: "snapshot", snapshot: { status: "error", label: "zmux/main" } },
+        {
+          type: "snapshot",
+          snapshot: {
+            status: "error",
+            label: "zmux/main",
+            attachmentStatus: "suspended",
+          },
+        },
+        { type: "error", message: expect.stringContaining("Failed to spawn PTY process") },
       ]);
       failedRelease();
       yield* Effect.yieldNow;
@@ -1773,6 +1853,62 @@ it.layer(
       assert.equal(reopenedFirst.history, "first-history\n");
       assert.equal(reopenedSecond.history, "");
     }),
+  );
+
+  it.effect("bounds suspended session retention without killing the managed tmux target", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        terminalSessionMode: "zmux",
+        managedAttachmentSuspendGraceMs: 10,
+        maxRetainedInactiveSessions: 1,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      yield* Effect.addFinalizer(() =>
+        Effect.all([
+          manager.close({ threadId: "thread-1" }).pipe(Effect.ignore),
+          manager.close({ threadId: "thread-2" }).pipe(Effect.ignore),
+        ]).pipe(Effect.asVoid),
+      );
+
+      const firstRelease = yield* manager.attachStream(
+        openInput({ threadId: "thread-1", worktreePath: process.cwd() }),
+        () => Effect.void,
+      );
+      firstRelease();
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("10 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("10 millis");
+
+      const secondRelease = yield* manager.attachStream(
+        openInput({ threadId: "thread-2", worktreePath: process.cwd() }),
+        () => Effect.void,
+      );
+      secondRelease();
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("10 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("10 millis");
+
+      const missing = yield* Effect.exit(
+        manager.attachStream(
+          { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID },
+          () => Effect.void,
+        ),
+      );
+      expect(Exit.isFailure(missing)).toBe(true);
+
+      const reopenedRelease = yield* manager.attachStream(
+        openInput({ threadId: "thread-1", worktreePath: process.cwd() }),
+        () => Effect.void,
+      );
+      expect(ptyAdapter.spawnInputs.at(-1)).toMatchObject({
+        shell: "zmux",
+        args: ["open", "zmux", "main"],
+      });
+      expect(processRunner.inputs.every((input) => input.command === "zmux")).toBe(true);
+      reopenedRelease();
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("migrates legacy transcript filenames to terminal-scoped history path on open", () =>

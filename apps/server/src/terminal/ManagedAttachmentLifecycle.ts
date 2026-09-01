@@ -10,6 +10,8 @@ export interface ManagedAttachmentLifecycle {
   readonly phase: ManagedAttachmentPhase;
   readonly demand: number;
   readonly generation: number;
+  /** Prevents a zero-demand open from suspending before its first UI attachment. */
+  readonly hasAcquiredDemand: boolean;
 }
 
 export type ManagedAttachmentAction =
@@ -37,6 +39,7 @@ export const INITIAL_MANAGED_ATTACHMENT_LIFECYCLE: ManagedAttachmentLifecycle = 
   phase: "unmanaged",
   demand: 0,
   generation: 0,
+  hasAcquiredDemand: false,
 });
 
 function scheduleSuspend(state: ManagedAttachmentLifecycle): ManagedAttachmentTransition {
@@ -54,13 +57,18 @@ export function transitionManagedAttachment(
   switch (action.type) {
     case "managed-attached": {
       const attached = { ...state, phase: "attached" as const };
-      return attached.demand === 0
+      return attached.demand === 0 && attached.hasAcquiredDemand
         ? scheduleSuspend(attached)
         : { state: attached, commands: [{ type: "cancel-suspend" }] };
     }
     case "unmanaged":
       return {
-        state: { ...state, phase: "unmanaged", generation: state.generation + 1 },
+        state: {
+          ...state,
+          phase: "unmanaged",
+          generation: state.generation + 1,
+          hasAcquiredDemand: false,
+        },
         commands: [{ type: "cancel-suspend" }],
       };
     case "demand-added": {
@@ -68,6 +76,7 @@ export function transitionManagedAttachment(
         ...state,
         demand: state.demand + 1,
         generation: state.generation + 1,
+        hasAcquiredDemand: true,
       };
       if (state.phase === "suspended" || state.phase === "resume-failed") {
         return {
@@ -114,7 +123,12 @@ export function transitionManagedAttachment(
       };
     case "process-exited":
       return {
-        state: { ...state, phase: "unmanaged", generation: state.generation + 1 },
+        state: {
+          ...state,
+          phase: "unmanaged",
+          generation: state.generation + 1,
+          hasAcquiredDemand: false,
+        },
         commands: [{ type: "cancel-suspend" }],
       };
   }

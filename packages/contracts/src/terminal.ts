@@ -90,14 +90,11 @@ export const TerminalCloseInput = Schema.Struct({
 });
 export type TerminalCloseInput = typeof TerminalCloseInput.Type;
 
-export const TerminalSessionStatus = Schema.Literals([
-  "starting",
-  "running",
-  "suspended",
-  "exited",
-  "error",
-]);
+export const TerminalSessionStatus = Schema.Literals(["starting", "running", "exited", "error"]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
+
+export const TerminalAttachmentStatus = Schema.Literals(["attached", "suspended"]);
+export type TerminalAttachmentStatus = typeof TerminalAttachmentStatus.Type;
 
 export const TerminalSessionSnapshot = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
@@ -113,6 +110,8 @@ export const TerminalSessionSnapshot = Schema.Struct({
   label: Schema.String.check(Schema.isMaxLength(128)),
   updatedAt: Schema.String,
   sequence: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Managed tmux client state. Optional so older clients retain the running session shape. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSessionSnapshot = typeof TerminalSessionSnapshot.Type;
 
@@ -129,6 +128,8 @@ export const TerminalSummary = Schema.Struct({
   /** Server-computed display title (idle shell vs subprocess command). */
   label: Schema.String.check(Schema.isMaxLength(128)),
   updatedAt: Schema.String,
+  /** Managed tmux client state. Optional so older clients retain the running session shape. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSummary = typeof TerminalSummary.Type;
 
@@ -173,17 +174,6 @@ const TerminalOutputEvent = Schema.Struct({
   data: Schema.String,
 });
 
-const TerminalSuspendedEvent = Schema.Struct({
-  ...TerminalEventBaseSchema.fields,
-  type: Schema.Literal("suspended"),
-});
-
-const TerminalResumedEvent = Schema.Struct({
-  ...TerminalEventBaseSchema.fields,
-  type: Schema.Literal("resumed"),
-  snapshot: TerminalSessionSnapshot,
-});
-
 const TerminalExitedEvent = Schema.Struct({
   ...TerminalEventBaseSchema.fields,
   type: Schema.Literal("exited"),
@@ -218,13 +208,13 @@ const TerminalActivityEvent = Schema.Struct({
   type: Schema.Literal("activity"),
   hasRunningSubprocess: Schema.Boolean,
   label: Schema.String.check(Schema.isMaxLength(128)),
+  /** Present when activity announces a managed attachment lifecycle change. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 
 export const TerminalEvent = Schema.Union([
   TerminalStartedEvent,
   TerminalOutputEvent,
-  TerminalSuspendedEvent,
-  TerminalResumedEvent,
   TerminalExitedEvent,
   TerminalClosedEvent,
   TerminalErrorEvent,
@@ -242,8 +232,6 @@ const TerminalAttachSnapshotEvent = Schema.Struct({
 export const TerminalAttachStreamEvent = Schema.Union([
   TerminalAttachSnapshotEvent,
   TerminalOutputEvent,
-  TerminalSuspendedEvent,
-  TerminalResumedEvent,
   TerminalExitedEvent,
   TerminalClosedEvent,
   TerminalErrorEvent,

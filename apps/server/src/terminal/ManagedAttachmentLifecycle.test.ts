@@ -14,6 +14,19 @@ function transition(
 }
 
 describe("managed terminal attachment lifecycle", () => {
+  it("does not suspend a managed open before demand has ever been acquired", () => {
+    const managed = transition(INITIAL_MANAGED_ATTACHMENT_LIFECYCLE, {
+      type: "managed-attached",
+    });
+
+    expect(managed.state).toMatchObject({
+      phase: "attached",
+      demand: 0,
+      hasAcquiredDemand: false,
+    });
+    expect(managed.commands).toEqual([{ type: "cancel-suspend" }]);
+  });
+
   it("cancels a pending suspension when demand returns", () => {
     const attached = transition(INITIAL_MANAGED_ATTACHMENT_LIFECYCLE, {
       type: "demand-added",
@@ -64,6 +77,7 @@ describe("managed terminal attachment lifecycle", () => {
       phase: "suspended",
       demand: 0,
       generation: 4,
+      hasAcquiredDemand: true,
     };
     const firstShow = transition(suspended, { type: "demand-added" });
     const secondShow = transition(firstShow.state, { type: "demand-added" });
@@ -79,7 +93,7 @@ describe("managed terminal attachment lifecycle", () => {
 
   it("allows a later visibility change to retry a failed resume", () => {
     const resuming = transition(
-      { phase: "suspended", demand: 0, generation: 2 },
+      { phase: "suspended", demand: 0, generation: 2, hasAcquiredDemand: true },
       { type: "demand-added" },
     ).state;
     const failed = transition(resuming, { type: "resume-failed" });

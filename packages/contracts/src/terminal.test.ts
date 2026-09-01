@@ -212,7 +212,7 @@ describe("TerminalCloseInput", () => {
 describe("TerminalSessionSnapshot", () => {
   const isoTimestamp = "2026-01-01T00:00:00.000Z";
 
-  it("accepts running and managed-suspended snapshots", () => {
+  it("keeps managed suspension in an optional attachment field", () => {
     const snapshot = {
       threadId: "thread-1",
       terminalId: DEFAULT_TERMINAL_ID,
@@ -230,10 +230,11 @@ describe("TerminalSessionSnapshot", () => {
     expect(
       decodes(TerminalSessionSnapshot, {
         ...snapshot,
-        status: "suspended",
         pid: null,
+        attachmentStatus: "suspended",
       }),
     ).toBe(true);
+    expect(decodes(TerminalSessionSnapshot, { ...snapshot, status: "suspended" })).toBe(false);
   });
 });
 
@@ -251,34 +252,31 @@ describe("TerminalEvent", () => {
     ).toBe(true);
   });
 
-  it("accepts managed suspend and resume events", () => {
-    expect(
-      decodes(TerminalEvent, {
-        type: "suspended",
-        threadId: "thread-1",
-        terminalId: DEFAULT_TERMINAL_ID,
-      }),
-    ).toBe(true);
-    expect(
-      decodes(TerminalEvent, {
-        type: "resumed",
-        threadId: "thread-1",
-        terminalId: DEFAULT_TERMINAL_ID,
-        snapshot: {
-          threadId: "thread-1",
-          terminalId: DEFAULT_TERMINAL_ID,
-          cwd: "/tmp/project",
-          worktreePath: null,
-          status: "running",
-          pid: 1234,
-          history: "hello\n",
-          exitCode: null,
-          exitSignal: null,
-          label: "Primary",
-          updatedAt: isoTimestamp,
-        },
-      }),
-    ).toBe(true);
+  it("announces managed suspension through the existing activity event", () => {
+    const event = {
+      type: "activity" as const,
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      hasRunningSubprocess: true,
+      label: "zmux/main",
+      attachmentStatus: "suspended" as const,
+    };
+    expect(decodes(TerminalEvent, event)).toBe(true);
+
+    const legacyActivityEvent = Schema.Struct({
+      type: Schema.Literal("activity"),
+      threadId: Schema.String,
+      terminalId: Schema.String,
+      hasRunningSubprocess: Schema.Boolean,
+      label: Schema.String,
+    });
+    expect(decodeSync(legacyActivityEvent, event)).toEqual({
+      type: "activity",
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      hasRunningSubprocess: true,
+      label: "zmux/main",
+    });
   });
 
   it("accepts exited events", () => {
