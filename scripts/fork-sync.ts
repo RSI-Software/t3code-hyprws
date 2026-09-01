@@ -26,6 +26,7 @@ import {
 } from "./lib/fork-policy.ts";
 import { parseForkTrailers } from "./lib/fork-trailers.ts";
 
+import { executeStable } from "./fork-sync-stable.ts";
 import {
   assertOnly,
   BLOCK_LABEL,
@@ -48,6 +49,7 @@ import {
   SYNC_HELP,
   writeRecord,
   writeReport,
+  worktreePath,
   type ConflictRow,
   type SyncReport,
 } from "./fork-sync-state.ts";
@@ -205,13 +207,6 @@ const unblockOrient = (
   return next;
 };
 
-const wtPath = (raw: string): string => {
-  const value = JSON.parse(raw) as Record<string, unknown>;
-  for (const key of ["worktree_path", "worktreePath", "path"])
-    if (typeof value[key] === "string") return value[key] as string;
-  throw new Error("Worktrunk JSON omitted the worktree path");
-};
-
 const replayMessages = (runner: CommandRunner, cwd: string, range: string): string =>
   gitRaw(runner, cwd, ["log", "--reverse", "--topo-order", "--format=%B%x1e", range], true);
 const currentCommit = (
@@ -281,7 +276,7 @@ const unblockRehearse = (
         true,
       ),
     );
-    const worktree = wtPath(
+    const worktree = worktreePath(
       requireSuccess(
         runner,
         "wt",
@@ -614,6 +609,8 @@ export const execute = (
   cwd = process.cwd(),
   runner: CommandRunner = new SystemRunner(),
 ): SyncReport => {
+  if (argv[0]?.startsWith("stable-"))
+    return executeStable(argv, cwd, runner) as unknown as SyncReport;
   const { verb, values } = parseVerbArgs(argv);
   if (verb === "unblock-list") return unblockList(values, cwd, runner);
   if (verb === "unblock-orient") return unblockOrient(values, cwd, runner);

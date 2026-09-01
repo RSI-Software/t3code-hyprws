@@ -72,48 +72,32 @@ or bypass a refusal or `fork:sync-gate`.
 
 ## Entry point: cut stable
 
-Use this only for an open `release` issue created from a bot-owned
-`release/vX.Y.Z-hyprws` snapshot. Never cut a stable from `hyprws`, `hyprws-next`, a rehearsal branch,
-or a local commit. Never move the snapshot branch or replace an existing tag.
+Use this only for an open stable-candidate issue created from a bot-owned snapshot. The report paths
+are external operator state; never edit them, move a bot-owned ref, replace a tag, or infer a
+candidate.
 
-### Stable gate 1 — Identify
+1. List candidates with `vp run fork:sync stable-list`.
 
-```bash
-gh issue list --state open --label release \
-  -R RSI-Software/t3code-hyprws
-```
+   **Stop.** Show every reported issue, candidate, and snapshot branch. Continue only after the human
+   selects one exact issue number; recency is not permission to choose.
 
-Read the selected issue and confirm its exact title is `Stable candidate vX.Y.Z-hyprws`, its body
-names the matching snapshot, and the branch exists on `origin`. If several candidates are open, stop
-for the human to select one; recency is not permission to choose.
+2. Bind the selection with
+   `vp run fork:sync stable-prepare --report <report> --issue <human-selected-issue>`.
 
-### Stable gate 2 — Verify
+   Review the emitted UAT draft under the [`fork-uat`](../fork-uat/SKILL.md) judgement boundary:
+   write observable rows, remove reviewer-only sections, show the exact draft to the human, and
+   create it only after their explicit UAT-draft go. Hand the created issue to the human to run and
+   record `Signed off` or `Blocked: <reason>`; those facts inform judgement and never become an
+   automatic pass/fail rule.
 
-Follow the runbook's exact [cut a stable release](../../../docs/operations/fork-sync.md#cut-a-stable-release)
-preparation and verification blocks through `vp run test`. They derive the snapshot ref and next
-release number from the selected issue, create a disposable Worktrunk lane at the exact remote
-commit, and run the same preflight checks as the stable release workflow.
+   **Stop.** Present the selected issue, snapshot branch and SHA, derived tag, prior matching tags,
+   every preparation result, clean/ref checks, and UAT evidence. Continue only when the human names
+   the exact candidate and gives an explicit release go. Missing sign-off, ambiguity, or a blocked
+   UAT is a hard stop; the agent must not infer acceptance.
 
-Before tagging, run `vp run fork:uat --ref origin/release/vX.Y.Z-hyprws --relates-to N` under the
-[`fork-uat`](../fork-uat/SKILL.md) judgment boundary on the exact ref you intend to tag, then read the
-created UAT issue. The candidate issue is optional relationship context, never the UAT input. The
-checked rows and latest human `Signed off` or `Blocked: <reason>` comment are sign-off evidence; they
-inform the release judgment and never gate it automatically.
+3. After that go, publish with
+   `vp run fork:sync stable-publish --report <report> --go <exact-candidate>`.
 
-**Stop.** Show the human the issue, snapshot branch and SHA, derived new tag, prior matching tags,
-and all check results. Continue only when the worktree is clean, every check passes,
-the remote snapshot still resolves to the checked SHA, the tag does not already exist locally or
-remotely, and the human records the exact candidate and an explicit go. Missing sign-off is a hard
-stop.
-
-### Stable gate 3 — Publish
-
-After the human signs off, the agent creates an annotated `vX.Y.Z-hyprws.<n>` tag at the verified
-snapshot SHA, pushes it create-only, watches the exact `hyprws-release.yml` run, verifies the
-`.AppImage` and `latest-linux.yml`, and closes the candidate issue with the tag, snapshot SHA, and
-workflow URL.
-
-A failed push or existing tag is a stop, not permission to increment again without re-running the
-stable gates and obtaining fresh sign-off. A failed workflow leaves the candidate issue open. Bot
-run summaries record automatic rewrites; human rehearsal records are comments on their blocked
-issues. An ordinary stable cut from a bot snapshot creates neither kind of rehearsal record.
+   **Stop on every refusal.** A changed issue or snapshot, moved or dirty lane, existing tag, failed
+   push/workflow, or missing asset requires a fresh `stable-list` report and fresh human sign-off;
+   never increment, replace, or repair the release by hand.
