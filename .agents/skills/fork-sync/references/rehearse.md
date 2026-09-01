@@ -28,16 +28,11 @@ Preserve upstream intent first. Reapply only the smallest fork behavior at the s
 provides. Review rerere output; it is a proposal, not proof. Keep the commit's subject and every
 `Fork-*` trailer. Never `--skip`, squash, reorder, or casually reword a commit.
 
-`pnpm-lock.yaml` is generated state, not a semantic seam. When it is part of the stop, discard both
-the textual conflict and any rerere proposal by restoring the current replay base. Resolve and stage
-all other conflicts first, then regenerate the lockfile from the combined manifests:
-
-```bash
-git restore --source=HEAD --staged --worktree -- pnpm-lock.yaml
-# Resolve and stage every remaining conflict before running the generator.
-vp install --lockfile-only
-git add pnpm-lock.yaml
-```
+`pnpm-lock.yaml` is generated state, not a semantic seam. When it is part of the stop, follow the
+[`fork-sync` Rehearse gate](../SKILL.md#gate-2--rehearse) for the executable regeneration sequence:
+discard both the textual conflict and any rerere proposal by restoring the current replay base,
+resolve and stage all other conflicts, then regenerate and stage the lockfile from the combined
+manifests.
 
 During a rebase, `HEAD` is the incoming upstream base plus fork commits already replayed. The
 repository-native `vp install --lockfile-only` command is equivalent to
