@@ -286,6 +286,26 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
 ];
 
+// The two gap classes need different repairs: a ledger gap is an entry the human adds, and a
+// typecheck gap is a silent seam fixed in the fork commit that owns the file.
+export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> => {
+  const summary: Array<string> = [];
+  const ledgerGaps =
+    result.undeclaredDomains.length +
+    result.domains.reduce((count, domain) => count + domain.gaps.length, 0);
+  if (ledgerGaps > 0) {
+    summary.push(
+      `failed: ${ledgerGaps} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}`,
+    );
+  }
+  if (result.typecheckGaps.length > 0) {
+    summary.push(
+      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun`,
+    );
+  }
+  return summary;
+};
+
 export const renderScanReport = (result: ScanResult): string => {
   const lines: Array<string> = [
     `Fork ${result.range.base}..${result.range.head} against upstream ${result.range.base}..${result.range.target}.`,
@@ -487,9 +507,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const failures = scanFailures(result);
     for (const failure of failures) process.stderr.write(`${failure}\n`);
     if (failures.length > 0) {
-      process.stderr.write(
-        `failed: ${failures.length} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}\n`,
-      );
+      for (const line of scanFailureSummary(result)) process.stderr.write(`${line}\n`);
       return 1;
     }
     process.stdout.write(
