@@ -17,10 +17,13 @@ import { type ShortcutEventLike } from "../keybindings";
 import {
   clampDrawerHeight,
   resolveTerminalDrawerMaxHeight,
+  isTerminalAttachmentDemanded,
+  resolveTerminalWindowDemand,
   shouldClearTerminalSelectionAction,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
+  shouldRestoreTerminalFocusAfterResume,
   terminalContextMenuItems,
   synchronizeTerminalOutput,
   terminalSelectionLineRange,
