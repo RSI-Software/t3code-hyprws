@@ -87,6 +87,9 @@ export type TerminalCloseInput = typeof TerminalCloseInput.Type;
 export const TerminalSessionStatus = Schema.Literals(["starting", "running", "exited", "error"]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
 
+export const TerminalAttachmentStatus = Schema.Literals(["attached", "suspended"]);
+export type TerminalAttachmentStatus = typeof TerminalAttachmentStatus.Type;
+
 export const TerminalSessionSnapshot = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
@@ -103,6 +106,8 @@ export const TerminalSessionSnapshot = Schema.Struct({
   // The PTY grid every renderer of this terminal should draw; absent from older servers.
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
+  /** Managed tmux client state. Optional so older clients retain the running session shape. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSessionSnapshot = typeof TerminalSessionSnapshot.Type;
 
@@ -115,9 +120,12 @@ export const TerminalSummary = Schema.Struct({
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
   exitCode: Schema.NullOr(Schema.Int),
   exitSignal: Schema.NullOr(Schema.Int),
+  /** Last-known subprocess state before detach while suspended. */
   hasRunningSubprocess: Schema.Boolean,
   label: Schema.String.check(Schema.isMaxLength(128)),
   updatedAt: Schema.String,
+  /** Managed tmux client state. Optional so older clients retain the running session shape. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 export type TerminalSummary = typeof TerminalSummary.Type;
 
@@ -194,11 +202,15 @@ const TerminalRestartedEvent = Schema.Struct({
 const TerminalActivityEvent = Schema.Struct({
   ...TerminalEventBaseSchema.fields,
   type: Schema.Literal("activity"),
+  /** Last-known subprocess state before detach when announcing suspension. */
   hasRunningSubprocess: Schema.Boolean,
+  /** Last-known display title before detach when announcing suspension. */
   label: Schema.String.check(Schema.isMaxLength(128)),
   // Shared PTY grid changes ride on activity because older clients reject unknown event types.
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
+  /** Present when activity announces a managed attachment lifecycle change. */
+  attachmentStatus: Schema.optional(TerminalAttachmentStatus),
 });
 
 export const TerminalEvent = Schema.Union([

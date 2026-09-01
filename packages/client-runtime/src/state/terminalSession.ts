@@ -23,6 +23,7 @@ export {
   type TerminalOutputUpdate,
 } from "./terminalOutput.ts";
 export { DEFAULT_MAX_TERMINAL_BUFFER_BYTES } from "@t3tools/contracts";
+import * as ManagedTerminalFork from "./terminalSessionManaged.fork.ts"; // fork-hook: zmux-estate/buffer-managed-import
 
 /** The PTY grid every renderer of a shared terminal draws. */
 export interface TerminalGrid {
@@ -35,7 +36,7 @@ export interface TerminalSessionState {
   readonly output: TerminalOutputState;
   /** Null when the server predates shared terminal geometry. */
   readonly grid: TerminalGrid | null;
-  readonly status: TerminalSessionSnapshot["status"] | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
   readonly error: string | null;
   readonly hasRunningSubprocess: boolean;
   readonly updatedAt: string | null;
@@ -46,7 +47,7 @@ export interface TerminalSessionState {
 export interface TerminalBufferState {
   readonly output: TerminalOutputState;
   readonly grid: TerminalGrid | null;
-  readonly status: TerminalSessionSnapshot["status"] | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
   readonly error: string | null;
   readonly updatedAt: string | null;
   readonly version: number;
@@ -116,6 +117,7 @@ function terminalBufferStateFromSnapshot(
     output: resetOutput(current.output, snapshot.history, maxBufferBytes),
     grid: nextGrid(current.grid, snapshot),
     status: snapshot.status,
+    ...ManagedTerminalFork.snapshotStatus(snapshot), // fork-hook: zmux-estate/buffer-snapshot-suspended
     error: null,
     updatedAt: snapshot.updatedAt,
     version: current.version + 1,
@@ -143,6 +145,17 @@ export function combineTerminalSessionState(
   summary: TerminalSummary | null,
   buffer: TerminalBufferState,
 ): TerminalSessionState {
+  const managedStatus =
+    summary?.status === "running" && summary.attachmentStatus === "suspended"
+      ? "suspended"
+      : summary?.status;
+  const status =
+    managedStatus === "suspended" ||
+    (buffer.status === "suspended" && summary?.attachmentStatus === "attached")
+      ? (managedStatus ?? buffer.status)
+      : buffer.version > 0
+        ? buffer.status
+        : (managedStatus ?? buffer.status);
   return {
     summary,
     output: buffer.output,
@@ -211,6 +224,8 @@ export function applyTerminalAttachStreamEvent(
       };
     case "activity": {
       const grid = nextGrid(current.grid, event);
+      const managedFork = ManagedTerminalFork.activityState(current, event, grid); // fork-hook: zmux-estate/buffer-activity-state
+      if (managedFork) return managedFork; // fork-hook: zmux-estate/buffer-activity-status
       return grid === current.grid ? current : { ...current, grid };
     }
   }

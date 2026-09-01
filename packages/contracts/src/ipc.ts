@@ -1107,6 +1107,12 @@ export interface DesktopBridge {
   onQuitShortcut: (listener: (event: QuitShortcutHintEvent) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
+  /**
+   * Whether this Electron window currently demands live renderer resources.
+   * Optional so a newer web bundle can fall back to document visibility in an older shell.
+   */
+  getWindowDemandState?: () => boolean;
+  onWindowDemandStateChange?: (listener: (demanded: boolean) => void) => () => void;
   getWindowZoomFactor: () => number;
   getUpdateState: () => Promise<DesktopUpdateState>;
   /** `minimumVersion` is a track switch's checked release; nothing older is offered after. */
