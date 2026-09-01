@@ -10,10 +10,14 @@ import { assert, it } from "@effect/vitest";
 import {
   decisionSurface,
   execute,
+  identifyRerereResolvedPaths,
   lockDriftClass,
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
+  rehearsalConflictRows,
+  rehearsalConflictStop,
+  rehearsalRebaseArgs,
   renderRecord,
   run,
   validateReport,
@@ -231,6 +235,76 @@ it("refuses a rehearsal lane collision for the exact target and source", () => {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
   }
+});
+
+it("names the in-flight commit and every conflicted path in the rehearsal stop", () => {
+  assert.strictEqual(
+    rehearsalConflictStop(
+      "/tmp/report.json",
+      "/tmp/record.md",
+      { sha: C, subject: "fix(web): preserve scoped behavior" },
+      ["apps/web/src/a.ts", "packages/shared/src/b.ts"],
+    ),
+    [
+      "/tmp/report.json",
+      `Stop. Rebase conflict in fix(web): preserve scoped behavior (${C.slice(0, 12)}).`,
+      "Conflicted paths:",
+      "  - apps/web/src/a.ts",
+      "  - packages/shared/src/b.ts",
+      "Resolve and stage non-generated files, complete every TODO row in /tmp/record.md, then rerun unblock-rehearse.",
+      "",
+    ].join("\n"),
+  );
+});
+
+it("enables rerere without staging its reused resolutions", () => {
+  assert.deepStrictEqual(rehearsalRebaseArgs(["rebase", B]), [
+    "-c",
+    "core.commentChar=auto",
+    "-c",
+    "rerere.enabled=true",
+    "-c",
+    "rerere.autoupdate=false",
+    "rebase",
+    B,
+  ]);
+  assert.deepStrictEqual(
+    identifyRerereResolvedPaths(
+      ["apps/web/src/reused.ts", "apps/web/src/unresolved.ts"],
+      ["apps/web/src/unresolved.ts"],
+    ),
+    ["apps/web/src/reused.ts"],
+  );
+});
+
+it("discloses rerere reuse in the stop and conflict record row", () => {
+  const commit = { sha: C, subject: "fix(web): preserve scoped behavior", domain: "fork-meta" };
+  const conflicts = ["apps/web/src/reused.ts", "apps/web/src/unresolved.ts"];
+  const rerereResolved = ["apps/web/src/reused.ts"];
+  const stop = rehearsalConflictStop(
+    "/tmp/report.json",
+    "/tmp/record.md",
+    commit,
+    conflicts,
+    rerereResolved,
+  );
+  assert.include(
+    stop,
+    "apps/web/src/reused.ts (rerere reused a recorded resolution; review before staging)",
+  );
+  assert.include(
+    stop,
+    "Review and stage rerere-resolved files; resolve and stage remaining non-generated files",
+  );
+  const reusedRow = rehearsalConflictRows(commit, conflicts, rerereResolved).find(
+    ({ path }) => path === "apps/web/src/reused.ts",
+  );
+  assert.deepInclude(reusedRow, {
+    path: "apps/web/src/reused.ts",
+    class: "TODO",
+    resolution: "review rerere's recorded resolution and stage",
+    agentSafe: "TODO",
+  });
 });
 
 it("renders and parses the record schema including conflict judgement", () => {
