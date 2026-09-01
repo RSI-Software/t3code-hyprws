@@ -14,6 +14,7 @@ import {
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
+  rehearsalConflictStop,
   renderRecord,
   run,
   validateReport,
@@ -231,6 +232,26 @@ it("refuses a rehearsal lane collision for the exact target and source", () => {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
   }
+});
+
+it("names the in-flight commit and every conflicted path in the rehearsal stop", () => {
+  assert.strictEqual(
+    rehearsalConflictStop(
+      "/tmp/report.json",
+      "/tmp/record.md",
+      { sha: C, subject: "fix(web): preserve scoped behavior" },
+      ["apps/web/src/a.ts", "packages/shared/src/b.ts"],
+    ),
+    [
+      "/tmp/report.json",
+      `Stop. Rebase conflict in fix(web): preserve scoped behavior (${C.slice(0, 12)}).`,
+      "Conflicted paths:",
+      "  - apps/web/src/a.ts",
+      "  - packages/shared/src/b.ts",
+      "Resolve and stage non-generated files, complete every TODO row in /tmp/record.md, then rerun unblock-rehearse.",
+      "",
+    ].join("\n"),
+  );
 });
 
 it("renders and parses the record schema including conflict judgement", () => {

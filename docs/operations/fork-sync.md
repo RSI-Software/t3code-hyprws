@@ -301,7 +301,8 @@ point. `vp run fork:sync` owns the mechanics as five report transitions:
 2. After the maintainer selects a tag, `unblock-orient` consumes that report, proves the target was
    offered and is beyond the block, and pins the target, shared base, and one `expected_old`.
 3. `unblock-rehearse` creates the bound Worktrunk lane or resumes its rebase. Every rehearsal Git
-   call carries `core.commentChar=auto`. At a stop it renders required conflict rows; for
+   call carries `core.commentChar=auto`. At a stop it names the in-flight commit by subject and
+   short hash, lists every conflicted path, and renders required conflict rows; for
    `pnpm-lock.yaml` it discards the textual/rerere result and applies the [regeneration
    rule](#regenerable-files) itself.
 4. `unblock-check` classifies post-replay lock drift, installs after the replay's manifests are

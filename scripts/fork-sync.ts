@@ -221,6 +221,21 @@ const currentCommit = (
 const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<string> =>
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
+export const rehearsalConflictStop = (
+  reportPath: string,
+  recordPath: string,
+  commit: { readonly sha: string; readonly subject: string },
+  conflicts: ReadonlyArray<string>,
+): string =>
+  [
+    reportPath,
+    `Stop. Rebase conflict in ${commit.subject} (${commit.sha.slice(0, 12)}).`,
+    "Conflicted paths:",
+    ...conflicts.map((path) => `  - ${path}`),
+    `Resolve and stage non-generated files, complete every TODO row in ${recordPath}, then rerun unblock-rehearse.`,
+    "",
+  ].join("\n");
+
 const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
@@ -384,7 +399,7 @@ const unblockRehearse = (
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
-      `${report.reportPath}\nStop. Resolve and stage non-generated files, complete every TODO row in ${report.recordPath}, then rerun unblock-rehearse.\n`,
+      rehearsalConflictStop(report.reportPath, report.recordPath, commit, conflicts),
     );
     return report;
   }
