@@ -266,7 +266,7 @@ export const renderOrientation = (orientation: Orientation): string => {
     "fork-sync gate 1 orientation",
     "",
     `target:       ${target.ref}@${target.sha}`,
-    `              ${target.stable ? "stable tag" : "not a stable vX.Y.Z tag; the apply gate accepts stable tags only"}, reachable from ${target.reachableFrom}`,
+    `              ${target.stable ? "stable tag" : "nightly tag; the apply gate needs --allow-nightly"}, reachable from ${target.reachableFrom}`,
     `source:       ${source.ref}@${source.sha}`,
     `shared base:  ${orientation.sharedBase}`,
     `mirror:       ${orientation.mirror}`,
