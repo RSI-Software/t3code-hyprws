@@ -28,6 +28,7 @@ import {
   environmentRpcKey,
   createAtomCommandScheduler,
   createEnvironmentQueryAtomFamily,
+  createEnvironmentSubscriptionAtomFamily,
   createRuntimeCommand,
   scheduleAtomCommandEffect,
   executeAtomCommand,
@@ -681,6 +682,50 @@ describe("executeAtomQuery", () => {
 
     registry.dispose();
   });
+});
+
+describe("environment subscription lifecycle", () => {
+  it.effect("releases a zero-TTL stream as soon as its last consumer unmounts", () =>
+    Effect.gen(function* () {
+      const started = Latch.makeUnsafe();
+      const released = Latch.makeUnsafe();
+      const run = ((_environmentId: unknown, effect: unknown) =>
+        effect) as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]["run"];
+      const runStream = ((_environmentId: unknown, stream: unknown) =>
+        stream) as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]["runStream"];
+      const followStream = ((_environmentId: unknown, stream: unknown) =>
+        stream) as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]["followStream"];
+      const environmentRegistry = EnvironmentRegistry.EnvironmentRegistry.of({
+        run,
+        runStream,
+        followStream,
+        stateChanges: () => Stream.empty,
+      } as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]);
+      const runtime = Atom.runtime(
+        Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+      );
+      const family = createEnvironmentSubscriptionAtomFamily(runtime, {
+        label: "test.immediate-subscription-release",
+        idleTtlMs: 0,
+        subscribe: (_input: void) =>
+          Stream.fromEffect(Effect.sync(() => started.openUnsafe())).pipe(
+            Stream.concat(Stream.never),
+            Stream.ensuring(Effect.sync(() => released.openUnsafe())),
+          ),
+      });
+      const atom = family({
+        environmentId: QUERY_ENVIRONMENT.environmentId,
+        input: undefined,
+      });
+      const registry = AtomRegistry.make();
+      const unmount = registry.mount(atom);
+
+      yield* started.await;
+      unmount();
+      yield* released.await;
+      registry.dispose();
+    }),
+  );
 });
 
 describe("runtime command runner", () => {
