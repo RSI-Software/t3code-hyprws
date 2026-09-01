@@ -4,6 +4,7 @@ import {
   EMPTY_TERMINAL_SESSION_STATE,
   selectRunningSubprocessTerminalIds,
   type KnownTerminalSession,
+  type TerminalBufferState,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
@@ -12,7 +13,7 @@ import {
   type TerminalAttachInput,
   type TerminalSummary,
 } from "@t3tools/contracts";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
@@ -121,12 +122,68 @@ export function selectKnownTerminalSessions(
   return sessions;
 }
 
+export interface RetainedTerminalAttachmentState {
+  readonly identity: string | null;
+  readonly source: TerminalBufferState | null;
+  readonly value: TerminalBufferState;
+  readonly error: string | null;
+}
+
+export const EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE: RetainedTerminalAttachmentState =
+  Object.freeze({
+    identity: null,
+    source: null,
+    value: EMPTY_TERMINAL_BUFFER_STATE,
+    error: null,
+  });
+
+export function updateRetainedTerminalAttachment(
+  current: RetainedTerminalAttachmentState,
+  identity: string | null,
+  source: TerminalBufferState | null,
+  error: string | null,
+): RetainedTerminalAttachmentState {
+  if (identity === null) return EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE;
+  const retained =
+    current.identity === identity
+      ? current
+      : {
+          identity,
+          source: null,
+          value: EMPTY_TERMINAL_BUFFER_STATE,
+          error: null,
+        };
+
+  let next = retained;
+  if (source !== null && source !== retained.source) {
+    const versionDelta =
+      retained.source === null
+        ? Math.max(1, source.version)
+        : source.version > retained.source.version
+          ? source.version - retained.source.version
+          : 1;
+    next = {
+      identity,
+      source,
+      value: { ...source, version: retained.value.version + versionDelta },
+      error: null,
+    };
+  }
+
+  if (error !== null && error !== next.error) {
+    next = { ...next, error };
+  }
+  return next;
+}
+
 export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;
   readonly terminal: TerminalAttachInput | null;
+  readonly enabled?: boolean;
 }): TerminalSessionState {
+  const enabled = input.enabled ?? true;
   const attach = useEnvironmentQuery(
-    input.environmentId !== null && input.terminal !== null
+    enabled && input.environmentId !== null && input.terminal !== null
       ? terminalEnvironment.attach({
           environmentId: input.environmentId,
           input: input.terminal,
@@ -142,6 +199,23 @@ export function useAttachedTerminalSession(input: {
         }),
   );
 
+  const attachmentIdentity =
+    input.environmentId !== null && input.terminal !== null
+      ? JSON.stringify([input.environmentId, input.terminal.threadId, input.terminal.terminalId])
+      : null;
+  const [committedRetainedAttachment, setCommittedRetainedAttachment] = useState(
+    EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+  );
+  const retainedAttachment = updateRetainedTerminalAttachment(
+    committedRetainedAttachment,
+    attachmentIdentity,
+    attach.data ?? null,
+    attach.error ?? null,
+  );
+  useEffect(() => {
+    setCommittedRetainedAttachment(retainedAttachment);
+  }, [retainedAttachment]);
+
   return useMemo(() => {
     if (input.environmentId === null || input.terminal === null) {
       return EMPTY_TERMINAL_SESSION_STATE;
@@ -152,9 +226,11 @@ export function useAttachedTerminalSession(input: {
         : terminalMetadataIndex(metadata.data)
             .byThreadId.get(input.terminal.threadId)
             ?.find((terminal) => terminal.terminalId === input.terminal?.terminalId)) ?? null;
-    const state = combineTerminalSessionState(summary, attach.data ?? EMPTY_TERMINAL_BUFFER_STATE);
-    return attach.error === null ? state : { ...state, error: attach.error, status: "error" };
-  }, [attach.data, attach.error, input.environmentId, input.terminal, metadata.data]);
+    const state = combineTerminalSessionState(summary, retainedAttachment.value);
+    return retainedAttachment.error !== null
+      ? { ...state, error: retainedAttachment.error, status: "error" }
+      : state;
+  }, [input.environmentId, input.terminal, metadata.data, retainedAttachment]);
 }
 
 export function useKnownTerminalSessions(input: {
