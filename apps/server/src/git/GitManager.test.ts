@@ -4959,7 +4959,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       expect(result.branch).toBe("feature/pr-worktree");
       expect(result.worktreePath).not.toBeNull();
-      expect(bind).toHaveBeenCalledWith(result.worktreePath);
+      expect(bind).toHaveBeenCalledWith(result.worktreePath, { projectPath: repoDir });
       expect(result.zmuxSessionNotice).toEqual({
         summary: "zmux session failed to bind",
         detail: "branch_conflict: branch is already bound",
