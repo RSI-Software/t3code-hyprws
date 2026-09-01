@@ -9,7 +9,7 @@ export { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 export interface TerminalMenuSession {
   readonly terminalId: string;
   readonly cwd: string | null;
-  readonly status: "starting" | "running" | "exited" | "error" | "closed";
+  readonly status: KnownTerminalSession["state"]["status"];
   readonly hasRunningSubprocess: boolean;
   readonly displayLabel: string;
   readonly updatedAt: string | null;
@@ -46,6 +46,9 @@ export function getTerminalStatusLabel(input: {
   }
   if (input.status === "starting") {
     return "Starting";
+  }
+  if (input.status === "suspended") {
+    return "Suspended";
   }
   if (input.status === "exited") {
     return "Exited";
@@ -84,6 +87,7 @@ export function buildTerminalMenuSessions(input: {
     if (
       session.state.status !== "running" &&
       session.state.status !== "starting" &&
+      session.state.status !== "suspended" &&
       session.target.terminalId !== input.currentSession?.terminalId
     ) {
       continue;
@@ -115,7 +119,9 @@ export function previousLiveTerminalId(input: {
     input.sessions.filter(
       (session) =>
         session.terminalId !== input.exitedTerminalId &&
-        (session.status === "running" || session.status === "starting"),
+        (session.status === "running" ||
+          session.status === "starting" ||
+          session.status === "suspended"),
     ),
     terminalMenuSessionOrder,
   );
