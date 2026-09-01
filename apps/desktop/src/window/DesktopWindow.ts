@@ -720,18 +720,16 @@ export const make = Effect.gen(function* () {
       if (window.isDestroyed()) return;
       window.webContents.send(
         WINDOW_DEMAND_STATE_CHANNEL,
-        window.isVisible() && !window.isMinimized() && window.isFocused(),
+        window.isVisible() && !window.isMinimized(),
       );
     };
-    // Chromium document visibility stays "visible" when Hyprland moves a
-    // BrowserWindow off the active workspace. Main-process focus/lifecycle
-    // events are the desktop demand source; web clients retain their browser fallback.
+    // Electron show/hide and minimize/restore are the explicit desktop
+    // visibility boundary. Focus is intentionally excluded: another visible
+    // window receiving focus does not hide this retained surface.
     window.on("show", publishWindowDemandState);
     window.on("hide", publishWindowDemandState);
     window.on("minimize", publishWindowDemandState);
     window.on("restore", publishWindowDemandState);
-    window.on("focus", publishWindowDemandState);
-    window.on("blur", publishWindowDemandState);
 
     if (identity.kind === "hub") {
       window.on("resize", scheduleBoundsPersist);
