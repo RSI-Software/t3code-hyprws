@@ -1792,6 +1792,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const toEvict = inactiveSessions.length - maxRetainedInactiveSessions;
         for (const session of inactiveSessions.slice(0, toEvict)) {
           const key = toSessionKey(session.threadId, session.terminalId);
+          session.eventSequence += 1;
+          const eventSequence = session.eventSequence;
           sessions.delete(key);
           if (session.managedSessionIdentity && session.managedSessionTarget) {
             retainedManagedSessions.set(key, {
@@ -1807,14 +1809,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               hasRunningSubprocess: session.hasRunningSubprocess,
               childCommandLabel: session.childCommandLabel,
               updatedAt: session.updatedAt,
-              eventSequence: session.eventSequence + 1,
+              eventSequence,
             });
           }
           events.push({
             type: "closed",
             threadId: session.threadId,
             terminalId: session.terminalId,
-            sequence: session.eventSequence + 1,
+            sequence: eventSequence,
           });
         }
 

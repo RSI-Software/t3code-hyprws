@@ -1921,7 +1921,7 @@ it.layer(
   it.effect("bounds suspended records while preserving exact-target resume identity", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
-      const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+      const { manager, ptyAdapter } = yield* createManager(5, {
         terminalSessionMode: "zmux",
         managedAttachmentSuspendGraceMs: 10,
         maxRetainedInactiveSessions: 1,
@@ -1932,9 +1932,36 @@ it.layer(
           manager.close({ threadId: "thread-2" }).pipe(Effect.ignore),
         ]).pipe(Effect.asVoid),
       );
-      const metadataEvents = yield* Ref.make<ReadonlyArray<TerminalMetadataStreamEvent>>([]);
+
+      const firstSuspended = yield* Deferred.make<TerminalEvent>();
+      const secondSuspended = yield* Deferred.make<TerminalEvent>();
+      const firstClosed = yield* Deferred.make<TerminalEvent>();
+      const firstMetadataRemoved = yield* Deferred.make<TerminalMetadataStreamEvent>();
+      const unsubscribeEvents = yield* manager.subscribe((event) => {
+        if (
+          event.type === "activity" &&
+          event.attachmentStatus === "suspended" &&
+          event.threadId === "thread-1"
+        ) {
+          return Deferred.succeed(firstSuspended, event).pipe(Effect.asVoid);
+        }
+        if (
+          event.type === "activity" &&
+          event.attachmentStatus === "suspended" &&
+          event.threadId === "thread-2"
+        ) {
+          return Deferred.succeed(secondSuspended, event).pipe(Effect.asVoid);
+        }
+        if (event.type === "closed" && event.threadId === "thread-1") {
+          return Deferred.succeed(firstClosed, event).pipe(Effect.asVoid);
+        }
+        return Effect.void;
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribeEvents));
       const unsubscribeMetadata = yield* manager.subscribeMetadata((event) =>
-        Ref.update(metadataEvents, (events) => [...events, event]),
+        event.type === "remove" && event.threadId === "thread-1"
+          ? Deferred.succeed(firstMetadataRemoved, event).pipe(Effect.asVoid)
+          : Effect.void,
       );
       yield* Effect.addFinalizer(() => Effect.sync(unsubscribeMetadata));
 
@@ -1943,39 +1970,28 @@ it.layer(
         () => Effect.void,
       );
       firstRelease();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("10 millis");
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("10 millis");
+      const firstSuspendedEvent = yield* Deferred.await(firstSuspended);
 
       const secondRelease = yield* manager.attachStream(
         openInput({ threadId: "thread-2", worktreePath: process.cwd() }),
         () => Effect.void,
       );
       secondRelease();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("10 millis");
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("10 millis");
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-
-      expect(yield* Ref.get(metadataEvents)).toContainEqual({
+      yield* Deferred.await(secondSuspended);
+      const firstClosedEvent = yield* Deferred.await(firstClosed);
+      expect(yield* Deferred.await(firstMetadataRemoved)).toMatchObject({
         type: "remove",
         threadId: "thread-1",
         terminalId: DEFAULT_TERMINAL_ID,
       });
-      const firstLifecycleEvents = (yield* getEvents).filter(
-        (event) =>
-          event.threadId === "thread-1" &&
-          event.terminalId === DEFAULT_TERMINAL_ID &&
-          (event.type === "closed" ||
-            (event.type === "activity" && event.attachmentStatus === "suspended")),
-      );
-      expect(firstLifecycleEvents.map((event) => event.type)).toEqual(["activity", "closed"]);
-      expect(firstLifecycleEvents[1]?.sequence).toBeGreaterThan(
-        firstLifecycleEvents[0]?.sequence ?? 0,
-      );
+      expect(firstSuspendedEvent).toMatchObject({
+        type: "activity",
+        attachmentStatus: "suspended",
+      });
+      expect(firstClosedEvent.type).toBe("closed");
+      expect(firstClosedEvent.sequence).toBeGreaterThan(firstSuspendedEvent.sequence ?? 0);
 
       const reopenedEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
       const reopenedRelease = yield* manager.attachStream(
@@ -2013,17 +2029,62 @@ it.layer(
         ),
       );
 
-      for (const threadId of ["thread-1", "thread-2", "thread-3"]) {
+      const firstSuspended = yield* Deferred.make<TerminalEvent>();
+      const secondSuspended = yield* Deferred.make<TerminalEvent>();
+      const secondResuspended = yield* Deferred.make<TerminalEvent>();
+      const thirdSuspended = yield* Deferred.make<TerminalEvent>();
+      const firstClosed = yield* Deferred.make<TerminalEvent>();
+      const secondClosed = yield* Deferred.make<TerminalEvent>();
+      const thirdClosed = yield* Deferred.make<TerminalEvent>();
+      const secondSuspensionCount = yield* Ref.make(0);
+      const unsubscribeEvents = yield* manager.subscribe((event) => {
+        if (event.type === "activity" && event.attachmentStatus === "suspended") {
+          if (event.threadId === "thread-1") {
+            return Deferred.succeed(firstSuspended, event).pipe(Effect.asVoid);
+          }
+          if (event.threadId === "thread-2") {
+            return Effect.gen(function* () {
+              const count = yield* Ref.updateAndGet(secondSuspensionCount, (value) => value + 1);
+              yield* Deferred.succeed(count === 1 ? secondSuspended : secondResuspended, event);
+            });
+          }
+          if (event.threadId === "thread-3") {
+            return Deferred.succeed(thirdSuspended, event).pipe(Effect.asVoid);
+          }
+        }
+        if (event.type === "closed") {
+          if (event.threadId === "thread-1") {
+            return Deferred.succeed(firstClosed, event).pipe(Effect.asVoid);
+          }
+          if (event.threadId === "thread-2") {
+            return Deferred.succeed(secondClosed, event).pipe(Effect.asVoid);
+          }
+          if (event.threadId === "thread-3") {
+            return Deferred.succeed(thirdClosed, event).pipe(Effect.asVoid);
+          }
+        }
+        return Effect.void;
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribeEvents));
+
+      const suspendAndAwait = Effect.fn("test.suspendAndAwait")(function* (
+        threadId: string,
+        suspended: Deferred.Deferred<TerminalEvent>,
+      ) {
         const release = yield* manager.attachStream(
           openInput({ threadId, worktreePath: process.cwd() }),
           () => Effect.void,
         );
         release();
-        yield* Effect.yieldNow;
         yield* TestClock.adjust("10 millis");
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("10 millis");
-      }
+        yield* Deferred.await(suspended);
+      });
+
+      yield* suspendAndAwait("thread-1", firstSuspended);
+      yield* suspendAndAwait("thread-2", secondSuspended);
+      yield* Deferred.await(firstClosed);
+      yield* suspendAndAwait("thread-3", thirdSuspended);
+      yield* Deferred.await(secondClosed);
 
       const oldest = yield* Effect.exit(
         manager.attachStream(
@@ -2043,9 +2104,9 @@ it.layer(
       });
       expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
       retainedRelease();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("10 millis");
-      yield* Effect.yieldNow;
+      yield* Deferred.await(secondResuspended);
+      yield* Deferred.await(thirdClosed);
 
       yield* manager.close({ threadId: "thread-3" });
       const explicitlyClosed = yield* Effect.exit(
