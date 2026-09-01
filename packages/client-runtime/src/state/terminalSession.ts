@@ -27,7 +27,7 @@ export {
 export interface TerminalSessionState {
   readonly summary: TerminalSummary | null;
   readonly output: TerminalOutputState;
-  readonly status: TerminalSessionSnapshot["status"] | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
   readonly error: string | null;
   readonly hasRunningSubprocess: boolean;
   readonly updatedAt: string | null;
@@ -37,7 +37,7 @@ export interface TerminalSessionState {
 
 export interface TerminalBufferState {
   readonly output: TerminalOutputState;
-  readonly status: TerminalSessionSnapshot["status"] | "closed";
+  readonly status: TerminalSessionSnapshot["status"] | "suspended" | "closed";
   readonly error: string | null;
   readonly updatedAt: string | null;
   readonly version: number;
@@ -103,7 +103,10 @@ export function terminalBufferStateFromSnapshot(
 ): TerminalBufferState {
   return {
     output: resetOutput(current.output, snapshot.history, maxBufferBytes),
-    status: snapshot.status,
+    status:
+      snapshot.status === "running" && snapshot.attachmentStatus === "suspended"
+        ? "suspended"
+        : snapshot.status,
     error: null,
     updatedAt: snapshot.updatedAt,
     version: current.version + 1,
@@ -121,10 +124,21 @@ export function combineTerminalSessionState(
   summary: TerminalSummary | null,
   buffer: TerminalBufferState,
 ): TerminalSessionState {
+  const managedStatus =
+    summary?.status === "running" && summary.attachmentStatus === "suspended"
+      ? "suspended"
+      : summary?.status;
+  const status =
+    managedStatus === "suspended" ||
+    (buffer.status === "suspended" && summary?.attachmentStatus === "attached")
+      ? (managedStatus ?? buffer.status)
+      : buffer.version > 0
+        ? buffer.status
+        : (managedStatus ?? buffer.status);
   return {
     summary,
     output: buffer.output,
-    status: buffer.version > 0 ? buffer.status : (summary?.status ?? buffer.status),
+    status,
     error: buffer.error,
     hasRunningSubprocess: summary?.hasRunningSubprocess ?? false,
     updatedAt: latestTimestamp(summary?.updatedAt ?? null, buffer.updatedAt),
@@ -187,7 +201,13 @@ export function applyTerminalAttachStreamEvent(
         version: current.version + 1,
       };
     case "activity":
-      return current;
+      if (event.attachmentStatus === undefined) return current;
+      return {
+        ...current,
+        status: event.attachmentStatus === "suspended" ? "suspended" : "running",
+        error: null,
+        version: current.version + 1,
+      };
   }
 }
 
