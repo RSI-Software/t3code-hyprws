@@ -124,7 +124,7 @@ jobs:
         run: vp run --filter @t3tools/desktop ensure:electron
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
 
   # apps/server runs its files one at a time; sharding spreads them over
   # runners instead of workers, exactly as upstream does.
