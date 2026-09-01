@@ -301,10 +301,11 @@ comment on the blocked issue and runs the gate against the external file. No reh
 or record-only commit enters the replayed stack.
 
 The path intersection in `fork:scan` cannot see a fork-only file that consumes an upstream-owned
-type: upstream changes the type, but never touches the consuming path. When the scan runs from the
-rehearsed checkout and its `HEAD` is the scanned head, it therefore typechecks the web and server
-workspaces and reports each failing file that belongs to the fork delta as a **Fork-owned typecheck
-gap**. Any such gap fails the scan; a scan of another ref skips the typecheck.
+type: upstream changes the type, but never touches the consuming path. The scan closes that hole by
+typechecking every workspace the fork delta touches and reporting each failing delta file as a
+**Fork-owned typecheck gap**. Any such gap fails the scan. Those typechecks read the working tree, so
+they run only when the scanned head is the checkout `HEAD`; a scan naming any other ref reports
+declarations alone and is not a Gate 3 result.
 
 The issue comment is the durable human rehearsal record. Existing files under
 `docs/operations/fork-sync-records/` are historical and remain in place, but new rehearsals do not

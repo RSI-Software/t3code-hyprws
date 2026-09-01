@@ -103,11 +103,15 @@ record row, or a zero-stop replay has the record schema's replay evidence.
 Walk every involved domain against the selected tag and run focused checks:
 
 ```bash
-vp run fork:scan --head origin/hyprws --target "$tag"
+vp run fork:scan --target "$tag"
 vp run fork:delta --check
 vp run --filter <touched-package> typecheck
 vp test run <tests-beside-every-touched-file>
 ```
+
+`fork:scan` takes no `--head` here on purpose: it defaults to the checkout `HEAD`, and only a scan
+of the checkout `HEAD` runs the typechecks that surface silent seams. The pre-rebase overlap walk
+already happened at Gate 1 through `fork-orient.ts`.
 
 Replace the final two command arguments from the conflict and automerged-overlap file set; do not
 leave those sample tokens in a command. A `MISSING` scan result is a gap in
@@ -150,7 +154,7 @@ if ! git diff --cached --quiet; then
 fi
 vp run fork:upstream-refs "$record_path"
 vp run fork:delta --check
-vp run fork:scan --head origin/hyprws --target "$tag"
+vp run fork:scan --target "$tag"
 record_comment_url="$(gh issue comment "$blocked_issue" -R "$repo" --body-file "$record_path")"
 ```
 
