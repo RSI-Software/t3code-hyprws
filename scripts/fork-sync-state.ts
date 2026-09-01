@@ -69,6 +69,11 @@ Unblock verbs:
   unblock-rehearse --report <json>
   unblock-check --report <json>
   unblock-apply --report <json> --record <markdown>
+
+Stable verbs:
+  stable-list [--output <external-json>]
+  stable-prepare --report <json> --issue <human-selected-issue>
+  stable-publish --report <json> --go <exact-candidate>
 `;
 
 export const commandText = (command: string, args: ReadonlyArray<string>): string =>
@@ -114,6 +119,13 @@ export const git = (
 
 export const rootFor = (runner: CommandRunner, cwd: string): string =>
   git(runner, cwd, ["rev-parse", "--show-toplevel"]);
+
+export const worktreePath = (raw: string): string => {
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  for (const key of ["worktree_path", "worktreePath", "path"])
+    if (typeof value[key] === "string") return value[key] as string;
+  throw new Error("Worktrunk JSON omitted the worktree path");
+};
 export const lines = (value: string): ReadonlyArray<string> =>
   value
     .split("\n")
