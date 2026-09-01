@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - This standalone Git gate runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { parseArgs as parseCliArgs, UsageError } from "./lib/fork-cli.ts";
+import { runCommandText } from "./lib/fork-command.ts";
 import {
   repositoryRoot,
   runPreflight,
@@ -12,9 +13,8 @@ import {
   unmetChecks,
   type PreflightReport,
 } from "./fork-preflight.ts";
+import { parseUpstreamReleaseTag } from "./lib/fork-policy.ts";
 
-const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
-const NIGHTLY_TAG = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
 const TARGET = /^- Target: `(?<tag>[^`\s@]+)@(?<sha>[0-9a-f]{40})`\s*$/m;
 const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
 const REBASED_HEAD = /^- Rebased head: `(?<sha>[0-9a-f]{40})`\s*$/m;
@@ -22,7 +22,7 @@ const STACK_SIZE = /^- Stack size: `(?<count>0|[1-9]\d*)` fork commits\s*$/m;
 const HUMAN_SANITY =
   /^- Human sanity: (?<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})) (?<date>\d{4}-\d{2}-\d{2})\s*$/m;
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 export interface GateOptions {
   readonly tag: string;
@@ -37,40 +37,22 @@ export interface GateDependencies {
 
 const systemDependencies: GateDependencies = {
   preflight: (root) => runPreflight(systemEnv(root)),
-  git: (root, args) =>
-    NodeChildProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" }).trim(),
+  git: (root, args) => runCommandText("git", args, { cwd: root }).trim(),
 };
 
-export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
-  let tag: string | null = null;
-  let recordPath: string | null = null;
-  let allowNightly = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--allow-nightly") {
-      if (allowNightly) throw new UsageError("duplicate option: --allow-nightly");
-      allowNightly = true;
-      continue;
-    }
-    if (argument !== "--tag" && argument !== "--record") {
-      throw new UsageError("expected --tag <tag> --record <path> [--allow-nightly]");
-    }
-    if (
-      (argument === "--tag" && tag !== null) ||
-      (argument === "--record" && recordPath !== null)
-    ) {
-      throw new UsageError(`duplicate option: ${argument}`);
-    }
-    const value = argv[index + 1];
-    if (!value || value.startsWith("-")) throw new UsageError(`missing value for ${argument}`);
-    if (argument === "--tag") tag = value;
-    else recordPath = value;
-    index += 1;
-  }
+export const parseGateArgs = (argv: ReadonlyArray<string>): GateOptions => {
+  const parsed = parseCliArgs(argv, {
+    values: ["--tag", "--record"],
+    flags: ["--allow-nightly"],
+  });
+  const tag = parsed.values.get("--tag") ?? null;
+  const recordPath = parsed.values.get("--record") ?? null;
+  const allowNightly = parsed.flags.has("--allow-nightly");
   if (tag === null || recordPath === null) {
     throw new UsageError("expected --tag <tag> --record <path> [--allow-nightly]");
   }
-  if (!STABLE_TAG.test(tag) && !(allowNightly && NIGHTLY_TAG.test(tag))) {
+  const parsedTag = parseUpstreamReleaseTag(tag);
+  if (parsedTag === null || (parsedTag.channel === "nightly" && !allowNightly)) {
     throw new UsageError(
       allowNightly
         ? `tag must be vX.Y.Z or vX.Y.Z-nightly.YYYYMMDD.N: ${tag}`
@@ -79,6 +61,8 @@ export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
   }
   return { tag, recordPath, allowNightly };
 };
+
+export { parseGateArgs as parseArgs };
 
 const isCalendarDate = (value: string): boolean => {
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -167,7 +151,7 @@ export const run = (
   dependencies: GateDependencies = systemDependencies,
 ): number => {
   try {
-    const { tag, recordPath } = parseArgs(argv);
+    const { tag, recordPath } = parseGateArgs(argv);
     const root = repositoryRoot(cwd);
 
     // Preconditions first, and the published head only from the preflight that
