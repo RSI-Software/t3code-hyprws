@@ -1378,6 +1378,8 @@ function AgentInstallTerminal({
             autoFocus
             visible
             keybindings={keybindings}
+            attached // fork-hook: zmux-estate/welcome-terminal-attachment
+            restoreFocusOnReattach={false} // fork-hook: zmux-estate/welcome-terminal-attachment
           />
         ) : null}
       </div>
