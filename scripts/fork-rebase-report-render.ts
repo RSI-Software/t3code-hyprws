@@ -1,5 +1,3 @@
-import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-
 import { parseUpstreamReleaseTag } from "./lib/fork-policy.ts";
 import type {
   ForkRebaseReport,
