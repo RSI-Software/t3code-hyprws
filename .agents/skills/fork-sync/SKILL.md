@@ -66,17 +66,18 @@ modify a ref.
 ### Gate 2 — Rehearse
 
 Create a disposable lane from the published fork; never rebase the current checkout. Read
-`expected_old` exactly once at rehearsal start:
+`expected_old` exactly once, before the lane exists, and name the lane after it:
 
 ```bash
-wt switch --create "rehearse/$tag" --base origin/hyprws
+git fetch origin --quiet
+expected_old="$(git rev-parse origin/hyprws)"
+wt switch --create "rehearse/$tag-from-${expected_old:0:12}" --base "$expected_old"
 # Continue in the worktree path printed by Worktrunk.
 vp i
 # Git strips comment-char lines from any message it rewrites, which silently deletes the `##`
 # headings fork bodies use. Export it so every later git call in this shell inherits it,
 # including `rebase --continue`; never write it into the shared repository config.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.commentChar GIT_CONFIG_VALUE_0=auto
-expected_old="$(git rev-parse origin/hyprws)"
 target_sha="$(git rev-parse "$tag^{commit}")"
 base_sha="$(git merge-base "$expected_old" "$tag")"
 record_path="$(mktemp "${TMPDIR:-/tmp}/fork-sync-${tag}.XXXXXX.md")"
@@ -85,6 +86,12 @@ chmod 600 "$record_path" "$messages_path"
 git log --reverse --topo-order --format='%B%x1e' "$base_sha..$expected_old" > "$messages_path"
 git rebase "$tag"
 ```
+
+The lane name carries the published head it replays, so a target rehearsed against a since-advanced
+trunk gets a new lane instead of colliding with the stale one. Basing the lane on `$expected_old`
+rather than `origin/hyprws` keeps the name and the replayed head the same commit even if the remote
+advances mid-run. The stale lane stays where it is; it is evidence, and its resolutions are reuse
+candidates rather than proof.
 
 At each stop, read upstream intent first, preserve it, and reapply the smallest fork behaviour at the
 current seam. `pnpm-lock.yaml` is the registered `generated` conflict class: restore it from `HEAD`
