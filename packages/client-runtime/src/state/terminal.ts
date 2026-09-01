@@ -77,6 +77,9 @@ export function createTerminalEnvironmentAtoms<R, E>(
           Stream.scan(nextTerminalAttachSeedState, applyTerminalAttachStreamEvent),
         );
       },
+      // Terminal attachment demand is server-graced. Retaining this atom's stream
+      // would keep the server lease alive for the generic five-minute idle TTL.
+      idleTtlMs: 0,
     }),
     metadata: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:terminal:metadata",
