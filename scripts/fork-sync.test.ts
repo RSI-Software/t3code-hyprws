@@ -275,6 +275,37 @@ it("renders and parses the record schema including conflict judgement", () => {
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
+it("round-trips escaped pipes and backslashes in conflict cells", () => {
+  const root = fixtureRoot();
+  const conflict = {
+    commit: C,
+    subject: "fix(web): preserve a | b and \\q",
+    domain: "fork-meta",
+    path: "apps/web/src/a|b\\q.ts",
+    class: "seam-moved" as const,
+    resolution: "keep left | right and \\q",
+    agentSafe: "yes | covered by C:\\tests",
+  };
+  const rendered = renderRecord(
+    report(root, {
+      stage: "conflicts",
+      conflicts: [conflict],
+    }),
+  );
+  assert.include(
+    rendered,
+    "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`)",
+  );
+  assert.deepStrictEqual(parseConflictRows(rendered), [
+    { ...conflict, commit: C.slice(0, 12) },
+  ]);
+  assert.throws(
+    () => parseConflictRows(rendered.replace("keep left \\| right", "keep left \\q right")),
+    /invalid conflict Resolution cell: unsupported escape \\q/,
+  );
+  NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
 it("distinguishes importer ownership drift from registry snapshot drift", () => {
   const base =
     "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers: {}\nsnapshots:\n  a: old\n";

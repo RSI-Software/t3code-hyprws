@@ -221,7 +221,8 @@ export const writeReport = (report: SyncReport): void => {
   NodeFS.chmodSync(report.reportPath, 0o600);
 };
 
-const escapeCell = (value: string): string => value.replaceAll("|", "\\|").replaceAll("\n", " ");
+const escapeCell = (value: string): string =>
+  value.replaceAll("\\", "\\\\").replaceAll("|", "\\|").replaceAll("\n", " ");
 
 export const renderRecord = (report: SyncReport, existingSanity = "absent"): string => {
   const target = report.target;
@@ -255,6 +256,8 @@ export const renderRecord = (report: SyncReport, existingSanity = "absent"): str
     ...(rows.length === 0
       ? ["None."]
       : [
+          "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`); write a literal backslash as `\\\\`.",
+          "",
           "| Fork commit and subject | Domain | File | Class | Resolution | Agent-safe? |",
           "| --- | --- | --- | --- | --- | --- |",
           ...rows,
@@ -305,29 +308,83 @@ export const writeRecord = (report: SyncReport): void =>
     { mode: 0o600 },
   );
 
-export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> => {
-  const rows: Array<ConflictRow> = [];
-  for (const line of record.split("\n")) {
-    const match =
-      /^\| `([0-9a-f]{7,12})` `(.+)` \| ([^|]+) \| `([^`]+)` \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$/.exec(
-        line,
+const splitTableCells = (line: string): ReadonlyArray<string> | null => {
+  if (!line.startsWith("|") || !line.endsWith("|")) return null;
+  const cells: Array<string> = [];
+  let cell = "";
+  let backslashes = 0;
+  for (const character of line.slice(1, -1)) {
+    if (character === "|" && backslashes % 2 === 0) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+    backslashes = character === "\\" ? backslashes + 1 : 0;
+  }
+  cells.push(cell.trim());
+  return cells;
+};
+
+const invalidConflictCell = (column: string, detail: string): Error =>
+  new Error(`invalid conflict ${column} cell: ${detail}`);
+
+const unescapeCell = (value: string, column: string): string => {
+  let result = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? "";
+    if (character !== "\\") {
+      result += character;
+      continue;
+    }
+    const escaped = value[index + 1];
+    if (escaped !== "\\" && escaped !== "|") {
+      throw invalidConflictCell(
+        column,
+        escaped === undefined ? "trailing backslash" : `unsupported escape \\${escaped}`,
       );
-    if (match === null) continue;
-    const klass = match[5]?.trim() ?? "TODO";
+    }
+    result += escaped;
+    index += 1;
+  }
+  return result;
+};
+
+export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> => {
+  const section = record.split("## Conflicts\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
+  const rows: Array<ConflictRow> = [];
+  for (const line of section.split("\n")) {
+    const cells = splitTableCells(line);
+    if (cells === null || cells[0] === "Fork commit and subject") continue;
+    if (cells.every((cell) => /^-+$/.test(cell))) continue;
+    if (cells.length !== 6) {
+      throw new Error(`invalid conflict row: expected 6 columns, found ${cells.length}`);
+    }
+
+    const commitAndSubject = /^`([0-9a-f]{7,12})` `([^`]*)`$/.exec(cells[0] ?? "");
+    if (commitAndSubject === null)
+      throw invalidConflictCell("Fork commit and subject", "expected `sha` `subject`");
+    const path = /^`([^`]*)`$/.exec(cells[2] ?? "");
+    if (path === null) throw invalidConflictCell("File", "expected a backticked path");
+
+    const domain = cells[1] ?? "";
+    if (/\\[\\|]/.test(domain))
+      throw invalidConflictCell("Domain", "escaped pipes and backslashes are not accepted");
+    const klass = cells[3] ?? "TODO";
     if (
       !["generated", "mechanical", "seam-moved", "retire-candidate", "human", "TODO"].includes(
         klass,
       )
     )
-      throw new Error(`invalid conflict class ${klass}`);
+      throw invalidConflictCell("Class", klass);
     rows.push({
-      commit: match[1] ?? "",
-      subject: (match[2] ?? "").replaceAll("\\|", "|"),
-      domain: (match[3] ?? "").trim(),
-      path: match[4] ?? "",
+      commit: commitAndSubject[1] ?? "",
+      subject: unescapeCell(commitAndSubject[2] ?? "", "Subject"),
+      domain,
+      path: unescapeCell(path[1] ?? "", "File"),
       class: klass as ConflictRow["class"],
-      resolution: (match[6] ?? "").trim(),
-      agentSafe: (match[7] ?? "").trim(),
+      resolution: unescapeCell(cells[4] ?? "", "Resolution"),
+      agentSafe: unescapeCell(cells[5] ?? "", "Agent-safe"),
     });
   }
   return rows;
