@@ -1,7 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Git pushes run before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
-
+import { runCommand } from "./fork-command.ts";
 import type { GitCommandResult } from "./fork-rebase-feasibility.ts";
 
 const PUSH_TOKEN = process.env.HYPRWS_PUSH_TOKEN;
@@ -12,18 +11,7 @@ const runGit = (
   args: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv = process.env,
 ): GitCommandResult => {
-  const result = NodeChildProcess.spawnSync("git", [...args], {
-    cwd,
-    env,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    ...(result.error === undefined ? {} : { error: result.error }),
-  };
+  return runCommand("git", args, { cwd, env });
 };
 
 const requireSuccess = (operation: string, result: GitCommandResult): string => {

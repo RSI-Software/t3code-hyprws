@@ -7,280 +7,61 @@
 
 // @effect-diagnostics nodeBuiltinImport:off - This standalone operator script runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-const REPOSITORY = "RSI-Software/t3code-hyprws";
-const STABLE_TAG = /^v(\d+)\.(\d+)\.(\d+)-hyprws\.(\d+)$/;
-const UPSTREAM_TAG = /^v(\d+)\.(\d+)\.(\d+)(?:-.+)?$/;
+import { UsageError } from "./lib/fork-cli.ts";
+import {
+  SystemInputCommandRunner as SystemRunner,
+  type CommandResult,
+  type InputCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
+
+export {
+  SystemInputCommandRunner as SystemRunner,
+  type CommandResult,
+  type InputCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
+import { FORK_REPOSITORY, parseStableForkTag, parseUpstreamReleaseTag } from "./lib/fork-policy.ts";
+
+const REPOSITORY = FORK_REPOSITORY;
 const TARGET_VERSION = /^v\d+\.\d+\.\d+-hyprws$/;
 
-export interface ForkCommit {
-  readonly sha: string;
-  readonly short: string;
-  readonly subject: string;
-  readonly domain?: string;
-  readonly tier?: string;
-}
+import {
+  compareNumbers,
+  differenceRows,
+  partitionUatRows,
+  relationshipArguments,
+  renderUatBody,
+  selectPreviousStable,
+  targetVersionFromUpstreamTag,
+  uatTitle,
+  upstreamParts,
+  type DifferenceRow,
+  type ExcludedRow,
+  type ForkCommit,
+  type ForkLedger,
+  type UatBodyInput,
+  type Version,
+} from "./fork-uat-policy.ts";
 
-interface ForkLedger {
-  readonly commits: ReadonlyArray<ForkCommit>;
-  readonly findings: ReadonlyArray<unknown>;
-}
+export {
+  differenceRows,
+  exclusionReason,
+  partitionUatRows,
+  relationshipArguments,
+  renderUatBody,
+  selectPreviousStable,
+  targetVersionFromUpstreamTag,
+  uatTitle,
+  type DifferenceRow,
+  type ExcludedRow,
+  type ExclusionReason,
+  type ForkCommit,
+  type UatBodyInput,
+} from "./fork-uat-policy.ts";
 
-export interface DifferenceRow extends ForkCommit {
-  readonly paths: ReadonlyArray<string>;
-  readonly patchId: string | null;
-}
-
-export type ExclusionReason = "fork-meta" | "conventional" | "supporting-paths" | "upstream";
-
-export interface ExcludedRow extends DifferenceRow {
-  readonly reason: ExclusionReason;
-}
-
-export interface UatBodyInput {
-  readonly ref: string;
-  readonly sha: string;
-  readonly targetVersion: string;
-  readonly upstreamBaseTag: string;
-  readonly upstreamBaseSha: string;
-  readonly previousStable: string;
-  readonly previousStableOverridden: boolean;
-  readonly relatesTo: number | null;
-  readonly sources: ReadonlyArray<{
-    readonly short: string;
-    readonly subject: string;
-    readonly prBody: string | null;
-  }>;
-  readonly excluded: ReadonlyArray<Pick<ExcludedRow, "short" | "subject" | "reason">>;
-}
-
-export interface CommandResult {
-  readonly status: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-export interface CommandRunner {
-  run(command: string, args: ReadonlyArray<string>, input?: string): CommandResult;
-}
-
-export class SystemRunner implements CommandRunner {
-  run(command: string, args: ReadonlyArray<string>, input?: string): CommandResult {
-    const result = NodeChildProcess.spawnSync(command, [...args], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      ...(input === undefined ? {} : { input }),
-    });
-    if (result.error !== undefined) throw result.error;
-    return {
-      status: result.status ?? 1,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
-  }
-}
-
-type Version = readonly [number, number, number];
-type StableVersion = readonly [number, number, number, number];
-
-const stableParts = (tag: string): StableVersion | null => {
-  const match = STABLE_TAG.exec(tag);
-  if (match === null) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])];
-};
-
-const upstreamParts = (tag: string): Version | null => {
-  const match = UPSTREAM_TAG.exec(tag);
-  if (match === null) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-};
-
-const compareNumbers = (left: ReadonlyArray<number>, right: ReadonlyArray<number>): number => {
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-};
-
-export const selectPreviousStable = (
-  upstreamVersion: Version,
-  tags: ReadonlyArray<string>,
-  tagsOnRef: ReadonlyArray<string> = [],
-): string | null => {
-  const eligible = tags
-    .flatMap((tag) => {
-      const parts = stableParts(tag);
-      return parts === null || compareNumbers(parts.slice(0, 3), upstreamVersion) > 0
-        ? []
-        : [{ tag, parts }];
-    })
-    .toSorted((left, right) => compareNumbers(left.parts, right.parts));
-  const carried = tagsOnRef
-    .flatMap((tag) => {
-      const parts = stableParts(tag);
-      return parts === null ? [] : [{ tag, parts }];
-    })
-    .toSorted((left, right) => compareNumbers(left.parts, right.parts))
-    .at(-1);
-  const candidates =
-    carried === undefined
-      ? eligible
-      : eligible.filter((entry) => compareNumbers(entry.parts, carried.parts) < 0);
-  return candidates.at(-1)?.tag ?? null;
-};
-
-export const differenceRows = (
-  current: ReadonlyArray<ForkCommit>,
-  previous: ReadonlyArray<ForkCommit>,
-  patchId: (sha: string) => string | null,
-  paths: (sha: string) => ReadonlyArray<string>,
-): ReadonlyArray<DifferenceRow> => {
-  const previousSubjects = new Set(previous.map((commit) => commit.subject));
-  const previousPatchIds = new Set(
-    previous.flatMap((commit) => {
-      const value = patchId(commit.sha);
-      return value === null ? [] : [value];
-    }),
-  );
-  return current.flatMap((commit) => {
-    if (previousSubjects.has(commit.subject)) return [];
-    const candidatePatchId = patchId(commit.sha);
-    if (candidatePatchId !== null && previousPatchIds.has(candidatePatchId)) return [];
-    return [{ ...commit, patchId: candidatePatchId, paths: paths(commit.sha) }];
-  });
-};
-
-const EXCLUDED_CONVENTIONAL_TYPES = new Set(["build", "chore", "ci", "docs", "refactor", "test"]);
-
-const conventionalIdentity = (
-  subject: string,
-): { readonly type: string; readonly scope: string | null } | null => {
-  const match = /^([a-z]+)(?:\(([^)]*)\))?!?:\s/.exec(subject);
-  return match === null ? null : { type: match[1] ?? "", scope: match[2] ?? null };
-};
-
-const isSupportingPath = (path: string): boolean =>
-  path.startsWith(".github/") ||
-  path.startsWith("scripts/") ||
-  path.startsWith("docs/") ||
-  path.startsWith(".agents/") ||
-  /(^|\/)[^/]+\.test\.[^/]+$/.test(path) ||
-  /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|yarn\.lock|[^/]+\.lock)$/.test(
-    path,
-  );
-
-export const exclusionReason = (
-  row: Pick<DifferenceRow, "domain" | "paths" | "subject">,
-  isUpstream = false,
-): ExclusionReason | null => {
-  if (row.domain === "fork-meta") return "fork-meta";
-  const conventional = conventionalIdentity(row.subject);
-  if (
-    conventional !== null &&
-    (EXCLUDED_CONVENTIONAL_TYPES.has(conventional.type) ||
-      (conventional.scope === "fork" && ["ci", "docs"].includes(conventional.type)))
-  ) {
-    return "conventional";
-  }
-  if (row.paths.length > 0 && row.paths.every(isSupportingPath)) return "supporting-paths";
-  if (isUpstream) return "upstream";
-  return null;
-};
-
-export const partitionUatRows = (
-  rows: ReadonlyArray<DifferenceRow>,
-  isUpstream: (row: DifferenceRow) => boolean = () => false,
-): {
-  readonly rows: ReadonlyArray<DifferenceRow>;
-  readonly excluded: ReadonlyArray<ExcludedRow>;
-} => {
-  const included: Array<DifferenceRow> = [];
-  const excluded: Array<ExcludedRow> = [];
-  for (const row of rows) {
-    const reason = exclusionReason(row, isUpstream(row));
-    if (reason === null) included.push(row);
-    else excluded.push({ ...row, reason });
-  }
-  return { rows: included, excluded };
-};
-
-export const targetVersionFromUpstreamTag = (tag: string): string => {
-  const version = upstreamParts(tag);
-  if (version === null) throw new Error(`unsupported upstream release tag ${tag}`);
-  return `v${version.join(".")}-hyprws`;
-};
-
-export const uatTitle = (targetVersion: string): string => `UAT ${targetVersion}`;
-
-export const relationshipArguments = (relatesTo: number | null): ReadonlyArray<string> =>
-  relatesTo === null ? ["--no-relationship"] : ["--relates-to", `${REPOSITORY}#${relatesTo}`];
-
-const exclusionLabel = (reason: ExclusionReason): string => {
-  if (reason === "fork-meta") return "Fork-Domain fork-meta";
-  if (reason === "conventional") return "non-product conventional commit";
-  if (reason === "supporting-paths") return "supporting paths only";
-  return "already upstream";
-};
-
-export const renderUatBody = (input: UatBodyInput): string => {
-  const sources = input.sources.map(
-    (row) => `- \`${row.short}\` ${row.subject}${row.prBody === null ? "" : ` — ${row.prBody}`}`,
-  );
-  const excluded = input.excluded.map(
-    (row) => `- \`${row.short}\` ${row.subject} — ${exclusionLabel(row.reason)}`,
-  );
-  const related =
-    input.relatesTo === null ? [] : [`Related issue: \`${REPOSITORY}#${input.relatesTo}\`.`, ""];
-  return [
-    `Ref \`${input.ref}\` at \`${input.sha}\` is ready for human acceptance.`,
-    "",
-    `Origin: human acceptance for fork ref \`${input.ref}\`; evidence: \`vp run fork:delta --base upstream/main --head <snapshot> --json\` run for \`${input.sha}\` and \`${input.previousStable}\`.`,
-    "",
-    ...related,
-    "## Snapshot",
-    "",
-    `- Target: \`${input.targetVersion}\``,
-    `- Ref: \`${input.ref}\``,
-    `- Commit: \`${input.sha}\``,
-    `- Upstream base: \`${input.upstreamBaseTag}\` at \`${input.upstreamBaseSha}\``,
-    `- Previous stable: \`${input.previousStable}\`${input.previousStableOverridden ? " (overridden)" : ""}`,
-    "",
-    "## Sources",
-    "",
-    "<details>",
-    `<summary>Included product commits (${sources.length})</summary>`,
-    "",
-    ...sources,
-    "",
-    "</details>",
-    "",
-    "## UAT",
-    "",
-    "<!-- agent: write rows here, see SKILL.md -->",
-    "",
-    "## Excluded",
-    "",
-    "<details>",
-    `<summary>Excluded non-product commits (${excluded.length})</summary>`,
-    "",
-    ...excluded,
-    "",
-    "</details>",
-    "",
-    "## Close condition",
-    "",
-    "Tick every accepted row and add findings as comments.",
-    "Comment `Signed off` when this ref is accepted, or `Blocked: <reason>` when it is not.",
-    "Unticked or blocked rows are human decision evidence; they do not gate automatically.",
-    "",
-  ].join("\n");
-};
-
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 export interface Options {
   readonly ref: string;
@@ -316,7 +97,7 @@ const positiveIssue = (value: string | undefined, flag: string): number => {
   return Number(value);
 };
 
-export const parseArgs = (argv: ReadonlyArray<string>): Options => {
+export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
   let ref = "hyprws";
   let version: string | null = null;
   let since: string | null = null;
@@ -341,7 +122,7 @@ export const parseArgs = (argv: ReadonlyArray<string>): Options => {
     } else if (argument === "--since") {
       hasRenderOptions = true;
       since = argv[++index] ?? "";
-      if (!STABLE_TAG.test(since)) {
+      if (parseStableForkTag(since) === null) {
         throw new UsageError("--since must match vX.Y.Z-hyprws.N");
       }
     } else if (argument === "--relates-to") {
@@ -509,7 +290,9 @@ const upstreamBase = (
     requireSuccess(runner, "git", ["tag", "--points-at", baseSha, "--sort=-v:refname"]),
   ).flatMap((tag) => {
     const version = upstreamParts(tag);
-    return version === null ? [] : [{ tag, version, nightly: tag.includes("-nightly.") }];
+    return version === null
+      ? []
+      : [{ tag, version, nightly: parseUpstreamReleaseTag(tag)?.channel === "nightly" }];
   });
   const selected = tags.toSorted((left, right) => {
     const versionOrder = compareNumbers(right.version, left.version);
@@ -703,7 +486,7 @@ export const run = (
     return 0;
   }
   try {
-    execute(parseArgs(argv), runner);
+    execute(parseUatArgs(argv), runner);
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
@@ -715,5 +498,7 @@ export const run = (
     return 1;
   }
 };
+
+export { parseUatArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));

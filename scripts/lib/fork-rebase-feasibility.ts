@@ -1,6 +1,6 @@
 // Read-only merge feasibility for the fork rebase orientation report.
 
-import { normalizeTrailerValue } from "./fork-trailers.ts";
+import { parseForkTrailers } from "./fork-trailers.ts";
 
 const FIELD_SEPARATOR = "\u001f";
 const RECORD_SEPARATOR = "\u001e";
@@ -164,17 +164,6 @@ const readUpstreamCommits = (
     ]),
   ).map((commit) => ({ ...commit, tags: tagsAt(git, commit.sha) }));
 
-const readTrailer = (body: string, key: string): string | null => {
-  for (const line of body.split("\n")) {
-    const separator = line.indexOf(":");
-    if (separator === -1 || line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) {
-      continue;
-    }
-    return normalizeTrailerValue(line.slice(separator + 1)) ?? null;
-  }
-  return null;
-};
-
 const parseForkStack = (raw: string): ReadonlyArray<ForkStackCommit> =>
   raw
     .split(RECORD_SEPARATOR)
@@ -183,11 +172,12 @@ const parseForkStack = (raw: string): ReadonlyArray<ForkStackCommit> =>
     .map((record) => {
       const [sha = "", subject = "", body = ""] = record.replace(/\n+$/, "").split(FIELD_SEPARATOR);
       if (sha.length === 0) throw new Error("git log returned a malformed fork commit");
+      const trailers = parseForkTrailers(body);
       return {
         sha,
         subject,
-        domain: readTrailer(body, "Fork-Domain"),
-        tier: readTrailer(body, "Fork-Tier"),
+        domain: trailers.domain ?? null,
+        tier: trailers.tier ?? null,
       };
     });
 
