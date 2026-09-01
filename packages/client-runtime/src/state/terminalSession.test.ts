@@ -133,6 +133,36 @@ describe("terminal session reducers", () => {
     });
   });
 
+  it("preserves scrollback across managed suspension and replaces it from the resume snapshot", () => {
+    const attached = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, {
+      type: "snapshot",
+      snapshot: { ...BASE_SNAPSHOT, history: "before suspend" },
+    });
+    const suspended = applyTerminalAttachStreamEvent(attached, {
+      type: "suspended",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+    });
+    const resumed = applyTerminalAttachStreamEvent(suspended, {
+      type: "resumed",
+      threadId: TARGET.threadId,
+      terminalId: TARGET.terminalId,
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        history: "before suspend\ncurrent tmux screen",
+      },
+    });
+
+    expect(suspended).toMatchObject({
+      buffer: "before suspend",
+      status: "suspended",
+    });
+    expect(resumed).toMatchObject({
+      buffer: "before suspend\ncurrent tmux screen",
+      status: "running",
+    });
+  });
+
   it("reduces terminal metadata snapshots, upserts, and removals", () => {
     const initial = applyTerminalMetadataStreamEvent([], {
       type: "snapshot",

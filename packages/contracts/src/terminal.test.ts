@@ -212,20 +212,26 @@ describe("TerminalCloseInput", () => {
 describe("TerminalSessionSnapshot", () => {
   const isoTimestamp = "2026-01-01T00:00:00.000Z";
 
-  it("accepts running snapshots", () => {
+  it("accepts running and managed-suspended snapshots", () => {
+    const snapshot = {
+      threadId: "thread-1",
+      terminalId: DEFAULT_TERMINAL_ID,
+      cwd: "/tmp/project",
+      worktreePath: null,
+      status: "running" as const,
+      pid: 1234,
+      history: "hello\n",
+      exitCode: null,
+      exitSignal: null,
+      label: "Primary",
+      updatedAt: isoTimestamp,
+    };
+    expect(decodes(TerminalSessionSnapshot, snapshot)).toBe(true);
     expect(
       decodes(TerminalSessionSnapshot, {
-        threadId: "thread-1",
-        terminalId: DEFAULT_TERMINAL_ID,
-        cwd: "/tmp/project",
-        worktreePath: null,
-        status: "running",
-        pid: 1234,
-        history: "hello\n",
-        exitCode: null,
-        exitSignal: null,
-        label: "Primary",
-        updatedAt: isoTimestamp,
+        ...snapshot,
+        status: "suspended",
+        pid: null,
       }),
     ).toBe(true);
   });
@@ -241,6 +247,36 @@ describe("TerminalEvent", () => {
         threadId: "thread-1",
         terminalId: DEFAULT_TERMINAL_ID,
         data: "line\n",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts managed suspend and resume events", () => {
+    expect(
+      decodes(TerminalEvent, {
+        type: "suspended",
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+      }),
+    ).toBe(true);
+    expect(
+      decodes(TerminalEvent, {
+        type: "resumed",
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        snapshot: {
+          threadId: "thread-1",
+          terminalId: DEFAULT_TERMINAL_ID,
+          cwd: "/tmp/project",
+          worktreePath: null,
+          status: "running",
+          pid: 1234,
+          history: "hello\n",
+          exitCode: null,
+          exitSignal: null,
+          label: "Primary",
+          updatedAt: isoTimestamp,
+        },
       }),
     ).toBe(true);
   });

@@ -32,6 +32,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
@@ -90,6 +91,34 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ]);
+
+export function isTerminalAttachmentDemanded(
+  surfaceVisible: boolean,
+  documentVisibility: DocumentVisibilityState,
+): boolean {
+  return surfaceVisible && documentVisibility === "visible";
+}
+
+function subscribeDocumentVisibility(onChange: () => void): () => void {
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+}
+
+function documentVisibilitySnapshot(): DocumentVisibilityState {
+  return document.visibilityState;
+}
+
+function serverDocumentVisibilitySnapshot(): DocumentVisibilityState {
+  return "visible";
+}
+
+function useDocumentVisibility(): DocumentVisibilityState {
+  return useSyncExternalStore(
+    subscribeDocumentVisibility,
+    documentVisibilitySnapshot,
+    serverDocumentVisibilitySnapshot,
+  );
+}
 
 export function shouldForwardThreadTerminalShortcut(
   event: ShortcutEventLike,
@@ -346,6 +375,17 @@ export function shouldHandleTerminalFocusRequest(input: {
   );
 }
 
+export function shouldRestoreTerminalFocusAfterResume(input: {
+  attached: boolean;
+  status: TerminalSessionState["status"];
+  restoreRequested: boolean;
+  focusPending: boolean;
+}): boolean {
+  return (
+    input.attached && input.status === "running" && input.restoreRequested && input.focusPending
+  );
+}
+
 interface TerminalViewportProps {
   advancedTypography: boolean;
   threadRef: ScopedThreadRef;
@@ -362,6 +402,8 @@ interface TerminalViewportProps {
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
+  attached: boolean;
+  restoreFocusOnReattach: boolean;
 }
 
 interface TerminalLaunchLocation {
@@ -386,6 +428,8 @@ export function TerminalViewport({
   resizeEpoch,
   drawerHeight,
   keybindings,
+  attached,
+  restoreFocusOnReattach,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
@@ -408,6 +452,8 @@ export function TerminalViewport({
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
+  const restoreFocusAfterAttachRef = useRef(false);
+  const wasAttachedRef = useRef(attached);
   const focusOnRequestRef = useRef(focusOnRequest);
   focusOnRequestRef.current = focusOnRequest;
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -451,6 +497,7 @@ export function TerminalViewport({
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
+    enabled: attached,
   });
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
@@ -981,6 +1028,47 @@ export function TerminalViewport({
   }, [terminalBuffer, terminalError, terminalStatus, terminalVersion]);
 
   useEffect(() => {
+    const wasAttached = wasAttachedRef.current;
+    wasAttachedRef.current = attached;
+    if (!attached) {
+      if (wasAttached) {
+        restoreFocusAfterAttachRef.current =
+          restoreFocusOnReattach &&
+          (containerRef.current?.contains(document.activeElement) ?? false);
+      } else if (!restoreFocusOnReattach) {
+        restoreFocusAfterAttachRef.current = false;
+      }
+      return;
+    }
+    if (!wasAttached && restoreFocusAfterAttachRef.current) {
+      pendingFocusRequestRef.current = true;
+    }
+  }, [attached, restoreFocusOnReattach]);
+
+  useEffect(() => {
+    if (
+      !shouldRestoreTerminalFocusAfterResume({
+        attached,
+        status: terminalStatus,
+        restoreRequested: restoreFocusAfterAttachRef.current,
+        focusPending: pendingFocusRequestRef.current,
+      })
+    ) {
+      return;
+    }
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    restoreFocusAfterAttachRef.current = false;
+    pendingFocusRequestRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (terminalRef.current === terminal && attached) {
+        terminal.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [attached, terminalStatus]);
+
+  useEffect(() => {
     const handledFocusRequestId = handledFocusRequestIdRef.current;
     if (
       !shouldHandleTerminalFocusRequest({
@@ -1123,6 +1211,9 @@ export default function ThreadTerminalDrawer({
   terminalLaunchLocationsById,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
+  const documentVisibility = useDocumentVisibility();
+  const attachmentDemanded = isTerminalAttachmentDemanded(visible, documentVisibility);
+  const restoreFocusOnReattach = visible && documentVisibility !== "visible";
   const [advancedTypography] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
@@ -1400,7 +1491,7 @@ export default function ThreadTerminalDrawer({
   );
 
   useEffect(() => {
-    if (!visible) {
+    if (!attachmentDemanded) {
       return;
     }
 
@@ -1420,14 +1511,14 @@ export default function ThreadTerminalDrawer({
     return () => {
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [syncHeight, visible]);
+  }, [attachmentDemanded, syncHeight]);
 
   useEffect(() => {
-    if (!visible) {
+    if (!attachmentDemanded) {
       return;
     }
     setResizeEpoch((value) => value + 1);
-  }, [visible]);
+  }, [attachmentDemanded]);
 
   useEffect(() => {
     return () => {
@@ -1593,10 +1684,14 @@ export default function ThreadTerminalDrawer({
                           onSessionExited={() => onCloseTerminal(terminalId)}
                           onAddTerminalContext={onAddTerminalContext}
                           focusRequestId={focusRequestId}
-                          focusOnRequest={visible && terminalId === resolvedActiveTerminalId}
+                          focusOnRequest={
+                            attachmentDemanded && terminalId === resolvedActiveTerminalId
+                          }
                           resizeEpoch={resizeEpoch}
                           drawerHeight={drawerHeight}
                           keybindings={keybindings}
+                          attached={attachmentDemanded}
+                          restoreFocusOnReattach={restoreFocusOnReattach}
                         />
                       </div>
                     </div>
@@ -1622,10 +1717,12 @@ export default function ThreadTerminalDrawer({
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
                   focusRequestId={focusRequestId}
-                  focusOnRequest={visible}
+                  focusOnRequest={attachmentDemanded}
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
                   keybindings={keybindings}
+                  attached={attachmentDemanded}
+                  restoreFocusOnReattach={restoreFocusOnReattach}
                 />
               </div>
             )}

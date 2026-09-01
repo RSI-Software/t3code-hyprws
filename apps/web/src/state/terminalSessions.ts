@@ -7,7 +7,7 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
@@ -15,9 +15,11 @@ import { terminalEnvironment } from "./terminal";
 export function useAttachedTerminalSession(input: {
   readonly environmentId: EnvironmentId | null;
   readonly terminal: TerminalAttachInput | null;
+  readonly enabled?: boolean;
 }): TerminalSessionState {
+  const enabled = input.enabled ?? true;
   const attach = useEnvironmentQuery(
-    input.environmentId !== null && input.terminal !== null
+    enabled && input.environmentId !== null && input.terminal !== null
       ? terminalEnvironment.attach({
           environmentId: input.environmentId,
           input: input.terminal,
@@ -33,6 +35,11 @@ export function useAttachedTerminalSession(input: {
         }),
   );
 
+  const retainedBufferRef = useRef(EMPTY_TERMINAL_BUFFER_STATE);
+  if (attach.data !== null && attach.data !== undefined) {
+    retainedBufferRef.current = attach.data;
+  }
+
   return useMemo(() => {
     if (input.environmentId === null || input.terminal === null) {
       return EMPTY_TERMINAL_SESSION_STATE;
@@ -43,9 +50,11 @@ export function useAttachedTerminalSession(input: {
           terminal.threadId === input.terminal?.threadId &&
           terminal.terminalId === input.terminal?.terminalId,
       ) ?? null;
-    const state = combineTerminalSessionState(summary, attach.data ?? EMPTY_TERMINAL_BUFFER_STATE);
-    return attach.error === null ? state : { ...state, error: attach.error, status: "error" };
-  }, [attach.data, attach.error, input.environmentId, input.terminal, metadata.data]);
+    const state = combineTerminalSessionState(summary, retainedBufferRef.current);
+    return enabled && attach.error !== null
+      ? { ...state, error: attach.error, status: "error" }
+      : state;
+  }, [attach.error, attach.data, enabled, input.environmentId, input.terminal, metadata.data]);
 }
 
 export function useKnownTerminalSessions(input: {

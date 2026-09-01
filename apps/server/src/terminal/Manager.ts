@@ -62,6 +62,13 @@ import {
 } from "../observability/Metrics.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
+import {
+  INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
+  transitionManagedAttachment,
+  type ManagedAttachmentAction,
+  type ManagedAttachmentCommand,
+  type ManagedAttachmentLifecycle,
+} from "./ManagedAttachmentLifecycle.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
 export {
@@ -81,6 +88,7 @@ const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 40;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
+const DEFAULT_MANAGED_ATTACHMENT_SUSPEND_GRACE_MS = 1_500;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
@@ -258,6 +266,11 @@ interface ZmuxLaunchResolution {
   readonly notice: string | null;
 }
 
+interface ManagedSessionIdentity {
+  readonly target: string;
+  readonly candidate: ShellCandidate;
+}
+
 export interface TerminalStartInput extends TerminalOpenInput {
   cols: number;
   rows: number;
@@ -288,6 +301,9 @@ export interface TerminalSessionState {
   /** Normalized child command name when `hasRunningSubprocess`; cleared when idle. */
   childCommandLabel: string | null;
   managedSessionTarget: string | null;
+  managedSessionIdentity: ManagedSessionIdentity | null;
+  managedAttachment: ManagedAttachmentLifecycle;
+  managedSuspendFiber: Fiber.Fiber<void, never> | null;
   runtimeEnv: Record<string, string> | null;
 }
 
@@ -398,6 +414,8 @@ function shouldPublishTerminalMetadataEvent(event: TerminalEvent): boolean {
   switch (event.type) {
     case "started":
     case "restarted":
+    case "resumed":
+    case "suspended":
     case "exited":
     case "closed":
     case "error":
@@ -417,6 +435,8 @@ function terminalEventToAttachEvent(event: TerminalEvent): TerminalAttachStreamE
         snapshot: event.snapshot,
       };
     case "output":
+    case "suspended":
+    case "resumed":
     case "exited":
     case "closed":
     case "error":
@@ -1149,6 +1169,7 @@ interface TerminalManagerOptions {
   subprocessInspector?: TerminalSubprocessInspector;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
+  managedAttachmentSuspendGraceMs?: number;
   maxRetainedInactiveSessions?: number;
   registerTerminalProcesses?: (input: {
     readonly threadId: string;
@@ -1221,6 +1242,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const subprocessPollIntervalMs =
     options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
   const processKillGraceMs = options.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
+  const managedAttachmentSuspendGraceMs = Math.max(
+    1,
+    options.managedAttachmentSuspendGraceMs ?? DEFAULT_MANAGED_ATTACHMENT_SUSPEND_GRACE_MS,
+  );
   const maxRetainedInactiveSessions =
     options.maxRetainedInactiveSessions ?? DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS;
   const registerTerminalProcesses = options.registerTerminalProcesses ?? (() => Effect.void);
@@ -1377,12 +1402,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     });
   });
 
-  const runKillEscalation = Effect.fn("terminal.runKillEscalation")(function* (
+  const terminateProcess = Effect.fn("terminal.terminateProcess")(function* (
     process: PtyAdapter.PtyProcess,
     threadId: string,
     terminalId: string,
   ) {
-    const terminated = yield* Effect.try({
+    return yield* Effect.try({
       try: () => process.kill("SIGTERM"),
       catch: (cause) =>
         new TerminalProcessSignalError({
@@ -1401,12 +1426,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         }).pipe(Effect.as(false)),
       ),
     );
-    if (!terminated) {
-      return;
-    }
+  });
 
+  const forceKillAfterGrace = Effect.fn("terminal.forceKillAfterGrace")(function* (
+    process: PtyAdapter.PtyProcess,
+    threadId: string,
+    terminalId: string,
+  ) {
     yield* Effect.sleep(processKillGraceMs);
-
     yield* Effect.try({
       try: () => process.kill("SIGKILL"),
       catch: (cause) =>
@@ -1432,7 +1459,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     threadId: string,
     terminalId: string,
   ) {
-    const fiber = yield* runKillEscalation(process, threadId, terminalId).pipe(
+    if (!(yield* terminateProcess(process, threadId, terminalId))) {
+      return;
+    }
+    const fiber = yield* forceKillAfterGrace(process, threadId, terminalId).pipe(
       Effect.ensuring(
         modifyManagerState((state) => {
           if (!state.killFibers.has(process)) {
@@ -1698,7 +1728,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     function* () {
       yield* modifyManagerState((state) => {
         const inactiveSessions = [...state.sessions.values()].filter(
-          (session) => session.status !== "running",
+          (session) => session.status !== "running" && session.status !== "suspended",
         );
         if (inactiveSessions.length <= maxRetainedInactiveSessions) {
           return [undefined, state] as const;
@@ -1824,6 +1854,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         continue;
       }
 
+      session.managedSessionTarget = null;
+      session.managedSessionIdentity = null;
+      session.managedAttachment = transitionManagedAttachment(session.managedAttachment, {
+        type: "process-exited",
+      }).state;
+      yield* cancelManagedSuspendFiber(session);
       yield* clearKillFiber(action.process);
       yield* unregisterTerminal({
         threadId: action.threadId,
@@ -1938,8 +1974,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const startSession = Effect.fn("terminal.startSession")(function* (
     session: TerminalSessionState,
     input: TerminalStartInput,
-    eventType: "started" | "restarted",
-  ) {
+    eventType: "started" | "restarted" | "resumed",
+  ): Effect.fn.Return<void, TerminalError> {
+    const resumeIdentity = eventType === "resumed" ? session.managedSessionIdentity : null;
+    yield* cancelManagedSuspendFiber(session);
     yield* stopProcess(session);
     yield* Effect.annotateCurrentSpan({
       "terminal.thread_id": session.threadId,
@@ -1959,7 +1997,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session.exitSignal = null;
       session.hasRunningSubprocess = false;
       session.childCommandLabel = null;
-      session.managedSessionTarget = null;
+      if (eventType !== "resumed") {
+        session.managedSessionTarget = null;
+        session.managedSessionIdentity = null;
+        session.managedAttachment = transitionManagedAttachment(session.managedAttachment, {
+          type: "unmanaged",
+        }).state;
+      }
       session.pendingProcessEvents = [];
       session.pendingProcessEventIndex = 0;
       session.processEventDrainRunning = false;
@@ -1982,7 +2026,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             let managedTarget: string | null = null;
             let zmuxCandidate: ShellCandidate | null = null;
 
-            if (mode === "zmux") {
+            if (resumeIdentity) {
+              spawnEnv = stripInheritedTmuxEnv(terminalEnv);
+              managedTarget = resumeIdentity.target;
+              zmuxCandidate = resumeIdentity.candidate;
+              shellCandidates = [resumeIdentity.candidate];
+            } else if (mode === "zmux") {
               const targetDir = session.worktreePath ?? session.cwd;
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
               const resolved = yield* resolveZmuxSession(targetDir, spawnEnv);
@@ -2001,6 +2050,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             startedShell = spawnResult.shellLabel;
             if (managedTarget && spawnResult.candidate === zmuxCandidate) {
               session.managedSessionTarget = managedTarget;
+              session.managedSessionIdentity = {
+                target: managedTarget,
+                candidate: spawnResult.candidate,
+              };
             } else if (managedTarget) {
               yield* appendSessionNotice(
                 session,
@@ -2035,6 +2088,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               eventStamp = advanceEventSequence(session);
               return [undefined, state] as const;
             });
+
+            yield* updateManagedAttachment(
+              session,
+              session.managedSessionIdentity
+                ? eventType === "resumed"
+                  ? { type: "resume-succeeded" }
+                  : { type: "managed-attached" }
+                : { type: "unmanaged" },
+            );
 
             yield* publishEvent({
               type: eventType,
@@ -2071,6 +2133,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         advanceEventSequence(session);
         return [undefined, state] as const;
       });
+      yield* updateManagedAttachment(
+        session,
+        eventType === "resumed" ? { type: "resume-failed" } : { type: "unmanaged" },
+      );
       yield* unregisterTerminal({
         threadId: session.threadId,
         terminalId: session.terminalId,
@@ -2095,6 +2161,153 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     }
   });
 
+  const cancelManagedSuspendFiber = Effect.fn("terminal.cancelManagedSuspendFiber")(function* (
+    session: TerminalSessionState,
+  ): Effect.fn.Return<void> {
+    const fiber = session.managedSuspendFiber;
+    session.managedSuspendFiber = null;
+    if (fiber) {
+      yield* Fiber.interrupt(fiber).pipe(Effect.ignore);
+    }
+  });
+
+  const suspendManagedAttachment = Effect.fn("terminal.suspendManagedAttachment")(function* (
+    session: TerminalSessionState,
+  ): Effect.fn.Return<void, TerminalError> {
+    const process = session.process;
+    if (!process || !session.managedSessionIdentity) {
+      return;
+    }
+
+    cleanupProcessHandles(session);
+    session.process = null;
+    session.pid = null;
+    session.status = "suspended";
+    session.hasRunningSubprocess = false;
+    session.childCommandLabel = null;
+    session.pendingHistoryControlSequence = "";
+    session.pendingProcessEvents = [];
+    session.pendingProcessEventIndex = 0;
+    session.processEventDrainRunning = false;
+    const eventStamp = advanceEventSequence(session);
+
+    yield* clearKillFiber(process);
+    yield* unregisterTerminal({
+      threadId: session.threadId,
+      terminalId: session.terminalId,
+    });
+    // SIGTERM detaches the `zmux open` tmux client. The managed tmux target is
+    // intentionally preserved and is never sent a kill-session operation.
+    yield* startKillEscalation(process, session.threadId, session.terminalId);
+    yield* persistHistory(session.threadId, session.terminalId, session.history);
+    yield* publishEvent({
+      type: "suspended",
+      threadId: session.threadId,
+      terminalId: session.terminalId,
+      sequence: eventStamp.sequence,
+    });
+  });
+
+  const scheduleManagedSuspend = Effect.fn("terminal.scheduleManagedSuspend")(function* (
+    session: TerminalSessionState,
+    generation: number,
+  ): Effect.fn.Return<void> {
+    yield* cancelManagedSuspendFiber(session);
+    let fiber: Fiber.Fiber<void, never>;
+    fiber = yield* Effect.sleep(managedAttachmentSuspendGraceMs).pipe(
+      Effect.andThen(
+        withThreadLock(
+          session.threadId,
+          updateManagedAttachment(session, { type: "suspend-elapsed", generation }),
+        ),
+      ),
+      Effect.ignoreCause({ log: true }),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (session.managedSuspendFiber === fiber) {
+            session.managedSuspendFiber = null;
+          }
+        }),
+      ),
+      Effect.forkIn(workerScope),
+    );
+    session.managedSuspendFiber = fiber;
+  });
+
+  const runManagedAttachmentCommand = Effect.fn("terminal.runManagedAttachmentCommand")(function* (
+    session: TerminalSessionState,
+    command: ManagedAttachmentCommand,
+  ): Effect.fn.Return<void, TerminalError> {
+    switch (command.type) {
+      case "cancel-suspend":
+        yield* cancelManagedSuspendFiber(session);
+        return;
+      case "schedule-suspend":
+        yield* scheduleManagedSuspend(session, command.generation);
+        return;
+      case "suspend":
+        yield* suspendManagedAttachment(session);
+        return;
+      case "resume":
+        yield* startSession(
+          session,
+          {
+            threadId: session.threadId,
+            terminalId: session.terminalId,
+            cwd: session.cwd,
+            worktreePath: session.worktreePath,
+            cols: session.cols,
+            rows: session.rows,
+            ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
+          },
+          "resumed",
+        );
+        return;
+    }
+  });
+
+  const updateManagedAttachment = Effect.fn("terminal.updateManagedAttachment")(function* (
+    session: TerminalSessionState,
+    action: ManagedAttachmentAction,
+  ): Effect.fn.Return<void, TerminalError> {
+    const transition = transitionManagedAttachment(session.managedAttachment, action);
+    session.managedAttachment = transition.state;
+    yield* Effect.forEach(
+      transition.commands,
+      (command) => runManagedAttachmentCommand(session, command),
+      { discard: true },
+    );
+  });
+
+  const acquireManagedAttachmentDemand = Effect.fn("terminal.acquireManagedAttachmentDemand")(
+    function* (
+      session: TerminalSessionState,
+      onAcquired: () => void,
+    ): Effect.fn.Return<void, TerminalError> {
+      const transition = transitionManagedAttachment(session.managedAttachment, {
+        type: "demand-added",
+      });
+      session.managedAttachment = transition.state;
+      onAcquired();
+      yield* Effect.forEach(
+        transition.commands,
+        (command) => runManagedAttachmentCommand(session, command),
+        { discard: true },
+      );
+    },
+  );
+
+  const releaseManagedAttachmentDemand = (threadId: string, terminalId: string) =>
+    withThreadLock(
+      threadId,
+      Effect.gen(function* () {
+        const session = yield* getSession(threadId, terminalId);
+        if (Option.isSome(session)) {
+          yield* updateManagedAttachment(session.value, { type: "demand-removed" });
+        }
+      }),
+    );
+
   const closeSession = Effect.fn("terminal.closeSession")(function* (
     threadId: string,
     terminalId: string,
@@ -2105,6 +2318,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const closedEventSequence = Option.isSome(session) ? session.value.eventSequence + 1 : 0;
 
     if (Option.isSome(session)) {
+      yield* cancelManagedSuspendFiber(session.value);
       yield* stopProcess(session.value);
       yield* unregisterTerminal({ threadId, terminalId });
       yield* persistHistory(threadId, terminalId, session.value.history);
@@ -2264,10 +2478,13 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       const cleanupSession = Effect.fn("terminal.cleanupSession")(function* (
         session: TerminalSessionState,
       ) {
+        yield* cancelManagedSuspendFiber(session);
         cleanupProcessHandles(session);
         if (!session.process) return;
         yield* clearKillFiber(session.process);
-        yield* runKillEscalation(session.process, session.threadId, session.terminalId);
+        if (yield* terminateProcess(session.process, session.threadId, session.terminalId)) {
+          yield* forceKillAfterGrace(session.process, session.threadId, session.terminalId);
+        }
       });
 
       yield* Effect.forEach(sessions, cleanupSession, {
@@ -2312,6 +2529,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         hasRunningSubprocess: false,
         childCommandLabel: null,
         managedSessionTarget: null,
+        managedSessionIdentity: null,
+        managedAttachment: INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
+        managedSuspendFiber: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
       };
 
@@ -2404,12 +2624,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const open: TerminalManager["Service"]["open"] = (input) =>
     withThreadLock(input.threadId, openLocked(input));
 
-  const openOrAttachForStream = (input: TerminalAttachInput) =>
+  const openOrAttachForStream = (input: TerminalAttachInput, onAttachmentAcquired: () => void) =>
     withThreadLock(
       input.threadId,
       Effect.gen(function* () {
         const terminalId = input.terminalId;
-        const existing = yield* getSession(input.threadId, terminalId);
+        let existing = yield* getSession(input.threadId, terminalId);
 
         if (Option.isNone(existing)) {
           if (!input.cwd) {
@@ -2419,19 +2639,27 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             });
           }
 
-          return yield* openLocked({
+          yield* openLocked({
             ...input,
             terminalId,
             cwd: input.cwd,
           });
+          existing = yield* getSession(input.threadId, terminalId);
+          if (Option.isNone(existing)) {
+            return yield* new TerminalSessionLookupError({
+              threadId: input.threadId,
+              terminalId,
+            });
+          }
         }
 
         const session = existing.value;
+        yield* acquireManagedAttachmentDemand(session, onAttachmentAcquired);
         const targetCols = input.cols ?? session.cols;
         const targetRows = input.rows ?? session.rows;
 
         if (!session.process && input.cwd && input.restartIfNotRunning === true) {
-          return yield* openLocked({
+          yield* openLocked({
             ...input,
             terminalId,
             cwd: input.cwd,
@@ -2486,6 +2714,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   const attachStream: TerminalManager["Service"]["attachStream"] = (input, listener) => {
     let unsubscribe: (() => void) | null = null;
+    let attachmentAcquired = false;
+    let released = false;
+    let releaseTransferred = false;
+
+    const release = () => {
+      unsubscribe?.();
+      unsubscribe = null;
+      if (!attachmentAcquired || released) return;
+      released = true;
+      runFork(releaseManagedAttachmentDemand(input.threadId, input.terminalId));
+    };
 
     return Effect.gen(function* () {
       const bufferedEvents: TerminalEvent[] = [];
@@ -2505,7 +2744,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         return attachEvent ? listener(attachEvent) : Effect.void;
       });
 
-      const initialSnapshot = yield* openOrAttachForStream(input);
+      const initialSnapshot = yield* openOrAttachForStream(input, () => {
+        attachmentAcquired = true;
+      });
 
       yield* listener({
         type: "snapshot",
@@ -2524,19 +2765,19 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }
 
       deliverLive = true;
-      return () => {
-        unsubscribe?.();
-        unsubscribe = null;
-      };
+      releaseTransferred = true;
+      return release;
     }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.flatMap(
-          Effect.sync(() => {
-            unsubscribe?.();
-            unsubscribe = null;
-          }),
-          () => Effect.failCause(cause),
-        ),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          if (releaseTransferred) return;
+          unsubscribe?.();
+          unsubscribe = null;
+          if (attachmentAcquired && !released) {
+            released = true;
+            yield* releaseManagedAttachmentDemand(input.threadId, input.terminalId);
+          }
+        }).pipe(Effect.ignoreCause({ log: true })),
       ),
     );
   };
@@ -2725,6 +2966,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             hasRunningSubprocess: false,
             childCommandLabel: null,
             managedSessionTarget: null,
+            managedSessionIdentity: null,
+            managedAttachment: INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
+            managedSuspendFiber: null,
             runtimeEnv: normalizedRuntimeEnv(input.env),
           };
           const createdSession = session;

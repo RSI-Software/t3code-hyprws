@@ -130,6 +130,7 @@ export function applyTerminalAttachStreamEvent(
   switch (event.type) {
     case "snapshot":
     case "restarted":
+    case "resumed":
       return terminalBufferStateFromSnapshot(event.snapshot, maxBufferBytes);
     case "output":
       return {
@@ -143,6 +144,13 @@ export function applyTerminalAttachStreamEvent(
       return {
         ...current,
         buffer: "",
+        error: null,
+        version: current.version + 1,
+      };
+    case "suspended":
+      return {
+        ...current,
+        status: "suspended",
         error: null,
         version: current.version + 1,
       };

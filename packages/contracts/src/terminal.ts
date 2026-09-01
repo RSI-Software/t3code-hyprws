@@ -90,7 +90,13 @@ export const TerminalCloseInput = Schema.Struct({
 });
 export type TerminalCloseInput = typeof TerminalCloseInput.Type;
 
-export const TerminalSessionStatus = Schema.Literals(["starting", "running", "exited", "error"]);
+export const TerminalSessionStatus = Schema.Literals([
+  "starting",
+  "running",
+  "suspended",
+  "exited",
+  "error",
+]);
 export type TerminalSessionStatus = typeof TerminalSessionStatus.Type;
 
 export const TerminalSessionSnapshot = Schema.Struct({
@@ -167,6 +173,17 @@ const TerminalOutputEvent = Schema.Struct({
   data: Schema.String,
 });
 
+const TerminalSuspendedEvent = Schema.Struct({
+  ...TerminalEventBaseSchema.fields,
+  type: Schema.Literal("suspended"),
+});
+
+const TerminalResumedEvent = Schema.Struct({
+  ...TerminalEventBaseSchema.fields,
+  type: Schema.Literal("resumed"),
+  snapshot: TerminalSessionSnapshot,
+});
+
 const TerminalExitedEvent = Schema.Struct({
   ...TerminalEventBaseSchema.fields,
   type: Schema.Literal("exited"),
@@ -206,6 +223,8 @@ const TerminalActivityEvent = Schema.Struct({
 export const TerminalEvent = Schema.Union([
   TerminalStartedEvent,
   TerminalOutputEvent,
+  TerminalSuspendedEvent,
+  TerminalResumedEvent,
   TerminalExitedEvent,
   TerminalClosedEvent,
   TerminalErrorEvent,
@@ -223,6 +242,8 @@ const TerminalAttachSnapshotEvent = Schema.Struct({
 export const TerminalAttachStreamEvent = Schema.Union([
   TerminalAttachSnapshotEvent,
   TerminalOutputEvent,
+  TerminalSuspendedEvent,
+  TerminalResumedEvent,
   TerminalExitedEvent,
   TerminalClosedEvent,
   TerminalErrorEvent,

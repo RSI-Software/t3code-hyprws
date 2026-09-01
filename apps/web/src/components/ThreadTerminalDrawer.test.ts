@@ -8,11 +8,13 @@ import {
 } from "@t3tools/contracts";
 import { type ShortcutEventLike } from "../keybindings";
 import {
+  isTerminalAttachmentDemanded,
   resolveTerminalSelectionActionPosition,
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
   shouldHandleTerminalSelectionMouseUp,
+  shouldRestoreTerminalFocusAfterResume,
   terminalSelectionActionDelayForClickCount,
   terminalSelectionLineRange,
 } from "./ThreadTerminalDrawer";
@@ -43,6 +45,14 @@ function binding(command: KeybindingCommand): ResolvedKeybindingsConfig {
     },
   ];
 }
+
+describe("terminal attachment demand", () => {
+  it("requires both a visible surface and a foreground project window", () => {
+    expect(isTerminalAttachmentDemanded(true, "visible")).toBe(true);
+    expect(isTerminalAttachmentDemanded(false, "visible")).toBe(false);
+    expect(isTerminalAttachmentDemanded(true, "hidden")).toBe(false);
+  });
+});
 
 describe("shouldForwardThreadTerminalShortcut", () => {
   it("forwards every resolved thread navigation command to the window", () => {
@@ -86,6 +96,33 @@ describe("shouldForwardThreadTerminalShortcut", () => {
 });
 
 describe("terminal focus requests", () => {
+  it("restores project-window focus only after the resumed attachment is running", () => {
+    expect(
+      shouldRestoreTerminalFocusAfterResume({
+        attached: true,
+        status: "running",
+        restoreRequested: true,
+        focusPending: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRestoreTerminalFocusAfterResume({
+        attached: true,
+        status: "suspended",
+        restoreRequested: true,
+        focusPending: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRestoreTerminalFocusAfterResume({
+        attached: true,
+        status: "running",
+        restoreRequested: false,
+        focusPending: true,
+      }),
+    ).toBe(false);
+  });
+
   it("handles a non-zero request once when a fresh viewport becomes ready", () => {
     expect(
       shouldHandleTerminalFocusRequest({
