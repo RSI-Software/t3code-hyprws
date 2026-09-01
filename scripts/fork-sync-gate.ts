@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - This standalone Git gate runs before an Effect runtime exists.
 
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
@@ -14,7 +15,10 @@ import {
 
 const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
 const NIGHTLY_TAG = /^v\d+\.\d+\.\d+-nightly\.\d{8}\.\d+$/;
+const TARGET = /^- Target: `(?<tag>[^`\s@]+)@(?<sha>[0-9a-f]{40})`\s*$/m;
 const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
+const REBASED_HEAD = /^- Rebased head: `(?<sha>[0-9a-f]{40})`\s*$/m;
+const STACK_SIZE = /^- Stack size: `(?<count>0|[1-9]\d*)` fork commits\s*$/m;
 const HUMAN_SANITY =
   /^- Human sanity: (?<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})) (?<date>\d{4}-\d{2}-\d{2})\s*$/m;
 
@@ -28,10 +32,13 @@ export interface GateOptions {
 
 export interface GateDependencies {
   readonly preflight: (root: string) => PreflightReport;
+  readonly git: (root: string, args: ReadonlyArray<string>) => string;
 }
 
 const systemDependencies: GateDependencies = {
   preflight: (root) => runPreflight(systemEnv(root)),
+  git: (root, args) =>
+    NodeChildProcess.execFileSync("git", [...args], { cwd: root, encoding: "utf8" }).trim(),
 };
 
 export const parseArgs = (argv: ReadonlyArray<string>): GateOptions => {
@@ -86,14 +93,49 @@ const headerBody = (record: string): string => {
   return nextHeading === null ? rest : rest.slice(0, nextHeading.index);
 };
 
-export const inspectRecord = (record: string, liveExpectedOld: string): ReadonlyArray<string> => {
+export interface CheckoutBinding {
+  readonly targetTag: string;
+  readonly targetSha: string;
+  readonly expectedOld: string;
+  readonly rebasedHead: string;
+  readonly stackSize: string;
+}
+
+export const inspectRecord = (record: string, observed: CheckoutBinding): ReadonlyArray<string> => {
   const findings: Array<string> = [];
   const header = headerBody(record);
   const expectedOld = EXPECTED_OLD.exec(header)?.groups?.sha;
   if (expectedOld === undefined) {
     findings.push("record header missing `expected_old` full SHA");
-  } else if (expectedOld !== liveExpectedOld) {
-    findings.push(`expected_old mismatch: record ${expectedOld}, origin/hyprws ${liveExpectedOld}`);
+  } else if (expectedOld !== observed.expectedOld) {
+    findings.push(
+      `expected_old mismatch: record ${expectedOld}, origin/hyprws ${observed.expectedOld}`,
+    );
+  }
+
+  const target = TARGET.exec(header)?.groups;
+  if (!target?.tag || !target.sha) {
+    findings.push("record header missing Target tag and full SHA");
+  } else {
+    const recordedTarget = `${target.tag}@${target.sha}`;
+    const observedTarget = `${observed.targetTag}@${observed.targetSha}`;
+    if (recordedTarget !== observedTarget) {
+      findings.push(`Target mismatch: record ${recordedTarget}, checkout ${observedTarget}`);
+    }
+  }
+
+  const rebasedHead = REBASED_HEAD.exec(header)?.groups?.sha;
+  if (rebasedHead === undefined) {
+    findings.push("record header missing Rebased head full SHA");
+  } else if (rebasedHead !== observed.rebasedHead) {
+    findings.push(`Rebased head mismatch: record ${rebasedHead}, checkout ${observed.rebasedHead}`);
+  }
+
+  const stackSize = STACK_SIZE.exec(header)?.groups?.count;
+  if (stackSize === undefined) {
+    findings.push("record header missing Stack size");
+  } else if (stackSize !== observed.stackSize) {
+    findings.push(`Stack size mismatch: record ${stackSize}, checkout ${observed.stackSize}`);
   }
 
   const sanity = HUMAN_SANITY.exec(header)?.groups;
@@ -164,7 +206,24 @@ export const run = (
       return 1;
     }
 
-    const findings = inspectRecord(NodeFS.readFileSync(realRecordPath, "utf8"), liveExpectedOld);
+    const targetSha = dependencies.git(root, [
+      "rev-parse",
+      "--verify",
+      `refs/tags/${tag}^{commit}`,
+    ]);
+    const rebasedHead = dependencies.git(root, ["rev-parse", "HEAD"]);
+    const stackSize = dependencies.git(root, [
+      "rev-list",
+      "--count",
+      `${targetSha}..${rebasedHead}`,
+    ]);
+    const findings = inspectRecord(NodeFS.readFileSync(realRecordPath, "utf8"), {
+      targetTag: tag,
+      targetSha,
+      expectedOld: liveExpectedOld,
+      rebasedHead,
+      stackSize,
+    });
     if (findings.length > 0) {
       for (const finding of findings) output.stderr(`blocked: ${finding}\n`);
       return 1;
