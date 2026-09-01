@@ -154,6 +154,21 @@ not create it. This repository already has it; verify that it remains available:
 gh label view release -R RSI-Software/t3code-hyprws
 ```
 
+### Which events run the fork matrix
+
+`hyprws-ci.yml` produces every context the `hyprws` branch ruleset requires: `Check`, `Test`, and
+the three `Test Server` shards. It runs on a pull request that is opened, pushed to, or reopened, on
+a push to a fork trunk or release branch, and on `merge_group`.
+
+It deliberately does not run on `ready_for_review`. GitHub already runs `pull_request` on a draft,
+so the matrix has normally passed on that exact head before the draft is marked ready; listing the
+event only discards a green result and pays for it again.
+
+The `merge_group` trigger is what makes a merge queue possible. A queue builds
+`gh-readonly-queue/hyprws/**` and waits for the required contexts on that ref. Because this workflow
+owns all of them, a queue without that trigger receives no report at all and each entry sits until
+it times out. Add the trigger before requiring a queue in the ruleset, never after.
+
 ### Upstream workflows and merge settings
 
 Keep only `hyprws-ci.yml`, `hyprws-release.yml`, and `hyprws-upstream-sync.yml` enabled. Upstream
