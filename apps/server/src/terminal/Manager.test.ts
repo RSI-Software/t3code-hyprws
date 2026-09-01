@@ -114,13 +114,18 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
 
 class FakeProcessRunner {
   readonly inputs: ProcessRunner.ProcessRunInput[] = [];
-  private readonly result: Effect.Effect<
-    ProcessRunner.ProcessRunOutput,
-    ProcessRunner.ProcessRunError
-  >;
+  private readonly result:
+    | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
+    | ((
+        input: ProcessRunner.ProcessRunInput,
+      ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>);
 
   constructor(
-    result: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+    result:
+      | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
+      | ((
+          input: ProcessRunner.ProcessRunInput,
+        ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>),
   ) {
     this.result = result;
   }
@@ -128,7 +133,7 @@ class FakeProcessRunner {
   readonly service = ProcessRunner.ProcessRunner.of({
     run: (input) => {
       this.inputs.push(input);
-      return this.result;
+      return typeof this.result === "function" ? this.result(input) : this.result;
     },
   });
 }
@@ -147,6 +152,17 @@ function processResult(
     stderrInvalidUtf8: false,
     ...overrides,
   };
+}
+
+function resolvedZmuxProcessRunner(): FakeProcessRunner {
+  return new FakeProcessRunner(
+    Effect.succeed(
+      processResult({
+        stdout:
+          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+      }),
+    ),
+  );
 }
 
 class FakePtyAdapter {
@@ -271,6 +287,8 @@ interface CreateManagerOptions {
   >;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
+  managedAttachmentSuspendGraceMs?: number;
+  managedAttachmentFirstAttachDeadlineMs?: number;
   maxRetainedInactiveSessions?: number;
   historyByteLimit?: number;
   ptyAdapter?: FakePtyAdapter;
@@ -322,6 +340,15 @@ const createManager = (
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
           : {}),
         processKillGraceMs: options.processKillGraceMs ?? 1,
+        ...(options.managedAttachmentSuspendGraceMs !== undefined
+          ? { managedAttachmentSuspendGraceMs: options.managedAttachmentSuspendGraceMs }
+          : {}),
+        ...(options.managedAttachmentFirstAttachDeadlineMs !== undefined
+          ? {
+              managedAttachmentFirstAttachDeadlineMs:
+                options.managedAttachmentFirstAttachDeadlineMs,
+            }
+          : {}),
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
           : {}),
