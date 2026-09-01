@@ -14,7 +14,7 @@ import {
 
 const BLOCKED_LABEL = "rebase-blocked";
 const DOMAIN_LABEL = "ci";
-const BUG_ISSUE_TYPE = "Bug";
+const NOTIFICATION_ISSUE_TYPE = "Notification";
 const HIGH_PRIORITY = "High";
 const BLOCKING_MARKER = /<!-- blocking-sha:([0-9a-f]{40,64}) -->/;
 const REFRESH_LOG_MARKER = "<!-- hyprws-rebase-refresh-log -->";
@@ -85,7 +85,7 @@ export interface RebaseGitHubClient {
   ensureBlockedLabel(): void;
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment>;
-  lookupIssueTypeId(issueType: typeof BUG_ISSUE_TYPE): string;
+  lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string;
   applyIssueType(issue: RebaseIssue, issueTypeId: string): void;
   createIssue(issue: CreateRebaseIssue): RebaseIssue;
   updateIssueBody(issueNumber: number, body: string): void;
@@ -181,8 +181,11 @@ const refreshBlockIssue = (
   blocked: BlockedIssue,
   at: Date,
 ): void => {
-  if (issue.issueType === null) {
-    client.applyIssueType(issue, client.lookupIssueTypeId(BUG_ISSUE_TYPE));
+  if (
+    issue.issueType !== NOTIFICATION_ISSUE_TYPE &&
+    issue.issueType?.startsWith(`${NOTIFICATION_ISSUE_TYPE} `) !== true
+  ) {
+    client.applyIssueType(issue, client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE));
   }
   client.updateIssueBody(issue.number, blocked.body);
   refreshIssue(client, issue.number, blocked, at);
@@ -236,7 +239,7 @@ export const reconcileRebaseBlock = (
     return;
   }
 
-  const issueTypeId = client.lookupIssueTypeId(BUG_ISSUE_TYPE);
+  const issueTypeId = client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE);
   const created = client.createIssue({
     title: input.blocked.title,
     body: input.blocked.body,
@@ -425,7 +428,7 @@ export class SystemGitHub implements RebaseGitHubClient {
     });
   }
 
-  lookupIssueTypeId(issueType: typeof BUG_ISSUE_TYPE): string {
+  lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string {
     let result: IssueTypesQuery;
     try {
       result = this.graphql<IssueTypesQuery>(
