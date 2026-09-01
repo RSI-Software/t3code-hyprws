@@ -718,6 +718,8 @@ Upstream spawns a plain shell per terminal and owns no session manager, so a thr
 - `terminalSessionMode` is the single zmux switch: `"zmux"` attaches new thread terminals through `zmux open` to the session `zmux session resolve` names for the checkout, binds a new thread worktree through `zmux wt --adopt`, and kills that session when the worktree is removed.
 - The retired `zmuxSessions` boolean folds into `terminalSessionMode` on load (`migrateLegacyZmuxSettings`); an old opt-in without an explicit mode becomes `"zmux"`.
 - Every fallback to a plain shell prints its reason into the terminal buffer, and a missing `zmux` binary degrades silently to upstream behaviour.
+- Visible terminal surfaces hold demand leases. Web uses document visibility; Electron uses shown, non-minimized main-process project-window demand over optional typed IPC and deliberately excludes focus. Electron cannot observe Hyprland workspace occlusion, so a shown window on an inactive workspace still holds demand. Client attach streams release immediately, then a server-owned cancellable grace timer detaches only the `zmux open` PTY; zero-demand opens use a longer configurable first-attach deadline. Resume reuses the exact resolved target and requested grid while retained UI layout and bounded T3 scrollback remain client-owned.
+- Managed suspension stays internal. Existing wire statuses and activity events remain decodable by released clients; current clients observe the optional `attachmentStatus` sibling. Suspended activity and labels are last-known values. Full suspended records count toward bounded inactive retention; eviction removes their metadata but keeps a separately bounded exact-target identity lease without killing tmux targets.
 - `apps/server/src/zmux/` holds the binder; the terminal manager and the worktree workflow call it through `ProcessRunner` with the inherited tmux variables stripped.
 
 ### Retirement condition
@@ -726,16 +728,22 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 
 ### Rebase scan
 
-| Path                                                  | Why it matters                                                            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `apps/server/src/terminal/Manager.ts`                 | Shell candidate resolution and spawn env; the attach path hooks here.     |
-| `apps/server/src/git/GitWorkflowService.ts`           | Worktree create and remove; the bind and unbind calls hook here.          |
-| `apps/server/src/server.test.ts`                      | Covers zmux attachment and fallback through server seams.                 |
-| `apps/server/src/server.ts`                           | Provides the zmux binder layer.                                           |
-| `apps/server/src/zmux/**`                             | Fork-only. A conflict means upstream grew its own session model.          |
-| `packages/contracts/src/settings.ts`                  | `terminalSessionMode` and its legacy migration sit between upstream keys. |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | Settings UI for the switch; a busy upstream file.                         |
-| `apps/server/src/ws.ts`                               | Shares worktree lifecycle wiring with the zmux binder.                    |
+| Path                                                     | Why it matters                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `apps/server/src/terminal/Manager.ts`                    | Shell candidate resolution, demand leases, and managed PTY suspension.    |
+| `apps/server/src/terminal/ManagedAttachmentLifecycle.ts` | Fork-only cancellable hidden-surface attachment state machine.            |
+| `apps/web/src/components/ThreadTerminalDrawer.tsx`       | Surface and browser/Electron window demand determine attachment leases.   |
+| `apps/desktop/src/window/DesktopWindow.ts`               | BrowserWindow lifecycle publishes per-project-window demand.              |
+| `apps/desktop/src/preload.ts`                            | Optional typed demand bridge keeps older desktop shells compatible.       |
+| `packages/client-runtime/src/state/terminal.ts`          | Attach atoms release without the generic subscription idle TTL.           |
+| `packages/contracts/src/terminal.ts`                     | Optional attachment status preserves released-client wire decoding.       |
+| `apps/server/src/git/GitWorkflowService.ts`              | Worktree create and remove; the bind and unbind calls hook here.          |
+| `apps/server/src/server.test.ts`                         | Covers zmux attachment and fallback through server seams.                 |
+| `apps/server/src/server.ts`                              | Provides the zmux binder layer.                                           |
+| `apps/server/src/zmux/**`                                | Fork-only. A conflict means upstream grew its own session model.          |
+| `packages/contracts/src/settings.ts`                     | `terminalSessionMode` and its legacy migration sit between upstream keys. |
+| `apps/web/src/components/settings/SettingsPanels.tsx`    | Settings UI for the switch; a busy upstream file.                         |
+| `apps/server/src/ws.ts`                                  | Shares worktree lifecycle wiring with the zmux binder.                    |
 
 ## worktrunk-hooks
 
