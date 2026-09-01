@@ -297,7 +297,7 @@ Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its *
 point. Its Orient gate requires exactly one current blocked issue and opens it for review. Before the
 human selects a target, read the blocking upstream commit, affected fork commits, domains, files, and
 newest upstream tag beyond the block. The maintainer chooses the newest upstream stable or nightly
-tag past the reported block. The agent rehearses the complete stack on `rehearse/<tag>` and
+tag past the reported block. The agent rehearses the complete stack on `rehearse/<tag>-from-<expected_old:12>` and
 preserves upstream intent at each semantic conflict. For registered generated paths, it follows the
 [regeneration rule](#regenerable-files). It then runs the fork scan and focused checks and presents every decision row,
 silent seam, and grounding claim at the sign-off boundary. The human records the decisions, grounding approval,
@@ -494,6 +494,10 @@ Never run the hard reset in a feature worktree or a checkout with uncommitted wo
 - **The `hyprws` lease is rejected:** remote work appeared after the bot read the old head. Inspect
   the new commits and rerun from them; never replace the explicit lease with `--force` or silently
   refresh it.
+- **A rehearsal branch already exists:** the lane name carries the published head it replays, so a
+  collision means the same trunk head is already rehearsed against the same target. Inspect that
+  lane rather than recreating it. A trunk that has since advanced produces a different name, and
+  the stale lane stays in place as evidence.
 - **A stable snapshot already exists:** it is immutable. Inspect the existing branch and issue; do
   not force-update it. A corrected candidate needs an explicit maintainer decision and a new record.
 - **A blocked issue remains:** use the skill's unblock entry point. A clean automerge is still a
