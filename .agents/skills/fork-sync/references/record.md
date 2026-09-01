@@ -41,7 +41,7 @@ Use these sections in order.
 - Source: `origin/hyprws@<full-sha>`
 - Target: `<target-tag>@<full-sha>`
 - `expected_old`: `<full-sha>`
-- Rehearsal branch: `rehearse/<target-tag>`
+- Rehearsal branch: `rehearse/<target-tag>-from-<expected_old:12>`
 - Rebased head: `<full-sha>`
 - Stack size: `<count>` fork commits
 - Human sanity: absent
