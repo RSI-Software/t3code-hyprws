@@ -13,7 +13,7 @@ export { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabelsCopy"
 export interface TerminalMenuSession {
   readonly terminalId: string;
   readonly cwd: string | null;
-  readonly status: "starting" | "running" | "exited" | "error" | "closed";
+  readonly status: KnownTerminalSession["state"]["status"];
   readonly hasRunningSubprocess: boolean;
   readonly displayLabel: string;
   readonly updatedAt: string | null;
@@ -56,6 +56,9 @@ export function getTerminalStatusLabel(
   if (input.status === "starting") {
     return resolve(msg("Starting", { $context: "terminal status" }));
   }
+  if (input.status === "suspended") {
+    return "Suspended";
+  }
   if (input.status === "exited") {
     return resolve(msg("Exited", { $context: "terminal status" }));
   }
@@ -96,6 +99,7 @@ export function buildTerminalMenuSessions(
     if (
       session.state.status !== "running" &&
       session.state.status !== "starting" &&
+      session.state.status !== "suspended" &&
       session.target.terminalId !== input.currentSession?.terminalId
     ) {
       continue;
@@ -131,7 +135,9 @@ export function previousLiveTerminalId(input: {
     input.sessions.filter(
       (session) =>
         session.terminalId !== input.exitedTerminalId &&
-        (session.status === "running" || session.status === "starting"),
+        (session.status === "running" ||
+          session.status === "starting" ||
+          session.status === "suspended"),
     ),
     terminalMenuSessionOrder,
   );
