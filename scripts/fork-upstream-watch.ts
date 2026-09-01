@@ -10,10 +10,9 @@
 // reads upstream citations only from code spans, so nothing it touches can fire
 // a cross-reference event on an upstream thread.
 
-import * as NodeChildProcess from "node:child_process";
-
-const FORK_REPOSITORY = "RSI-Software/t3code-hyprws";
-const UPSTREAM_REPOSITORY = "pingdotgg/t3code";
+import { UsageError } from "./lib/fork-cli.ts";
+import { runCommand } from "./lib/fork-command.ts";
+import { FORK_REPOSITORY, UPSTREAM_REPOSITORY } from "./lib/fork-policy.ts";
 const WATCH_LABEL = "upstream-watch";
 const ISSUE_PAGE_SIZE = 100;
 // The sweep walks every page rather than capping the list. A truncated sweep reads
@@ -144,9 +143,9 @@ const defaultOptions = (): SweepOptions => ({
   json: false,
 });
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
-export const parseArgs = (argv: ReadonlyArray<string>): SweepOptions => {
+export const parseUpstreamWatchArgs = (argv: ReadonlyArray<string>): SweepOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const valueFlags = new Set(["--target", "--fork", "--upstream"]);
@@ -187,11 +186,7 @@ export class SystemGit implements GitReader {
   }
 
   runResult(args: ReadonlyArray<string>): CommandResult {
-    const result = NodeChildProcess.spawnSync("git", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-    });
-    return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    return runCommand("git", args, { cwd: this.cwd });
   }
 }
 
@@ -203,11 +198,7 @@ export class SystemGitHub implements GitHubReader {
   }
 
   read(args: ReadonlyArray<string>): CommandResult {
-    const result = NodeChildProcess.spawnSync("gh", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-    });
+    const result = runCommand("gh", args, { cwd: this.cwd, maxBuffer: 32 * 1024 * 1024 });
     if (result.error !== undefined) throw result.error;
     return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
   }
@@ -518,7 +509,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
   }
 
   try {
-    const options = parseArgs(argv);
+    const options = parseUpstreamWatchArgs(argv);
     const git = new SystemGit(cwd);
     const root = git.runResult(["rev-parse", "--show-toplevel"]).stdout.trim();
     const sweep = buildSweep(
@@ -538,5 +529,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 1;
   }
 };
+
+export { parseUpstreamWatchArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));
