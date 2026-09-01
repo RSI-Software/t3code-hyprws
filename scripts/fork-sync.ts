@@ -759,7 +759,9 @@ const touchedChecks = (
   ].filter((path) => path !== "orientation retire signal");
   const packages = new Map<string, { path: string; name: string }>();
   const tests = new Set<string>();
-  const tracked = lines(git(runner, report.lane.worktree, ["ls-files"]));
+  // Every git call in the rehearsal lane carries the override, including the ones that read no
+  // message. A total invariant is checkable; an allowlist of message-bearing calls is not.
+  const tracked = lines(git(runner, report.lane.worktree, ["ls-files"], true));
   for (const path of paths) {
     let directory = NodePath.dirname(path);
     while (directory !== "." && directory !== "/") {

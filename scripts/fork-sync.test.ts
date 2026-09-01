@@ -338,3 +338,82 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
 it("returns usage status for an unknown verb", () => {
   assert.strictEqual(run(["nope"], process.cwd(), new FakeRunner()), 2);
 });
+
+// The scan typechecks the replayed head, so a tree installed before the replay carried its
+// manifests reads exactly like a fresh one. Ordering is the whole guarantee.
+const checkedRun = (): { runner: FakeRunner; root: string; worktree: string } => {
+  const root = fixtureRoot();
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  const lock = "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers: {}\n";
+  NodeFS.writeFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), lock);
+  const messages = "feat: one\x1e";
+  const replayed = report(root, {
+    stage: "replayed",
+    target: { tag: "v1.2.3", sha: B },
+    lane: { branch: "rehearse/v1.2.3-from-cccccccccccc", worktree },
+    originalMessages: messages,
+    originalCount: 1,
+  });
+  NodeFS.writeFileSync(replayed.reportPath, JSON.stringify(replayed));
+
+  const runner = new FakeRunner();
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "1\n",
+  });
+  runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${B}..HEAD`,
+    ],
+    { stdout: messages },
+  );
+  runner.set("git", ["-c", "core.commentChar=auto", "show", "HEAD:pnpm-lock.yaml"], {
+    stdout: lock,
+  });
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${A}\n` });
+  execute(["unblock-check", "--report", replayed.reportPath], root, runner);
+  return { runner, root, worktree };
+};
+
+const order = (runner: FakeRunner, command: string, args: ReadonlyArray<string>): number =>
+  runner.calls.findIndex(
+    (call) => call.command === command && call.args.join(" ") === args.join(" "),
+  );
+
+it("installs the replayed tree before the scan that typechecks it", () => {
+  const { runner, root, worktree } = checkedRun();
+  try {
+    const install = order(runner, "vp", ["i"]);
+    const scan = order(runner, "vp", ["run", "fork:scan", "--target", "v1.2.3"]);
+    assert.isAbove(install, -1);
+    assert.isAbove(scan, install);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("neutralises the comment char on every rehearsal git call, not one shell", () => {
+  const { runner, root, worktree } = checkedRun();
+  try {
+    const rehearsal = runner.calls.filter(
+      (call) => call.command === "git" && call.cwd === worktree,
+    );
+    assert.isAbove(rehearsal.length, 3);
+    for (const call of rehearsal) {
+      assert.deepStrictEqual(call.args.slice(0, 2), ["-c", "core.commentChar=auto"]);
+      assert.strictEqual(call.env?.GIT_CONFIG_COUNT, "1");
+      assert.strictEqual(call.env?.GIT_CONFIG_KEY_0, "core.commentChar");
+      assert.strictEqual(call.env?.GIT_CONFIG_VALUE_0, "auto");
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
