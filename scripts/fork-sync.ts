@@ -62,6 +62,8 @@ export {
   validateReport,
   type ConflictClass,
   type ConflictRow,
+  type OrientationDecisionRow,
+  type OrientationVerdict,
   type SyncReport,
   type SyncStage,
 } from "./fork-sync-state.ts";
@@ -198,8 +200,8 @@ const unblockOrient = (
     target: { tag: targetTag, sha: liveTarget },
     source: { sha: expectedOld, expectedOld, sharedBase },
     orientation,
+    orientationDecisions: orientationDecisionRows(orientation),
     touchedPaths: orientationTouchedPaths(orientation),
-    conflicts: orientationDecisionRows(orientation),
   };
   writeReport(next);
   writeRecord(next);
@@ -572,7 +574,9 @@ export const decisionSurface = (record: string): string => {
   const rows = record.split("\n").filter((line) => {
     if (!/^\| `.+` \|/.test(line)) return false;
     const classSummary = line.split("|")[3] ?? "";
-    return /\b(?:retire-candidate|human)\b/.test(classSummary);
+    return /\borientation: (?:candidate|keep|retire|partial)\b|\b(?:retire-candidate|human)\b/.test(
+      classSummary,
+    );
   });
   const grounding = record.split("\n").filter((line) => /^Grounding (?:claim|pending):/.test(line));
   return [
