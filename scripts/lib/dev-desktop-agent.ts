@@ -8,6 +8,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 
+import { runCommandText } from "./fork-command.ts";
 import { readHyprctlWorkspace, type WorkspaceRef } from "./hyprland-workspace.ts";
 import { loadRepoEnv } from "./public-config.ts";
 
@@ -111,10 +112,7 @@ function lockPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 function resolveRepo(): string {
-  const root = NodeChildProcess.execFileSync("git", ["rev-parse", "--show-toplevel"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  const root = runCommandText("git", ["rev-parse", "--show-toplevel"]).trim();
   return NodeFS.realpathSync(root);
 }
 

@@ -21,14 +21,16 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import { Argument, Command } from "effect/unstable/cli";
 
+import { FORK_REPOSITORY, UPSTREAM_REPOSITORY } from "./lib/fork-policy.ts";
+
 // The one repository this fork sits above. A reference to any other repository
 // is somebody else's business and stays live.
-export const UPSTREAM_REPO = "pingdotgg/t3code";
+export const UPSTREAM_REPO = UPSTREAM_REPOSITORY;
 
 // Named only so a finding can say how to keep a fork reference linking here.
 // `RSI-Software/t3code-hyprws#108` renders as `#108`, so qualifying a number
 // costs the prose nothing.
-export const FORK_REPO = "RSI-Software/t3code-hyprws";
+export const FORK_REPO = FORK_REPOSITORY;
 
 // Only the forms GitHub turns into an event on the referenced item are listed.
 // The repository URL on its own notifies nobody, so it is not a finding.

@@ -95,7 +95,7 @@ jobs:
       version: ${{ steps.release_meta.outputs.version }}
       tag: ${{ steps.release_meta.outputs.tag }}
       release_name: ${{ steps.release_meta.outputs.name }}
-      previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
+      previous_tag: ${{ steps.release_meta.outputs.previous_tag }}
       is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
@@ -186,14 +186,6 @@ jobs:
               --tag "$GITHUB_REF_NAME" \
               --github-output
           fi
-
-      - id: previous_tag
-        name: Resolve previous nightly tag
-        shell: bash
-        run: |
-          previous_tag=$(git tag --list 'v*-hyprws-nightly.*' --sort=-v:refname | head -n 1)
-          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=${previous_tag:-none}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fork ledger
         run: |

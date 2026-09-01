@@ -72,15 +72,24 @@ it("reports missing and unknown trailers", () => {
   );
 });
 
-it("flags a bugfix that does not say whether upstream reproduces it", () => {
+it("validates Fork-Domain and Fork-Upstreamable values", () => {
   const findings = collectFindings(
     parseForkLog(
-      record("fffffffff", "fix: x", "Fork-Domain: project-windows\nFork-Tier: bugfix\n"),
+      record("fffffffff", "fix: x", "Fork-Domain: typoo\nFork-Tier: bugfix\n") +
+        record(
+          "ggggggggg",
+          "fix: y",
+          "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: maybe\n",
+        ),
     ),
   );
   assert.deepStrictEqual(
     findings.map((finding) => finding.problem),
-    ["bugfix without Fork-Upstreamable"],
+    [
+      'unknown Fork-Domain "typoo"',
+      "bugfix without Fork-Upstreamable",
+      'unknown Fork-Upstreamable "maybe" (expected yes or no)',
+    ],
   );
 });
 

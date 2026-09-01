@@ -7,9 +7,7 @@
 // siblings. It imports only Node builtins and its sibling scripts, so it runs in
 // a worktree with no dependencies installed.
 
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
-
+import { UsageError } from "./lib/fork-cli.ts";
 import {
   CHECK_DEPENDENCIES,
   CHECK_MIRROR,
@@ -34,16 +32,12 @@ import {
   type UpstreamWatchSweep,
 } from "./fork-upstream-watch.ts";
 import {
-  EMPTY_RETIREMENT_LEDGER,
-  parseForkRetirementLedger,
+  readForkRetirementLedger,
   type ForkRetirementLedger,
 } from "./lib/fork-retirement-ledger.ts";
+import { FORK_REPOSITORY, isStableUpstreamTag, UPSTREAM_LANE } from "./lib/fork-policy.ts";
 
-const LEDGER_PATH = "docs/internals/fork-delta.md";
-const STABLE_TAG = /^v\d+\.\d+\.\d+$/;
-const UPSTREAM_LANE = "upstream/main";
-
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 export interface OrientOptions {
   readonly target: string;
@@ -119,7 +113,7 @@ Exit codes:
   2  usage error
 `;
 
-export const parseArgs = (argv: ReadonlyArray<string>): OrientOptions => {
+export const parseOrientArgs = (argv: ReadonlyArray<string>): OrientOptions => {
   let target: string | null = null;
   let source = "origin/hyprws";
   const seen = new Set<string>();
@@ -165,7 +159,7 @@ export const proveTarget = (git: ReportGitReader, target: string): TargetProof =
       `target ${target} (${sha}) is not reachable from ${UPSTREAM_LANE}; it is not on the upstream release lane`,
     );
   }
-  return { ref: target, sha, stable: STABLE_TAG.test(target), reachableFrom: UPSTREAM_LANE };
+  return { ref: target, sha, stable: isStableUpstreamTag(target), reachableFrom: UPSTREAM_LANE };
 };
 
 const summarizeFeasibility = (report: ForkRebaseReport): FeasibilitySummary => {
@@ -224,7 +218,7 @@ export const buildOrientation = (
   let sweepError: string | null = null;
   try {
     sweep = buildSweep(readers.gh, readers.git, {
-      fork: "RSI-Software/t3code-hyprws",
+      fork: FORK_REPOSITORY,
       upstream: "pingdotgg/t3code",
       target: target.ref,
       json: false,
@@ -363,11 +357,7 @@ export interface OrientDependencies {
   ) => Orientation;
 }
 
-const readLedger = (root: string): ForkRetirementLedger => {
-  const path = NodePath.join(root, LEDGER_PATH);
-  if (!NodeFS.existsSync(path)) return EMPTY_RETIREMENT_LEDGER;
-  return parseForkRetirementLedger(NodeFS.readFileSync(path, "utf8"));
-};
+const readLedger = (root: string): ForkRetirementLedger => readForkRetirementLedger(root);
 
 const systemDependencies: OrientDependencies = {
   preflight: (root) => runPreflight(systemEnv(root)),
@@ -391,7 +381,7 @@ export const run = (
     return 0;
   }
   try {
-    const options = parseArgs(argv);
+    const options = parseOrientArgs(argv);
     const root = repositoryRoot(cwd);
 
     const preflight = dependencies.preflight(root);
@@ -416,5 +406,7 @@ export const run = (
     return 1;
   }
 };
+
+export { parseOrientArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));

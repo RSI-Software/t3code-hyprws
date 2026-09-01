@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Host-only Hyprland probes use the installed hyprctl executable.
 
-import * as NodeChildProcess from "node:child_process";
+import { runCommandText } from "./fork-command.ts";
 
 export type WorkspaceRef = {
   readonly id: number;
@@ -40,9 +40,6 @@ export function parseHyprlandWorkspaceResponse(
 }
 
 export function readHyprctlWorkspace(command: "activeworkspace" | "activewindow"): WorkspaceRef {
-  const response = NodeChildProcess.execFileSync("hyprctl", ["-j", command], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const response = runCommandText("hyprctl", ["-j", command]);
   return parseHyprlandWorkspaceResponse(response, command);
 }
