@@ -21,11 +21,8 @@ A squash appends `(#<number>)` to the subject, and that number is a fork pull re
 is a live reference: GitHub resolves it against `pingdotgg/t3code` and posts a backlink on an
 unrelated upstream thread. `fork:upstream-refs` fails the file for exactly this reason.
 
-Run the guard on the record before posting it:
-
-```bash
-vp run fork:upstream-refs "$record_path"
-```
+Before posting the record, run the upstream-reference guard at the
+[`fork-sync` Human sanity gate](../SKILL.md#gate-4--human-sanity) against `$record_path`; it must pass.
 
 The same rule covers upstream citations, always as `pingdotgg/t3code#<number>` inside a code span.
 
