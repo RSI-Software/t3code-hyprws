@@ -196,6 +196,7 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
     new Set([
       "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
       "apps/server/src/fork-only.ts",
+      "packages/contracts/src/fork-only.ts",
     ]),
     (_root, command) => {
       calls.push(command.packageName);
@@ -208,16 +209,32 @@ it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", 
           stderr: "",
         };
       }
+      if (command.workspace === "packages/contracts") {
+        return {
+          status: 2,
+          stdout: "src/fork-only.ts(3,9): error TS2551: Property does not exist.\n",
+          stderr: "",
+        };
+      }
       return { status: 0, stdout: "", stderr: "" };
     },
   );
 
-  assert.deepStrictEqual(calls, ["@t3tools/web", "t3"]);
+  assert.deepStrictEqual(calls, [
+    "@t3tools/web",
+    "t3",
+    "@t3tools/desktop",
+    "@t3tools/mobile",
+    "@t3tools/contracts",
+    "@t3tools/client-runtime",
+    "@t3tools/shared",
+  ]);
   assert.deepStrictEqual(gaps, [
     {
       workspace: "apps/web",
       path: "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
     },
+    { workspace: "packages/contracts", path: "packages/contracts/src/fork-only.ts" },
   ]);
   const result = { ...buildScanResult(scanInput()), typecheckGaps: gaps };
   assert.include(
