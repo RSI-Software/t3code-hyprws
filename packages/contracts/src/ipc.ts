@@ -1153,6 +1153,12 @@ export interface DesktopBridge {
    * desktop builds never emit it.
    */
   onQuitShortcut?: (listener: (state: "down" | "up") => void) => () => void;
+  /**
+   * Whether this Electron window currently demands live renderer resources.
+   * Optional so a newer web bundle can fall back to document visibility in an older shell.
+   */
+  getWindowDemandState?: () => boolean;
+  onWindowDemandStateChange?: (listener: (demanded: boolean) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
