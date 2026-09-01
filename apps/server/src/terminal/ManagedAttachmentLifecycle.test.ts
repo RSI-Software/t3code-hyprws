@@ -14,17 +14,43 @@ function transition(
 }
 
 describe("managed terminal attachment lifecycle", () => {
-  it("does not suspend a managed open before demand has ever been acquired", () => {
-    const managed = transition(INITIAL_MANAGED_ATTACHMENT_LIFECYCLE, {
+  it("gives a managed open a distinct first-attach deadline", () => {
+    const pending = transition(INITIAL_MANAGED_ATTACHMENT_LIFECYCLE, {
       type: "managed-attached",
     });
 
-    expect(managed.state).toMatchObject({
-      phase: "attached",
+    expect(pending.state).toMatchObject({
+      phase: "first-attach-pending",
       demand: 0,
       hasAcquiredDemand: false,
     });
-    expect(managed.commands).toEqual([{ type: "cancel-suspend" }]);
+    expect(pending.commands.at(-1)).toMatchObject({ type: "schedule-first-attach" });
+
+    const elapsed = transition(pending.state, {
+      type: "first-attach-elapsed",
+      generation: pending.state.generation,
+    });
+    expect(elapsed.state.phase).toBe("suspended");
+    expect(elapsed.commands).toEqual([{ type: "suspend" }]);
+  });
+
+  it("cancels the first-attach deadline when UI demand arrives", () => {
+    const pending = transition(INITIAL_MANAGED_ATTACHMENT_LIFECYCLE, {
+      type: "managed-attached",
+    });
+    const attached = transition(pending.state, { type: "demand-added" });
+    const staleDeadline = transition(attached.state, {
+      type: "first-attach-elapsed",
+      generation: pending.state.generation,
+    });
+
+    expect(attached.state).toMatchObject({
+      phase: "attached",
+      demand: 1,
+      hasAcquiredDemand: true,
+    });
+    expect(attached.commands).toEqual([{ type: "cancel-suspend" }]);
+    expect(staleDeadline.commands).toEqual([]);
   });
 
   it("cancels a pending suspension when demand returns", () => {

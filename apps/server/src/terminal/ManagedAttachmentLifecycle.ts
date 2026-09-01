@@ -1,6 +1,7 @@
 export type ManagedAttachmentPhase =
   | "unmanaged"
   | "attached"
+  | "first-attach-pending"
   | "suspend-pending"
   | "suspended"
   | "resuming"
@@ -10,7 +11,7 @@ export interface ManagedAttachmentLifecycle {
   readonly phase: ManagedAttachmentPhase;
   readonly demand: number;
   readonly generation: number;
-  /** Prevents a zero-demand open from suspending before its first UI attachment. */
+  /** Selects the long first-attach deadline until UI demand has existed once. */
   readonly hasAcquiredDemand: boolean;
 }
 
@@ -19,6 +20,7 @@ export type ManagedAttachmentAction =
   | { readonly type: "unmanaged" }
   | { readonly type: "demand-added" }
   | { readonly type: "demand-removed" }
+  | { readonly type: "first-attach-elapsed"; readonly generation: number }
   | { readonly type: "suspend-elapsed"; readonly generation: number }
   | { readonly type: "resume-succeeded" }
   | { readonly type: "resume-failed" }
@@ -26,6 +28,7 @@ export type ManagedAttachmentAction =
 
 export type ManagedAttachmentCommand =
   | { readonly type: "cancel-suspend" }
+  | { readonly type: "schedule-first-attach"; readonly generation: number }
   | { readonly type: "schedule-suspend"; readonly generation: number }
   | { readonly type: "suspend" }
   | { readonly type: "resume" };
@@ -42,6 +45,14 @@ export const INITIAL_MANAGED_ATTACHMENT_LIFECYCLE: ManagedAttachmentLifecycle = 
   hasAcquiredDemand: false,
 });
 
+function scheduleFirstAttach(state: ManagedAttachmentLifecycle): ManagedAttachmentTransition {
+  const generation = state.generation + 1;
+  return {
+    state: { ...state, phase: "first-attach-pending", generation },
+    commands: [{ type: "cancel-suspend" }, { type: "schedule-first-attach", generation }],
+  };
+}
+
 function scheduleSuspend(state: ManagedAttachmentLifecycle): ManagedAttachmentTransition {
   const generation = state.generation + 1;
   return {
@@ -57,9 +68,10 @@ export function transitionManagedAttachment(
   switch (action.type) {
     case "managed-attached": {
       const attached = { ...state, phase: "attached" as const };
-      return attached.demand === 0 && attached.hasAcquiredDemand
-        ? scheduleSuspend(attached)
-        : { state: attached, commands: [{ type: "cancel-suspend" }] };
+      if (attached.demand > 0) {
+        return { state: attached, commands: [{ type: "cancel-suspend" }] };
+      }
+      return attached.hasAcquiredDemand ? scheduleSuspend(attached) : scheduleFirstAttach(attached);
     }
     case "unmanaged":
       return {
@@ -87,7 +99,10 @@ export function transitionManagedAttachment(
       return {
         state: {
           ...demanded,
-          phase: state.phase === "suspend-pending" ? "attached" : state.phase,
+          phase:
+            state.phase === "suspend-pending" || state.phase === "first-attach-pending"
+              ? "attached"
+              : state.phase,
         },
         commands: [{ type: "cancel-suspend" }],
       };
@@ -99,6 +114,19 @@ export function transitionManagedAttachment(
         ? scheduleSuspend(released)
         : { state: released, commands: [] };
     }
+    case "first-attach-elapsed":
+      if (
+        state.phase !== "first-attach-pending" ||
+        state.demand !== 0 ||
+        state.hasAcquiredDemand ||
+        state.generation !== action.generation
+      ) {
+        return { state, commands: [] };
+      }
+      return {
+        state: { ...state, phase: "suspended" },
+        commands: [{ type: "suspend" }],
+      };
     case "suspend-elapsed":
       if (
         state.phase !== "suspend-pending" ||

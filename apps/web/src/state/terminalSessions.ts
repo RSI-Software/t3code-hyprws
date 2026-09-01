@@ -8,7 +8,7 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
@@ -94,14 +94,18 @@ export function useAttachedTerminalSession(input: {
     input.environmentId !== null && input.terminal !== null
       ? JSON.stringify([input.environmentId, input.terminal.threadId, input.terminal.terminalId])
       : null;
-  const retainedAttachmentRef = useRef(EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE);
+  const [committedRetainedAttachment, setCommittedRetainedAttachment] = useState(
+    EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+  );
   const retainedAttachment = updateRetainedTerminalAttachment(
-    retainedAttachmentRef.current,
+    committedRetainedAttachment,
     attachmentIdentity,
     attach.data ?? null,
     attach.error ?? null,
   );
-  retainedAttachmentRef.current = retainedAttachment;
+  useEffect(() => {
+    setCommittedRetainedAttachment(retainedAttachment);
+  }, [retainedAttachment]);
 
   return useMemo(() => {
     if (input.environmentId === null || input.terminal === null) {
