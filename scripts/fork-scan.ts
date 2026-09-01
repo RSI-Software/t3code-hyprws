@@ -9,11 +9,12 @@
 // live `upstream/main`; `--target <tag>` pins a release and reproduces the
 // automerged-overlap walk gate 3 of the fork-sync skill used to do by hand.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
+import { UsageError } from "./lib/fork-cli.ts";
+import { runCommand, SystemGit } from "./lib/fork-command.ts";
 
 export const LEDGER_PATH = "docs/internals/fork-delta.md";
 
@@ -61,7 +62,7 @@ export interface ScanResult {
   readonly untaggedCommits: ReadonlyArray<string>;
 }
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: vp run fork:scan [options]
 
@@ -92,7 +93,7 @@ const defaultOptions = (): ScanOptions => ({
   typecheck: true,
 });
 
-export const parseArgs = (argv: ReadonlyArray<string>): ScanOptions => {
+export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const valueFlags = new Set(["--base", "--head", "--target"]);
@@ -343,22 +344,6 @@ export interface GitReader {
   readonly run: (args: ReadonlyArray<string>) => string;
 }
 
-class SystemGit implements GitReader {
-  private readonly cwd: string;
-
-  constructor(cwd: string) {
-    this.cwd = cwd;
-  }
-
-  run(args: ReadonlyArray<string>): string {
-    return NodeChildProcess.execFileSync("git", [...args], {
-      cwd: this.cwd,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  }
-}
-
 const readLines = (raw: string): ReadonlyArray<string> =>
   raw
     .split("\n")
@@ -394,23 +379,8 @@ const TYPECHECK_COMMANDS: ReadonlyArray<TypecheckCommand> = [
   { workspace: "packages/shared", packageName: "@t3tools/shared" },
 ];
 
-const systemTypecheckRunner: TypecheckRunner = (root, command) => {
-  const result = NodeChildProcess.spawnSync(
-    "vp",
-    ["run", "--filter", command.packageName, "typecheck"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  );
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    ...(result.error === undefined ? {} : { error: result.error }),
-  };
-};
+const systemTypecheckRunner: TypecheckRunner = (root, command) =>
+  runCommand("vp", ["run", "--filter", command.packageName, "typecheck"], { cwd: root });
 
 const TYPECHECK_FILE = /^(?<path>.+?)\(\d+,\d+\):\s+error TS\d+:/;
 
@@ -480,7 +450,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
   }
 
   try {
-    const options = parseArgs(argv);
+    const options = parseScanArgs(argv);
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
@@ -524,5 +494,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     return 1;
   }
 };
+
+export { parseScanArgs as parseArgs };
 
 if (import.meta.main) process.exitCode = run(process.argv.slice(2));

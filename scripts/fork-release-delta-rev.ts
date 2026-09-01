@@ -2,35 +2,20 @@
 
 // @effect-diagnostics nodeBuiltinImport:off - This release helper runs before an Effect runtime exists.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 
-export interface CommandResult {
-  readonly status: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
+import { parseArgs, UsageError } from "./lib/fork-cli.ts";
+import {
+  SystemInputCommandRunner as SystemRunner,
+  type InputCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
 
-export interface CommandRunner {
-  run(command: string, args: ReadonlyArray<string>, input?: string): CommandResult;
-}
-
-export class SystemRunner implements CommandRunner {
-  run(command: string, args: ReadonlyArray<string>, input?: string): CommandResult {
-    const result = NodeChildProcess.spawnSync(command, [...args], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      ...(input === undefined ? {} : { input }),
-    });
-    if (result.error !== undefined) throw result.error;
-    return {
-      status: result.status ?? 1,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
-  }
-}
+export {
+  SystemInputCommandRunner as SystemRunner,
+  type CommandResult,
+  type InputCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
 
 const requireSuccess = (
   runner: CommandRunner,
@@ -115,35 +100,25 @@ interface Options {
 const usage =
   "Usage: node scripts/fork-release-delta-rev.ts [--base <ref>] [--head <ref>] [--github-output]";
 
-const parseOptions = (argv: ReadonlyArray<string>): Options => {
-  let base = "upstream/main";
-  let head = "HEAD";
-  let githubOutput = false;
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--base") {
-      base = argv[++index] ?? "";
-      if (base.length === 0) throw new Error("--base requires a ref");
-    } else if (argument === "--head") {
-      head = argv[++index] ?? "";
-      if (head.length === 0) throw new Error("--head requires a ref");
-    } else if (argument === "--github-output") {
-      githubOutput = true;
-    } else if (argument === "--help" || argument === "-h") {
-      process.stdout.write(`${usage}\n`);
-      process.exit(0);
-    } else {
-      throw new Error(`unknown argument: ${argument ?? ""}`);
-    }
+export const parseReleaseDeltaOptions = (argv: ReadonlyArray<string>): Options => {
+  const parsed = parseArgs(argv, {
+    values: ["--base", "--head"],
+    flags: ["--github-output", "--help", "-h"],
+  });
+  if (parsed.flags.has("--help") || parsed.flags.has("-h")) {
+    process.stdout.write(`${usage}\n`);
+    process.exit(0);
   }
-
-  return { base, head, githubOutput };
+  const base = parsed.values.get("--base") ?? "upstream/main";
+  const head = parsed.values.get("--head") ?? "HEAD";
+  if (base.length === 0) throw new UsageError("--base requires a ref");
+  if (head.length === 0) throw new UsageError("--head requires a ref");
+  return { base, head, githubOutput: parsed.flags.has("--github-output") };
 };
 
 if (import.meta.main) {
   try {
-    const options = parseOptions(process.argv.slice(2));
+    const options = parseReleaseDeltaOptions(process.argv.slice(2));
     const revision = resolveStackRangeHash(new SystemRunner(), options.base, options.head);
     if (options.githubOutput) {
       const outputPath = process.env.GITHUB_OUTPUT;
