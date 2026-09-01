@@ -8,14 +8,20 @@
 // Callers therefore take the published head from `PreflightReport.originHyprwsSha`
 // rather than resolving the ref themselves.
 
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { canonicalRepository } from "./fork-rebase-report.ts";
+import { parseArgs as parseCliArgs, UsageError } from "./lib/fork-cli.ts";
+import { runCommand } from "./lib/fork-command.ts";
+import {
+  FORK_REPOSITORY,
+  HYPRWS_REF,
+  ORIGIN_HYPRWS_REF,
+  UPSTREAM_REPOSITORY,
+} from "./lib/fork-policy.ts";
 
-export const ORIGIN_REPOSITORY = "RSI-Software/t3code-hyprws";
-export const UPSTREAM_REPOSITORY = "pingdotgg/t3code";
+export const ORIGIN_REPOSITORY = FORK_REPOSITORY;
 
 export const CHECK_ORIGIN_REMOTE = "origin remote";
 export const CHECK_UPSTREAM_REMOTE = "upstream remote";
@@ -48,7 +54,7 @@ export interface PreflightReport {
   readonly originHyprwsSha: string | null;
 }
 
-export class UsageError extends Error {}
+export { UsageError } from "./lib/fork-cli.ts";
 
 const met = (name: string, detail: string): PreflightCheck => ({
   name,
@@ -125,7 +131,7 @@ const checkOriginFetch = (env: PreflightEnv, remoteUsable: boolean): OriginFetch
   }
   // A forced refspec, because an applied sync rewrites the published head and a
   // fast-forward-only fetch would leave the stale ref in place.
-  const fetched = env.git(["fetch", "origin", "+refs/heads/hyprws:refs/remotes/origin/hyprws"]);
+  const fetched = env.git(["fetch", "origin", `+${HYPRWS_REF}:${ORIGIN_HYPRWS_REF}`]);
   if (fetched.status !== 0) {
     return {
       check: unmet(
@@ -267,19 +273,13 @@ export const renderReport = (report: PreflightReport): string => {
 };
 
 export const systemEnv = (root: string): PreflightEnv => ({
-  git: (args) => {
-    const result = NodeChildProcess.spawnSync("git", [...args], { cwd: root, encoding: "utf8" });
-    return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
-  },
+  git: (args) => runCommand("git", args, { cwd: root }),
   directoryExists: (relativePath) => NodeFS.existsSync(NodePath.join(root, relativePath)),
 });
 
 export const repositoryRoot = (cwd: string): string => {
-  const result = NodeChildProcess.spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd,
-    encoding: "utf8",
-  });
-  const root = (result.stdout ?? "").trim();
+  const result = runCommand("git", ["rev-parse", "--show-toplevel"], { cwd });
+  const root = result.stdout.trim();
   if (result.status !== 0 || root.length === 0) {
     throw new Error(`not inside a Git repository: ${cwd}`);
   }
@@ -310,12 +310,13 @@ Exit codes:
   2  usage error
 `;
 
-export const parseArgs = (argv: ReadonlyArray<string>): void => {
-  for (const argument of argv) {
-    if (argument === "-h" || argument === "--help") continue;
-    throw new UsageError(`unknown option: ${argument}`);
-  }
+export const parsePreflightArgs = (argv: ReadonlyArray<string>): void => {
+  const unknown = argv.find((argument) => argument !== "-h" && argument !== "--help");
+  if (unknown !== undefined) throw new UsageError(`unknown option: ${unknown}`);
+  parseCliArgs(argv, { flags: ["-h", "--help"], duplicateFlags: true });
 };
+
+export { parsePreflightArgs as parseArgs };
 
 export const run = (
   argv: ReadonlyArray<string>,
@@ -327,7 +328,7 @@ export const run = (
     return 0;
   }
   try {
-    parseArgs(argv);
+    parsePreflightArgs(argv);
     const report = runPreflight(systemEnv(repositoryRoot(cwd)));
     output.stdout(renderReport(report));
     return unmetChecks(report).length === 0 ? 0 : 1;

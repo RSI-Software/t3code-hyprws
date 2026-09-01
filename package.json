@@ -56,6 +56,8 @@
     "fork:rebase-report": "node scripts/fork-rebase-report.ts",
     "fork:rebase-report:artifact": "node scripts/fork-rebase-report-artifact.ts",
     "fork:rebase-notify": "node scripts/fork-rebase-notify.ts",
+    "fork:release-version": "node scripts/fork-release-version.ts",
+    "fork:release-delta-rev": "node scripts/fork-release-delta-rev.ts",
     "fork:upstream-watch": "node scripts/fork-upstream-watch.ts",
     "connect:announce-ga": "node scripts/announce-connect-ga.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
