@@ -65,6 +65,7 @@ Do not create, move, delete, or force-push these refs by hand:
 | `hyprws-next`           | The verified candidate stack published while the repository is in candidate mode.   |
 | `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.               |
 | `refs/fork/churn`       | The churn ledger: one orphan history holding `fork-churn.json`, one entry per walk. |
+| `refs/fork/rerere`      | The shared `.git/rr-cache`, so a carried walk replays what earlier walks resolved.  |
 
 The `refs/fork/*` family is append-only and is never rebased, so a walk's data never enters the
 fork series and no rebase has to carry it. Read one without a checkout:
@@ -111,6 +112,32 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 
 In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
 commit and one for the bot-pushed rebased head.
+
+### Carried unblock walk
+
+In `on` mode a blocked candidate does not stop at the report. The workflow's carry job restores the
+shared rerere cache from `refs/fork/rerere` and then runs the walk non-interactively:
+
+```bash
+node scripts/fork-sync.ts unblock-auto --bot-carried --target <newest tag beyond the block>
+```
+
+The walk's own exit code decides the run:
+
+| Exit | Meaning                            | The run                                                               |
+| ---- | ---------------------------------- | --------------------------------------------------------------------- |
+| 0    | Every conflict was mechanical      | Applies under the walk's own expected-old lease and posts the record. |
+| 2    | A gate stopped on a real judgement | Posts the stop surface verbatim on the block issue for an agent.      |
+| 3    | A precondition refused the walk    | Reports only. Nothing is written.                                     |
+
+`--bot-carried` refuses unless `GITHUB_RUN_ID` is set, `HYPRWS_AUTO_REBASE` is `on`, and the bot's
+last recorded run is this run, so a carried walk can never take a lease another run holds. The
+workflow's `hyprws-rebase` concurrency group is the outer guard. `off` and `candidate` never carry.
+
+A carried walk mints its rehearsal lane with `git worktree` rather than Worktrunk, which a runner
+cannot install, and skips the post-apply reconciliation dispatch because its own leased push to
+`hyprws` already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
+every carried walk, applied or stopped, and after every leased apply.
 
 ### Walk pause
 

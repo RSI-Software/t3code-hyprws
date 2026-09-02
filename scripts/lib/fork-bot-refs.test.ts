@@ -9,8 +9,11 @@ import { assert, it } from "@effect/vitest";
 import {
   CHURN_LEDGER_FILE,
   CHURN_REF,
+  RERERE_REF,
   readBotRefFile,
   resolveBotRef,
+  restoreRerereCache,
+  saveRerereCache,
   writeBotRefFile,
 } from "./fork-bot-refs.ts";
 import { runCommandText } from "./fork-command.ts";
@@ -51,5 +54,26 @@ it("appends to a bot-owned ref without touching the working tree", () => {
       first,
     );
     assert.deepStrictEqual(NodeFS.readdirSync(root), [".git"]);
+  });
+});
+
+it("round-trips the rerere cache through its bot-owned ref", () => {
+  withRepository((root) => {
+    assert.strictEqual(saveRerereCache(root, "rerere: empty"), null);
+    assert.strictEqual(restoreRerereCache(root), false);
+
+    const cache = NodePath.join(root, ".git", "rr-cache");
+    NodeFS.mkdirSync(NodePath.join(cache, "abc123"), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(cache, "abc123", "preimage"), "left\n");
+    NodeFS.writeFileSync(NodePath.join(cache, "abc123", "postimage"), "resolved\n");
+    assert.notStrictEqual(saveRerereCache(root, "rerere: v1"), null);
+
+    NodeFS.rmSync(cache, { recursive: true, force: true });
+    assert.strictEqual(restoreRerereCache(root), true);
+    assert.strictEqual(
+      NodeFS.readFileSync(NodePath.join(cache, "abc123", "postimage"), "utf8"),
+      "resolved\n",
+    );
+    assert.notStrictEqual(resolveBotRef(root, RERERE_REF), null);
   });
 });

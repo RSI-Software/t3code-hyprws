@@ -6,6 +6,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { pushBotRef, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   requireCommandSuccess,
@@ -311,6 +312,67 @@ const requirePausedBot = (bot: BotSnapshot): void => {
     throw new Error("bot run is in progress; wait for it and rerun unblock-list");
 };
 
+/**
+ * The carrier lane inverts `requirePausedBot`: the bot is on and its run is this
+ * process. The workflow's `hyprws-rebase` concurrency group is the real lease, and
+ * this is the same guard read from the script's side, so a carry that is not the
+ * newest run refuses instead of racing the run that holds it.
+ */
+const requireBotCarrier = (bot: BotSnapshot): void => {
+  const runId = process.env.GITHUB_RUN_ID ?? "";
+  if (runId.length === 0)
+    throw new Error("--bot-carried runs inside the auto-rebase workflow; GITHUB_RUN_ID is unset");
+  if (bot.mode !== "on")
+    throw new Error(`--bot-carried requires ${BOT_VARIABLE}=on, found ${bot.mode}`);
+  if (bot.lastRun !== null && !bot.lastRun.url.endsWith(`/runs/${runId}`))
+    throw new Error(
+      `another auto-rebase run holds the lease: ${bot.lastRun.url}; this run is ${runId}`,
+    );
+};
+
+const requireBotState = (report: SyncReport, bot: BotSnapshot): void =>
+  report.botCarried === true ? requireBotCarrier(bot) : requirePausedBot(bot);
+
+/**
+ * The rehearsal lane. Worktrunk owns the human lane so the walk shows up in `wt
+ * ls` beside every other branch, but it is not installable on a runner, so a
+ * bot-carried walk mints the same worktree with plain Git.
+ */
+const mintLane = (
+  report: SyncReport,
+  runner: CommandRunner,
+  branch: string,
+  base: string,
+): string => {
+  const worktree =
+    report.botCarried === true
+      ? (() => {
+          const path = NodePath.join(
+            NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-")),
+            branch.replaceAll("/", "-"),
+          );
+          requireSuccess(
+            runner,
+            "git",
+            ["worktree", "add", "--quiet", "-b", branch, path, base],
+            report.repositoryRoot,
+          );
+          return path;
+        })()
+      : worktreePath(
+          requireSuccess(
+            runner,
+            "wt",
+            ["switch", "--create", branch, "--base", base, "--no-cd", "--format", "json", "--yes"],
+            report.repositoryRoot,
+          ),
+        );
+  // A minted lane has no node_modules, and the first gate battery would fail
+  // on module resolution before it ever reached a verdict.
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree));
+  return worktree;
+};
+
 const unblockList = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -408,7 +470,7 @@ const unblockOrient = (
   if (report.stage !== "listed")
     throw new Error(`unblock-orient requires a listed report, got ${report.stage}`);
   if (report.bot === undefined) throw new Error("report has no bot snapshot; rerun unblock-list");
-  requirePausedBot(report.bot);
+  requireBotState(report, report.bot);
   const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
   const targetTag = offered.tag;
   const root = report.repositoryRoot;
@@ -617,27 +679,7 @@ const unblockRehearse = (
         true,
       ),
     );
-    const worktree = worktreePath(
-      requireSuccess(
-        runner,
-        "wt",
-        [
-          "switch",
-          "--create",
-          branch,
-          "--base",
-          source.expectedOld,
-          "--no-cd",
-          "--format",
-          "json",
-          "--yes",
-        ],
-        report.repositoryRoot,
-      ),
-    );
-    // A minted lane has no node_modules, and the first gate battery would fail
-    // on module resolution before it ever reached a verdict.
-    requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree));
+    const worktree = mintLane(report, runner, branch, source.expectedOld);
     git(runner, worktree, ["restore", "--source=HEAD", "--worktree", "--", "pnpm-lock.yaml"], true);
     report = { ...report, lane: { branch, worktree }, originalMessages, originalCount };
     const rebase = runner.run(
@@ -789,6 +831,13 @@ const GATE_VERIFICATION_ENV_KEYS = new Set([
   "VP_NODE_DIST_MIRROR",
   "VP_NODE_SKIP_SIGNATURE_VERIFY",
   "VP_NODE_VERSION",
+  // The carrier lane holds a push credential in the Git environment. Lane commands
+  // are rebased code, so they run without it; fork-sync's own pushes keep it because
+  // they read `process.env` directly (RSI-Software/t3code-hyprws#444).
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_KEY_0",
+  "GIT_CONFIG_VALUE_0",
+  "HYPRWS_PUSH_TOKEN",
 ]);
 
 const isInsideNodeModules = (entry: string): boolean =>
@@ -1162,6 +1211,24 @@ export const baseReleaseTag = (runner: CommandRunner, root: string, baseSha: str
   return tag;
 };
 
+/**
+ * Every apply teaches rerere how a seam resolves, so the cache joins its bot-owned
+ * ref for the next walk. The apply already landed; a failed publish is reported and
+ * never voids it (RSI-Software/t3code-hyprws#444).
+ */
+const publishRerereCache = (worktree: string, tag: string): void => {
+  try {
+    const commit = saveRerereCache(worktree, `rerere: ${tag}`);
+    if (commit === null) return;
+    pushBotRef(worktree, RERERE_REF);
+    process.stdout.write(`${RERERE_REF} at ${commit}\n`);
+  } catch (error) {
+    process.stderr.write(
+      `warning: ${RERERE_REF} not published: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+};
+
 const unblockApply = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -1260,6 +1327,7 @@ const unblockApply = (
     worktree,
   );
   git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
+  publishRerereCache(worktree, gateTag);
   report = { ...report, stage: "applied", recordCommentUrl };
   writeReport(report);
   process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
@@ -1344,7 +1412,7 @@ const stopAuto = (surface: string, reportPath: string): never => {
 const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): SyncReport => {
   const bot = readBotSnapshot(runner, report.repositoryRoot);
   try {
-    requirePausedBot(bot);
+    requireBotState(report, bot);
   } catch (error) {
     throw new AutoBotRefusal(
       error instanceof Error ? error.message : String(error),
@@ -1780,8 +1848,9 @@ const unblockAuto = (
   cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--target", "--report", "--resume"]);
+  assertOnly(values, ["--target", "--report", "--resume", "--bot-carried"]);
   const resume = values.has("--resume");
+  const botCarried = values.has("--bot-carried");
   if (resume && !values.has("--report")) throw new UsageError("--resume requires --report");
   if (resume && values.has("--target"))
     throw new UsageError("--target cannot be used with --resume");
@@ -1789,11 +1858,19 @@ const unblockAuto = (
   let report: SyncReport;
   if (resume) {
     report = readReport(oneValue(values, "--report") ?? "");
+    if (botCarried && report.botCarried !== true)
+      throw new UsageError("--bot-carried cannot resume a report the human lane started");
   } else {
     const listValues = new Map<string, string>();
     const reportPath = oneValue(values, "--report", false);
     if (reportPath !== null) listValues.set("--output", reportPath);
     report = captureStdout(() => unblockList(listValues, cwd, runner)).value;
+  }
+  // The carrier binding is written before any bot gate reads it, and it stays on
+  // the report so a resumed walk cannot silently change lanes.
+  if (botCarried && report.botCarried !== true) {
+    report = { ...report, botCarried: true };
+    writeReport(report);
   }
 
   try {
@@ -1807,7 +1884,7 @@ const unblockAuto = (
         if (report.bot === undefined)
           throw new Error("report has no bot snapshot; rerun unblock-auto");
         try {
-          requirePausedBot(report.bot);
+          requireBotState(report, report.bot);
         } catch (error) {
           throw new AutoBotRefusal(
             error instanceof Error ? error.message : String(error),
@@ -1916,7 +1993,14 @@ const unblockAuto = (
       process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
     }
 
-    if (report.stage === "applied" && report.reconciliation?.state !== "dispatched") {
+    // The carrier's own apply pushes `hyprws`, and that push is the workflow's
+    // trigger, so dispatching a second run would only duplicate the reconciliation
+    // the push already queues behind this run.
+    if (
+      report.botCarried !== true &&
+      report.stage === "applied" &&
+      report.reconciliation?.state !== "dispatched"
+    ) {
       report = reconcileAfterApply(report, runner);
       process.stdout.write(`workflow: ${report.reconciliation?.runUrl ?? "unknown"}\n`);
     }

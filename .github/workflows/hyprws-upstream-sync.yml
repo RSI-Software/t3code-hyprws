@@ -9,6 +9,12 @@ name: hyprws upstream sync
 #
 # The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
 # each blocked report renders it as a Churn section on the notification issue.
+#
+# With HYPRWS_AUTO_REBASE=on a blocked candidate also gets a carried unblock walk:
+# the bot restores its shared rerere cache, runs unblock-auto non-interactively, and
+# either applies under the walk's own lease or hands the exact stop surface to the
+# notification issue. Bot-owned refs (refs/fork/churn, refs/fork/rerere) carry the
+# ledger and the cache; the fork series never does.
 
 on:
   push:
@@ -104,6 +110,9 @@ jobs:
     permissions:
       contents: read
       issues: write
+    outputs:
+      status: ${{ steps.rebase.outputs.status }}
+      blocked_tag: ${{ steps.rebase.outputs.blocked_tag }}
     steps:
       - name: Checkout fork trunk
         uses: actions/checkout@v6
@@ -192,3 +201,121 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/fork-churn.ts report
+
+  # The carried unblock walk. It waits on the rehearsal lane's CI, so it gets its
+  # own timeout; the workflow-level hyprws-rebase concurrency group is the lease,
+  # and unblock-auto --bot-carried refuses if any other run holds it.
+  carry:
+    name: Carry unblock walk
+    needs: rebase
+    if: ${{ needs.rebase.outputs.status == 'blocked' && needs.rebase.outputs.blocked_tag != '' && vars.HYPRWS_AUTO_REBASE == 'on' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      # rerere replays the resolutions earlier walks recorded; autoupdate stays off
+      # so every replay still lands in the record as a decided row.
+      - name: Configure Git identity and rerere
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config rerere.enabled true
+          git config rerere.autoupdate false
+
+      - name: Restore rerere cache
+        run: node scripts/fork-carry.ts rerere-restore
+
+      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step so
+      # it never lands in a workflow env block; fork-sync scrubs those keys from every
+      # lane command, which is rebased code.
+      - name: Carry the unblock walk
+        id: carry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
+          REPORT: ${{ runner.temp }}/fork-sync-report.json
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          set +e
+          node scripts/fork-sync.ts unblock-auto --bot-carried --report "$REPORT" \
+            --target "$BLOCKED_TAG" > "$RUNNER_TEMP/carry.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/carry.log"
+          case "$code" in
+            0) echo "outcome=applied" >> "$GITHUB_OUTPUT" ;;
+            2) echo "outcome=stop" >> "$GITHUB_OUTPUT" ;;
+            3) echo "outcome=report-only" >> "$GITHUB_OUTPUT" ;;
+            *) echo "outcome=failed" >> "$GITHUB_OUTPUT"; exit "$code" ;;
+          esac
+
+      # Every walk teaches rerere something, whether it applied or stopped, so the
+      # cache is refreshed before the outcome is acted on.
+      - name: Save rerere cache
+        if: always()
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-carry.ts rerere-save --push
+
+      - name: Append the churn row
+        if: ${{ steps.carry.outputs.outcome == 'applied' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-carry.ts churn-row --report "$RUNNER_TEMP/fork-sync-report.json"
+
+      - name: Hand the stop surface to the notification issue
+        if: ${{ steps.carry.outputs.outcome == 'stop' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/fork-carry.ts stop-surface \
+            --report "$RUNNER_TEMP/fork-sync-report.json" \
+            --log "$RUNNER_TEMP/carry.log"
+
+      - name: Summarize the carried walk
+        if: always()
+        env:
+          OUTCOME: ${{ steps.carry.outputs.outcome }}
+          BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
+        run: |
+          {
+            printf '## Carried unblock walk\n\n- outcome: `%s`\n- target: `%s`\n\n```\n' \
+              "${OUTCOME:-none}" "$BLOCKED_TAG"
+            tail -n 80 "$RUNNER_TEMP/carry.log" 2>/dev/null || true
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
