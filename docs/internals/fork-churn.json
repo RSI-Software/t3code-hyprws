@@ -2789,7 +2789,6 @@
         "subject": "fix(server): keep pull requests on origin",
         "domain": "upstream-fixes",
         "verdict": "keep",
-        "action": "keep (mechanical seam)",
         "decidedBy": "agent"
       },
       {
@@ -2808,14 +2807,12 @@
         "subject": "feat(server): serve paginated child work (#195)",
         "domain": "custom-agents",
         "verdict": "keep",
-        "action": "keep (mechanical seam)",
         "decidedBy": "agent"
       },
       {
         "subject": "fix(server): bound child-work detail responses",
         "domain": "custom-agents",
         "verdict": "keep",
-        "action": "keep (mechanical seam)",
         "decidedBy": "agent"
       },
       {
@@ -3124,6 +3121,549 @@
         "path": "pnpm-lock.yaml",
         "hunks": 2,
         "commit": "048fa33",
+        "domain": "markdown-editing"
+      }
+    ]
+  },
+  {
+    "tag": "v0.0.38-nightly.20260901.1246",
+    "before": "2d147f3dca40f0e163107e9cc262e144a7a312ce",
+    "after": "a32f247995fd8f79ae5d9c234fc2f8b7c3431acc",
+    "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/467#issuecomment-5514509594",
+    "conflicts": [
+      {
+        "path": "apps/server/src/git/GitManager.test.ts",
+        "commit": "12c90650c252",
+        "subject": "feat(server): bind thread worktrees to a managed zmux session",
+        "domain": "zmux-estate",
+        "class": "mechanical",
+        "resolution": "additive union in the `makeManager` test-helper options type. Upstream added `gitConfigReads`, the fork adds `zmuxSessionBinder`; both kept and both already have their own consumers further down the helper.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+        "commit": "4cfe97666560",
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "domain": "workspace-files",
+        "class": "mechanical",
+        "resolution": "upstream moved thread settling server-side and dropped `sidebarAutoSettleAfterDays` and `sidebarAutoSettleOnMerge` from the desktop client-settings defaults. The fork commit only adds `showIgnoredFiles`, so kept that line alone and let upstream's removal stand.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/mobile/src/features/settings/SettingsRouteScreen.tsx",
+        "commit": "4cfe97666560",
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "domain": "workspace-files",
+        "class": "mechanical",
+        "resolution": "upstream replaced the device-preference auto-settle switch with a per-connection `EnvironmentAutoSettleSwitch`. Kept upstream's connection list and its map, kept only the fork's `showIgnoredFiles` read and its Show ignored files row, and dropped the fork's now-superseded auto-settle switch.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/mobile/src/persistence/mobile-preferences.ts",
+        "commit": "4cfe97666560",
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "domain": "workspace-files",
+        "class": "mechanical",
+        "resolution": "same seam in three spots: the preference type, the sanitizer's local type, and the sanitizer branch. Kept the fork's `showIgnoredFiles` in each and dropped `autoSettleOnMerge`, which upstream no longer stores per device.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+        "commit": "558002754b9e",
+        "subject": "feat(web): scope pull requests to project windows",
+        "domain": "project-windows",
+        "class": "mechanical",
+        "resolution": "upstream's deferred line-stats change derives `statsPolicy` from the sort in the single page component; the fork splits that component so the route view is a thin wrapper. Moved the derivation next to the `sort` it reads, inside `PullRequestsPage`, which is where every consumer already lives.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/server/src/server.ts",
+        "commit": "6f6d2f7db866",
+        "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+        "domain": "github-issues",
+        "class": "mechanical",
+        "resolution": "upstream hoisted `PullRequestServiceLive` earlier in the file, so the fork's hunk re-added it as a duplicate alongside its own `GitHubIssueServiceLive`. Kept only `GitHubIssueServiceLive`; the file now declares each layer once and both are still provided at the same call site.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/ChatView.tsx",
+        "commit": "fe6667c72964",
+        "subject": "fix(web): add Issues to right-panel launchers (#193)",
+        "domain": "github-issues",
+        "class": "mechanical",
+        "resolution": "upstream moved thread settling to the server and deleted the client-side change-request memo the fork's hunk carried as context. Kept only the fork's `issuesSurfaceAvailable`, which its two launcher call sites still read; the deleted memo has no remaining reference in either tree.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/hooks/useNowMinute.ts",
+        "commit": "b2f705f25548",
+        "subject": "fix(web): retain completed thread timing",
+        "domain": "upstream-fixes",
+        "class": "mechanical",
+        "resolution": "doc comment only; the hunk contains no code. Upstream shortened the header after settled-state resolution moved to the server, so took upstream's wording. The fork's remaining consumers are sidebar and chat labels, which it still covers, and the UTC boundary note it drops is restated at the timer.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/Sidebar.tsx",
+        "commit": "4641346b32cb",
+        "subject": "feat(web): add manual sidebar thread ordering",
+        "domain": "thread-ordering",
+        "class": "mechanical",
+        "resolution": "`useMemo` dependency list. Upstream dropped `autoSettleAfterDays`, `autoSettleOnMerge`, and `changeRequestSnapshotByKey` when settling moved to the server; the first two no longer exist in the component and the third is read only outside this memo. Kept upstream's list plus the fork's `sidebarThreadSortOrder` and `threadOrderByProject`, both of which the memo body reads.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/server/src/server.ts",
+        "commit": "c0879f1654eb",
+        "subject": "fix(web): upload media in pull request descriptions",
+        "domain": "upstream-fixes",
+        "class": "mechanical",
+        "resolution": "same hoist as the earlier `server.ts` row: upstream moved `PullRequestServiceLive` earlier in the file, so the fork's hunk re-added it as a duplicate. Dropped the duplicate and moved the fork's only real change, `Layer.provide(PullRequestAttachmentStore.layer)`, onto the surviving declaration.",
+        "decidedBy": "agent"
+      }
+    ],
+    "decisions": [
+      {
+        "subject": "refactor(web): centralize thread route navigation",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "refactor(web): add physical project sidebar scope",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): open project windows from hub actions",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(server): bind thread worktrees to a managed zmux session",
+        "domain": "zmux-estate",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "domain": "workspace-files",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(server): follow external workspace symlinks globally (#66)",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): scope pull requests to project windows",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): expose Worktrunk hook settings",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): add Issues to right-panel launchers (#193)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): retain completed thread timing",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): add manual sidebar thread ordering",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(server): bound child-work detail responses",
+        "domain": "custom-agents",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): add GitHub link destination controls (#178)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(server): preserve child result and diff detail",
+        "domain": "custom-agents",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): group sidebar threads into named sections (#205)",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): make sidebar thread ordering direct (#246)",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): keep sidebar groups in automatic order",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): add sidebar group membership actions",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): preview sidebar group dissolution",
+        "domain": "thread-ordering",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      }
+    ],
+    "censusFiles": [
+      {
+        "path": "apps/desktop/src/preload.ts",
+        "hunks": 1,
+        "commit": "1faefeb",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/preview/Manager.test.ts",
+        "hunks": 1,
+        "commit": "32ea6cd",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+        "hunks": 1,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+        "hunks": 2,
+        "commit": "8f40e38",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.ts",
+        "hunks": 1,
+        "commit": "002d341",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+        "hunks": 2,
+        "commit": "cc7f560",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.ts",
+        "hunks": 1,
+        "commit": "cc7f560",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+        "hunks": 1,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/features/settings/SettingsRouteScreen.tsx",
+        "hunks": 2,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/persistence/mobile-preferences.ts",
+        "hunks": 3,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/server/src/git/GitManager.test.ts",
+        "hunks": 1,
+        "commit": "12c9065",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+        "hunks": 1,
+        "commit": "17f0457",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/ClaudeDriver.ts",
+        "hunks": 2,
+        "commit": "51732b0",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/CodexDriver.ts",
+        "hunks": 1,
+        "commit": "ed1bd6e",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.test.ts",
+        "hunks": 1,
+        "commit": "1a94705",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+        "hunks": 2,
+        "commit": "17f0457",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeProvider.ts",
+        "hunks": 1,
+        "commit": "ed1bd6e",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ProviderService.test.ts",
+        "hunks": 1,
+        "commit": "17f0457",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/ProviderDriver.ts",
+        "hunks": 1,
+        "commit": "d2c1407",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/pullRequest/GitHubPullRequestCli.test.ts",
+        "hunks": 1,
+        "commit": "c0879f1",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/server.test.ts",
+        "hunks": 1,
+        "commit": "f202fac",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/server.ts",
+        "hunks": 1,
+        "commit": "6f6d2f7",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/package.json",
+        "hunks": 1,
+        "commit": "13e9cab",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/ChatMarkdown.tsx",
+        "hunks": 2,
+        "commit": "6f6d2f7",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/ChatView.tsx",
+        "hunks": 4,
+        "commit": "e43fbb3",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/Sidebar.tsx",
+        "hunks": 1,
+        "commit": "4641346",
+        "domain": "thread-ordering"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.test.ts",
+        "hunks": 1,
+        "commit": "ca3e12a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+        "hunks": 2,
+        "commit": "ca3e12a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/ChatComposer.tsx",
+        "hunks": 3,
+        "commit": "d2c1407",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/MessagesTimeline.tsx",
+        "hunks": 1,
+        "commit": "1010cdc",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+        "hunks": 1,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+        "hunks": 7,
+        "commit": "13e9cab",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+        "hunks": 3,
+        "commit": "4cfe976",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/settings/SourceControlSettings.tsx",
+        "hunks": 1,
+        "commit": "ec280c5",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/sidebar/SidebarChrome.tsx",
+        "hunks": 1,
+        "commit": "4a13ac2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/composerDraftStore.test.ts",
+        "hunks": 1,
+        "commit": "1faefeb",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useHandleNewThread.ts",
+        "hunks": 2,
+        "commit": "e43fbb3",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useNowMinute.ts",
+        "hunks": 1,
+        "commit": "b2f705f",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/lib/chatThreadActions.ts",
+        "hunks": 1,
+        "commit": "f38728f",
+        "domain": "worktrunk-hooks"
+      },
+      {
+        "path": "apps/web/src/markdown-links.ts",
+        "hunks": 1,
+        "commit": "13e9cab",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/providerModels.ts",
+        "hunks": 1,
+        "commit": "ed1bd6e",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/routes/-chatIndexTitlebar.test.ts",
+        "hunks": 0,
+        "commit": "e691011",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+        "hunks": 1,
+        "commit": "5580027",
+        "domain": "project-windows"
+      },
+      {
+        "path": "package.json",
+        "hunks": 1,
+        "commit": "5254992",
+        "domain": "fork-meta"
+      },
+      {
+        "path": "packages/client-runtime/src/state/threadReducer.ts",
+        "hunks": 1,
+        "commit": "1010cdc",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "packages/contracts/src/ipc.ts",
+        "hunks": 2,
+        "commit": "8c63cd0",
+        "domain": "project-windows"
+      },
+      {
+        "path": "packages/contracts/src/settings.test.ts",
+        "hunks": 1,
+        "commit": "954e574",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "packages/contracts/src/settings.ts",
+        "hunks": 4,
+        "commit": "32756a9",
+        "domain": "github-issues"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "hunks": 2,
+        "commit": "13e9cab",
         "domain": "markdown-editing"
       }
     ]
