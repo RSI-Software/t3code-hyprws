@@ -4,7 +4,9 @@ name: hyprws upstream sync
 # then rebases the fork stack onto the newest upstream tag inside the clean
 # feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on and gates
 # only the rebase push; reporting and tickets always run. An unset variable uses
-# candidate mode. Auto-rebase drops the checkout token before it runs rebased
+# candidate mode. Every job that needs the mode is handed it as an environment
+# value, because a job token may not read repository variables through the API.
+# Auto-rebase drops the checkout token before it runs rebased
 # code; the mirror PAT reaches only the push helper.
 #
 # The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
@@ -253,6 +255,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          HYPRWS_AUTO_REBASE: ${{ vars.HYPRWS_AUTO_REBASE }}
           BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
           REPORT: ${{ runner.temp }}/fork-sync-report.json
         run: |
