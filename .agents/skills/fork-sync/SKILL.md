@@ -52,12 +52,12 @@ or bypass a refusal or `fork:sync-gate`.
    ```
 
    The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
-   installs at the final replay head, then runs scan, ledger, derived typechecks, and adjacent tests.
-   Fix a refused silent seam in its owning fork commit and repeat the rehearsal/check; never weaken a
-   check or substitute a repo-wide command.
+   installs at the final replay head, and runs scan and ledger locally. It pushes the disposable lane
+   and polls every 30 seconds for the CI verdict on the pushed lane head, with a 45-minute ceiling.
+   A timeout fails the gate. Never substitute repo-wide local checks.
 
    **Stop.** Present the emitted Gate 4 decision surface, silent seams, and grounding evidence.
-   On a failed gate command, present the exact command and its last output lines verbatim before any
+   On a failed gate, present the failing job names and last 40 failed-log lines verbatim before any
    interpretation. Continue only when the human gives every keep/retire/partial decision by exact
    subject and gives an explicit go; when the surface names a grounding claim, get that confirmation
    too. Put those decisions in the rendered record; the agent must not infer them.
@@ -68,8 +68,9 @@ or bypass a refusal or `fork:sync-gate`.
    vp run fork:sync unblock-apply --report <report> --record <record>
    ```
 
-   This calls `fork:sync-gate`, posts the record, and uses only its expected-old lease. Rejection
-   voids the report: retain its external files and restart at step 1. Never commit them.
+   This refuses a rehearsal lane moved since the CI verdict, calls `fork:sync-gate`, posts the
+   record, uses only its expected-old lease, and deletes the remote lane after apply. Rejection voids
+   the report: retain its external files and restart at step 1. Never commit them.
 
 ## Entry point: cut stable
 

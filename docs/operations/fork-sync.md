@@ -158,7 +158,7 @@ gh label view release -R RSI-Software/t3code-hyprws
 
 `hyprws-ci.yml` produces every context the `hyprws` branch ruleset requires: `Check`, `Test`, and
 the three `Test Server` shards. It runs on a pull request that is opened, pushed to, or reopened, on
-a push to a fork trunk or release branch, and on `merge_group`.
+a push to a fork trunk, rehearsal, or release branch, and on `merge_group`.
 
 It deliberately does not run on `ready_for_review`. GitHub already runs `pull_request` on a draft,
 so the matrix has normally passed on that exact head before the draft is marked ready; listing the
@@ -306,11 +306,13 @@ point. `vp run fork:sync` owns the mechanics as five report transitions:
    conflicted path, and marks each reused rerere resolution in both the stop and its conflict row so
    the human reviews and stages it rather than authors it. For `pnpm-lock.yaml` it discards the
    textual/rerere result and applies the [regeneration rule](#regenerable-files) itself.
-4. `unblock-check` classifies post-replay lock drift, installs after the replay's manifests are
-   present, and only then runs the fork scan, ledger, derived typechecks, and adjacent tests. It
-   renders the complete decision and grounding surface rather than relying on an operator regex.
-5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, posts the external record,
-   and performs the exact expected-old leased push and apply comment.
+4. `unblock-check` classifies post-replay lock drift, installs at the replay head, and runs the fork
+   scan and ledger locally. It pushes the disposable rehearsal lane, then waits up to 45 minutes for
+   the CI verdict on the pushed lane head, polling every 30 seconds. A timeout or failed job stops
+   the gate with its failed log evidence. It then renders the decision and grounding surface.
+5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
+   the CI verdict, posts the external record, performs the expected-old leased apply, and deletes the
+   remote rehearsal branch.
 
 Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
 variable carries gate state. The script also renders and validates the Markdown record schema. Its
