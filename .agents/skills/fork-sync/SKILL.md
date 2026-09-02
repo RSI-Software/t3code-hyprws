@@ -14,6 +14,17 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 Each command consumes the prior external report. Never alter its state, continue a rebase directly,
 or bypass a refusal or `fork:sync-gate`.
 
+0. Pause the bot for the whole ladder or walk series:
+
+   ```bash
+   gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-hyprws
+   ```
+
+   After each apply, run
+   `gh workflow run hyprws-upstream-sync.yml --repo RSI-Software/t3code-hyprws` once. Confirm the
+   blocked issue closes with `Resolved by hyprws <sha>` and the next block opens, or none remains.
+   Restore `on` only when the ladder or walk series ends.
+
 1. List the current block and selectable targets:
 
    ```bash
