@@ -351,6 +351,10 @@ entry point. Its five gates orient on the newest selected upstream tag beyond th
 `rehearse/<tag>`, scan every active domain, take the CI verdict on the pushed lane head, and present
 its decisions, silent seams, and grounding evidence for human sign-off before apply.
 
+A walk targets the newest offered tag by default, so `unblock-list` prints that tag alone and needs
+`--all` to print the older ones. An intermediate slice issue is opened only when a walk stops at a
+judgement and the operator chooses to bisect; a slice is never the default unit of work.
+
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
 domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
 first, then reapply the smallest fork behaviour at the new seam. Rerere output is a candidate, not

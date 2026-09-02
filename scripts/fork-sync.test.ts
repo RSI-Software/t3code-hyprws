@@ -19,6 +19,7 @@ import {
   lockDriftClass,
   nextScheduledFire,
   NO_GROUNDING_CLAIM,
+  offeredTagLines,
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
@@ -122,7 +123,7 @@ const issueJson = JSON.stringify([
 ]);
 const orientCandidates = [{ tag: "v1.2.3", sha: B }];
 
-it("orders automatic target rules as explicit, tracker, then oldest offered", () => {
+it("orders automatic target rules as explicit, tracker, then newest offered", () => {
   const candidates = [
     { tag: "v1.2.5", sha: A },
     { tag: "v1.2.4", sha: B },
@@ -143,9 +144,27 @@ it("orders automatic target rules as explicit, tracker, then oldest offered", ()
     rule: "open tracker sub-issue",
   });
   assert.deepStrictEqual(resolveAutoTarget(candidates, null, []), {
-    target: candidates[2],
-    rule: "oldest offered tag containing the block",
+    target: candidates[0],
+    rule: "newest offered tag containing the block",
   });
+});
+
+it("prints the newest offered tag alone and every tag under --all", () => {
+  const candidates = [
+    { tag: "v1.2.5", sha: A },
+    { tag: "v1.2.4", sha: B },
+    { tag: "v1.2.3", sha: C },
+  ];
+  assert.deepStrictEqual(offeredTagLines(candidates, false), [
+    `  v1.2.5@${A}`,
+    "  (2 older offered tags hidden; rerun with --all)",
+  ]);
+  assert.deepStrictEqual(offeredTagLines(candidates, true), [
+    `  v1.2.5@${A}`,
+    `  v1.2.4@${B}`,
+    `  v1.2.3@${C}`,
+  ]);
+  assert.deepStrictEqual(offeredTagLines([candidates[0]!], false), [`  v1.2.5@${A}`]);
 });
 
 it("accepts a bare unblock target tag", () => {

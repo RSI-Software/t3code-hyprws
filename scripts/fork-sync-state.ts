@@ -139,7 +139,7 @@ export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
   unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume]
-  unblock-list [--output <external-json>]
+  unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type]
@@ -220,7 +220,7 @@ export const parseVerbArgs = (
       throw new UsageError(`invalid arguments after ${verb}`);
     }
     if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
-    if (flag === "--resume" || flag === "--dry-run") {
+    if (flag === "--resume" || flag === "--dry-run" || flag === "--all") {
       values.set(flag, "true");
       index += 1;
       continue;

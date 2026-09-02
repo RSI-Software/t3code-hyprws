@@ -306,7 +306,7 @@ const unblockList = (
   cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--output"]);
+  assertOnly(values, ["--output", "--all"]);
   const root = rootFor(runner, cwd);
   requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], root);
   const issue = readIssue(runner, root);
@@ -334,9 +334,27 @@ const unblockList = (
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
-    `${reportPath}\nStop. Ask the human to select one listed target:\n${candidates.map(({ tag, sha }) => `  ${tag}@${sha}`).join("\n")}\n${renderBotSnapshot(bot)}\n`,
+    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\n`,
   );
   return report;
+};
+
+/**
+ * Candidates arrive newest first. A walk targets the newest offered tag, so only that one is
+ * printed; the older tags a bisect would need are still selectable and print under `--all`.
+ */
+export const offeredTagLines = (
+  candidates: ReadonlyArray<{ readonly tag: string; readonly sha: string }>,
+  all: boolean,
+): ReadonlyArray<string> => {
+  const shown = all ? candidates : candidates.slice(0, 1);
+  const hidden = candidates.length - shown.length;
+  return [
+    ...shown.map(({ tag, sha }) => `  ${tag}@${sha}`),
+    ...(hidden === 0
+      ? []
+      : [`  (${hidden} older offered tag${hidden === 1 ? "" : "s"} hidden; rerun with --all)`]),
+  ];
 };
 
 export const resolveUnblockTarget = (
@@ -1215,9 +1233,11 @@ export const resolveAutoTarget = (
     })
     .toSorted((left, right) => left.issue.createdAt.localeCompare(right.issue.createdAt))[0];
   if (tracker !== undefined) return { target: tracker.target, rule: "open tracker sub-issue" };
-  const oldest = candidates.at(-1);
-  if (oldest === undefined) throw new Error("unblock-list offered no target");
-  return { target: oldest, rule: "oldest offered tag containing the block" };
+  // Candidates arrive newest first. A slice is a consequence of a judgement stop, so it needs its
+  // own tracker sub-issue; the default walk carries the fork to the head of the offered tags.
+  const newest = candidates[0];
+  if (newest === undefined) throw new Error("unblock-list offered no target");
+  return { target: newest, rule: "newest offered tag containing the block" };
 };
 
 const captureStdout = <T>(effect: () => T): { readonly output: string; readonly value: T } => {
