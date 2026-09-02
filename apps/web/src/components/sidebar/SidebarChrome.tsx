@@ -9,6 +9,10 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
+import {
+  readDesktopProjectWindowRef,
+  resolveSidebarBrandTarget,
+} from "../../desktopProjectWindows";
 import { useFullPageBackOut } from "../../hooks/useLeaveFullPage";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -83,15 +87,13 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
-  return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
+  const target = resolveSidebarBrandTarget(readDesktopProjectWindowRef());
+  const className = cn(
+    "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+    onBackdrop ? "text-white" : "text-foreground",
+  );
+  const lockup = (
+    <>
       <T3Wordmark />
       <span
         className={cn(
@@ -101,6 +103,28 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       >
         Code
       </span>
+    </>
+  );
+
+  if (target.kind === "project") {
+    return (
+      <Link
+        aria-label={target.label}
+        className={className}
+        params={{
+          environmentId: target.ref.environmentId,
+          projectId: target.ref.projectId,
+        }}
+        to="/project/$environmentId/$projectId"
+      >
+        {lockup}
+      </Link>
+    );
+  }
+
+  return (
+    <Link aria-label={target.label} className={className} to="/">
+      {lockup}
     </Link>
   );
 }
