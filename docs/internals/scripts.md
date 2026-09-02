@@ -119,7 +119,7 @@ authenticated.
   every workspace manifest and `pnpm-lock.yaml` unchanged; otherwise it runs `vp i` in the detached
   worktree. `--dry-run` performs the selection, rebase, and verification without any push. `--target`
   accepts only an upstream release tag inside the clean window. The workflow consumes `--summary`,
-  `--issue-json`, and `--github-output` for its run summary and fork-local issues.
+  `--issue-json`, and `--github-output` for its run summary and fork-local `Notification 🔔` issues.
 - `vp run fork:sync-gate --tag vX.Y.Z --record <path>`: Guards the signed-off agent apply step
   (`scripts/fork-sync-gate.ts`). Stable tags remain the default; `--allow-nightly` also accepts
   `vX.Y.Z-nightly.YYYYMMDD.N` for a deliberate nightly-target rehearsal. The record path must resolve
