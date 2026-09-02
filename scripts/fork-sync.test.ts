@@ -22,6 +22,7 @@ import {
   rehearsalConflictStop,
   rehearsalRebaseArgs,
   renderRecord,
+  resolveUnblockTarget,
   run,
   validateReport,
   validateSignedRecord,
@@ -88,6 +89,41 @@ class FakeRunner implements CommandRunner {
 const issueJson = JSON.stringify([
   { number: 352, title: "blocked", body: `body\n<!-- blocking-sha:${A} -->` },
 ]);
+const orientCandidates = [{ tag: "v1.2.3", sha: B }];
+
+it("accepts a bare unblock target tag", () => {
+  assert.deepStrictEqual(resolveUnblockTarget(orientCandidates, "v1.2.3"), orientCandidates[0]);
+});
+
+it("accepts an unblock target tag with its full sha", () => {
+  assert.deepStrictEqual(
+    resolveUnblockTarget(orientCandidates, `v1.2.3@${B}`),
+    orientCandidates[0],
+  );
+});
+
+it("accepts an unblock target tag with a unique sha prefix", () => {
+  assert.deepStrictEqual(
+    resolveUnblockTarget(orientCandidates, "v1.2.3@bbbbbbb"),
+    orientCandidates[0],
+  );
+});
+
+it("refuses an unblock target tag with a mismatched sha", () => {
+  assert.throws(
+    () => resolveUnblockTarget(orientCandidates, "v1.2.3@ccccccc"),
+    new RegExp(`^target v1\\.2\\.3 was offered at ${B}, not ccccccc$`),
+  );
+});
+
+it("lists accepted unblock target forms when a tag was not offered", () => {
+  assert.throws(
+    () => resolveUnblockTarget(orientCandidates, "v9.9.9"),
+    new RegExp(
+      `^target v9\\.9\\.9 was not offered by unblock-list; accepted forms: v1\\.2\\.3, v1\\.2\\.3@${B}$`,
+    ),
+  );
+});
 
 it("writes a listed report without accepting or inferring a target", () => {
   const root = fixtureRoot();
@@ -155,16 +191,6 @@ it("orients only to a tag carried by the previous report", () => {
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = new FakeRunner();
   try {
-    assert.throws(
-      () =>
-        execute(
-          ["unblock-orient", "--report", listed.reportPath, "--target", "v9.9.9"],
-          root,
-          runner,
-        ),
-      /was not offered/,
-    );
-
     runner.set(
       "gh",
       [
