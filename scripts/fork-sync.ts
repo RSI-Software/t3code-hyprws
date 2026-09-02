@@ -9,7 +9,6 @@ import * as NodePath from "node:path";
 import { pushBotRef, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
-  requireCommandSuccess,
   SystemCommandRunner as SystemRunner,
   type CommandResult,
   type CwdCommandRunner as CommandRunner,
@@ -159,18 +158,35 @@ const defaultReportPath = (): string =>
 const BOT_VARIABLE = "HYPRWS_AUTO_REBASE";
 const BOT_WORKFLOW = "hyprws-upstream-sync.yml";
 
-const readBotMode = (runner: CommandRunner, root: string): BotMode => {
-  const args = ["variable", "get", BOT_VARIABLE, "--repo", REPOSITORY];
-  const result = runner.run("gh", args, root);
-  if (result.status !== 0 || result.error !== undefined) {
-    const detail = `${result.stdout}\n${result.stderr}`;
-    if (/\b(?:HTTP 404|not found)\b/i.test(detail)) return "candidate";
-    requireCommandSuccess(result, "gh", args);
-  }
-  const mode = result.stdout.trim();
+const asBotMode = (mode: string): BotMode => {
   if (mode !== "off" && mode !== "candidate" && mode !== "on")
     throw new Error(`${BOT_VARIABLE} has unsupported mode: ${mode || "empty"}`);
   return mode;
+};
+
+/**
+ * A workflow job token may not read repository variables, so the bot lane injects
+ * the mode as `HYPRWS_AUTO_REBASE` instead. An injected value wins; the API read is
+ * the human lane's fallback, and an unset variable still means candidate.
+ */
+const readBotMode = (runner: CommandRunner, root: string): BotMode => {
+  const injected = process.env[BOT_VARIABLE]?.trim() ?? "";
+  if (injected.length > 0) return asBotMode(injected);
+  const args = ["variable", "get", BOT_VARIABLE, "--repo", REPOSITORY];
+  const result = runner.run("gh", args, root);
+  if (result.status !== 0 || result.error !== undefined) {
+    const detail = [result.stdout.trim(), result.stderr.trim(), result.error?.message]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join("\n");
+    if (/\b(?:HTTP 404|not found)\b/i.test(detail)) return "candidate";
+    throw new Error(
+      [
+        `${commandText("gh", args)} failed: ${detail}`,
+        `a caller that cannot read repository variables sets ${BOT_VARIABLE} in the environment instead`,
+      ].join("\n"),
+    );
+  }
+  return asBotMode(result.stdout.trim());
 };
 
 const cronField = (field: string, minimum: number, maximum: number): ReadonlySet<number> => {
