@@ -11,6 +11,18 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 
 ## Entry point: unblock
 
+Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. It selects the
+open walk target (or the oldest offered tag), accepts a coherent orientation, replays rerere and
+generated conflicts, takes the pushed-lane CI verdict, records clear keep decisions, applies with
+the existing lease, dispatches reconciliation, identifies its run URL, and does not wait for completion. It stops only for an incoherent
+orientation, a non-rerere source conflict, a retirement or behaviour seam, or another real
+judgement. Resolve that surface with the existing verbs, then continue the same external report with
+`vp run fork:sync unblock-auto --resume --report <path>`.
+
+### Walk mode
+
+Use the existing step-by-step verbs below when testing, teaching, or resolving an auto-mode stop.
+
 Each command consumes the prior external report. Never alter its state, continue a rebase directly,
 or bypass a refusal or `fork:sync-gate`.
 
@@ -85,7 +97,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
    installs at the final replay head, and runs scan and ledger locally. It pushes the disposable lane
    and polls every 30 seconds for the CI verdict on the pushed lane head, with a 45-minute ceiling.
-   A timeout fails the gate. Never substitute repo-wide local checks.
+   A timeout fails the gate. Record a repaired seam with
+   `--silent-seam '<path>=<summary>:type'` or
+   `--silent-seam '<path>=<summary>:behaviour'`; auto mode carries type-only evidence and stops once
+   on behaviour evidence. Never substitute repo-wide local checks.
 
    **Stop.** Apply the stop shape and the retire-candidate test to the emitted Gate 4 decision
    surface, silent seams, and grounding evidence. On a failed gate, present the failing job names and
