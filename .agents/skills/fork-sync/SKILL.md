@@ -142,6 +142,8 @@ candidate.
 
 2. Bind the selection with
    `vp run fork:sync stable-prepare --report <report> --issue <human-selected-issue>`.
+   Preparation frozen-installs the cut lane and runs every Vite+ check through that lane's binary
+   and project environment.
 
    Review the emitted UAT draft under the [`fork-uat`](../fork-uat/SKILL.md) judgement boundary:
    write observable rows, remove reviewer-only sections, show the exact draft to the human, and
