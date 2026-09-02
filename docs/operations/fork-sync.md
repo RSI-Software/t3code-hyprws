@@ -382,8 +382,9 @@ carries gate state:
    stable tag through the release helper, refuses a local or remote tag collision, and revalidates
    the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
    for the exact snapshot and writes the draft beside the external report. A preparation failure
-   removes the cut lane before requiring a fresh `stable-list`; if Worktrunk cannot remove it, the
-   refusal prints the exact recovery command.
+   synchronously removes the cut lane, including lockfile drift, before requiring a fresh
+   `stable-list`; if Worktrunk cannot remove it, the refusal prints the exact forced recovery
+   command.
 3. `vp run fork:sync stable-publish --report <report> --go <exact-candidate>` requires the human to
    repeat the selected `vX.Y.Z-hyprws` candidate after UAT judgement. It rereads the open candidate,
    refetches and revalidates the bound snapshot, clean lane, and absent tag, creates the annotated
