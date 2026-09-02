@@ -202,19 +202,79 @@ it("warns when one commit spreads over more upstream files than the budget", () 
   assert.deepStrictEqual(atBudget, []);
 });
 
+it("warns when a commit deletes an upstream export and re-declares it elsewhere", () => {
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        "--- a/apps/web/src/routes/_chat.pull-requests.tsx",
+        "+++ b/apps/web/src/routes/_chat.pull-requests.tsx",
+        "@@ -1,3 +1,0 @@",
+        "-export interface PullRequestsSearch {",
+        "-  readonly state: string;",
+        "-}",
+        "--- /dev/null",
+        "+++ b/apps/web/src/components/pullRequest/pullRequestListRoute.ts",
+        "@@ -0,0 +1,3 @@",
+        "+export interface PullRequestsSearch {",
+        "+  readonly state: string;",
+        "+}",
+        "",
+      ].join("\n"),
+    ),
+  );
+  const warnings = collectScanWarnings(
+    guardInput({
+      patchesBySha: patches,
+      upstreamFiles: new Set(["apps/web/src/routes/_chat.pull-requests.tsx"]),
+    }),
+  );
+  assert.deepStrictEqual(
+    warnings.map(({ rule }) => rule),
+    ["replaced-export"],
+  );
+  assert.include(warnings[0]?.detail ?? "", "interface PullRequestsSearch is deleted from");
+  assert.include(warnings[0]?.detail ?? "", "pullRequestListRoute.ts");
+});
+
+it("leaves a purely additive commit alone", () => {
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        "--- a/apps/web/src/routes/_chat.pull-requests.tsx",
+        "+++ b/apps/web/src/routes/_chat.pull-requests.tsx",
+        "@@ -4,0 +5,1 @@",
+        "+export const PULL_REQUEST_LIST_SORTS = [] as const;",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set(["apps/web/src/routes/_chat.pull-requests.tsx"]),
+      }),
+    ),
+    [],
+  );
+});
+
 it("reads one patch record per commit and asks Git for zero-context hunks", () => {
   const patches = parseCommitPatches(
-    `${patch("a".repeat(40), '--- a/one.test.ts\n+++ b/one.test.ts\n+it("one", () => {});\n')}${patch(
+    `${patch("a".repeat(40), "--- a/one.ts\n+++ b/one.ts\n+export const one = 1;\n")}${patch(
       "b".repeat(40),
-      '--- a/two.test.ts\n+++ b/two.test.ts\n-it("two", () => {});\n',
+      "--- a/two.ts\n+++ b/two.ts\n-export const two = 2;\n",
     )}`,
   );
   assert.deepStrictEqual([...patches.keys()], ["a".repeat(40), "b".repeat(40)]);
-  assert.deepStrictEqual(
-    [...(patches.get("a".repeat(40))?.addedTestBlocks ?? [])],
-    [["one.test.ts", 1]],
-  );
-  assert.deepStrictEqual([...(patches.get("b".repeat(40))?.addedTestBlocks ?? [])], []);
+  assert.deepStrictEqual(patches.get("a".repeat(40))?.addedExports, [
+    { path: "one.ts", kind: "const", name: "one" },
+  ]);
+  assert.deepStrictEqual(patches.get("b".repeat(40))?.removedExports, [
+    { path: "two.ts", kind: "const", name: "two" },
+  ]);
   assert.include(commitPatchArguments(["aaa"]), "--unified=0");
 });
 

@@ -318,6 +318,8 @@ again.
   `*.fork.test.ts` sibling below.
 - `footprint`: one commit edits more than six upstream files, which is more seam than a single
   rebase intent should carry.
+- `replaced-export`: the commit deletes an upstream-owned export and re-declares the same name,
+  which is the shape below.
 
 Warnings are advisory. `fork:scan` prints them and still exits on its own scan verdict, so a guard
 can ship before the stack it describes is clean and no existing walk breaks. `--strict` makes them
@@ -330,6 +332,17 @@ Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` o
 `<name>.fork.test.tsx`, rather than appending them to the upstream-owned file. The replayed fork
 series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
 Changes to an existing upstream expectation stay in the upstream test file.
+
+### Extend an upstream export, do not replace it
+
+An upstream-exported schema, list, enum, or switch the fork needs more of stays where upstream
+declares it. Deleting that declaration and re-declaring the fork's version — in place, or by moving
+it into a new fork-owned file — reads as a clean rewrite and silently drops every later upstream
+edit to it. The rebase replays the fork's copy and never surfaces what upstream added.
+
+Extend it from a fork-owned sibling instead: import the upstream declaration, compose the fork's
+additions beside it, and export the result under a fork-owned name, leaving the upstream declaration
+in place for the next rebase to carry.
 
 The best fork code looks unsurprising inside upstream T3 Code.
 Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
