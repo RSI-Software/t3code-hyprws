@@ -1952,7 +1952,6 @@
         "subject": "feat(server): serve paginated child work (#195)",
         "domain": "custom-agents",
         "verdict": "keep",
-        "action": "keep (mechanical seam)",
         "decidedBy": "agent"
       },
       {
@@ -2291,6 +2290,480 @@
         "path": "pnpm-lock.yaml",
         "hunks": 2,
         "commit": "051ccd2",
+        "domain": "markdown-editing"
+      }
+    ]
+  },
+  {
+    "tag": "v0.0.38-nightly.20260901.1244",
+    "before": "79292552e6db37c0eb27282f37d904cbe760dd07",
+    "after": "ce6cf0be3e528fd787f981432046e93ea6501d56",
+    "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/463#issuecomment-5513701324",
+    "conflicts": [
+      {
+        "path": "apps/web/src/components/CommandPalette.tsx",
+        "commit": "1a37ce2a8e0d",
+        "subject": "refactor(web): centralize thread route navigation",
+        "domain": "project-windows",
+        "class": "mechanical",
+        "resolution": "rerere replay",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/settings/settingsSearch.test.ts",
+        "commit": "754ffb06ebaa",
+        "subject": "fix(server): follow external workspace symlinks globally (#66)",
+        "domain": "upstream-fixes",
+        "class": "mechanical",
+        "resolution": "rerere replay",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+        "commit": "d893b73dd531",
+        "subject": "feat(web): scope pull requests to project windows",
+        "domain": "project-windows",
+        "class": "mechanical",
+        "resolution": "rerere replay, reviewed after staging. The replayed tree left the project-options ternary unformatted and left the fork's own test asserting through a shallow text walk that upstream's new `options` prop no longer feeds; both were fixed as silent seams in this commit. Upstream's filter menu and the fork's project group both survive.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+        "commit": "d893b73dd531",
+        "subject": "feat(web): scope pull requests to project windows",
+        "domain": "project-windows",
+        "class": "mechanical",
+        "resolution": "rerere replay, reviewed after staging. The fork's window scope toggle and route hook survive alongside upstream's sort, author, and label controls. The replay dropped upstream's three new search fields because the fork owns the search schema in `pullRequestListRoute.ts`; ported as a silent seam in this commit.",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/CommandPalette.tsx",
+        "commit": "db7d720135f0",
+        "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+        "domain": "github-issues",
+        "class": "mechanical",
+        "resolution": "rerere replay",
+        "decidedBy": "agent"
+      },
+      {
+        "path": "apps/web/src/components/settings/settingsSearch.ts",
+        "commit": "ed54ebceaf12",
+        "subject": "feat(web): make issue handoff prompt configurable (#118)",
+        "domain": "github-issues",
+        "class": "mechanical",
+        "resolution": "List-append union in `SETTINGS_SEARCH_ITEMS`. Upstream inserted four new source-control entries (`git-fetch-interval`, `source-control-writing-style`, `follow-change-request-templates`, `source-control-writer-model`) and renamed the following entry from `remote-environments` | Remote environments to `network-access` | Network access. The fork's commit is a pure five-line insertion of the `github-issue-handoff-prompt` entry. Kept all four upstream entries and upstream's rename, and placed the fork entry at the end of the source-control group. `vp test run apps/web/src/components/settings/settingsSearch.test.ts` passes, 15/15.",
+        "decidedBy": "agent"
+      }
+    ],
+    "decisions": [
+      {
+        "subject": "refactor(web): centralize thread route navigation",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "feat(web): open project windows from hub actions",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "fix(server): keep pull requests on origin",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+        "domain": "zmux-estate",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "feat(files): reveal ignored workspace files (#73)",
+        "domain": "workspace-files",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(server): follow external workspace symlinks globally (#66)",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "feat(web): scope pull requests to project windows",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "feat(web): make issue handoff prompt configurable (#118)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): expose Worktrunk hook settings",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "human"
+      },
+      {
+        "subject": "fix(web): add Issues to right-panel launchers (#193)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): add GitHub link destination controls (#178)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "decidedBy": "human"
+      }
+    ],
+    "censusFiles": [
+      {
+        "path": "apps/desktop/src/preload.ts",
+        "hunks": 1,
+        "commit": "59e4e67",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/preview/Manager.test.ts",
+        "hunks": 1,
+        "commit": "4781a52",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+        "hunks": 1,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+        "hunks": 2,
+        "commit": "1f15393",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.ts",
+        "hunks": 1,
+        "commit": "d7aa8f3",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+        "hunks": 2,
+        "commit": "f934064",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.ts",
+        "hunks": 1,
+        "commit": "f934064",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+        "hunks": 1,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/features/settings/SettingsRouteScreen.tsx",
+        "hunks": 2,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/persistence/mobile-preferences.ts",
+        "hunks": 3,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/server/src/git/GitManager.test.ts",
+        "hunks": 1,
+        "commit": "c9beb04",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+        "hunks": 2,
+        "commit": "fc351aa",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+        "hunks": 1,
+        "commit": "2b28860",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/ClaudeDriver.ts",
+        "hunks": 2,
+        "commit": "0b98110",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/CodexDriver.ts",
+        "hunks": 1,
+        "commit": "080ed31",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.test.ts",
+        "hunks": 1,
+        "commit": "cb2f0f8",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+        "hunks": 2,
+        "commit": "2b28860",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeProvider.ts",
+        "hunks": 1,
+        "commit": "080ed31",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ProviderService.test.ts",
+        "hunks": 1,
+        "commit": "2b28860",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/ProviderDriver.ts",
+        "hunks": 1,
+        "commit": "a223e9a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/pullRequest/GitHubPullRequestCli.test.ts",
+        "hunks": 1,
+        "commit": "8d9abd8",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/server.test.ts",
+        "hunks": 1,
+        "commit": "7e99948",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/server.ts",
+        "hunks": 1,
+        "commit": "db7d720",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/package.json",
+        "hunks": 1,
+        "commit": "6111b90",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/ChatMarkdown.tsx",
+        "hunks": 2,
+        "commit": "db7d720",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/ChatView.tsx",
+        "hunks": 4,
+        "commit": "1a37ce2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/CommandPalette.tsx",
+        "hunks": 2,
+        "commit": "1a37ce2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/Sidebar.tsx",
+        "hunks": 1,
+        "commit": "f908686",
+        "domain": "thread-ordering"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.test.ts",
+        "hunks": 1,
+        "commit": "8752449",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+        "hunks": 2,
+        "commit": "8752449",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/ChatComposer.tsx",
+        "hunks": 3,
+        "commit": "a223e9a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/MessagesTimeline.tsx",
+        "hunks": 1,
+        "commit": "951df57",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+        "hunks": 1,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+        "hunks": 7,
+        "commit": "6111b90",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+        "hunks": 1,
+        "commit": "d893b73",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+        "hunks": 3,
+        "commit": "74e7a40",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/settings/SourceControlSettings.tsx",
+        "hunks": 1,
+        "commit": "ed54ebc",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/settings/settingsSearch.test.ts",
+        "hunks": 1,
+        "commit": "754ffb0",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/settings/settingsSearch.ts",
+        "hunks": 1,
+        "commit": "ed54ebc",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/sidebar/SidebarChrome.tsx",
+        "hunks": 1,
+        "commit": "74b6f80",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/composerDraftStore.test.ts",
+        "hunks": 1,
+        "commit": "59e4e67",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useHandleNewThread.ts",
+        "hunks": 2,
+        "commit": "1a37ce2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useNowMinute.ts",
+        "hunks": 1,
+        "commit": "b2b5b26",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/lib/chatThreadActions.ts",
+        "hunks": 1,
+        "commit": "325cbfa",
+        "domain": "worktrunk-hooks"
+      },
+      {
+        "path": "apps/web/src/markdown-links.ts",
+        "hunks": 1,
+        "commit": "6111b90",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/providerModels.ts",
+        "hunks": 1,
+        "commit": "080ed31",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/routes/-chatIndexTitlebar.test.ts",
+        "hunks": 0,
+        "commit": "3fe222a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+        "hunks": 4,
+        "commit": "d893b73",
+        "domain": "project-windows"
+      },
+      {
+        "path": "package.json",
+        "hunks": 1,
+        "commit": "295e36f",
+        "domain": "fork-meta"
+      },
+      {
+        "path": "packages/client-runtime/src/state/threadReducer.ts",
+        "hunks": 1,
+        "commit": "951df57",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "packages/contracts/src/ipc.ts",
+        "hunks": 2,
+        "commit": "96b9f61",
+        "domain": "project-windows"
+      },
+      {
+        "path": "packages/contracts/src/settings.test.ts",
+        "hunks": 1,
+        "commit": "6406cba",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "packages/contracts/src/settings.ts",
+        "hunks": 4,
+        "commit": "8a7872e",
+        "domain": "github-issues"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "hunks": 2,
+        "commit": "6111b90",
         "domain": "markdown-editing"
       }
     ]
