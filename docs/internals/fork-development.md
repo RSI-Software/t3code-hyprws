@@ -345,8 +345,8 @@ semantic review.
 
 After sign-off and a passing gate, the agent's final push uses the full `expected_old` read exactly
 once at rehearsal start. Gate refusals are never bypassed. A rejected lease means the published
-branch moved: fetch and inspect the drift, start a new rehearsal, and repeat the checks and human
-sanity gate. Never replace the lease with an unguarded force push or silently refresh it.
+branch moved: fetch and inspect the drift, start a new rehearsal, and repeat the checks and the
+human decision gate. Never replace the lease with an unguarded force push or silently refresh it.
 
 Human rehearsal records are posted as comments on their `rebase-blocked` issues, and automatic
 rewrites are recorded in immutable workflow run summaries. Neither flow adds operational record
