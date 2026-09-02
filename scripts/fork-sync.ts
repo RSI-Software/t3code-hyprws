@@ -563,11 +563,14 @@ const unblockCheck = (
   if (installedAfter !== before) restoreSnapshotDrift(runner, worktree);
   const installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
-    { command: "vp", args: ["run", "fork:scan", "--target", report.target.tag] },
-    { command: "vp", args: ["run", "fork:delta", "--check"] },
+    {
+      command: "vp",
+      args: ["run", "--no-cache", "fork:scan", "--target", report.target.tag],
+    },
+    { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
     { command: "vp", args: ["check"] },
-    { command: "vp", args: ["run", "typecheck"] },
-    { command: "vp", args: ["run", "test"] },
+    { command: "vp", args: ["run", "--no-cache", "typecheck"] },
+    { command: "vp", args: ["run", "--no-cache", "test"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
   const verificationEnv = gateVerificationEnv(process.env);
