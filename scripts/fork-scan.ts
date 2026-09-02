@@ -14,6 +14,7 @@ import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import { CHURN_LEDGER_FILE, CHURN_REF, readBotRefFile } from "./lib/fork-bot-refs.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import {
   collectScanWarnings,
@@ -93,9 +94,10 @@ Options:
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
-Ledger guards read docs/internals/fork-churn.json and warn about a hot seam, a fork test
-block appended to an upstream-owned test file, a commit spread over more than six upstream
-files, and an upstream export a commit deletes and re-declares. They print and exit 0 so an
+Ledger guards read refs/fork/churn, or docs/internals/fork-churn.json until it is seeded,
+and warn about a hot seam, a fork test block appended to an upstream-owned test file, a
+commit spread over more than six upstream files, and an upstream export a commit deletes
+and re-declares. They print and exit 0 so an
 existing walk keeps its verdict; --strict turns them into a failure.
 
 The typechecks run only when --head resolves to the checkout HEAD, because they read the
@@ -534,8 +536,11 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
+    // The ledger lives on its bot-owned ref; the deprecated file answers until it is seeded.
     const churnPath = NodePath.join(root, CHURN_PATH);
-    const churn = NodeFS.existsSync(churnPath) ? NodeFS.readFileSync(churnPath, "utf8") : null;
+    const churn =
+      readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ??
+      (NodeFS.existsSync(churnPath) ? NodeFS.readFileSync(churnPath, "utf8") : null);
     const scanned = readScan(git, options, ledger, churn);
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
