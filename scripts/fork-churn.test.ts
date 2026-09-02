@@ -60,14 +60,79 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
 });
 
-it("defaults older record and ledger rows to human provenance", () => {
+it("reads a record or ledger row written before provenance as deciding nothing", () => {
   const oldRecord = renderRecord(reportFixture())
     .split("\n")
     .map((line) => line.replace(/ \| (?:human|agent) \|$/, " |"))
     .join("\n");
   const parsed = parseRecord(oldRecord);
-  assert.isTrue(parsed.conflicts.every(({ decidedBy }) => decidedBy === "human"));
-  assert.isTrue(parsed.decisions.every(({ decidedBy }) => decidedBy === "human"));
+  assert.isTrue(parsed.conflicts.every(({ decidedBy }) => decidedBy === "TODO"));
+  assert.isTrue(parsed.decisions.every(({ decidedBy }) => decidedBy === "TODO"));
+
+  const [entry] = parseLedger(
+    JSON.stringify([
+      {
+        tag: "v1",
+        before: A,
+        after: B,
+        recordUrl: "https://example.test/v1",
+        conflicts: [
+          {
+            path: "apps/web/src/a.ts",
+            commit: "1234567",
+            subject: "feat: a",
+            domain: "fork-meta",
+            class: "human",
+            resolution: "resolved",
+          },
+        ],
+        decisions: [{ subject: "feat: a", domain: "fork-meta", verdict: "keep" }],
+        censusFiles: [],
+      },
+    ]),
+  );
+  assert.strictEqual(entry?.conflicts[0]?.decidedBy, "TODO");
+  assert.strictEqual(entry?.decisions[0]?.decidedBy, "TODO");
+});
+
+it("counts only decision cells carrying provenance in the walks table", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-test-"));
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.mkdirSync(internals, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-churn.json"),
+    `${JSON.stringify([
+      {
+        tag: "v1",
+        before: A,
+        after: B,
+        recordUrl: "https://example.test/v1",
+        conflicts: [
+          conflict("apps/web/src/signed.ts", "human"),
+          { ...conflict("apps/web/src/unsigned.ts", "human"), decidedBy: "TODO" },
+        ],
+        decisions: [
+          { subject: "feat: agent call", domain: "fork-meta", verdict: "keep", decidedBy: "agent" },
+          { subject: "feat: nobody's call", domain: "fork-meta", verdict: "keep" },
+        ],
+        censusFiles: [],
+      },
+    ])}\n`,
+  );
+  try {
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| `v1` |"));
+    // One agent decision and one human conflict; the two unprovenanced rows count on neither side.
+    assert.include(walks ?? "", "| 1/1 |");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it("parses the sequential rebase census table by its rendered columns", () => {
