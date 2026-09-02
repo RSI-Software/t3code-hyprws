@@ -30,6 +30,7 @@ export interface ChurnConflict {
   readonly domain: string;
   readonly class: ConflictClass;
   readonly resolution: string;
+  readonly decidedBy: "human" | "agent";
 }
 
 export interface CensusFile {
@@ -163,6 +164,13 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
         domain: requireString(row.domain, "conflict domain"),
         class: row.class,
         resolution: requireString(row.resolution, "conflict resolution"),
+        decidedBy: (row.decidedBy === undefined || row.decidedBy === "human"
+          ? "human"
+          : row.decidedBy === "agent"
+            ? "agent"
+            : (() => {
+                throw new Error(`invalid conflict decidedBy in entry ${entryIndex}`);
+              })()) as "human" | "agent",
       };
     });
     const decisions = entry.decisions.map((item, decisionIndex) => {
@@ -176,6 +184,13 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
         subject: requireString(row.subject, "decision subject"),
         domain: requireString(row.domain, "decision domain"),
         verdict: verdict as OrientationDecisionRow["verdict"],
+        decidedBy: (row.decidedBy === undefined || row.decidedBy === "human"
+          ? "human"
+          : row.decidedBy === "agent"
+            ? "agent"
+            : (() => {
+                throw new Error(`invalid decision decidedBy in entry ${entryIndex}`);
+              })()) as "human" | "agent",
       };
     });
     const censusFiles = entry.censusFiles.map((item, censusIndex) => {
@@ -474,12 +489,15 @@ export const renderMarkdown = (entries: ReadonlyArray<ChurnEntry>, forkDelta: st
   } else {
     lines.push(
       "<!-- prettier-ignore -->",
-      "| Tag | Range | Conflicts by class | Record |",
-      "| --- | --- | --- | --- |",
+      "| Tag | Range | Conflicts by class | Agent/human decisions | Record |",
+      "| --- | --- | --- | ---: | --- |",
     );
     for (const entry of entries) {
+      const decidedRows = [...entry.conflicts, ...entry.decisions];
+      const agent = decidedRows.filter(({ decidedBy }) => decidedBy === "agent").length;
+      const human = decidedRows.length - agent;
       lines.push(
-        `| ${code(entry.tag)} | ${code(entry.before)} → ${code(entry.after)} | ${classHistogram(entry.conflicts) || "none"} | [record](${entry.recordUrl}) |`,
+        `| ${code(entry.tag)} | ${code(entry.before)} → ${code(entry.after)} | ${classHistogram(entry.conflicts) || "none"} | ${agent}/${human} | [record](${entry.recordUrl}) |`,
       );
     }
     lines.push("");
@@ -545,13 +563,14 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
   if (recordUrl === undefined)
     throw new Error(`record does not match issue ${issue} body or comments`);
   const conflicts = parsed.conflicts.map(
-    ({ path, commit, subject, domain, class: klass, resolution }) => ({
+    ({ path, commit, subject, domain, class: klass, resolution, decidedBy }) => ({
       path,
       commit,
       subject,
       domain,
       class: klass as ConflictClass,
       resolution,
+      decidedBy,
     }),
   );
   const next = [
