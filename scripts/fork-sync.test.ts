@@ -696,11 +696,17 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: "rehearse/v1.2.3", worktree: root },
     installedHead: B,
+    ciHead: B,
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", "refs/heads/rehearse/v1.2.3"],
+    { stdout: `${B}\trefs/heads/rehearse/v1.2.3\n` },
+  );
   runner.set(
     "gh",
     [
@@ -729,6 +735,48 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
       ({ command, args }) => command === "git" && args.includes("push"),
     );
     assert.include(push?.args ?? [], `--force-with-lease=refs/heads/hyprws:${C}`);
+    assert.isDefined(
+      runner.calls.find(
+        ({ command, args }) =>
+          command === "git" && args.join(" ").endsWith("push origin --delete rehearse/v1.2.3"),
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses apply when the pushed lane moved after the CI verdict", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    installedHead: B,
+    ciHead: B,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", "refs/heads/rehearse/v1.2.3"],
+    { stdout: `${C}\trefs/heads/rehearse/v1.2.3\n` },
+  );
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          root,
+          runner,
+        ),
+      /pushed rehearsal lane moved after the CI verdict/,
+    );
+    assert.isFalse(runner.calls.some(({ command }) => command === "vp"));
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
@@ -741,21 +789,23 @@ it("returns usage status for an unknown verb", () => {
 
 // The scan typechecks the replayed head, so a tree installed before the replay carried its
 // manifests reads exactly like a fresh one. Ordering is the whole guarantee.
-const checkedRun = (): {
+const replayedRun = (): {
   runner: FakeRunner;
   root: string;
   worktree: string;
   reportPath: string;
+  branch: string;
 } => {
   const root = fixtureRoot();
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
   const lock = "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers: {}\n";
   NodeFS.writeFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), lock);
   const messages = "feat: one\x1e";
+  const branch = "rehearse/v1.2.3-from-cccccccccccc";
   const replayed = report(root, {
     stage: "replayed",
     target: { tag: "v1.2.3", sha: B },
-    lane: { branch: "rehearse/v1.2.3-from-cccccccccccc", worktree },
+    lane: { branch, worktree },
     originalMessages: messages,
     originalCount: 1,
   });
@@ -782,8 +832,50 @@ const checkedRun = (): {
     stdout: lock,
   });
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${A}\n` });
-  execute(["unblock-check", "--report", replayed.reportPath], root, runner);
-  return { runner, root, worktree, reportPath: replayed.reportPath };
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${A}\trefs/heads/${branch}\n` },
+  );
+  return { runner, root, worktree, reportPath: replayed.reportPath, branch };
+};
+
+const checkedRun = (): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  reportPath: string;
+  branch: string;
+} => {
+  const state = replayedRun();
+  state.runner.set(
+    "gh",
+    [
+      "run",
+      "list",
+      "--workflow",
+      "hyprws-ci.yml",
+      "--branch",
+      state.branch,
+      "--json",
+      "databaseId,headSha,status,conclusion,url",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+    ],
+    {
+      stdout: JSON.stringify([
+        {
+          databaseId: 42,
+          headSha: A,
+          status: "completed",
+          conclusion: "success",
+          url: "https://example.test/runs/42",
+        },
+      ]),
+    },
+  );
+  execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+  return state;
 };
 
 const order = (runner: FakeRunner, command: string, args: ReadonlyArray<string>): number =>
@@ -804,23 +896,148 @@ it("installs the replayed tree before the scan that typechecks it", () => {
   }
 });
 
-it("bypasses the task cache and records the executed Gate 3 commands", () => {
-  const { runner, root, worktree, reportPath } = checkedRun();
+it("pushes the rehearsal and records the CI verdict on its exact head", () => {
+  const { runner, root, worktree, reportPath, branch } = checkedRun();
   try {
-    const cachedTasks = runner.calls.filter(
+    const localTasks = runner.calls.filter(
       ({ command, args }) => command === "vp" && args[0] === "run",
     );
-    assert.lengthOf(cachedTasks, 4);
-    for (const call of cachedTasks) assert.strictEqual(call.args[1], "--no-cache");
+    assert.lengthOf(localTasks, 2);
+    for (const call of localTasks) assert.strictEqual(call.args[1], "--no-cache");
+    assert.isFalse(
+      runner.calls.some(
+        ({ command, args }) =>
+          command === "vp" &&
+          (args[0] === "check" || args.includes("typecheck") || args.includes("test")),
+      ),
+    );
+    assert.isDefined(
+      runner.calls.find(
+        ({ command, args }) =>
+          command === "git" &&
+          args.join(" ").endsWith(`push --force-with-lease origin HEAD:refs/heads/${branch}`),
+      ),
+    );
 
     const checked = validateReport(JSON.parse(NodeFS.readFileSync(reportPath, "utf8")));
+    assert.strictEqual(checked.installedHead, A);
+    assert.strictEqual(checked.ciHead, A);
     assert.deepInclude(checked.verification, {
-      command: "vp run --no-cache test",
+      command: "hyprws CI https://example.test/runs/42",
       result: "passed",
     });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("surfaces each failing CI job with its last 40 failed-log lines verbatim", () => {
+  const state = replayedRun();
+  const runListArgs = [
+    "run",
+    "list",
+    "--workflow",
+    "hyprws-ci.yml",
+    "--branch",
+    state.branch,
+    "--json",
+    "databaseId,headSha,status,conclusion,url",
+    "-R",
+    "RSI-Software/t3code-hyprws",
+  ];
+  state.runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([
+      {
+        databaseId: 43,
+        headSha: A,
+        status: "completed",
+        conclusion: "failure",
+        url: "https://example.test/runs/43",
+      },
+    ]),
+  });
+  state.runner.set(
+    "gh",
+    ["run", "view", "43", "--json", "jobs", "-R", "RSI-Software/t3code-hyprws"],
+    {
+      stdout: JSON.stringify({
+        jobs: [
+          { name: "Check", conclusion: "failure" },
+          { name: "Test", conclusion: "failure" },
+          { name: "Test Server 1", conclusion: "success" },
+        ],
+      }),
+    },
+  );
+  const linesFor = (job: string): string =>
+    Array.from(
+      { length: 45 },
+      (_, index) => `${job}\tstep\t${job.toLowerCase()}-${String(index + 1).padStart(3, "0")}`,
+    ).join("\n");
+  state.runner.set(
+    "gh",
+    ["run", "view", "43", "--log-failed", "-R", "RSI-Software/t3code-hyprws"],
+    { stdout: `${linesFor("Check")}\n${linesFor("Test")}\n` },
+  );
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.include(message, "hyprws CI failed: https://example.test/runs/43");
+    assert.include(message, "Failing job: Check");
+    assert.include(message, "Failing job: Test");
+    assert.include(message, "Check\tstep\tcheck-006");
+    assert.include(message, "Check\tstep\tcheck-045");
+    assert.notInclude(message, "Check\tstep\tcheck-005");
+    assert.notInclude(message, "Test Server 1");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("treats a 45-minute CI wait timeout as a failed gate", () => {
+  const state = replayedRun();
+  state.runner.set(
+    "gh",
+    [
+      "run",
+      "list",
+      "--workflow",
+      "hyprws-ci.yml",
+      "--branch",
+      state.branch,
+      "--json",
+      "databaseId,headSha,status,conclusion,url",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+    ],
+    { stdout: "[]" },
+  );
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /hyprws CI timed out after 45 minutes/,
+    );
+    assert.lengthOf(
+      state.runner.calls.filter(
+        ({ command, args }) => command === "sleep" && args.join(" ") === "30",
+      ),
+      90,
+    );
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+      "replayed",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -851,7 +1068,7 @@ it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 chec
       ({ command, args }) =>
         command === "vp" && (args[0] === "check" || (args[0] === "run" && args[1] !== undefined)),
     );
-    assert.lengthOf(checks, 5);
+    assert.lengthOf(checks, 2);
     for (const call of checks) {
       assert.isDefined(call.env);
       for (const key of Object.keys(scrubbedGateEnv)) {
