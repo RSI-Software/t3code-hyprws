@@ -1,13 +1,25 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, CircleDotIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  CircleDotIcon, // fork-hook: github-issues/sidebar-issues-icon
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
+import {
+  readDesktopProjectWindowRef,
+  resolveSidebarBrandTarget,
+} from "../../desktopProjectWindows";
 import { useFullPageBackOut } from "../../hooks/useLeaveFullPage";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes";
+import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
 import { useEnvironments } from "../../state/environments";
+import { resolveSidebarGitHubIssuesPageFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
+import { useGitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -80,27 +92,45 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
-  return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-        <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
-        <span
-          className={cn(
-            "truncate [text-box:trim-both_cap_alphabetic]",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          Code
-        </span>
+  const target = resolveSidebarBrandTarget(readDesktopProjectWindowRef());
+  const className = cn(
+    "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+    onBackdrop ? "text-white" : "text-foreground",
+  );
+  const lockup = (
+    // Center the visible capitals, without the font's ascender/descender space.
+    <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
+      <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
+      <span
+        className={cn(
+          "truncate [text-box:trim-both_cap_alphabetic]",
+          onBackdrop ? "text-white/70" : "text-muted-foreground",
+        )}
+      >
+        Code
       </span>
+    </span>
+  );
+
+  if (target.kind === "project") {
+    return (
+      <Link
+        aria-label={target.label}
+        className={className}
+        params={{
+          environmentId: target.ref.environmentId,
+          projectId: target.ref.projectId,
+        }}
+        to="/project/$environmentId/$projectId"
+      >
+        {lockup}
+      </Link>
+    );
+  }
+
+  return (
+    <Link aria-label={target.label} className={className} to="/">
+      {lockup}
     </Link>
   );
 }
@@ -145,18 +175,14 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         : pathname === "/pull-requests" ||
             (projectRef !== null && pathname.endsWith("/pull-requests"))
           ? "pull-requests"
-          : pathname === "/issues" || (projectRef !== null && pathname.endsWith("/issues"))
-            ? "github-issues"
-            : null;
+          : resolveSidebarGitHubIssuesPageFork(pathname, projectRef); // fork-hook: github-issues/sidebar-issues-footer-page
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
-  const githubIssuesSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
-  );
+  const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -169,18 +195,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   }, [closeMobileSidebar, navigate, projectRef]);
-  const handleIssuesClick = useCallback(() => {
-    closeMobileSidebar();
-    if (projectRef !== null) {
-      void navigate({
-        to: "/project/$environmentId/$projectId/issues",
-        params: projectRef,
-        search: { state: "open" },
-      });
-      return;
-    }
-    void navigate({ to: "/issues", search: { state: "open" } });
-  }, [closeMobileSidebar, navigate, projectRef]);
+  const handleIssuesClick = useGitHubIssuesSidebarNavigateFork({
+    closeMobileSidebar,
+    navigate,
+    projectRef,
+  }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -221,6 +240,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          {/* fork-hook: github-issues/sidebar-issues-entry */}
           {githubIssuesSupported ? (
             <SidebarUtilityItem
               icon={<CircleDotIcon />}
@@ -228,6 +248,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handleIssuesClick}
             />
           ) : null}
+          {/* fork-hook-end */}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"
