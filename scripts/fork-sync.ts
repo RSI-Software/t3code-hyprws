@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 
 import { UsageError } from "./lib/fork-cli.ts";
 import {
+  requireCommandSuccess,
   SystemCommandRunner as SystemRunner,
   type CommandResult,
   type CwdCommandRunner as CommandRunner,
@@ -51,6 +52,9 @@ import {
   writeRecord,
   writeReport,
   worktreePath,
+  type BotMode,
+  type BotRun,
+  type BotSnapshot,
   type ConflictRow,
   type SyncReport,
 } from "./fork-sync-state.ts";
@@ -62,6 +66,9 @@ export {
   parseConflictRows,
   renderRecord,
   validateReport,
+  type BotMode,
+  type BotRun,
+  type BotSnapshot,
   type ConflictClass,
   type ConflictRow,
   type OrientationDecisionRow,
@@ -130,6 +137,162 @@ const releaseTags = (
 const defaultReportPath = (): string =>
   NodePath.join(NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-")), "report.json");
 
+const BOT_VARIABLE = "HYPRWS_AUTO_REBASE";
+const BOT_WORKFLOW = "hyprws-upstream-sync.yml";
+
+const readBotMode = (runner: CommandRunner, root: string): BotMode => {
+  const args = ["variable", "get", BOT_VARIABLE, "--repo", REPOSITORY];
+  const result = runner.run("gh", args, root);
+  if (result.status !== 0 || result.error !== undefined) {
+    const detail = `${result.stdout}\n${result.stderr}`;
+    if (/\b(?:HTTP 404|not found)\b/i.test(detail)) return "candidate";
+    requireCommandSuccess(result, "gh", args);
+  }
+  const mode = result.stdout.trim();
+  if (mode !== "off" && mode !== "candidate" && mode !== "on")
+    throw new Error(`${BOT_VARIABLE} has unsupported mode: ${mode || "empty"}`);
+  return mode;
+};
+
+const cronField = (field: string, minimum: number, maximum: number): ReadonlySet<number> => {
+  const values = new Set<number>();
+  for (const segment of field.split(",")) {
+    const parts = segment.split("/");
+    if (parts.length > 2) throw new Error(`unsupported cron field: ${field}`);
+    const range = parts[0] ?? "";
+    const step = parts[1] === undefined ? 1 : Number(parts[1]);
+    if (!Number.isInteger(step) || step < 1) throw new Error(`unsupported cron field: ${field}`);
+    let start: number;
+    let end: number;
+    if (range === "*") {
+      start = minimum;
+      end = maximum;
+    } else if (range.includes("-")) {
+      const bounds = range.split("-");
+      if (bounds.length !== 2) throw new Error(`unsupported cron field: ${field}`);
+      start = Number(bounds[0]);
+      end = Number(bounds[1]);
+    } else {
+      start = Number(range);
+      end = start;
+    }
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < minimum ||
+      end > maximum ||
+      start > end
+    )
+      throw new Error(`unsupported cron field: ${field}`);
+    for (let value = start; value <= end; value += step) values.add(value);
+  }
+  return values;
+};
+
+export const nextScheduledFire = (cron: string, now = new Date()): string => {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) throw new Error(`expected a five-field cron, got: ${cron}`);
+  const [minute = "", hour = "", dayOfMonth = "", month = "", dayOfWeek = ""] = fields;
+  const minutes = cronField(minute, 0, 59);
+  const hours = cronField(hour, 0, 23);
+  const monthDays = cronField(dayOfMonth, 1, 31);
+  const months = cronField(month, 1, 12);
+  const weekDays = new Set([...cronField(dayOfWeek, 0, 7)].map((value) => value % 7));
+  const monthDayWildcard = dayOfMonth === "*";
+  const weekDayWildcard = dayOfWeek === "*";
+  const candidate = new Date(now);
+  candidate.setUTCSeconds(0, 0);
+  candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
+  const limit = 366 * 24 * 60 * 5;
+  for (let attempt = 0; attempt < limit; attempt += 1) {
+    const monthDayMatches = monthDays.has(candidate.getUTCDate());
+    const weekDayMatches = weekDays.has(candidate.getUTCDay());
+    const dayMatches =
+      monthDayWildcard && weekDayWildcard
+        ? true
+        : monthDayWildcard
+          ? weekDayMatches
+          : weekDayWildcard
+            ? monthDayMatches
+            : monthDayMatches || weekDayMatches;
+    if (
+      minutes.has(candidate.getUTCMinutes()) &&
+      hours.has(candidate.getUTCHours()) &&
+      months.has(candidate.getUTCMonth() + 1) &&
+      dayMatches
+    )
+      return candidate.toISOString();
+    candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
+  }
+  throw new Error(`cron has no fire in the next five years: ${cron}`);
+};
+
+const workflowCron = (root: string): string => {
+  const workflow = NodeFS.readFileSync(
+    NodePath.join(root, ".github", "workflows", BOT_WORKFLOW),
+    "utf8",
+  );
+  const cron = /^\s*-\s+cron:\s*["']([^"']+)["']\s*$/m.exec(workflow)?.[1];
+  if (cron === undefined) throw new Error(`${BOT_WORKFLOW} has no quoted schedule cron`);
+  return cron;
+};
+
+const readBotSnapshot = (runner: CommandRunner, root: string): BotSnapshot => {
+  const mode = readBotMode(runner, root);
+  const rawRuns = requireSuccess(
+    runner,
+    "gh",
+    [
+      "run",
+      "list",
+      "--workflow",
+      BOT_WORKFLOW,
+      "-L",
+      "1",
+      "--json",
+      "status,conclusion,createdAt,url",
+      "--repo",
+      REPOSITORY,
+    ],
+    root,
+  );
+  const runs = JSON.parse(rawRuns) as ReadonlyArray<BotRun>;
+  const lastRun = runs[0] ?? null;
+  return { mode, lastRun, nextFire: nextScheduledFire(workflowCron(root)) };
+};
+
+const botIsRunning = (bot: BotSnapshot): boolean =>
+  bot.lastRun !== null &&
+  ["queued", "waiting", "requested", "pending", "in_progress"].includes(bot.lastRun.status);
+
+export const renderBotSnapshot = (bot: BotSnapshot): string => {
+  const last =
+    bot.lastRun === null
+      ? "none"
+      : [bot.lastRun.status, bot.lastRun.conclusion, bot.lastRun.createdAt, bot.lastRun.url]
+          .filter((value): value is string => value !== null && value.length > 0)
+          .join(" ");
+  return [
+    "bot:",
+    `  mode: ${bot.mode}`,
+    `  last run: ${last}`,
+    `  next fire: ${bot.nextFire}`,
+    ...(botIsRunning(bot) ? ["  RUNNING"] : []),
+  ].join("\n");
+};
+
+const requirePausedBot = (bot: BotSnapshot): void => {
+  if (bot.mode === "on")
+    throw new Error(
+      [
+        "auto-rebase bot mode is on; pause it before continuing:",
+        `gh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`,
+      ].join("\n"),
+    );
+  if (botIsRunning(bot))
+    throw new Error("bot run is in progress; wait for it and rerun unblock-list");
+};
+
 const unblockList = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -146,6 +309,7 @@ const unblockList = (
   const candidates = releaseTags(runner, root, blockingSha);
   if (candidates.length === 0)
     throw new Error(`no upstream release tag contains blocking commit ${blockingSha}`);
+  const bot = readBotSnapshot(runner, root);
   const reportPath = externalPath(root, values.get("--output") ?? defaultReportPath());
   const report: SyncReport = {
     schemaVersion: 1,
@@ -155,13 +319,14 @@ const unblockList = (
     recordPath: NodePath.join(NodePath.dirname(reportPath), "record.md"),
     issue: { number: issue.number, blockingSha, title: issue.title },
     candidates,
+    bot,
     conflicts: [],
     verification: [],
   };
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
-    `${reportPath}\nStop. Ask the human to select one listed target:\n${candidates.map(({ tag, sha }) => `  ${tag}@${sha}`).join("\n")}\n`,
+    `${reportPath}\nStop. Ask the human to select one listed target:\n${candidates.map(({ tag, sha }) => `  ${tag}@${sha}`).join("\n")}\n${renderBotSnapshot(bot)}\n`,
   );
   return report;
 };
@@ -206,6 +371,8 @@ const unblockOrient = (
   const report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "listed")
     throw new Error(`unblock-orient requires a listed report, got ${report.stage}`);
+  if (report.bot === undefined) throw new Error("report has no bot snapshot; rerun unblock-list");
+  requirePausedBot(report.bot);
   const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
   const targetTag = offered.tag;
   const root = report.repositoryRoot;
@@ -844,6 +1011,14 @@ const unblockApply = (
   let report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "checked")
     throw new Error(`unblock-apply requires checked state, got ${report.stage}`);
+  const liveMode = readBotMode(runner, report.repositoryRoot);
+  if (liveMode === "on")
+    throw new Error(
+      [
+        "auto-rebase bot mode is on; pause it before applying:",
+        `gh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`,
+      ].join("\n"),
+    );
   const recordPath = NodePath.resolve(oneValue(values, "--record") ?? "");
   if (recordPath !== NodePath.resolve(report.recordPath))
     throw new Error("record path does not match the report binding");
