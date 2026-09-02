@@ -82,7 +82,8 @@ authenticated.
   freshly fetched `origin/hyprws`, a `main` mirror level with `upstream/main`, and installed
   dependencies. It fetches rather than trusting whatever the last unrelated fetch left behind, and
   exits 1 with every unmet precondition and its fix. Gates call it first and refuse on a failure, so
-  a stale ref is named before a gate acts on it rather than after.
+  a stale ref is named before a gate acts on it rather than after. `--tag-pinned` reports mirror
+  currency without requiring it, for a caller already pinned to a tag that cannot move.
 - `vp run fork:orient --target vX.Y.Z`: Gate 1 of the fork-sync flow (`scripts/fork-orient.ts`). It
   runs `fork:preflight`, proves the target exists as a tag and is reachable from `upstream/main` with
   `git merge-base --is-ancestor`, then prints target, source, shared base, mirror currency,
@@ -123,9 +124,10 @@ authenticated.
   (`scripts/fork-sync-gate.ts`). Stable tags remain the default; `--allow-nightly` also accepts
   `vX.Y.Z-nightly.YYYYMMDD.N` for a deliberate nightly-target rehearsal. The record path must resolve
   outside the repository so operational evidence cannot enter the replayed stack. The gate refuses
-  on any unmet preflight precondition and exits 1 unless that external record has a full
-  `expected_old` equal to the `origin/hyprws` head the preflight fetched, plus a human sanity login
-  and ISO date. It takes that head from the preflight rather than resolving the ref itself, so it
+  on any unmet preflight precondition it requires, and exits 1 unless that external record has a full
+  `expected_old` equal to the `origin/hyprws` head the preflight fetched. Its slice is already pinned
+  to a tag, so mirror currency is reported rather than required. It takes that head from the
+  preflight rather than resolving the ref itself, so it
   cannot pass a lease against a ref nothing fetched. It only reports readiness; it never pushes,
   tags, releases, or posts the record.
 - `vp run fork:upstream-refs <file>`: Scans a fork issue, comment, or pull-request body for a live
