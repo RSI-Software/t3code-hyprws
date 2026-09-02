@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  buildSidebarThreadGroupLayout,
   buildCreateThreadGroupContextMenuItem,
-  buildThreadGroupMembershipContextMenuItems,
+  buildSidebarThreadGroupLayout,
   buildSidebarThreadSortableItems,
+  buildThreadGroupMembershipContextMenuItems,
   getSidebarThreadGroupDissolvingKey,
   getSidebarThreadLayoutOrder,
   isSidebarThreadGroupDrop,
