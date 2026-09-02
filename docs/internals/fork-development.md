@@ -293,6 +293,13 @@ needs no curation. Once commits land, never squash the stack. See
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
+### Fork tests live in fork-owned files
+
+Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` or
+`<name>.fork.test.tsx`, rather than appending them to the upstream-owned file. The replayed fork
+series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
+Changes to an existing upstream expectation stay in the upstream test file.
+
 The best fork code looks unsurprising inside upstream T3 Code.
 Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
 
