@@ -312,7 +312,11 @@ reported the next human task. It does not mean the entire upstream lane was clea
 ## Unblocking a `rebase-blocked` issue
 
 Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
-point. `vp run fork:sync` owns the mechanics as five report transitions:
+point. `vp run fork:sync` owns the mechanics as five report transitions. At each stop, the human sees
+the emitted decision surface verbatim, then one triage line per decision: `clear — <recommendation>:
+<one-line reason>` for an unambiguous choice, or `judgement — <recommendation>: <reading A> vs
+<reading B>; <why the recommendation>` when a real choice remains. The agent then asks for the exact
+word for every decision and stops; its recommendation is never recorded as the human's answer.
 
 1. `unblock-list` fetches and preflights, requires one current block, and writes an external report
    containing the full blocking SHA and selectable release tags. It accepts no target.
