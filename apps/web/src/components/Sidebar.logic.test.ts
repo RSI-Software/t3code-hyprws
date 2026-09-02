@@ -7,16 +7,9 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
-  buildCreateThreadGroupContextMenuItem,
-  buildSidebarThreadGroupLayout,
-  buildSidebarThreadSortableItems,
-  buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
-  isSidebarThreadGroupDrop,
-  isSidebarThreadGroupingTarget,
-  isSidebarThreadUngroupBeforeTarget,
   resolveSidebarRowThreadId,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
