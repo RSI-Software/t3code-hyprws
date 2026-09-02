@@ -137,6 +137,9 @@ The walk's own exit code decides the run:
 `--bot-carried` refuses unless `GITHUB_RUN_ID` is set, `HYPRWS_AUTO_REBASE` is `on`, and the bot's
 last recorded run is this run, so a carried walk can never take a lease another run holds. The
 workflow's `hyprws-rebase` concurrency group is the outer guard. `off` and `candidate` never carry.
+The carry job passes `HYPRWS_AUTO_REBASE` in as an environment value because a job token may not
+read repository variables, and an injected mode always wins; the API read is the human lane's
+fallback.
 
 A carried walk mints its rehearsal lane with `git worktree` rather than Worktrunk, which a runner
 cannot install, and skips the post-apply reconciliation dispatch because its own leased push to
