@@ -26,7 +26,7 @@ On each scheduled, pushed, or manually dispatched run, the workflow:
 3. snapshots any newly crossed stable upstream tag on a create-only release branch;
 4. replays and verifies the whole fork stack on the selected tag;
 5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
-6. creates or updates stable-candidate and `rebase-blocked` issues.
+6. creates or updates stable-candidate and `rebase-blocked` issues as `Notification 🔔` signals.
 
 A run that has no newer clean release tag is a successful no-op. The sequential rebase census to the
 newest tagged horizon decides the outcome when available: zero conflicting fork commits advances to
@@ -367,7 +367,7 @@ reconciles the resolved blocking SHA and any later block. After apply, append th
 
 ## Cut a stable release
 
-The bot opens one `release` issue per create-only stable snapshot. Invoke the
+The bot opens one `release`-labelled `Notification 🔔` issue per create-only stable snapshot. Invoke the
 [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point. The
 stable lane is three external-report transitions; no shell variable or pasted multi-command block
 carries gate state:
