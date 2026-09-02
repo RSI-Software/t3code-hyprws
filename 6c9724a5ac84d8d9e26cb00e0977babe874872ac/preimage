@@ -1,0 +1,187 @@
+name: hyprws CI
+
+# Fork-only CI for RSI-Software/t3code-hyprws. Upstream's ci.yml targets
+# Blacksmith runners the fork does not have, so it stays disabled on the fork
+# (docs/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
+# free for a public repository. Mirror upstream ci.yml step changes here on
+# every rebase (docs/internals/fork-delta.md, distribution).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches:
+      - hyprws
+<<<<<<<
+      - "release/**"
+=======
+      - release/**
+>>>>>>>
+  push:
+    branches:
+      - hyprws
+      - hyprws-next
+<<<<<<<
+      - "release/**"
+=======
+      - release/**
+>>>>>>>
+
+concurrency:
+  group: hyprws-ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      # The ledger compares against upstream, which the fork checkout does not
+      # carry. On a pull request, inspect the branch head rather than the
+      # synthetic merge commit, which has no trailers.
+      - name: Fork ledger
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+          vp run fork:delta --check --head "$HEAD_SHA"
+
+      # A rebase scan is what the next sync reads before trusting an automerge,
+      # so a domain that changes a file upstream is changing too has to name it
+      # (docs/internals/fork-delta.md). Reuses the upstream remote the ledger
+      # step added. Advisory, not blocking: the only window with signal here is
+      # live upstream/main, and upstream landing a commit on a shared file is
+      # not the fault of the pull request under test. The blocking run is gates 3
+      # and 4 of the fork-sync skill, which scan against the new target tag while
+      # the fork still sits on the old one.
+      - name: Fork rebase scans (advisory)
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: vp run fork:scan --head "$HEAD_SHA"
+
+      # A live `pingdotgg/t3code#N` or item URL in a fork body posts a backlink
+      # on the upstream thread, and a bare `#N` the fork never issued resolves
+      # there, so a citation must sit in a code span or a fence and a fork item
+      # must name this fork in full (docs/internals/fork-development.md). The
+      # guard reports every bare number, because it cannot tell those apart
+      # offline. This is a backstop, not the gate:
+      # the body is already published by the time the run starts, so it reports
+      # a backlink that has fired rather than preventing one. `vp run
+      # fork:upstream-refs` against the body file before publishing is the gate,
+      # and it is the only thing that covers an issue or a comment. Runs before
+      # the squash-body ledger so a failure there cannot hide this one; see
+      # docs/internals/scripts.md for what stays unguarded.
+      - name: Upstream citations
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
+          vp run fork:upstream-refs "$RUNNER_TEMP/pull-request-body.md"
+
+      # The squash commit takes the pull-request body as its message, so the
+      # body must already end with the trailer block. `edited` above re-runs
+      # this when the body changes.
+      - name: Fork ledger (squash body)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.md"
+          vp run fork:delta --check --squash-body "$RUNNER_TEMP/pull-request-body.md"
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Check
+        run: vp check
+
+      - name: Typecheck
+        run: vpr typecheck
+
+      - name: Build desktop pipeline
+        run: vp run build:desktop
+
+      - name: Verify preload bundle output
+        run: |
+          test -f apps/desktop/dist-electron/preload.cjs
+          grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
+          grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
+
+  # Everything except `t3` (apps/server); see upstream ci.yml for why
+  # `--parallel` is safe here.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
+
+  # apps/server runs its files one at a time; sharding spreads them over
+  # runners instead of workers, exactly as upstream does.
+  test_server:
+    name: Test Server ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Test
+        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
