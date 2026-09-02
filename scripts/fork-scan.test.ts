@@ -268,18 +268,58 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     head: "HEAD",
     target: "upstream/main",
     typecheck: true,
+    since: null,
+    strict: false,
   });
   assert.deepStrictEqual(
-    parseArgs(["--head", "origin/hyprws", "--target", "v0.0.35", "--no-typecheck"]),
+    parseArgs([
+      "--head",
+      "origin/hyprws",
+      "--target",
+      "v0.0.35",
+      "--since",
+      "origin/hyprws",
+      "--strict",
+      "--no-typecheck",
+    ]),
     {
       base: null,
       head: "origin/hyprws",
       target: "v0.0.35",
       typecheck: false,
+      since: "origin/hyprws",
+      strict: true,
     },
   );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
   assert.throws(() => parseArgs(["--target", "a", "--target", "b"]), UsageError);
   assert.throws(() => parseArgs(["--target"]), UsageError);
   assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
+  assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
+  assert.throws(() => parseArgs(["--since"]), UsageError);
+});
+
+it("carries ledger guard warnings into the report without changing the scan verdict", () => {
+  const result = buildScanResult(
+    scanInput({
+      upstreamChanged: new Set(),
+      guard: {
+        commits: [{ sha: "aaaaaaa".padEnd(40, "0"), short: "aaaaaaa", domain: "project-windows" }],
+        filesBySha: new Map([
+          ["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/ChatView.tsx"]],
+        ]),
+        patchesBySha: new Map(),
+        upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx"]),
+        hotSeams: new Map([
+          ["apps/web/src/components/ChatView.tsx", { walkCount: 3, worstClass: "seam-moved" }],
+        ]),
+      },
+    }),
+  );
+  assert.deepStrictEqual(scanFailures(result), []);
+  assert.deepStrictEqual(
+    result.warnings.map(({ rule }) => rule),
+    ["hot-seam"],
+  );
+  assert.include(renderScanReport(result), "WARN  hot-seam  aaaaaaa  project-windows");
 });

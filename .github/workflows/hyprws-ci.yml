@@ -79,7 +79,16 @@ jobs:
         continue-on-error: true
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: vp run fork:scan --head "$HEAD_SHA" --no-typecheck
+        run: |
+          # Ledger guards warn about authoring shapes the whole fork stack
+          # already carries, so scope them to the commits this branch adds.
+          # `--since` only narrows the warnings; the scan verdict still covers
+          # every domain.
+          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
+          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
+            SINCE="$HEAD_SHA^"
+          fi
+          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
@@ -89,6 +98,9 @@ jobs:
 
       - name: Typecheck
         run: vpr typecheck
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Build desktop pipeline
         run: vp run build:desktop
@@ -123,6 +135,9 @@ jobs:
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
