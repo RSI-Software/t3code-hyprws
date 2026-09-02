@@ -14,6 +14,7 @@ import {
   identifyRerereResolvedPaths,
   laneExecutablePath,
   lockDriftClass,
+  NO_GROUNDING_CLAIM,
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
@@ -138,6 +139,10 @@ it("writes a listed report without accepting or inferring a target", () => {
       () => execute(["unblock-list", "--target", "v1.2.3"], root, runner),
       /unknown option/,
     );
+    // The mirror sync is chosen here, so this is the one verb that requires it.
+    assert.deepStrictEqual(runner.calls.find(({ command }) => command === "node")?.args, [
+      "scripts/fork-preflight.ts",
+    ]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(output), { recursive: true, force: true });
@@ -198,6 +203,12 @@ it("orients only to a tag carried by the previous report", () => {
         domain: "workspace-files",
       },
     ]);
+    // The target is a tag from here on, so an upstream tip that moved mid-walk
+    // is reported by the preflight rather than blocking the verb.
+    assert.deepStrictEqual(
+      runner.calls.find(({ command, args }) => command === "node" && args.length === 2)?.args,
+      ["scripts/fork-preflight.ts", "--tag-pinned"],
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
@@ -612,6 +623,45 @@ it("produces Gate 4 decisions structurally rather than with a typed rg command",
   assert.include(surface, "Grounding pending: desktop label");
 });
 
+it("asks a record for decisions and a go, never a login or a date", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    installedHead: B,
+    orientationDecisions: orientationDecisionRows(
+      "  [candidate] `feat(web): themed menus` (workspace-files)",
+    ),
+  });
+  try {
+    const rendered = renderRecord(checked);
+    assert.notInclude(rendered, "Human sanity");
+    // Every claim is the rendered default, so the surface asks for nothing else.
+    assert.include(decisionSurface(rendered), "Stop. Obtain every decision and an explicit go.\n");
+    assert.throws(() => validateSignedRecord(rendered, checked), /keep\/retire\/partial/);
+    const decided = rendered.replace("| TODO |", "| retire |");
+    validateSignedRecord(decided, checked);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("still asks for grounding when a row carries a claim", () => {
+  const claimed =
+    "| Exact subject | Domain | Class summary | Action | Grounding claim |\n| --- | --- | --- | --- | --- |\n| `fix: one` | fork-meta | orientation: candidate; retire-candidate | TODO | grounded in the desktop label |";
+  assert.include(
+    decisionSurface(claimed),
+    "Stop. Obtain every decision, every grounding confirmation, and an explicit go.\n",
+  );
+  assert.include(
+    decisionSurface(claimed.replace("grounded in the desktop label", NO_GROUNDING_CLAIM)),
+    "Stop. Obtain every decision and an explicit go.\n",
+  );
+});
+
 it("requires signed decisions and calls the existing sync gate before apply", () => {
   const root = fixtureRoot();
   const checked = report(root, {
@@ -622,10 +672,7 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
     installedHead: B,
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  const unsigned = renderRecord(checked);
-  assert.throws(() => validateSignedRecord(unsigned, checked), /missing Human sanity/);
-  const signed = unsigned.replace("Human sanity: absent", "Human sanity: donjor 2026-09-01");
-  NodeFS.writeFileSync(checked.recordPath, signed);
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
