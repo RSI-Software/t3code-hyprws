@@ -57,6 +57,10 @@ records the blocking commit, affected fork commits and domains, conflict files, 
 commits, and the newest release tag beyond the block. A maintainer resolves it through the
 `fork-sync` skill's unblock entry point.
 
+#### `fork-churn`
+
+The generated conflict-churn ledger across landed unblock walks; the `fork-sync` operator appends its row after each apply.
+
 #### Nightly channel
 
 The prerelease update channel for tags shaped
