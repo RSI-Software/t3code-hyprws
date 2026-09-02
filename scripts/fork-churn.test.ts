@@ -7,6 +7,15 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { hotSeams, parseCensusFiles, parseLedger, run, type ChurnEntry } from "./fork-churn.ts";
+import {
+  CHURN_LEDGER_FILE,
+  CHURN_REF,
+  readBotRefFile,
+  writeBotRefFile,
+} from "./lib/fork-bot-refs.ts";
+import { runCommandText } from "./lib/fork-command.ts";
+import { parseSilentSeams } from "./fork-churn-ledger.ts";
+import { CHURN_MARKER, renderChurnSection } from "./fork-churn-section.ts";
 import { parseRecord, renderRecord, type SyncReport } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
@@ -96,32 +105,27 @@ it("reads a record or ledger row written before provenance as deciding nothing",
 });
 
 it("counts only decision cells carrying provenance in the walks table", () => {
-  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-test-"));
+  const root = ledgerRepository([
+    {
+      tag: "v1",
+      before: A,
+      after: B,
+      recordUrl: "https://example.test/v1",
+      conflicts: [
+        conflict("apps/web/src/signed.ts", "human"),
+        { ...conflict("apps/web/src/unsigned.ts", "human"), decidedBy: "TODO" },
+      ],
+      decisions: [
+        { subject: "feat: agent call", domain: "fork-meta", verdict: "keep", decidedBy: "agent" },
+        { subject: "feat: nobody's call", domain: "fork-meta", verdict: "keep", decidedBy: "TODO" },
+      ],
+      censusFiles: [],
+    },
+  ]);
   const internals = NodePath.join(root, "docs", "internals");
-  NodeFS.mkdirSync(internals, { recursive: true });
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
-  );
-  NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-churn.json"),
-    `${JSON.stringify([
-      {
-        tag: "v1",
-        before: A,
-        after: B,
-        recordUrl: "https://example.test/v1",
-        conflicts: [
-          conflict("apps/web/src/signed.ts", "human"),
-          { ...conflict("apps/web/src/unsigned.ts", "human"), decidedBy: "TODO" },
-        ],
-        decisions: [
-          { subject: "feat: agent call", domain: "fork-meta", verdict: "keep", decidedBy: "agent" },
-          { subject: "feat: nobody's call", domain: "fork-meta", verdict: "keep" },
-        ],
-        censusFiles: [],
-      },
-    ])}\n`,
   );
   try {
     assert.strictEqual(run(["render"], root), 0);
@@ -225,14 +229,133 @@ it("ranks hot seams by walk count, then worst class", () => {
   );
 });
 
-it("refuses append when the tag already exists", () => {
+it("parses the silent seams renderRecord writes", () => {
+  assert.deepStrictEqual(
+    parseSilentSeams(
+      [
+        "## Silent seams",
+        "",
+        "- `apps/web/src/a.ts` [behaviour]: kept the fork guard",
+        "- `apps/web/src/b.ts` [type]: widened the prop",
+        "",
+        "## Next",
+      ].join("\n"),
+    ),
+    [
+      { path: "apps/web/src/a.ts", summary: "kept the fork guard", touchesBehaviour: true },
+      { path: "apps/web/src/b.ts", summary: "widened the prop", touchesBehaviour: false },
+    ],
+  );
+});
+
+it("measures hot-seam deltas against the previous churn section", () => {
+  const first = renderChurnSection([entry("v1", [conflict("seam", "human")])]);
+  assert.include(first, CHURN_MARKER);
+  assert.include(first, "| `seam` | 1 | human | — |");
+
+  const second = renderChurnSection(
+    [
+      entry("v1", [conflict("seam", "human")]),
+      entry("v2", [conflict("seam", "human"), conflict("fresh", "retire-candidate")]),
+    ],
+    first,
+  );
+  assert.include(second, "| `seam` | 2 | human | +1 walk |");
+  assert.include(second, "| `fresh` | 1 | retire-candidate | new |");
+
+  const third = renderChurnSection([entry("v3", [conflict("fresh", "human")])], second);
+  assert.include(third, "Dropped since the last report: `seam`.");
+});
+
+it("counts the conflict class mix and decided-by split across walks", () => {
+  const section = renderChurnSection([
+    entry("v1", [conflict("a", "generated"), conflict("b", "human")]),
+  ]);
+  assert.include(section, "| generated | 1 | 50.0% |");
+  assert.include(section, "| human | 1 | 50.0% |");
+  assert.include(section, "| human | 2 | 0 |");
+});
+
+it("credits an unsigned row to neither side and counts it as its own", () => {
+  const section = renderChurnSection([
+    {
+      ...entry("v1", [
+        { ...conflict("signed", "generated"), decidedBy: "agent" },
+        { ...conflict("unsigned", "human"), decidedBy: "TODO" },
+      ]),
+      decisions: [
+        { subject: "feat: unsigned", domain: "fork-meta", verdict: "keep", decidedBy: "TODO" },
+      ],
+    },
+  ]);
+  assert.include(section, "| agent | 1 | 0 |");
+  assert.include(section, "| human | 0 | 0 |");
+  assert.include(section, "| TODO (no provenance) | 1 | 1 |");
+});
+
+/**
+ * The ledger lives on a bot-owned ref, so a fixture needs a real repository with an
+ * identity `git commit-tree` accepts. The ref is local only; nothing reaches a remote.
+ */
+const repository = (): string => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-test-"));
-  const internals = NodePath.join(root, "docs", "internals");
-  NodeFS.mkdirSync(internals, { recursive: true });
+  runCommandText("git", ["init", "--quiet", "--initial-branch", "hyprws", root], { cwd: root });
+  for (const [key, value] of [
+    ["user.email", "fork@example.invalid"],
+    ["user.name", "fork"],
+  ])
+    runCommandText("git", ["config", key ?? "", value ?? ""], { cwd: root });
+  NodeFS.mkdirSync(NodePath.join(root, "docs", "internals"), { recursive: true });
+  return root;
+};
+
+const ledgerRepository = (entries: ReadonlyArray<ChurnEntry>): string => {
+  const root = repository();
+  writeBotRefFile(
+    root,
+    CHURN_REF,
+    CHURN_LEDGER_FILE,
+    `${JSON.stringify(entries, null, 2)}\n`,
+    "churn: fixture",
+  );
+  return root;
+};
+
+it("keeps the ledger on the bot-owned ref and never on disk", () => {
+  const root = ledgerRepository([entry("v1", [])]);
+  try {
+    assert.strictEqual(
+      readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE),
+      `${JSON.stringify([entry("v1", [])], null, 2)}\n`,
+    );
+    assert.strictEqual(
+      NodeFS.existsSync(NodePath.join(root, "docs", "internals", "fork-churn.json")),
+      false,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("seeds the ledger ref once and refuses a second seed", () => {
+  const root = repository();
   NodeFS.writeFileSync(
-    NodePath.join(internals, "fork-churn.json"),
+    NodePath.join(root, "docs", "internals", "fork-churn.json"),
     `${JSON.stringify([entry("v1", [])])}\n`,
   );
+  try {
+    assert.strictEqual(run(["seed"], root), 0);
+    assert.deepStrictEqual(parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? ""), [
+      entry("v1", []),
+    ]);
+    assert.strictEqual(run(["seed"], root), 1);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses append when the tag already exists", () => {
+  const root = ledgerRepository([entry("v1", [])]);
   let stderr = "";
   const originalWrite = process.stderr.write;
   process.stderr.write = ((chunk: string | Uint8Array) => {
@@ -266,11 +389,27 @@ it("refuses append when the tag already exists", () => {
   }
 });
 
-it("returns exit 1 when render --check finds a stale committed document", () => {
+it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-test-"));
+  runCommandText("git", ["init", "--quiet", "--initial-branch", "hyprws", root], { cwd: root });
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render", "--check"], root), 1);
+    assert.match(stderr, /refs\/fork\/churn does not carry fork-churn\.json/);
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("returns exit 1 when render --check finds a stale committed document", () => {
+  const root = ledgerRepository([]);
   const internals = NodePath.join(root, "docs", "internals");
-  NodeFS.mkdirSync(internals, { recursive: true });
-  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.json"), "[]\n");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",

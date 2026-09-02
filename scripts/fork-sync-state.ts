@@ -130,6 +130,12 @@ export interface SyncReport {
   readonly issue: { readonly number: number; readonly blockingSha: string; readonly title: string };
   readonly candidates: ReadonlyArray<{ readonly tag: string; readonly sha: string }>;
   readonly bot?: BotSnapshot;
+  /**
+   * The walk is being carried by the auto-rebase workflow itself, so the bot is
+   * on by construction and the lane is minted with plain Git
+   * (RSI-Software/t3code-hyprws#444).
+   */
+  readonly botCarried?: boolean;
   readonly target?: { readonly tag: string; readonly sha: string };
   readonly source?: {
     readonly sha: string;
@@ -164,7 +170,7 @@ export interface SyncReport {
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
-  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume]
+  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume] [--bot-carried]
   unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
@@ -246,7 +252,12 @@ export const parseVerbArgs = (
       throw new UsageError(`invalid arguments after ${verb}`);
     }
     if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
-    if (flag === "--resume" || flag === "--dry-run" || flag === "--all") {
+    if (
+      flag === "--resume" ||
+      flag === "--dry-run" ||
+      flag === "--all" ||
+      flag === "--bot-carried"
+    ) {
       values.set(flag, "true");
       index += 1;
       continue;
