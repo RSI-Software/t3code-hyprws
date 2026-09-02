@@ -101,7 +101,8 @@ authenticated.
   rehearsed-head typechecks that surface silent seams run only when `--head` resolves to the checkout
   `HEAD`, so naming any other ref reports declarations alone. It also collects the ledger guards in
   [Fork development](./fork-development.md#ledger-guards-run-in-the-scan) — `hot-seam`,
-  `upstream-test`, `footprint`, and `replaced-export` — and prints each as a `WARN` line. Those warnings never change
+  `upstream-test`, `footprint`, `replaced-export`, and `lockfile` — and prints each as a `WARN`
+  line. Those warnings never change
   the exit code; `--strict` makes them fatal, and `--since <ref>` limits them to the commits after
   that ref.
 - `vp run fork:sync <verb>`: Owns the human unblock state machine in one versioned external report

@@ -261,6 +261,30 @@ it("leaves a purely additive commit alone", () => {
   );
 });
 
+it("warns on a lockfile change in any domain and leaves source-only commits alone", () => {
+  const locked = collectScanWarnings(
+    guardInput({
+      filesBySha: new Map([
+        ["a".repeat(40), ["pnpm-lock.yaml", "apps/web/src/quiet.ts", "native/relay/Cargo.lock"]],
+      ]),
+      upstreamFiles: new Set(["pnpm-lock.yaml", "apps/web/src/quiet.ts"]),
+    }),
+  );
+  assert.deepStrictEqual(
+    locked.map(({ rule, detail }) => `${rule} ${detail.split(" ")[0]}`),
+    ["lockfile native/relay/Cargo.lock", "lockfile pnpm-lock.yaml"],
+  );
+  assert.include(locked[1]?.detail ?? "", "in a project-windows commit");
+
+  const sourceOnly = collectScanWarnings(
+    guardInput({
+      filesBySha: new Map([["a".repeat(40), ["apps/web/src/quiet.ts", "apps/web/package.json"]]]),
+      upstreamFiles: new Set(["apps/web/src/quiet.ts", "apps/web/package.json"]),
+    }),
+  );
+  assert.deepStrictEqual(sourceOnly, []);
+});
+
 it("reads one patch record per commit and asks Git for zero-context hunks", () => {
   const patches = parseCommitPatches(
     `${patch("a".repeat(40), "--- a/one.ts\n+++ b/one.ts\n+export const one = 1;\n")}${patch(

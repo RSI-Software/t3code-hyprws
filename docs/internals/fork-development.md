@@ -302,6 +302,9 @@ needs no curation. Once commits land, never squash the stack. See
 - Prefer narrow additions and upstream-native extension points over broad edits to central modules.
 - Reuse upstream terminology and abstractions unless the fork needs a genuinely new concept.
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
+- Install in a fork worktree with `vp i --frozen-lockfile`, so a routine install cannot drift the
+  lockfile into an unrelated commit. A real dependency change is its own commit, in the domain
+  that needs the dependency.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
 ### Ledger guards run in the scan
@@ -320,6 +323,8 @@ again.
   rebase intent should carry.
 - `replaced-export`: the commit deletes an upstream-owned export and re-declares the same name,
   which is the shape below.
+- `lockfile`: the commit changes a lockfile. No domain owns dependency bumps, so every lockfile
+  change warns until one does.
 
 Warnings are advisory. `fork:scan` prints them and still exits on its own scan verdict, so a guard
 can ship before the stack it describes is clean and no existing walk breaks. `--strict` makes them
