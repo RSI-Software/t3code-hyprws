@@ -18,7 +18,7 @@ The fork stays small, replayable, and in sync with upstream without a person in 
 - The bot carries most upstream tags on its own. An agent runs only when a walk stops at a real judgement: a retire question, or a behaviour seam.
 - A conflict that reaches an agent is genuine — new upstream work meeting new fork work — never a seam the churn ledger already named.
 - Every action taken from the ledger ships its own guard in the same change: a `fork:scan` rule where the shape is scannable, a test where it is behavioural, a documented convention otherwise. The sub-issue names the guard. We do not fix the same seam twice.
-- Before adding to the fork, read the hot seams in [fork-churn.md](./fork-churn.md). Put fork tests in fork-owned files. Prefer one adapter boundary over edits spread across upstream files.
+- Before adding to the fork, read the hot seams in the `## Churn` section of the latest sync report, which the bot renders from `refs/fork/churn`. Put fork tests in fork-owned files. Prefer one adapter boundary over edits spread across upstream files.
 
 The measure: consecutive tags carried with the bot on and no agent stop, and ledger rows that read `mechanical: 0`. Tracked in RSI-Software/t3code-hyprws#443.
 
