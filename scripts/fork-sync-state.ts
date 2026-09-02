@@ -20,6 +20,32 @@ export const COMMENT_CONFIG = {
 } as const;
 
 export type SyncStage = "listed" | "oriented" | "conflicts" | "replayed" | "checked" | "applied";
+export type SyncKind = "unblock" | "rewrite";
+
+export interface RewriteProof {
+  readonly name: string;
+  readonly expected: string;
+  readonly actual: string;
+  readonly pass: boolean;
+  readonly detail?: string;
+}
+
+export interface RewriteBinding {
+  readonly from: string;
+  readonly fromSha: string;
+  readonly fromShort: string;
+  readonly originSha: string;
+  readonly originShort: string;
+  readonly base: string;
+  readonly baseToOriginCount: number;
+  readonly baseToFromCount: number;
+  readonly allowExtra: number;
+  readonly allowPaths: ReadonlyArray<string>;
+  readonly originDigest: string;
+  readonly fromFirstNDigest: string;
+  readonly diffEmpty: boolean;
+  readonly proofs: ReadonlyArray<RewriteProof>;
+}
 export type ConflictClass =
   | "generated"
   | "mechanical"
@@ -71,6 +97,7 @@ export interface SilentSeam {
 export interface SyncReport {
   readonly schemaVersion: 1;
   readonly stage: SyncStage;
+  readonly kind?: SyncKind;
   readonly repositoryRoot: string;
   readonly reportPath: string;
   readonly recordPath: string;
@@ -83,6 +110,7 @@ export interface SyncReport {
     readonly sharedBase: string;
     readonly expectedOld: string;
   };
+  readonly rewrite?: RewriteBinding;
   readonly lane?: { readonly branch: string; readonly worktree: string };
   readonly originalMessages?: string;
   readonly originalCount?: number;
@@ -114,6 +142,7 @@ Unblock verbs:
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type]
   unblock-apply --report <json> --record <markdown>
+  rewrite-rehearse --from <branch-or-sha> [--issue N] [--allow-extra N] [--allow-paths <glob,...>] [--dry-run]
 
 Stable verbs:
   stable-list [--output <external-json>]
@@ -189,7 +218,7 @@ export const parseVerbArgs = (
       throw new UsageError(`invalid arguments after ${verb}`);
     }
     if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
-    if (flag === "--resume") {
+    if (flag === "--resume" || flag === "--dry-run") {
       values.set(flag, "true");
       index += 1;
       continue;
@@ -236,6 +265,8 @@ export const validateReport = (value: unknown): SyncReport => {
   const report = value as Partial<SyncReport>;
   if (report.schemaVersion !== 1 || typeof report.stage !== "string")
     throw new Error("unsupported report schema");
+  if (report.kind !== undefined && report.kind !== "unblock" && report.kind !== "rewrite")
+    throw new Error("unsupported report kind");
   if (
     typeof report.repositoryRoot !== "string" ||
     typeof report.reportPath !== "string" ||
@@ -274,7 +305,59 @@ const escapeCell = (value: string): string =>
 /** The Grounding claim a rendered decision row carries until a human writes one. */
 export const NO_GROUNDING_CLAIM = "n/a — no product grounding claim";
 
+const renderRewriteProofs = (rewrite: RewriteBinding): ReadonlyArray<string> => {
+  const lines: Array<string> = ["## Rewrite proofs", ""];
+  lines.push("| Proof | Expected | Actual | Pass |", "| --- | --- | --- | --- |");
+  for (const p of rewrite.proofs) {
+    lines.push(
+      `| ${escapeCell(p.name)} | ${escapeCell(p.expected)} | ${escapeCell(p.actual)} | ${p.pass ? "pass" : "fail"} |`,
+    );
+  }
+  lines.push("");
+  lines.push(`- \`from\`: \`${rewrite.from}\``);
+  lines.push(`- \`origin\`: \`${rewrite.originSha}\``);
+  lines.push(`- \`base\`: \`${rewrite.base}\``);
+  return lines;
+};
+
+const renderRewriteRecord = (report: SyncReport): string => {
+  const rw = report.rewrite!;
+  const lane = report.lane;
+  return [
+    "## Header",
+    "",
+    `- \`from\`: \`${rw.from}@${rw.fromSha}\``,
+    `- \`expected_old\`: \`${rw.originSha}\``,
+    `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
+    `- Rebased head: \`${report.rebasedHead ?? report.rewrite?.fromSha ?? "absent"}\``,
+    `- Stack size: \`${report.stackSize ?? 0}\` fork commits`,
+    "",
+    ...renderRewriteProofs(rw),
+    "",
+    "## Silent seams",
+    "",
+    ...((report.silentSeams ?? []).length === 0
+      ? ["None."]
+      : (report.silentSeams ?? []).map(
+          (s) =>
+            `- \`${escapeCell(s.path)}\` [${s.touchesBehaviour ? "behaviour" : "type"}]: ${escapeCell(s.summary)}`,
+        )),
+    "",
+    "## Verification",
+    "",
+    ...report.verification.map((row) => `- \`${row.command}\`: ${row.result}`),
+    "",
+    "## Grounding",
+    "",
+    "None.",
+    "",
+    report.stage === "checked" ? "land" : "do-not-land",
+    "",
+  ].join("\n");
+};
+
 export const renderRecord = (report: SyncReport): string => {
+  if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
   const target = report.target;
   const source = report.source;
   const lane = report.lane;
