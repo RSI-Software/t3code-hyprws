@@ -1706,19 +1706,22 @@ const retireEvidenceFor = (report: SyncReport): ReadonlyMap<string, RetireEviden
       .map((row) => [row.subject, row]),
   );
 
-export const gateFourStopReason = (report: SyncReport): string | null => {
+/**
+ * Every reason gate 4 needs a human, in the order the record presents them. One stop hides the rest
+ * when a walk reports only the first, so the operator answers them one round trip at a time.
+ */
+export const gateFourStopReasons = (report: SyncReport): ReadonlyArray<string> => {
+  const reasons: Array<string> = [];
   // A presented seam is a stop the human already answered by resuming, so it stops the walk once.
-  const behaviourSeam =
-    report.behaviourSeamStopPresented === true
-      ? undefined
-      : (report.silentSeams ?? []).find(({ touchesBehaviour }) => touchesBehaviour);
-  if (behaviourSeam !== undefined)
-    return `silent seam touches behaviour: ${behaviourSeam.path}: ${behaviourSeam.summary}`;
-  const judgementConflict = report.conflicts.find(
+  if (report.behaviourSeamStopPresented !== true)
+    for (const seam of (report.silentSeams ?? []).filter(
+      ({ touchesBehaviour }) => touchesBehaviour,
+    ))
+      reasons.push(`silent seam touches behaviour: ${seam.path}: ${seam.summary}`);
+  for (const row of report.conflicts.filter(
     ({ class: klass }) => klass === "retire-candidate" || klass === "human",
-  );
-  if (judgementConflict !== undefined)
-    return `conflict requires judgement: ${judgementConflict.path} (${judgementConflict.class})`;
+  ))
+    reasons.push(`conflict requires judgement: ${row.path} (${row.class})`);
 
   const overlaps = behaviourOverlap(report.orientation ?? "");
   const evidence = retireEvidenceFor(report);
@@ -1727,35 +1730,45 @@ export const gateFourStopReason = (report: SyncReport): string | null => {
   );
   for (const row of report.orientationDecisions ?? []) {
     if (row.verdict === "keep") continue;
-    if (row.verdict === "retire" || row.verdict === "partial")
-      return `orientation verdict requires judgement: ${row.verdict} \`${row.subject}\``;
+    if (row.verdict === "retire" || row.verdict === "partial") {
+      reasons.push(`orientation verdict requires judgement: ${row.verdict} \`${row.subject}\``);
+      continue;
+    }
 
     // The target tree is evidence where proximity is not: a candidate whose own identifiers are
     // absent upstream was never retired, and one whose identifiers are present is a real question.
     const tested = evidence.get(row.subject);
     if (tested !== undefined) {
       const match = tested.matches[0];
-      if (match === undefined) continue;
-      return `retire candidate is present in the target tree: \`${row.subject}\`: ${match.identifier} at ${match.location}`;
+      if (match !== undefined)
+        reasons.push(
+          `retire candidate is present in the target tree: \`${row.subject}\`: ${match.identifier} at ${match.location}`,
+        );
+      continue;
     }
 
     const overlap = overlaps.get(row.subject);
-    if (overlap === undefined || overlap === "none")
-      return `candidate has no parsed behaviour overlap: \`${row.subject}\``;
+    if (overlap === undefined || overlap === "none") {
+      reasons.push(`candidate has no parsed behaviour overlap: \`${row.subject}\``);
+      continue;
+    }
     if (overlap.startsWith("weak hunk overlap")) continue;
     const hardPaths = hardOverlapPaths(overlap);
-    if (hardPaths !== null) {
-      const missing = hardPaths.filter((path) => !mechanicalPaths.has(path));
-      if (missing.length === 0) continue;
-      return `hard overlap lacks a mechanical conflict for \`${row.subject}\`: ${missing.join(", ")}`;
+    if (hardPaths === null) {
+      reasons.push(`unparsed overlap for \`${row.subject}\`: behaviour-overlap: ${overlap}`);
+      continue;
     }
-    return `unparsed overlap for \`${row.subject}\`: behaviour-overlap: ${overlap}`;
+    const missing = hardPaths.filter((path) => !mechanicalPaths.has(path));
+    if (missing.length > 0)
+      reasons.push(
+        `hard overlap lacks a mechanical conflict for \`${row.subject}\`: ${missing.join(", ")}`,
+      );
   }
-  return null;
+  return reasons;
 };
 
 export const autoGateFour = (report: SyncReport): SyncReport | null => {
-  if (gateFourStopReason(report) !== null) return null;
+  if (gateFourStopReasons(report).length > 0) return null;
   const evidence = retireEvidenceFor(report);
   return {
     ...report,
@@ -1965,10 +1978,12 @@ const unblockAuto = (
         }
       }
       if (!signed) {
-        const reason = gateFourStopReason(report);
-        if (reason !== null)
+        const reasons = gateFourStopReasons(report);
+        if (reasons.length > 0)
           stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: ${reason}\n`,
+            `${report.reportPath}\n${decisionSurface(record)}${reasons
+              .map((reason) => `Gate 4 refusal: ${reason}\n`)
+              .join("")}`,
             report.reportPath,
           );
         report =
