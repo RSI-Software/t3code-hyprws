@@ -21,6 +21,7 @@ import {
   UsageError,
   type Orientation,
 } from "./fork-orient.ts";
+import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 import type { GitCommandResult } from "./lib/fork-rebase-feasibility.ts";
 
 const TARGET_SHA = "f".repeat(40);
@@ -135,11 +136,11 @@ it("prints every Gate 1 field and the Stop block", () => {
     `source:       origin/hyprws@${SOURCE_SHA}`,
     `shared base:  ${BASE_SHA}`,
     "mirror:       origin/main matches upstream/main at c8aba2587d56",
-    "41 of 43 upstream commits clean; first conflict abc1234 feat(web): move the sidebar",
+    "41 of 43 upstream commits clean; first conflict `abc1234 feat(web): move the sidebar`",
     "apps/web/src/Sidebar.tsx (3 hunks)",
     "  - package.json",
-    "[candidate] feat(web): themed menus (workspace-files)",
-    "#150 [ready] zoom flash",
+    "[candidate] `feat(web): themed menus` (workspace-files)",
+    "`#150` [ready] `zoom flash`",
     "Stop. This report is orientation, not permission to modify a ref.",
     "  automerged overlap: 1 files",
     "  retire candidates:  1",
@@ -148,6 +149,33 @@ it("prints every Gate 1 field and the Stop block", () => {
   ]) {
     assert.include(rendered, expected);
   }
+});
+
+it("wraps every item number it writes, so the record it lands in stays refs-clean", () => {
+  const rendered = renderOrientation(
+    orientation({
+      feasibility: {
+        upstreamCommitCount: 43,
+        cleanCommitCount: 41,
+        firstConflict: "abc1234 fix(web): close #4379 for the fork",
+        conflictFiles: [],
+      },
+      retireCandidates: [
+        {
+          subject: "feat(web): themed menus, superseded by #4380",
+          domain: "workspace-files",
+          decision: "candidate",
+          signals: ["already-upstream: same file"],
+        },
+      ],
+      watch: {
+        target: "v0.0.36",
+        issues: [{ number: 150, status: "ready", title: "zoom flash [\u{1F4E1}#110]" }],
+        error: null,
+      },
+    }),
+  );
+  assert.deepStrictEqual(findUpstreamReferences(rendered), []);
 });
 
 it("names a nightly target as outside what the apply gate accepts", () => {
