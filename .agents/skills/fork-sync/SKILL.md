@@ -143,6 +143,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
 
 ## Entry point: cut stable
 
+The nightly needs no entry point. The release workflow fires on every push to `hyprws`, so a leased
+apply cuts the nightly by itself; never cut one by hand. Only the stable channel needs this entry
+point, a `stable-list` candidate, a UAT cycle, and a human go.
+
 Use this only for an open stable-candidate issue created from a bot-owned snapshot. The report paths
 are external operator state; never edit them, move a bot-owned ref, replace a tag, or infer a
 candidate.
