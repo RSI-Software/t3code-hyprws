@@ -173,29 +173,10 @@ jobs:
             printf 'Auto-rebase failed: `%s`. See the Rebase fork stack step.\n' "$failure" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Reconcile blocked issue
+      - name: Reconcile fork notification issues
         if: ${{ always() && (steps.rebase.outputs.status == 'blocked' || steps.rebase.outputs.status == 'clear' || steps.rebase.outputs.status == 'stable-candidate') }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
         run: node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
-
-      - name: Open stable candidate issues
-        if: ${{ always() && (steps.rebase.outputs.status == 'stable-candidate' || steps.rebase.outputs.stable_status == 'stable-candidate') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
-        run: |
-          jq -c '.stableCandidates[]' "$ISSUE_JSON" | while read -r candidate; do
-            title=$(jq -r '.title' <<< "$candidate")
-            marker=$(jq -r '.marker' <<< "$candidate")
-            matches=$(gh issue list --label release --state all --limit 1000 --json number,body)
-            if [ -n "$(jq -r --arg marker "$marker" '.[] | select(.body | contains($marker)) | .number' <<< "$matches" | head -1)" ]; then
-              continue
-            fi
-            jq -r '.body' <<< "$candidate" > "$RUNNER_TEMP/stable-candidate.md"
-            gh issue create --title "$title" --label release \
-              --body-file "$RUNNER_TEMP/stable-candidate.md"
-          done
