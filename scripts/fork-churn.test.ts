@@ -32,11 +32,22 @@ const reportFixture = (): SyncReport => ({
       class: "human",
       resolution: "kept fork intent | at the moved seam",
       agentSafe: "no | human decision",
+      decidedBy: "human",
     },
   ],
   orientationDecisions: [
-    { subject: "feat(web): keep a pipe | in the subject", domain: "fork-meta", verdict: "partial" },
-    { subject: "fix(web): retain behavior", domain: "upstream-fixes", verdict: "keep" },
+    {
+      subject: "feat(web): keep a pipe | in the subject",
+      domain: "fork-meta",
+      verdict: "partial",
+      decidedBy: "human",
+    },
+    {
+      subject: "fix(web): retain behavior",
+      domain: "upstream-fixes",
+      verdict: "keep",
+      decidedBy: "agent",
+    },
   ],
   verification: [{ command: "vp test run scripts/fork-churn.test.ts", result: "passed" }],
   rebasedHead: B,
@@ -47,6 +58,16 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   const parsed = parseRecord(renderRecord(reportFixture()));
   assert.deepStrictEqual(parsed.conflicts, reportFixture().conflicts);
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
+});
+
+it("defaults older record and ledger rows to human provenance", () => {
+  const oldRecord = renderRecord(reportFixture())
+    .split("\n")
+    .map((line) => line.replace(/ \| (?:human|agent) \|$/, " |"))
+    .join("\n");
+  const parsed = parseRecord(oldRecord);
+  assert.isTrue(parsed.conflicts.every(({ decidedBy }) => decidedBy === "human"));
+  assert.isTrue(parsed.decisions.every(({ decidedBy }) => decidedBy === "human"));
 });
 
 it("parses the sequential rebase census table by its rendered columns", () => {
@@ -117,6 +138,7 @@ const conflict = (
   domain: "fork-meta",
   class: klass,
   resolution: "resolved",
+  decidedBy: "human",
 });
 
 it("ranks hot seams by walk count, then worst class", () => {
