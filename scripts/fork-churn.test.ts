@@ -6,7 +6,14 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import { hotSeams, parseCensusFiles, parseLedger, run, type ChurnEntry } from "./fork-churn.ts";
+import {
+  commentRestId,
+  hotSeams,
+  parseCensusFiles,
+  parseLedger,
+  run,
+  type ChurnEntry,
+} from "./fork-churn.ts";
 import {
   CHURN_LEDGER_FILE,
   CHURN_REF,
@@ -420,4 +427,14 @@ it("returns exit 1 when render --check finds a stale committed document", () => 
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
+});
+
+it("takes the REST comment id from the permalink, not the node id the query reports", () => {
+  assert.strictEqual(
+    commentRestId(
+      "https://github.com/RSI-Software/t3code-hyprws/issues/481#issuecomment-5516722153",
+    ),
+    "5516722153",
+  );
+  assert.throws(() => commentRestId("IC_kwDOUADyEs8AAAABSNJ_6Q"), /carries no REST id/);
 });
