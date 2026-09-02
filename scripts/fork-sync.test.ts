@@ -14,6 +14,7 @@ import {
   collectRetireEvidence,
   decisionSurface,
   execute,
+  filledDecisionCells,
   forkCommitIdentifiers,
   gateVerificationEnv,
   identifyRerereResolvedPaths,
@@ -540,7 +541,7 @@ it("orients only to a tag carried by the previous report", () => {
         verdict: "keep",
         subject: "feat(web): preserve fork behavior",
         domain: "workspace-files",
-        decidedBy: "human",
+        decidedBy: "TODO",
       },
     ]);
     // The target is a tag from here on, so an upstream tip that moved mid-walk
@@ -578,25 +579,25 @@ it("carries orientation overlap and every retirement verdict into structured sta
       verdict: "candidate",
       subject: "fix(web): review upstream overlap",
       domain: "project-windows",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "keep",
       subject: "feat(web): keep fork behavior",
       domain: "workspace-files",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "retire",
       subject: "fix(server): use upstream behavior",
       domain: "fork-meta",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "partial",
       subject: "feat(desktop): retain one seam",
       domain: "custom-agents",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
   ]);
 });
@@ -961,7 +962,7 @@ it("discloses rerere reuse in the stop and conflict record row", () => {
     class: "TODO",
     resolution: "review rerere's recorded resolution and stage",
     agentSafe: "TODO",
-    decidedBy: "human",
+    decidedBy: "TODO",
   });
 });
 
@@ -1149,11 +1150,30 @@ it("asks a record for decisions and a go, never a login or a date", () => {
     assert.include(decisionSurface(rendered), "Stop. Obtain every decision and an explicit go.\n");
     assert.throws(() => validateSignedRecord(rendered, checked), /keep\/retire\/partial/);
     const decided = rendered.replace("| TODO |", "| retire |");
-    validateSignedRecord(decided, checked);
+    // An action nobody signed is the rendered default, not a decision the walk may land on.
+    assert.throws(() => validateSignedRecord(decided, checked), /records no decider/);
+    validateSignedRecord(decided.replace("| TODO |", "| human |"), checked);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
+});
+
+it("reads only the decision cells someone signed", () => {
+  const table = [
+    "## Fork commits",
+    "",
+    "| Exact subject | Domain | Class summary | Action | Grounding claim | Decided by |",
+    "| --- | --- | --- | --- | --- | --- |",
+    "| `fix: signed` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | human |",
+    "| `fix: unsigned` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | TODO |",
+    "| `fix: undecided` | fork-meta | orientation: candidate; retire-candidate | TODO | n/a | TODO |",
+    "",
+    "## Silent seams",
+  ].join("\n");
+  assert.deepStrictEqual(filledDecisionCells(table), [
+    { subject: "fix: signed", action: "retire", decidedBy: "human" },
+  ]);
 });
 
 it("still asks for grounding when a row carries a claim", () => {
@@ -2240,7 +2260,7 @@ it("unblock-auto takes the conflict STOP path when rerere remaining fails", () =
     );
     assert.notInclude(output, "then rerun unblock-rehearse");
     const stopped = validateReport(JSON.parse(NodeFS.readFileSync(oriented.reportPath, "utf8")));
-    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "human" });
+    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "TODO" });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
@@ -2340,17 +2360,8 @@ const replayedRun = (): {
   return { runner, root, worktree, reportPath: replayed.reportPath, branch };
 };
 
-const checkedRun = (
-  silentSeam?: string,
-): {
-  runner: FakeRunner;
-  root: string;
-  worktree: string;
-  reportPath: string;
-  branch: string;
-} => {
-  const state = replayedRun();
-  state.runner.set(
+const setCiSuccess = (runner: FakeRunner, branch: string): void => {
+  runner.set(
     "gh",
     [
       "run",
@@ -2358,7 +2369,7 @@ const checkedRun = (
       "--workflow",
       "hyprws-ci.yml",
       "--branch",
-      state.branch,
+      branch,
       "--json",
       "databaseId,headSha,status,conclusion,url",
       "-R",
@@ -2376,6 +2387,19 @@ const checkedRun = (
       ]),
     },
   );
+};
+
+const checkedRun = (
+  silentSeam?: string,
+): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  reportPath: string;
+  branch: string;
+} => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
   execute(
     [
       "unblock-check",
@@ -2492,6 +2516,84 @@ it("pushes the rehearsal and records the CI verdict on its exact head", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+const SUBJECT = "feat(web): themed menus";
+
+/** A replayed report whose decision surface carries one undecided candidate. */
+const undecidedRun = (): ReturnType<typeof replayedRun> => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const next: SyncReport = {
+    ...replayed,
+    orientationDecisions: [
+      { subject: SUBJECT, domain: "workspace-files", verdict: "candidate", decidedBy: "TODO" },
+    ],
+  };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(next));
+  NodeFS.writeFileSync(next.recordPath, renderRecord(next));
+  return state;
+};
+
+const signRecord = (recordPath: string, action: string, decidedBy: string): void => {
+  const signed = NodeFS.readFileSync(recordPath, "utf8")
+    .replace("| TODO |", `| ${action} |`)
+    .replace("| TODO |", `| ${decidedBy} |`);
+  NodeFS.writeFileSync(recordPath, signed);
+};
+
+it("carries a decision cell filled in the record through the regeneration a check performs", () => {
+  const state = undecidedRun();
+  const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  try {
+    signRecord(recordPath, "retire", "human");
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(checked.recordDecisions, [
+      { subject: SUBJECT, action: "retire", decidedBy: "human" },
+    ]);
+    const row = NodeFS.readFileSync(recordPath, "utf8")
+      .split("\n")
+      .find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
+    assert.include(row ?? "", "| retire |");
+    assert.include(row ?? "", "| human |");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a check when the record and the report decided the same subject differently", () => {
+  const state = undecidedRun();
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  try {
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...replayed,
+        orientationDecisions: [
+          {
+            subject: SUBJECT,
+            domain: "workspace-files",
+            verdict: "candidate",
+            action: "keep (mechanical seam)",
+            decidedBy: "agent",
+          },
+        ],
+      }),
+    );
+    signRecord(replayed.recordPath, "retire", "human");
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /record decision disagrees with the report/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 

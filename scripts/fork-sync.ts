@@ -38,6 +38,7 @@ import {
   DECISION_ACTIONS,
   externalPath,
   extractBlockingSha,
+  filledDecisionCells,
   git,
   gitRaw,
   lines,
@@ -63,6 +64,7 @@ import {
   type ConflictRow,
   type DecisionAction,
   type OrientationDecisionRow,
+  type RecordDecision,
   type RetireEvidence,
   type RewriteProof,
   type SilentSeam,
@@ -70,6 +72,7 @@ import {
 } from "./fork-sync-state.ts";
 
 export {
+  filledDecisionCells,
   NO_GROUNDING_CLAIM,
   orientationDecisionRows,
   orientationTouchedPaths,
@@ -84,6 +87,7 @@ export {
   type DecisionAction,
   type OrientationDecisionRow,
   type OrientationVerdict,
+  type RecordDecision,
   type RetireEvidence,
   type RewriteProof,
   type SilentSeam,
@@ -510,7 +514,7 @@ export const rehearsalConflictRows = (
         ? "review rerere's recorded resolution and stage"
         : "TODO",
     agentSafe: isGeneratedPath(path) ? "pending regeneration" : "TODO",
-    decidedBy: "human",
+    decidedBy: "TODO",
   }));
 };
 
@@ -663,7 +667,8 @@ const unblockRehearse = (
         edited === undefined ||
         edited.class === "TODO" ||
         edited.resolution === "TODO" ||
-        edited.agentSafe === "TODO"
+        edited.agentSafe === "TODO" ||
+        edited.decidedBy === "TODO"
       )
         throw new Error(`record row remains incomplete for ${row.path}`);
     }
@@ -932,6 +937,39 @@ export const parseSilentSeam = (value: string): SilentSeam => {
   return { path, summary, touchesBehaviour: kind === "behaviour" };
 };
 
+/**
+ * A decision the report already carries for a subject, whether the agent signed it at gate 4 or an
+ * earlier check preserved it from the record.
+ */
+const reportDecisionFor = (report: SyncReport, subject: string): RecordDecision | undefined => {
+  const preserved = (report.recordDecisions ?? []).find((row) => row.subject === subject);
+  if (preserved !== undefined) return preserved;
+  const signed = (report.orientationDecisions ?? []).find(
+    (row) => row.subject === subject && row.decidedBy !== "TODO",
+  );
+  if (signed === undefined || signed.decidedBy === "TODO") return undefined;
+  return { subject, action: signed.action ?? signed.verdict, decidedBy: signed.decidedBy };
+};
+
+/**
+ * The record is the operator's surface, so a cell filled there outlives the regeneration a check
+ * performs. Two sources that disagree are not mergeable: the report is machine state and the record
+ * is a human signature, and picking either one silently discards a decision someone made.
+ */
+const preserveRecordDecisions = (report: SyncReport): SyncReport => {
+  if (!NodeFS.existsSync(report.recordPath)) return report;
+  const filled = filledDecisionCells(NodeFS.readFileSync(report.recordPath, "utf8"));
+  for (const row of filled) {
+    const carried = reportDecisionFor(report, row.subject);
+    if (carried === undefined) continue;
+    if (carried.action === row.action && carried.decidedBy === row.decidedBy) continue;
+    throw new Error(
+      `record decision disagrees with the report for \`${row.subject}\`: report has ${carried.action} (${carried.decidedBy}), record has ${row.action} (${row.decidedBy})`,
+    );
+  }
+  return filled.length === 0 ? report : { ...report, recordDecisions: filled };
+};
+
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -1029,7 +1067,7 @@ const unblockCheck = (
     throw new Error("pushed rehearsal head does not match the installed tree");
   const ciRun = waitForCiVerdict(runner, worktree, report.lane.branch, installedHead);
   verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
-  report = {
+  report = preserveRecordDecisions({
     ...report,
     stage: "checked",
     installedHead,
@@ -1039,7 +1077,7 @@ const unblockCheck = (
       ...(report.silentSeams ?? []),
       ...(silentSeam === null ? [] : [parseSilentSeam(silentSeam)]),
     ],
-  };
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -1088,6 +1126,9 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
     const cells = line.split("|").map((cell) => cell.trim());
     if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[4] ?? ""))
       throw new Error(`decision row has no keep/retire/partial action: ${line}`);
+    // An action without a decider is a rendered default, not a decision anyone made.
+    if (!["human", "agent"].includes(cells[6] ?? ""))
+      throw new Error(`decision row records no decider: ${line}`);
   }
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
 };

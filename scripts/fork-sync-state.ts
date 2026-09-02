@@ -55,6 +55,9 @@ export type ConflictClass =
   | "retire-candidate"
   | "human";
 
+/** Who signed a row. `TODO` is the absence of provenance, not a third decider. */
+export type DecidedBy = "human" | "agent" | "TODO";
+
 export interface ConflictRow {
   readonly commit: string;
   readonly subject: string;
@@ -63,7 +66,7 @@ export interface ConflictRow {
   readonly class: ConflictClass | "TODO";
   readonly resolution: string;
   readonly agentSafe: string;
-  readonly decidedBy: "human" | "agent";
+  readonly decidedBy: DecidedBy;
 }
 
 export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
@@ -88,8 +91,15 @@ export interface OrientationDecisionRow {
   readonly subject: string;
   readonly domain: string;
   readonly verdict: OrientationVerdict;
-  readonly decidedBy: "human" | "agent";
+  readonly decidedBy: DecidedBy;
   readonly action?: DecisionAction;
+}
+
+/** A decision cell an operator filled in the record by hand, carried across regeneration. */
+export interface RecordDecision {
+  readonly subject: string;
+  readonly action: string;
+  readonly decidedBy: Exclude<DecidedBy, "TODO">;
 }
 
 /**
@@ -134,6 +144,7 @@ export interface SyncReport {
   readonly orientation?: string;
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
+  readonly recordDecisions?: ReadonlyArray<RecordDecision>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   readonly behaviourSeamStopPresented?: boolean;
@@ -403,7 +414,7 @@ export const renderRecord = (report: SyncReport): string => {
       readonly domain: string;
       readonly classSummary: string;
       readonly action: string;
-      readonly decidedBy: "human" | "agent";
+      readonly decidedBy: DecidedBy;
     }
   >();
   const evidence = new Map((report.retireEvidence ?? []).map((row) => [row.subject, row]));
@@ -428,6 +439,17 @@ export const renderRecord = (report: SyncReport): string => {
       classSummary: existing === undefined ? row.class : `${existing.classSummary}; ${row.class}`,
       action: existing?.action ?? "TODO",
       decidedBy: existing?.decidedBy ?? row.decidedBy,
+    });
+  }
+  // A cell an operator filled by hand outlives regeneration; the report is otherwise the only truth
+  // and would reset the decision to TODO.
+  for (const filled of report.recordDecisions ?? []) {
+    const existing = decisions.get(filled.subject);
+    if (existing === undefined) continue;
+    decisions.set(filled.subject, {
+      ...existing,
+      action: filled.action,
+      decidedBy: filled.decidedBy,
     });
   }
   const decisionRows = [...decisions.values()].map(
@@ -516,6 +538,13 @@ const splitTableCells = (line: string): ReadonlyArray<string> | null => {
 const invalidConflictCell = (column: string, detail: string): Error =>
   new Error(`invalid conflict ${column} cell: ${detail}`);
 
+/** An absent column is a record written before provenance existed, so it carries none. */
+const readDecidedBy = (cell: string | undefined, invalid: (detail: string) => Error): DecidedBy => {
+  if (cell === undefined || cell === "TODO") return "TODO";
+  if (cell === "human" || cell === "agent") return cell;
+  throw invalid(cell);
+};
+
 const unescapeCell = (value: string, column: string): string => {
   let result = "";
   for (let index = 0; index < value.length; index += 1) {
@@ -575,14 +604,7 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
       class: klass as ConflictRow["class"],
       resolution: unescapeCell(cells[4] ?? "", "Resolution"),
       agentSafe: unescapeCell(cells[5] ?? "", "Agent-safe"),
-      decidedBy:
-        cells[6] === undefined || cells[6] === "human"
-          ? "human"
-          : cells[6] === "agent"
-            ? "agent"
-            : (() => {
-                throw invalidConflictCell("Decided by", cells[6] ?? "");
-              })(),
+      decidedBy: readDecidedBy(cells[6], (detail) => invalidConflictCell("Decided by", detail)),
     });
   }
   return rows;
@@ -628,15 +650,33 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
       domain,
       verdict: verdict as OrientationDecisionRow["verdict"],
       ...(qualified ? { action: action as DecisionAction } : {}),
-      decidedBy:
-        cells[5] === undefined || cells[5] === "human"
-          ? "human"
-          : cells[5] === "agent"
-            ? "agent"
-            : (() => {
-                throw invalidDecisionCell("Decided by", cells[5] ?? "");
-              })(),
+      decidedBy: readDecidedBy(cells[5], (detail) => invalidDecisionCell("Decided by", detail)),
     });
+  }
+  return rows;
+};
+
+/**
+ * Decision cells an operator already filled, read without demanding a complete record. A row still
+ * showing `TODO` carries no decision, so it is not returned.
+ */
+export const filledDecisionCells = (record: string): ReadonlyArray<RecordDecision> => {
+  const section = recordSection(record, "## Fork commits");
+  const rows: Array<RecordDecision> = [];
+  for (const line of section.split("\n")) {
+    const cells = splitTableCells(line);
+    if (cells === null || cells[0] === "Exact subject") continue;
+    if (cells.every((cell) => /^-+$/.test(cell))) continue;
+    if (cells.length !== 5 && cells.length !== 6) continue;
+    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
+    const action = cells[3] ?? "";
+    if (subject === null || !["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(action))
+      continue;
+    const decidedBy = readDecidedBy(cells[5], (detail) =>
+      invalidDecisionCell("Decided by", detail),
+    );
+    if (decidedBy === "TODO") continue;
+    rows.push({ subject: unescapeCell(subject[1] ?? "", "Exact subject"), action, decidedBy });
   }
   return rows;
 };
@@ -672,6 +712,6 @@ export const orientationDecisionRows = (
       verdict: (match[1] ?? "candidate") as OrientationVerdict,
       subject: match[2] ?? "",
       domain: match[3] ?? "?",
-      decidedBy: "human",
+      decidedBy: "TODO",
     }),
   );

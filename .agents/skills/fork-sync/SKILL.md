@@ -113,7 +113,11 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    last 40 failed-log lines verbatim before any interpretation. Continue only when the human gives
    every keep/retire/partial decision by exact subject and gives an explicit go; when the surface
    names a grounding claim, get that confirmation too. Put only those supplied decisions in the
-   rendered record; never record a recommendation as the human's decision.
+   rendered record; never record a recommendation as the human's decision. Write the decider in the
+   `Decided by` cell beside every action you fill; a cell left on `TODO` records no decision, is
+   counted for nobody in the churn ledger, and is refused at apply. A rerun of the check keeps the
+   cells already filled and refuses when a filled cell disagrees with the decision the report
+   carries.
 
 5. Apply the reviewed record:
 
