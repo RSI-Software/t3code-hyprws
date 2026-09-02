@@ -39,6 +39,7 @@ import {
   type CommandRunner,
   type SyncReport,
 } from "./fork-sync.ts";
+import { inspectRecord } from "./fork-sync-gate.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 
 const A = "a".repeat(40);
@@ -1826,6 +1827,54 @@ it("binds a rewrite lane to its own from/origin naming", () => {
   }
 });
 
+it("renders a rewrite record the tag-pinned gate accepts", () => {
+  const root = fixtureRoot();
+  const rewrite = {
+    from: "origin/prepared",
+    fromSha: B,
+    fromShort: B.slice(0, 12),
+    originSha: C,
+    originShort: C.slice(0, 12),
+    base: A,
+    baseTag: "v0.0.38-nightly.20260831.1236",
+    baseToOriginCount: 204,
+    baseToFromCount: 205,
+    allowExtra: 1,
+    allowPaths: ["docs/internals/fork-development.md"],
+    originDigest: "d".repeat(64),
+    fromFirstNDigest: "d".repeat(64),
+    diffEmpty: true,
+    proofs: [],
+  };
+  const checked = report(root, {
+    stage: "checked",
+    kind: "rewrite",
+    rewrite,
+    lane: { branch: `rehearse/rewrite-${B.slice(0, 12)}-from-${C.slice(0, 12)}`, worktree: root },
+    rebasedHead: B,
+    stackSize: 205,
+  });
+  const observed = {
+    targetTag: "v0.0.38-nightly.20260831.1236",
+    targetSha: A,
+    expectedOld: C,
+    rebasedHead: B,
+    stackSize: "205",
+  };
+  try {
+    assert.deepStrictEqual(inspectRecord(renderRecord(checked), observed), []);
+    const { baseTag: _baseTag, ...untagged } = rewrite;
+    const withoutTag = report(root, { ...checked, rewrite: untagged });
+    assert.deepStrictEqual(inspectRecord(renderRecord(withoutTag), observed), [
+      `Target mismatch: record absent@${A}, checkout v0.0.38-nightly.20260831.1236@${A}`,
+    ]);
+    NodeFS.rmSync(NodePath.dirname(withoutTag.reportPath), { recursive: true, force: true });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("pins the rewrite gate to the release tag at the fork base", () => {
   const root = fixtureRoot();
   const runner = new FakeRunner();
@@ -2481,6 +2530,7 @@ it("rewrite-rehearse refuses a stale from via count proof", () => {
   runner.set("git", ["rev-parse", "origin/hyprws"], { stdout: `${origin}\n` });
   runner.set("git", ["merge-base", "upstream/main", "origin/hyprws"], { stdout: `${base}\n` });
   runner.set("git", ["merge-base", "upstream/main", from], { stdout: `${base}\n` });
+  runner.set("git", ["tag", "--points-at", base], { stdout: "v0.0.38-nightly.20260831.1236\n" });
   runner.set("git", ["rev-list", "--count", `${base}..origin/hyprws`], { stdout: "199\n" });
   runner.set("git", ["rev-list", "--count", `${base}..${from}`], { stdout: "197\n" });
   // Stub the two log calls
@@ -2538,6 +2588,7 @@ it("rewrite-rehearse happy path writes a kind rewrite report", () => {
   runner.set("git", ["rev-parse", "origin/hyprws"], { stdout: `${origin}\n` });
   runner.set("git", ["merge-base", "upstream/main", "origin/hyprws"], { stdout: `${base}\n` });
   runner.set("git", ["merge-base", "upstream/main", from], { stdout: `${base}\n` });
+  runner.set("git", ["tag", "--points-at", base], { stdout: "v0.0.38-nightly.20260831.1236\n" });
   runner.set("git", ["rev-list", "--count", `${base}..origin/hyprws`], { stdout: "2\n" });
   runner.set("git", ["rev-list", "--count", `${base}..${from}`], { stdout: "2\n" });
   const same = "hello\x1e";
