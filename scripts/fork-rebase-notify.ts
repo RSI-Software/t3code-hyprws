@@ -10,10 +10,12 @@ import {
   refreshRow,
   type BlockedIssue,
   type RebaseMode,
+  type StableCandidate,
 } from "./lib/fork-rebase-issues.ts";
 
 const BLOCKED_LABEL = "rebase-blocked";
 const DOMAIN_LABEL = "ci";
+const RELEASE_LABEL = "release";
 const NOTIFICATION_ISSUE_TYPE = "Notification";
 const HIGH_PRIORITY = "High";
 const BLOCKING_MARKER = /<!-- blocking-sha:([0-9a-f]{40,64}) -->/;
@@ -25,6 +27,7 @@ export interface NotifyInput {
   readonly status: "off" | "no-op" | "advanced";
   readonly oldSha: string;
   readonly newSha: string | null;
+  readonly stableCandidates: ReadonlyArray<StableCandidate>;
   readonly blocked: BlockedIssue | null;
 }
 
@@ -42,11 +45,11 @@ export interface RebaseIssueComment {
   readonly body: string;
 }
 
-export interface CreateRebaseIssue {
+export interface CreateNotificationIssue {
   readonly title: string;
   readonly body: string;
-  readonly labels: ReadonlyArray<typeof BLOCKED_LABEL | typeof DOMAIN_LABEL>;
-  readonly assignee: "donjor";
+  readonly labels: ReadonlyArray<typeof BLOCKED_LABEL | typeof DOMAIN_LABEL | typeof RELEASE_LABEL>;
+  readonly assignee?: "donjor";
   readonly priority: typeof HIGH_PRIORITY;
 }
 
@@ -84,10 +87,11 @@ export const hasPlainSingleSelectOption = (
 export interface RebaseGitHubClient {
   ensureBlockedLabel(): void;
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
+  listReleaseIssues(): ReadonlyArray<RebaseIssue>;
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment>;
   lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string;
   applyIssueType(issue: RebaseIssue, issueTypeId: string): void;
-  createIssue(issue: CreateRebaseIssue): RebaseIssue;
+  createIssue(issue: CreateNotificationIssue): RebaseIssue;
   updateIssueBody(issueNumber: number, body: string): void;
   createIssueComment(issueNumber: number, body: string): RebaseIssueComment;
   updateIssueComment(commentId: number, body: string): void;
@@ -175,18 +179,26 @@ const refreshIssue = (
   if (updated !== null) client.updateIssueComment(comment.id, updated);
 };
 
+const hasNotificationType = (issue: RebaseIssue): boolean =>
+  issue.issueType === NOTIFICATION_ISSUE_TYPE ||
+  issue.issueType?.startsWith(`${NOTIFICATION_ISSUE_TYPE} `) === true;
+
+const ensureNotificationType = (
+  client: RebaseGitHubClient,
+  issue: RebaseIssue,
+  issueTypeId?: string,
+): void => {
+  if (hasNotificationType(issue)) return;
+  client.applyIssueType(issue, issueTypeId ?? client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE));
+};
+
 const refreshBlockIssue = (
   client: RebaseGitHubClient,
   issue: RebaseIssue,
   blocked: BlockedIssue,
   at: Date,
 ): void => {
-  if (
-    issue.issueType !== NOTIFICATION_ISSUE_TYPE &&
-    issue.issueType?.startsWith(`${NOTIFICATION_ISSUE_TYPE} `) !== true
-  ) {
-    client.applyIssueType(issue, client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE));
-  }
+  ensureNotificationType(client, issue);
   client.updateIssueBody(issue.number, blocked.body);
   refreshIssue(client, issue.number, blocked, at);
 };
@@ -249,6 +261,72 @@ export const reconcileRebaseBlock = (
   });
   client.applyIssueType(created, issueTypeId);
   client.createIssueComment(created.number, initialRefreshLog(input.blocked, at));
+};
+
+const matchesStableCandidate = (issue: RebaseIssue, candidate: StableCandidate): boolean =>
+  issue.body.includes(candidate.marker);
+
+export const reconcileStableCandidates = (
+  client: RebaseGitHubClient,
+  candidates: ReadonlyArray<StableCandidate>,
+): void => {
+  if (candidates.length === 0) return;
+  let issues = client.listReleaseIssues();
+  let issueTypeId: string | null = null;
+  const notificationTypeId = (): string => {
+    issueTypeId ??= client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE);
+    return issueTypeId;
+  };
+
+  for (const candidate of candidates) {
+    let matching = issues.filter((issue) => matchesStableCandidate(issue, candidate));
+    if (matching.length === 0) {
+      issues = client.listReleaseIssues();
+      matching = issues.filter((issue) => matchesStableCandidate(issue, candidate));
+    }
+    if (matching.length > 0) {
+      for (const issue of matching) {
+        if (!hasNotificationType(issue)) {
+          ensureNotificationType(client, issue, notificationTypeId());
+        }
+      }
+      continue;
+    }
+
+    const typeId = notificationTypeId();
+    const created = client.createIssue({
+      title: candidate.title,
+      body: candidate.body,
+      labels: [RELEASE_LABEL],
+      priority: HIGH_PRIORITY,
+    });
+    client.applyIssueType(created, typeId);
+    issues = [...issues, created];
+  }
+};
+
+const captureFailure = (failures: Array<unknown>, action: () => void): void => {
+  try {
+    action();
+  } catch (error) {
+    failures.push(error);
+  }
+};
+
+export const reconcileForkIssues = (
+  client: RebaseGitHubClient,
+  input: NotifyInput,
+  at = new Date(),
+): void => {
+  const failures: Array<unknown> = [];
+  captureFailure(failures, () => reconcileRebaseBlock(client, input, at));
+  captureFailure(failures, () => reconcileStableCandidates(client, input.stableCandidates));
+  if (failures.length > 0) {
+    throw new Error(
+      failures.map((error) => (error instanceof Error ? error.message : String(error))).join("; "),
+      { cause: failures[0] },
+    );
+  }
 };
 
 interface ApiIssue {
@@ -339,7 +417,7 @@ export class SystemGitHub implements RebaseGitHubClient {
     return response.data;
   }
 
-  private issueMetadata(issue: CreateRebaseIssue): IssueMetadata {
+  private issueMetadata(issue: CreateNotificationIssue): IssueMetadata {
     let priority: string | null = null;
     try {
       const result = this.graphql<PriorityFieldQuery>(
@@ -407,13 +485,13 @@ export class SystemGitHub implements RebaseGitHubClient {
     ]);
   }
 
-  listBlockedIssues(): ReadonlyArray<RebaseIssue> {
+  private listIssuesByLabel(label: string): ReadonlyArray<RebaseIssue> {
     return this.pages<ApiIssue>(
-      `repos/${this.repository}/issues?state=all&labels=${BLOCKED_LABEL}&per_page=100`,
+      `repos/${this.repository}/issues?state=all&labels=${label}&per_page=100`,
     ).flatMap((issue) => {
       if (issue.pull_request !== undefined) return [];
       if (issue.state !== "open" && issue.state !== "closed") {
-        throw new Error("GitHub returned a rebase-blocked issue with an unknown state");
+        throw new Error("GitHub returned a labelled issue with an unknown state");
       }
       return [
         {
@@ -426,6 +504,14 @@ export class SystemGitHub implements RebaseGitHubClient {
         },
       ];
     });
+  }
+
+  listBlockedIssues(): ReadonlyArray<RebaseIssue> {
+    return this.listIssuesByLabel(BLOCKED_LABEL);
+  }
+
+  listReleaseIssues(): ReadonlyArray<RebaseIssue> {
+    return this.listIssuesByLabel(RELEASE_LABEL);
   }
 
   lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string {
@@ -441,7 +527,9 @@ export class SystemGitHub implements RebaseGitHubClient {
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`repository issue type ${issueType} lookup failed: ${detail}`);
+      throw new Error(`repository issue type ${issueType} lookup failed: ${detail}`, {
+        cause: error,
+      });
     }
     const issueTypeId = findIssueTypeId(result.repository?.issueTypes.nodes ?? [], issueType);
     if (issueTypeId === null) {
@@ -468,13 +556,13 @@ export class SystemGitHub implements RebaseGitHubClient {
     }));
   }
 
-  createIssue(issue: CreateRebaseIssue): RebaseIssue {
+  createIssue(issue: CreateNotificationIssue): RebaseIssue {
     const metadata = this.issueMetadata(issue);
     const created = this.api<ApiIssue>("POST", `repos/${this.repository}/issues`, {
       title: issue.title,
       body: issue.body,
       labels: [...issue.labels],
-      assignees: [issue.assignee],
+      ...(issue.assignee === undefined ? {} : { assignees: [issue.assignee] }),
     });
     const nodeId = created.node_id;
     if (nodeId === undefined) throw new Error("GitHub response omitted issue node id");
@@ -535,7 +623,7 @@ export const run = (argv: ReadonlyArray<string>): number => {
     const repository = process.env.GH_REPO;
     if (!repository) throw new UsageError("GH_REPO is required");
     const input = JSON.parse(NodeFS.readFileSync(options.input, "utf8")) as NotifyInput;
-    reconcileRebaseBlock(new SystemGitHub(repository), input);
+    reconcileForkIssues(new SystemGitHub(repository), input);
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
