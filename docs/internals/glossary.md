@@ -28,6 +28,7 @@ Fork-only terms. The [fork sync runbook](../operations/fork-sync.md) owns the pr
 | `release/vX.Y.Z-hyprws` | A create-only branch snapshotting the fork stack rebased onto stable upstream `vX.Y.Z`. Stable `vX.Y.Z-hyprws.<n>` tags are cut from it, and later trunk work never moves it.                     |
 | `rebase-blocked`        | The fork issue label for the first upstream commit beyond the bot's conflict-free boundary. A maintainer resolves it through the `fork-sync` skill's unblock entry point.                         |
 | `fork-churn`            | The generated ledger of conflict churn across landed unblock walks. The `fork-sync` operator appends a row after each apply.                                                                      |
+| `unblock-auto`          | The unattended `fork-sync` verb that carries `hyprws` to the next release tag through mechanical rebase work and stops only when an agent or human must judge behaviour.                          |
 | Nightly channel         | The prerelease update channel for `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>` tags, kept separate from stable fork releases in the desktop updater.                                                    |
 
 ## Orchestration

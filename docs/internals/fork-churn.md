@@ -64,8 +64,8 @@
 ## Walks
 
 <!-- prettier-ignore -->
-| Tag | Range | Conflicts by class | Record |
-| --- | --- | --- | --- |
-| `v0.0.37` | `63967c2051` → `c936696658` | generated: 1, mechanical: 5 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/309#issuecomment-5504592301) |
-| `v0.0.38-nightly.20260831.1235` | `7957eeafaf` → `ffe1cc2f97` | mechanical: 1, seam-moved: 1 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/426#issuecomment-5506167191) |
-| `v0.0.38-nightly.20260831.1236` | `1f429a345f3846e42225786ce393ca004161d408` → `6725a6d2888ff8ac9279efcb9644a9277346d422` | mechanical: 2 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/435#issuecomment-5507129082) |
+| Tag | Range | Conflicts by class | Agent/human decisions | Record |
+| --- | --- | --- | ---: | --- |
+| `v0.0.37` | `63967c2051` → `c936696658` | generated: 1, mechanical: 5 | 0/17 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/309#issuecomment-5504592301) |
+| `v0.0.38-nightly.20260831.1235` | `7957eeafaf` → `ffe1cc2f97` | mechanical: 1, seam-moved: 1 | 0/7 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/426#issuecomment-5506167191) |
+| `v0.0.38-nightly.20260831.1236` | `1f429a345f3846e42225786ce393ca004161d408` → `6725a6d2888ff8ac9279efcb9644a9277346d422` | mechanical: 2 | 0/8 | [record](https://github.com/RSI-Software/t3code-hyprws/issues/435#issuecomment-5507129082) |
