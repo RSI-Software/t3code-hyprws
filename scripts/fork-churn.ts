@@ -422,8 +422,19 @@ const blockedIssueNumber = (root: string): number | null => {
 };
 
 interface IssueComments {
-  readonly comments: ReadonlyArray<{ readonly id: string; readonly body: string }>;
+  readonly comments: ReadonlyArray<{ readonly url: string; readonly body: string }>;
 }
+
+/**
+ * `gh issue view --json comments` reports a comment's GraphQL node id, which the REST
+ * comment path refuses; the permalink it returns alongside carries the numeric database
+ * id that path wants.
+ */
+export const commentRestId = (url: string): string => {
+  const id = /#issuecomment-(\d+)$/.exec(url)?.[1];
+  if (id === undefined) throw new Error(`comment url carries no REST id: ${url}`);
+  return id;
+};
 
 /**
  * Post the churn section on the block issue, replacing the section the previous
@@ -463,7 +474,7 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
           "api",
           "--method",
           "PATCH",
-          `repos/${FORK_REPOSITORY}/issues/comments/${existing.id}`,
+          `repos/${FORK_REPOSITORY}/issues/comments/${commentRestId(existing.url)}`,
           "--field",
           `body=@${bodyPath}`,
           "--jq",
