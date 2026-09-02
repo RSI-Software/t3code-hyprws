@@ -3,9 +3,13 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeProcess from "node:process";
 
 import { parseArgs, UsageError } from "./lib/fork-cli.ts";
-import type { CwdCommandRunner as CommandRunner } from "./lib/fork-command.ts";
+import {
+  requireCommandSuccess,
+  type CwdCommandRunner as CommandRunner,
+} from "./lib/fork-command.ts";
 import { parseStableForkTag } from "./lib/fork-policy.ts";
 import { resolveNextForkStableTag } from "./fork-release-version.ts";
 import {
@@ -335,20 +339,38 @@ const stablePrepare = (
       throw new Error("stable cut lane does not match the selected snapshot SHA");
     }
 
-    const checks: ReadonlyArray<{
-      readonly command: string;
-      readonly args: ReadonlyArray<string>;
-    }> = [
-      { command: "vp", args: ["install", "--frozen-lockfile"] },
-      { command: "vp", args: ["run", "fork:delta", "--check"] },
-      { command: "vp", args: ["check"] },
-      { command: "vp", args: ["run", "typecheck"] },
-      { command: "vp", args: ["run", "test"] },
-    ];
     const verification: Array<{ command: string; result: string }> = [];
-    for (const check of checks) {
-      requireSuccess(runner, check.command, check.args, lane.worktree);
-      verification.push({ command: commandText(check.command, check.args), result: "passed" });
+    const installArgs = ["install", "--frozen-lockfile"];
+    requireSuccess(runner, "vp", installArgs, lane.worktree);
+    verification.push({ command: commandText("vp", installArgs), result: "passed" });
+
+    const laneVp = NodePath.join(
+      lane.worktree,
+      "node_modules",
+      ".bin",
+      NodeProcess.platform === "win32" ? "vp.cmd" : "vp",
+    );
+    const laneEnvironment = {
+      ...process.env,
+      INIT_CWD: lane.worktree,
+      PATH: `${NodePath.dirname(laneVp)}${NodePath.delimiter}${process.env.PATH ?? ""}`,
+      VP_CLI_BIN: laneVp,
+    };
+    const runLaneVp = (args: ReadonlyArray<string>): string =>
+      requireCommandSuccess(
+        runner.run(laneVp, args, lane.worktree, undefined, laneEnvironment),
+        "vp",
+        args,
+      );
+    const checks: ReadonlyArray<ReadonlyArray<string>> = [
+      ["run", "fork:delta", "--check"],
+      ["check"],
+      ["run", "typecheck"],
+      ["run", "test"],
+    ];
+    for (const args of checks) {
+      runLaneVp(args);
+      verification.push({ command: commandText("vp", args), result: "passed" });
     }
 
     const allTags = lines(git(runner, lane.worktree, ["tag", "--list", "v*-hyprws.*"]));
@@ -383,7 +405,7 @@ const stablePrepare = (
       "--output",
       uatDraftPath,
     ];
-    requireSuccess(runner, "vp", uatArgs, lane.worktree);
+    runLaneVp(uatArgs);
     verification.push({ command: commandText("vp", uatArgs), result: "draft rendered" });
 
     requireSuccess(

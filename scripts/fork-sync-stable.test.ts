@@ -3,6 +3,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeProcess from "node:process";
 
 import { assert, it } from "@effect/vitest";
 
@@ -17,12 +18,15 @@ import type { CommandResult, CwdCommandRunner as CommandRunner } from "./lib/for
 
 const SHA = "a".repeat(40);
 const REPOSITORY = "RSI-Software/t3code-hyprws";
+const vpForLane = (lane: string): string =>
+  NodePath.join(lane, "node_modules", ".bin", NodeProcess.platform === "win32" ? "vp.cmd" : "vp");
 
 class FakeRunner implements CommandRunner {
   readonly calls: Array<{
     readonly command: string;
     readonly args: ReadonlyArray<string>;
     readonly cwd: string;
+    readonly env?: NodeJS.ProcessEnv;
   }> = [];
   readonly responses = new Map<string, CommandResult>();
   fallback: CommandResult = { status: 0, stdout: "", stderr: "" };
@@ -35,8 +39,14 @@ class FakeRunner implements CommandRunner {
     this.responses.set(this.key(command, args), { status: 0, stdout: "", stderr: "", ...result });
   }
 
-  run(command: string, args: ReadonlyArray<string>, cwd: string): CommandResult {
-    this.calls.push({ command, args, cwd });
+  run(
+    command: string,
+    args: ReadonlyArray<string>,
+    cwd: string,
+    _input?: string,
+    env?: NodeJS.ProcessEnv,
+  ): CommandResult {
+    this.calls.push({ command, args, cwd, ...(env === undefined ? {} : { env }) });
     return this.responses.get(this.key(command, args)) ?? this.fallback;
   }
 }
@@ -172,20 +182,35 @@ it("stable-prepare binds the selected snapshot, runs the release checks, and ren
     tag: "v1.2.3-hyprws.4",
     priorTags: ["v1.2.3-hyprws.1", "v1.2.3-hyprws.3"],
   });
+  assert.isTrue(
+    runner.calls.some(
+      (call) => call.command === "vp" && call.args.join(" ") === "install --frozen-lockfile",
+    ),
+  );
+  const laneVp = vpForLane(lane);
   for (const args of [
-    ["install", "--frozen-lockfile"],
     ["run", "fork:delta", "--check"],
     ["check"],
     ["run", "typecheck"],
     ["run", "test"],
   ]) {
     assert.isTrue(
-      runner.calls.some((call) => call.command === "vp" && call.args.join(" ") === args.join(" ")),
+      runner.calls.some(
+        (call) =>
+          call.command === laneVp &&
+          call.args.join(" ") === args.join(" ") &&
+          call.env?.VP_CLI_BIN === laneVp &&
+          call.env?.INIT_CWD === lane &&
+          call.env.PATH?.startsWith(`${NodePath.dirname(laneVp)}${NodePath.delimiter}`) === true,
+      ),
     );
   }
   assert.isTrue(
     runner.calls.some(
-      (call) => call.command === "vp" && call.args.slice(0, 3).join(" ") === "run fork:uat --ref",
+      (call) =>
+        call.command === laneVp &&
+        call.args.slice(0, 3).join(" ") === "run fork:uat --ref" &&
+        call.env?.VP_CLI_BIN === laneVp,
     ),
   );
 });
@@ -196,7 +221,10 @@ it("stable-prepare removes its cut lane when a release check fails", () => {
   const listed = reportFixture(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = prepareRunner(lane);
-  runner.set("vp", ["run", "test"], { status: 1, stderr: "transient test failure" });
+  runner.set(vpForLane(lane), ["run", "test"], {
+    status: 1,
+    stderr: "transient test failure",
+  });
 
   assert.throws(
     () =>
@@ -227,7 +255,10 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
   const listed = reportFixture(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = prepareRunner(lane);
-  runner.set("vp", ["run", "test"], { status: 1, stderr: "transient test failure" });
+  runner.set(vpForLane(lane), ["run", "test"], {
+    status: 1,
+    stderr: "transient test failure",
+  });
   runner.set(
     "wt",
     ["remove", "--foreground", "--force", "--force-delete", "--yes", "cut/v1.2.3-hyprws"],
