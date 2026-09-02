@@ -435,10 +435,11 @@ export const orientationTouchedPaths = (orientation: string): ReadonlyArray<stri
     .toSorted();
 };
 
+/** Retire candidates arrive with the subject in a code span; the row stores the subject itself. */
 export const orientationDecisionRows = (
   orientation: string,
 ): ReadonlyArray<OrientationDecisionRow> =>
-  [...orientation.matchAll(/^\s+\[(candidate|keep|retire|partial)\] (.+) \(([^)]+)\)$/gm)].map(
+  [...orientation.matchAll(/^\s+\[(candidate|keep|retire|partial)\] `(.+)` \(([^)]+)\)$/gm)].map(
     (match) => ({
       verdict: (match[1] ?? "candidate") as OrientationVerdict,
       subject: match[2] ?? "",
