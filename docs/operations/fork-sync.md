@@ -84,6 +84,24 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
 commit and one for the bot-pushed rebased head.
 
+### Walk pause
+
+Before an unblock walk, set the bot to candidate mode and leave it there until the ladder or walk
+series ends:
+
+```bash
+gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-hyprws
+```
+
+After each apply, dispatch one reconciliation run from the new `hyprws` head:
+
+```bash
+gh workflow run hyprws-upstream-sync.yml --repo RSI-Software/t3code-hyprws
+```
+
+Confirm the blocked issue closes with `Resolved by hyprws <sha>` and the next block opens, or no block
+remains. Restore `on` only when the ladder or walk series is complete.
+
 ### Block issue lifecycle
 
 The bot keeps at most one open `rebase-blocked` issue and identifies it by the exact

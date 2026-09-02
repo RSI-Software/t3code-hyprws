@@ -15,6 +15,7 @@ import {
   identifyRerereResolvedPaths,
   laneExecutablePath,
   lockDriftClass,
+  nextScheduledFire,
   NO_GROUNDING_CLAIM,
   orientationDecisionRows,
   orientationTouchedPaths,
@@ -40,6 +41,12 @@ const C = "c".repeat(40);
 const fixtureRoot = (): string => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
   NodeChildProcess.execFileSync("git", ["init", "-b", "fixture"], { cwd: root });
+  const workflowDirectory = NodePath.join(root, ".github", "workflows");
+  NodeFS.mkdirSync(workflowDirectory, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(workflowDirectory, "hyprws-upstream-sync.yml"),
+    'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
+  );
   return root;
 };
 
@@ -53,6 +60,7 @@ const report = (root: string, overrides: Partial<SyncReport> = {}): SyncReport =
     recordPath: NodePath.join(directory, "record.md"),
     issue: { number: 352, blockingSha: A, title: "blocked" },
     candidates: [{ tag: "v1.2.3", sha: B }],
+    bot: { mode: "candidate", lastRun: null, nextFire: "2026-09-02T08:23:00.000Z" },
     conflicts: [],
     verification: [],
     ...overrides,
@@ -125,6 +133,83 @@ it("lists accepted unblock target forms when a tag was not offered", () => {
     ),
   );
 });
+const modeArgs = [
+  "variable",
+  "get",
+  "HYPRWS_AUTO_REBASE",
+  "--repo",
+  "RSI-Software/t3code-hyprws",
+] as const;
+const runListArgs = [
+  "run",
+  "list",
+  "--workflow",
+  "hyprws-upstream-sync.yml",
+  "-L",
+  "1",
+  "--json",
+  "status,conclusion,createdAt,url",
+  "--repo",
+  "RSI-Software/t3code-hyprws",
+] as const;
+const lastRun = {
+  status: "completed",
+  conclusion: "success",
+  createdAt: "2026-09-02T04:18:00Z",
+  url: "https://example.test/runs/1",
+};
+
+const setBotResponses = (runner: FakeRunner, mode: "off" | "candidate" | "on"): void => {
+  runner.set("gh", modeArgs, { stdout: `${mode}\n` });
+  runner.set("gh", runListArgs, { stdout: JSON.stringify([lastRun]) });
+};
+
+const setListResponses = (runner: FakeRunner, root: string): void => {
+  runner.set("git", ["rev-parse", "--show-toplevel"], { stdout: `${root}\n` });
+  runner.set(
+    "gh",
+    [
+      "issue",
+      "list",
+      "--state",
+      "open",
+      "--label",
+      "rebase-blocked",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+      "--json",
+      "number,title,body",
+    ],
+    { stdout: issueJson },
+  );
+  runner.set("git", ["rev-list", "--first-parent", "--reverse", "upstream/main"], {
+    stdout: `${A}\n${B}\n`,
+  });
+  runner.set(
+    "git",
+    [
+      "for-each-ref",
+      "--format=%(refname:strip=2)%09%(objectname)%09%(*objectname)",
+      "refs/tags/v*",
+    ],
+    { stdout: `v1.2.3\t${B}\t\n` },
+  );
+};
+
+const captureStdout = <T>(effect: () => T): { readonly output: string; readonly result: T } => {
+  let output = "";
+  const original = process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    output += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const result = effect();
+    return { output, result };
+  } finally {
+    process.stdout.write = original;
+  }
+};
 
 it("writes a listed report without accepting or inferring a target", () => {
   const root = fixtureRoot();
@@ -162,6 +247,7 @@ it("writes a listed report without accepting or inferring a target", () => {
     ],
     { stdout: `v1.2.3\t${B}\t\nv1.2.4-nightly.20260831.2\t${C}\t\n` },
   );
+  setBotResponses(runner, "candidate");
 
   try {
     const listed = execute(["unblock-list", "--output", output], root, runner);
@@ -183,6 +269,148 @@ it("writes a listed report without accepting or inferring a target", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(output), { recursive: true, force: true });
+  }
+});
+
+it("prints the bot block after candidates for every mode", () => {
+  for (const mode of ["off", "candidate", "on"] as const) {
+    const root = fixtureRoot();
+    const outputPath = NodePath.join(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-out-")),
+      "report.json",
+    );
+    const runner = new FakeRunner();
+    setListResponses(runner, root);
+    setBotResponses(runner, mode);
+    if (mode === "candidate")
+      runner.set("gh", runListArgs, {
+        stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]),
+      });
+    try {
+      const { output, result } = captureStdout(() =>
+        execute(["unblock-list", "--output", outputPath], root, runner),
+      );
+      assert.strictEqual(result.bot?.mode, mode);
+      assert.include(output, `bot:\n  mode: ${mode}\n`);
+      assert.include(
+        output,
+        mode === "candidate"
+          ? "  last run: in_progress 2026-09-02T04:18:00Z https://example.test/runs/1\n"
+          : "  last run: completed success 2026-09-02T04:18:00Z https://example.test/runs/1\n",
+      );
+      if (mode === "candidate") assert.include(output, "  RUNNING\n");
+      else assert.notInclude(output, "  RUNNING\n");
+      assert.match(output, /  next fire: \d{4}-\d\d-\d\dT(?:00|04|08|12|16|20):23:00\.000Z\n/);
+      assert.isBelow(output.indexOf(`  v1.2.3@${B}`), output.indexOf("bot:\n"));
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(outputPath), { recursive: true, force: true });
+    }
+  }
+});
+
+it("uses candidate mode when the repository variable is missing", () => {
+  const root = fixtureRoot();
+  const outputPath = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-out-")),
+    "report.json",
+  );
+  const runner = new FakeRunner();
+  setListResponses(runner, root);
+  runner.set("gh", modeArgs, { status: 1, stderr: "HTTP 404: variable not found" });
+  runner.set("gh", runListArgs, { stdout: "[]" });
+  try {
+    const { output, result } = captureStdout(() =>
+      execute(["unblock-list", "--output", outputPath], root, runner),
+    );
+    assert.strictEqual(result.bot?.mode, "candidate");
+    assert.include(output, "bot:\n  mode: candidate\n  last run: none\n");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(outputPath), { recursive: true, force: true });
+  }
+});
+
+it("derives the next fire from the workflow cron", () => {
+  assert.strictEqual(
+    nextScheduledFire("23 */4 * * *", new Date("2026-09-02T04:24:00.000Z")),
+    "2026-09-02T08:23:00.000Z",
+  );
+});
+
+it("refuses orientation in on mode with the exact pause remedy", () => {
+  const root = fixtureRoot();
+  const listed = report(root, {
+    bot: { mode: "on", lastRun: null, nextFire: "2026-09-02T08:23:00.000Z" },
+  });
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
+          root,
+          new FakeRunner(),
+        ),
+      new RegExp(
+        "gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-hyprws$",
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses orientation while the bot run is in progress", () => {
+  const root = fixtureRoot();
+  const listed = report(root, {
+    bot: {
+      mode: "candidate",
+      lastRun: { ...lastRun, status: "in_progress", conclusion: null },
+      nextFire: "2026-09-02T08:23:00.000Z",
+    },
+  });
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
+          root,
+          new FakeRunner(),
+        ),
+      /bot run is in progress; wait for it and rerun unblock-list/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses orientation while the bot run is queued", () => {
+  const root = fixtureRoot();
+  const listed = report(root, {
+    bot: {
+      mode: "candidate",
+      lastRun: { ...lastRun, status: "queued", conclusion: null },
+      nextFire: "2026-09-02T08:23:00.000Z",
+    },
+  });
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
+          root,
+          new FakeRunner(),
+        ),
+      /bot run is in progress; wait for it and rerun unblock-list/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -710,6 +938,36 @@ it("still asks for grounding when a row carries a claim", () => {
   );
 });
 
+it("re-reads the mode and refuses apply when it was restored to on", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    installedHead: B,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "on\n" });
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          root,
+          runner,
+        ),
+      /auto-rebase bot mode is on; pause it before applying/,
+    );
+    assert.lengthOf(runner.calls, 1);
+    assert.deepStrictEqual(runner.calls[0]?.args, modeArgs);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("requires signed decisions and calls the existing sync gate before apply", () => {
   const root = fixtureRoot();
   const checked = report(root, {
@@ -723,6 +981,7 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
     "git",
@@ -782,6 +1041,7 @@ it("refuses apply when the pushed lane moved after the CI verdict", () => {
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
     "git",
