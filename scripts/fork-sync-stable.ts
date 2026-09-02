@@ -427,7 +427,11 @@ const stablePrepare = (
     return next;
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
-    const cleanup = runner.run("wt", ["remove", "-D", lane.branch], root);
+    const cleanup = runner.run(
+      "wt",
+      ["remove", "--foreground", "--force", "--force-delete", "--yes", lane.branch],
+      root,
+    );
     if (cleanup.status === 0 && cleanup.error === undefined) {
       throw new Error(
         `${failure}\ncleaned: stable cut lane ${lane.branch}\nRestart with: vp run fork:sync stable-list`,
@@ -438,7 +442,7 @@ const stablePrepare = (
       .filter((value): value is string => value !== undefined && value.length > 0)
       .join("\n");
     throw new Error(
-      `${failure}\nfailed to clean stable cut lane ${lane.branch}${detail.length === 0 ? "" : `: ${detail}`}\nRecover with: wt remove -D ${lane.branch}\nThen restart with: vp run fork:sync stable-list`,
+      `${failure}\nfailed to clean stable cut lane ${lane.branch}${detail.length === 0 ? "" : `: ${detail}`}\nRecover with: wt remove --foreground --force --force-delete --yes ${lane.branch}\nThen restart with: vp run fork:sync stable-list`,
       { cause: error },
     );
   }
@@ -529,7 +533,12 @@ const stablePublish = (
     `T3 Code hyprws ${release.tag.slice(1)}`,
   ]);
   requireSuccess(runner, "git", ["push", "origin", `refs/tags/${release.tag}`], lane.worktree);
-  requireSuccess(runner, "wt", ["remove", "-D", lane.branch], root);
+  requireSuccess(
+    runner,
+    "wt",
+    ["remove", "--foreground", "--force-delete", "--yes", lane.branch],
+    root,
+  );
 
   let runId = "";
   const runArgs = [
