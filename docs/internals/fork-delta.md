@@ -294,10 +294,11 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/routes/project.*`                                                       | Fork-only route subtree.                                                     |
 | `apps/web/src/routes/__root.tsx`                                                      | Mounts the scoped project shell at the root.                                 |
 | `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`             | Keeps Pull Requests inside the scoped project shell.                         |
+| `apps/web/src/desktopProjectWindows.ts`                                               | Bridge detection, the scoped window ref, and the brand target.               |
 | `apps/web/src/windowProjectScope.ts`                                                  | Shared project-window list-scope resolver and storage key.                   |
 | `apps/web/src/components/WindowProjectScopeToggle.tsx`                                | Shared project/all-project segmented control.                                |
 | `apps/web/src/components/pullRequest/pullRequestListRoute.ts`                         | Search contract shared by the hub and project routes.                        |
-| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                   | Resolves Pull Requests navigation within the active window scope.            |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                                   | Resolves Pull Requests and brand navigation in the active window scope.      |
 | `apps/web/src/components/ChatView.tsx`                                                | Starts and navigates threads within project-window scope.                    |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                           | Project settings reached from scoped project-window chrome.                  |
 | `apps/web/src/components/settings/KeybindingsSettings.tsx`                            | Gates project-window keybinding visibility.                                  |
