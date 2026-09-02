@@ -59,6 +59,13 @@ export interface OrientationDecisionRow {
   readonly domain: string;
   readonly verdict: OrientationVerdict;
   readonly decidedBy: "human" | "agent";
+  readonly action?: "keep (mechanical seam)";
+}
+
+export interface SilentSeam {
+  readonly path: string;
+  readonly summary: string;
+  readonly touchesBehaviour: boolean;
 }
 
 export interface SyncReport {
@@ -83,12 +90,19 @@ export interface SyncReport {
   readonly orientation?: string;
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly touchedPaths?: ReadonlyArray<string>;
+  readonly silentSeams?: ReadonlyArray<SilentSeam>;
+  readonly behaviourSeamStopPresented?: boolean;
   readonly verification: ReadonlyArray<{ readonly command: string; readonly result: string }>;
   readonly rebasedHead?: string;
   readonly stackSize?: number;
   readonly installedHead?: string;
   readonly ciHead?: string;
   readonly recordCommentUrl?: string;
+  readonly reconciliation?: {
+    readonly state: "dispatched" | "ambiguous";
+    readonly runUrl?: string;
+    readonly baselineRunId?: number;
+  };
 }
 
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
@@ -98,7 +112,7 @@ Unblock verbs:
   unblock-list [--output <external-json>]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
-  unblock-check --report <json>
+  unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type]
   unblock-apply --report <json> --record <markdown>
 
 Stable verbs:
@@ -287,7 +301,7 @@ export const renderRecord = (report: SyncReport): string => {
         row.verdict === "candidate"
           ? "orientation: candidate; retire-candidate"
           : `orientation: ${row.verdict}`,
-      action: row.verdict === "candidate" ? "TODO" : row.verdict,
+      action: row.action ?? (row.verdict === "candidate" ? "TODO" : row.verdict),
       decidedBy: row.decidedBy,
     });
   }
@@ -344,7 +358,12 @@ export const renderRecord = (report: SyncReport): string => {
     "",
     "## Silent seams",
     "",
-    "None.",
+    ...((report.silentSeams ?? []).length === 0
+      ? ["None."]
+      : (report.silentSeams ?? []).map(
+          (seam) =>
+            `- \`${escapeCell(seam.path)}\` [${seam.touchesBehaviour ? "behaviour" : "type"}]: ${escapeCell(seam.summary)}`,
+        )),
     "",
     "## Verification",
     "",
@@ -475,14 +494,19 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
     const domain = cells[1] ?? "";
     if (/\\[\\|]/.test(domain))
       throw invalidDecisionCell("Domain", "escaped pipes and backslashes are not accepted");
-    const verdict = cells[3] ?? "";
+    const action = cells[3] ?? "";
+    const verdict = action === "keep (mechanical seam)" ? "keep" : action;
     if (!["keep", "retire", "partial"].includes(verdict)) {
-      throw invalidDecisionCell("Action", `expected keep, retire, or partial; found ${verdict}`);
+      throw invalidDecisionCell(
+        "Action",
+        `expected keep, keep (mechanical seam), retire, or partial; found ${action}`,
+      );
     }
     rows.push({
       subject: unescapeCell(subject[1] ?? "", "Exact subject"),
       domain,
       verdict: verdict as OrientationDecisionRow["verdict"],
+      ...(action === "keep (mechanical seam)" ? { action } : {}),
       decidedBy:
         cells[5] === undefined || cells[5] === "human"
           ? "human"

@@ -43,7 +43,9 @@ import {
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
+  parseDecisionRows,
   parseVerbArgs,
+  renderRecord,
   readReport,
   REPOSITORY,
   requireSuccess,
@@ -56,6 +58,7 @@ import {
   type BotRun,
   type BotSnapshot,
   type ConflictRow,
+  type SilentSeam,
   type SyncReport,
 } from "./fork-sync-state.ts";
 
@@ -73,6 +76,7 @@ export {
   type ConflictRow,
   type OrientationDecisionRow,
   type OrientationVerdict,
+  type SilentSeam,
   type SyncReport,
   type SyncStage,
 } from "./fork-sync-state.ts";
@@ -875,13 +879,31 @@ const waitForCiVerdict = (
   throw new Error(`hyprws CI timed out after 45 minutes waiting for ${head} on ${branch}`);
 };
 
+export const parseSilentSeam = (value: string): SilentSeam => {
+  const separator = value.indexOf("=");
+  const kindSeparator = value.lastIndexOf(":");
+  if (separator < 1 || kindSeparator <= separator + 1)
+    throw new UsageError(
+      "--silent-seam must be <path>=<summary>:behaviour or <path>=<summary>:type",
+    );
+  const path = value.slice(0, separator);
+  const summary = value.slice(separator + 1, kindSeparator);
+  const kind = value.slice(kindSeparator + 1);
+  if (kind !== "behaviour" && kind !== "type")
+    throw new UsageError(
+      "--silent-seam must be <path>=<summary>:behaviour or <path>=<summary>:type",
+    );
+  return { path, summary, touchesBehaviour: kind === "behaviour" };
+};
+
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
-  assertOnly(values, ["--report"]);
+  assertOnly(values, ["--report", "--silent-seam"]);
   let report = readReport(oneValue(values, "--report") ?? "");
+  const silentSeam = oneValue(values, "--silent-seam", false);
   if (report.stage !== "replayed")
     throw new Error(`unblock-check requires replayed state, got ${report.stage}`);
   if (report.lane === undefined || report.target === undefined)
@@ -951,7 +973,17 @@ const unblockCheck = (
     throw new Error("pushed rehearsal head does not match the installed tree");
   const ciRun = waitForCiVerdict(runner, worktree, report.lane.branch, installedHead);
   verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
-  report = { ...report, stage: "checked", installedHead, ciHead: installedHead, verification };
+  report = {
+    ...report,
+    stage: "checked",
+    installedHead,
+    ciHead: installedHead,
+    verification,
+    silentSeams: [
+      ...(report.silentSeams ?? []),
+      ...(silentSeam === null ? [] : [parseSilentSeam(silentSeam)]),
+    ],
+  };
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -968,6 +1000,12 @@ export const decisionSurface = (record: string): string => {
       classSummary,
     );
   });
+  const silentSeams =
+    record
+      .split("## Silent seams\n", 2)[1]
+      ?.split("\n## ", 1)[0]
+      ?.split("\n")
+      .filter((line) => /^- `.+` \[(?:behaviour|type)\]:/.test(line)) ?? [];
   const grounding = record.split("\n").filter((line) => /^Grounding (?:claim|pending):/.test(line));
   // A row carrying the default claim asks the human for nothing, so a surface
   // made only of those asks for the decisions and the go, and nothing else.
@@ -977,6 +1015,7 @@ export const decisionSurface = (record: string): string => {
   return [
     "## Gate 4 decision surface",
     ...rows,
+    ...silentSeams,
     ...grounding,
     claimed
       ? "Stop. Obtain every decision, every grounding confirmation, and an explicit go."
@@ -991,10 +1030,25 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
     .split("\n")
     .filter((row) => row.startsWith("|"))) {
     const cells = line.split("|").map((cell) => cell.trim());
-    if (!["keep", "retire", "partial"].includes(cells[4] ?? ""))
+    if (!["keep", "keep (mechanical seam)", "retire", "partial"].includes(cells[4] ?? ""))
       throw new Error(`decision row has no keep/retire/partial action: ${line}`);
   }
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
+};
+
+export const expectedRehearsalBranch = (report: SyncReport): string => {
+  if (report.target === undefined || report.source === undefined)
+    throw new Error("rehearsal branch binding is incomplete");
+  return `rehearse/${report.target.tag}-from-${report.source.expectedOld.slice(0, 12)}`;
+};
+
+export const validateAutoLane = (report: SyncReport, runner: CommandRunner): void => {
+  if (report.lane === undefined) throw new Error("rehearsal lane is missing");
+  const expected = expectedRehearsalBranch(report);
+  if (report.lane.branch !== expected)
+    throw new Error(`rehearsal lane mismatch: expected ${expected}, got ${report.lane.branch}`);
+  if (git(runner, report.lane.worktree, ["status", "--porcelain"], true) !== "")
+    throw new Error("rehearsal lane worktree is not clean");
 };
 
 const unblockApply = (
@@ -1006,14 +1060,7 @@ const unblockApply = (
   let report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "checked")
     throw new Error(`unblock-apply requires checked state, got ${report.stage}`);
-  const liveMode = readBotMode(runner, report.repositoryRoot);
-  if (liveMode === "on")
-    throw new Error(
-      [
-        "auto-rebase bot mode is on; pause it before applying:",
-        `gh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`,
-      ].join("\n"),
-    );
+  report = refreshAutoBotSnapshot(report, runner);
   const recordPath = NodePath.resolve(oneValue(values, "--record") ?? "");
   if (recordPath !== NodePath.resolve(report.recordPath))
     throw new Error("record path does not match the report binding");
@@ -1031,6 +1078,9 @@ const unblockApply = (
     throw new Error("checked report has no CI verdict for the installed head");
   if (remoteLaneHead(runner, worktree, lane.branch) !== report.ciHead)
     throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
+  if (!orientationCoheres(report, runner))
+    throw new Error("orientation no longer coheres with live refs; rerun unblock-orient");
+  validateAutoLane(report, runner);
   const applyEnv = laneEnv(worktree);
   requireSuccess(
     runner,
@@ -1093,6 +1143,526 @@ const unblockApply = (
   return report;
 };
 
+interface AutoTargetIssue {
+  readonly title: string;
+  readonly createdAt: string;
+  readonly parent?: { readonly number: number } | null;
+}
+
+export const resolveAutoTarget = (
+  candidates: ReadonlyArray<{ readonly tag: string; readonly sha: string }>,
+  explicit: string | null,
+  trackerIssues: ReadonlyArray<AutoTargetIssue>,
+): { readonly target: { readonly tag: string; readonly sha: string }; readonly rule: string } => {
+  if (explicit !== null)
+    return { target: resolveUnblockTarget(candidates, explicit), rule: "explicit --target" };
+  const offered = new Map(candidates.map((candidate) => [candidate.tag, candidate]));
+  const tracker = trackerIssues
+    .flatMap((issue) => {
+      const tag = /^unblock walk lands (\S+)(?: \[📡#397\])?$/.exec(issue.title)?.[1];
+      const target = tag === undefined ? undefined : offered.get(tag);
+      return target === undefined ? [] : [{ issue, target }];
+    })
+    .toSorted((left, right) => left.issue.createdAt.localeCompare(right.issue.createdAt))[0];
+  if (tracker !== undefined) return { target: tracker.target, rule: "open tracker sub-issue" };
+  const oldest = candidates.at(-1);
+  if (oldest === undefined) throw new Error("unblock-list offered no target");
+  return { target: oldest, rule: "oldest offered tag containing the block" };
+};
+
+const captureStdout = <T>(effect: () => T): { readonly output: string; readonly value: T } => {
+  let output = "";
+  const original = process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    output += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const value = effect();
+    return { output, value };
+  } finally {
+    process.stdout.write = original;
+  }
+};
+
+class AutoStop extends Error {}
+class AutoBotRefusal extends Error {
+  readonly reportPath: string;
+
+  constructor(message: string, reportPath: string) {
+    super(message);
+    this.reportPath = reportPath;
+  }
+}
+class AutoFailure extends Error {
+  readonly reportPath: string;
+
+  constructor(message: string, reportPath: string) {
+    super(message);
+    this.reportPath = reportPath;
+  }
+}
+
+const autoConflictStopSurface = (surface: string, reportPath: string): string =>
+  surface.replace(
+    /^(.*), then rerun unblock-rehearse\.$/m,
+    `$1, then run node scripts/fork-sync.ts unblock-rehearse --report ${reportPath}; after it completes, run the resume command below.`,
+  );
+
+const stopAuto = (surface: string, reportPath: string): never => {
+  process.stdout.write(
+    `${surface.trimEnd()}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${reportPath}\n`,
+  );
+  throw new AutoStop();
+};
+
+const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): SyncReport => {
+  const bot = readBotSnapshot(runner, report.repositoryRoot);
+  try {
+    requirePausedBot(bot);
+  } catch (error) {
+    throw new AutoBotRefusal(
+      error instanceof Error ? error.message : String(error),
+      report.reportPath,
+    );
+  }
+  const next = { ...report, bot };
+  writeReport(next);
+  return next;
+};
+
+const trackerTargetIssues = (runner: CommandRunner, root: string): ReadonlyArray<AutoTargetIssue> =>
+  (
+    JSON.parse(
+      requireSuccess(
+        runner,
+        "gh",
+        [
+          "issue",
+          "list",
+          "--state",
+          "open",
+          "--search",
+          '"unblock walk lands" in:title',
+          "--json",
+          "title,createdAt,parent",
+          "--repo",
+          REPOSITORY,
+        ],
+        root,
+      ),
+    ) as ReadonlyArray<AutoTargetIssue>
+  ).filter(({ parent }) => parent?.number === 397);
+
+const orientationCoheres = (report: SyncReport, runner: CommandRunner): boolean => {
+  if (
+    report.target === undefined ||
+    report.source === undefined ||
+    report.orientation === undefined
+  )
+    return false;
+  const root = report.repositoryRoot;
+  const source = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
+  const liveTarget = git(runner, root, ["rev-parse", `refs/tags/${report.target.tag}^{commit}`]);
+  const sharedBase = git(runner, root, ["merge-base", source, liveTarget]);
+  const containsBlock =
+    runner.run(
+      "git",
+      ["merge-base", "--is-ancestor", report.issue.blockingSha, report.target.sha],
+      root,
+    ).status === 0;
+  return (
+    containsBlock &&
+    report.target.sha === liveTarget &&
+    report.source.sha === source &&
+    report.source.expectedOld === source &&
+    report.source.sharedBase === sharedBase &&
+    /^mirror:\s+origin\/main matches upstream\/main at [0-9a-f]{7,64}$/m.test(report.orientation)
+  );
+};
+
+const pendingAutoConflictRows = (report: SyncReport): ReadonlyArray<ConflictRow> =>
+  report.conflicts.filter(
+    ({ agentSafe }) => agentSafe === "TODO" || agentSafe === "pending regeneration",
+  );
+
+const isRerereRow = (row: ConflictRow): boolean =>
+  row.resolution === "review rerere's recorded resolution and stage";
+
+const rererePathIsClean = (
+  row: ConflictRow,
+  remaining: ReadonlySet<string>,
+  worktree: string,
+  runner: CommandRunner,
+): boolean => {
+  if (remaining.has(row.path)) return false;
+  let contents: string;
+  try {
+    contents = NodeFS.readFileSync(NodePath.join(worktree, row.path), "utf8");
+  } catch {
+    return false;
+  }
+  if (/^(?:<{7}|={7}|>{7})/m.test(contents)) return false;
+  return (
+    runner.run(
+      "git",
+      ["-c", "core.commentChar=auto", "diff", "--check", "--", row.path],
+      worktree,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG },
+    ).status === 0
+  );
+};
+
+export const autoResolveConflicts = (
+  report: SyncReport,
+  runner: CommandRunner,
+): SyncReport | null => {
+  if (report.lane === undefined) throw new Error("rehearsal lane is missing");
+  const pending = pendingAutoConflictRows(report);
+  if (
+    pending.some((row) => row.class !== "generated" && !(row.class === "TODO" && isRerereRow(row)))
+  )
+    return null;
+  const rerereRows = pending.filter(
+    (row) => row.class !== "generated" && row.class === "TODO" && isRerereRow(row),
+  );
+  let remaining: ReadonlySet<string>;
+  try {
+    remaining = new Set(
+      lines(
+        git(
+          runner,
+          report.lane.worktree,
+          ["-c", "rerere.enabled=true", "rerere", "remaining"],
+          true,
+        ),
+      ),
+    );
+  } catch {
+    return null;
+  }
+  if (
+    rerereRows.some(
+      (row) => !rererePathIsClean(row, remaining, report.lane?.worktree ?? "", runner),
+    )
+  )
+    return null;
+  const next: SyncReport = {
+    ...report,
+    conflicts: report.conflicts.map((row) => {
+      if (!pending.includes(row)) return row;
+      if (row.class === "generated") return { ...row, decidedBy: "agent" };
+      return {
+        ...row,
+        class: "mechanical",
+        resolution: "rerere replay",
+        agentSafe: "true",
+        decidedBy: "agent",
+      };
+    }),
+  };
+  writeReport(next);
+  writeRecord(next);
+  for (const path of new Set(pending.map(({ path }) => path)))
+    git(runner, report.lane.worktree, ["add", "--", path], true);
+  return next;
+};
+
+const behaviourOverlap = (orientation: string): ReadonlyMap<string, string> =>
+  new Map(
+    [
+      ...orientation.matchAll(
+        /^\s+\[(?:candidate|keep|retire|partial)\] `(.+)` \([^)]+\)\n\s+behaviour-overlap: (.*)$/gm,
+      ),
+    ].map((match) => [match[1] ?? "", match[2] ?? ""]),
+  );
+
+const hardOverlapPaths = (overlap: string): ReadonlyArray<string> | null => {
+  if (!overlap.startsWith("hard: ")) return null;
+  const paths = overlap
+    .slice("hard: ".length)
+    .split(/,\s+/)
+    .map((value) => value.replace(/\s+\(\d+ hunks?\)$/, ""));
+  return paths.length > 0 && paths.every((path) => path.length > 0) ? paths : null;
+};
+
+export const gateFourStopReason = (report: SyncReport): string | null => {
+  const behaviourSeam = (report.silentSeams ?? []).find(({ touchesBehaviour }) => touchesBehaviour);
+  if (behaviourSeam !== undefined)
+    return `silent seam touches behaviour: ${behaviourSeam.path}: ${behaviourSeam.summary}`;
+  const judgementConflict = report.conflicts.find(
+    ({ class: klass }) => klass === "retire-candidate" || klass === "human",
+  );
+  if (judgementConflict !== undefined)
+    return `conflict requires judgement: ${judgementConflict.path} (${judgementConflict.class})`;
+
+  const overlaps = behaviourOverlap(report.orientation ?? "");
+  const mechanicalPaths = new Set(
+    report.conflicts.filter(({ class: klass }) => klass === "mechanical").map(({ path }) => path),
+  );
+  for (const row of report.orientationDecisions ?? []) {
+    if (row.verdict === "keep") continue;
+    if (row.verdict === "retire" || row.verdict === "partial")
+      return `orientation verdict requires judgement: ${row.verdict} \`${row.subject}\``;
+
+    const overlap = overlaps.get(row.subject);
+    if (overlap === undefined || overlap === "none")
+      return `candidate has no parsed behaviour overlap: \`${row.subject}\``;
+    if (overlap.startsWith("weak hunk overlap")) continue;
+    const hardPaths = hardOverlapPaths(overlap);
+    if (hardPaths !== null) {
+      const missing = hardPaths.filter((path) => !mechanicalPaths.has(path));
+      if (missing.length === 0) continue;
+      return `hard overlap lacks a mechanical conflict for \`${row.subject}\`: ${missing.join(", ")}`;
+    }
+    return `unparsed overlap for \`${row.subject}\`: behaviour-overlap: ${overlap}`;
+  }
+  return null;
+};
+
+export const autoGateFour = (report: SyncReport): SyncReport | null => {
+  if (gateFourStopReason(report) !== null) return null;
+  return {
+    ...report,
+    orientationDecisions: (report.orientationDecisions ?? []).map((row) => ({
+      ...row,
+      ...(row.verdict === "candidate" ? { action: "keep (mechanical seam)" as const } : {}),
+      decidedBy: "agent",
+    })),
+  };
+};
+
+interface WorkflowDispatchRun {
+  readonly databaseId: number;
+  readonly url: string;
+}
+
+const workflowDispatchRuns = (
+  report: SyncReport,
+  runner: CommandRunner,
+): ReadonlyArray<WorkflowDispatchRun> =>
+  JSON.parse(
+    requireSuccess(
+      runner,
+      "gh",
+      [
+        "run",
+        "list",
+        "--workflow",
+        BOT_WORKFLOW,
+        "--event",
+        "workflow_dispatch",
+        "-L",
+        "10",
+        "--json",
+        "databaseId,url",
+        "--repo",
+        REPOSITORY,
+      ],
+      report.repositoryRoot,
+    ),
+  ) as ReadonlyArray<WorkflowDispatchRun>;
+
+const RECONCILIATION_POLL_LIMIT = 6;
+const RECONCILIATION_POLL_SECONDS = 2;
+
+export const reconcileAfterApply = (report: SyncReport, runner: CommandRunner): SyncReport => {
+  if (report.reconciliation?.state === "dispatched") return report;
+  let baselineRunId = report.reconciliation?.baselineRunId;
+  if (baselineRunId === undefined) {
+    baselineRunId = Math.max(
+      0,
+      ...workflowDispatchRuns(report, runner).map(({ databaseId }) => databaseId),
+    );
+    report = { ...report, reconciliation: { state: "ambiguous", baselineRunId } };
+    writeReport(report);
+    requireSuccess(
+      runner,
+      "gh",
+      ["workflow", "run", BOT_WORKFLOW, "--ref", "hyprws", "--repo", REPOSITORY],
+      report.repositoryRoot,
+    );
+  }
+
+  for (let poll = 0; poll < RECONCILIATION_POLL_LIMIT; poll += 1) {
+    const run = workflowDispatchRuns(report, runner)
+      .filter(({ databaseId }) => databaseId > baselineRunId)
+      .toSorted((left, right) => right.databaseId - left.databaseId)[0];
+    if (run !== undefined) {
+      const next: SyncReport = {
+        ...report,
+        reconciliation: {
+          state: "dispatched",
+          baselineRunId,
+          runUrl: run.url,
+        },
+      };
+      writeReport(next);
+      return next;
+    }
+    if (poll + 1 < RECONCILIATION_POLL_LIMIT)
+      requireSuccess(runner, "sleep", [String(RECONCILIATION_POLL_SECONDS)], report.repositoryRoot);
+  }
+  throw new Error(`reconciliation dispatch is ambiguous after run ${baselineRunId}`);
+};
+
+const unblockAuto = (
+  values: ReadonlyMap<string, string>,
+  cwd: string,
+  runner: CommandRunner,
+): SyncReport => {
+  assertOnly(values, ["--target", "--report", "--resume"]);
+  const resume = values.has("--resume");
+  if (resume && !values.has("--report")) throw new UsageError("--resume requires --report");
+  if (resume && values.has("--target"))
+    throw new UsageError("--target cannot be used with --resume");
+
+  let report: SyncReport;
+  if (resume) {
+    report = readReport(oneValue(values, "--report") ?? "");
+  } else {
+    const listValues = new Map<string, string>();
+    const reportPath = oneValue(values, "--report", false);
+    if (reportPath !== null) listValues.set("--output", reportPath);
+    report = captureStdout(() => unblockList(listValues, cwd, runner)).value;
+  }
+
+  try {
+    if (report.stage !== "applied") {
+      if (resume) {
+        report = refreshAutoBotSnapshot(report, runner);
+        if (report.target !== undefined && !orientationCoheres(report, runner))
+          stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
+        if (report.lane !== undefined) validateAutoLane(report, runner);
+      } else {
+        if (report.bot === undefined)
+          throw new Error("report has no bot snapshot; rerun unblock-auto");
+        try {
+          requirePausedBot(report.bot);
+        } catch (error) {
+          throw new AutoBotRefusal(
+            error instanceof Error ? error.message : String(error),
+            report.reportPath,
+          );
+        }
+      }
+    }
+
+    if (report.stage === "listed") {
+      const explicit = oneValue(values, "--target", false);
+      const trackerIssues =
+        explicit === null ? trackerTargetIssues(runner, report.repositoryRoot) : [];
+      const selected = resolveAutoTarget(report.candidates, explicit, trackerIssues);
+      process.stdout.write(
+        `target rule: ${selected.rule}: ${selected.target.tag}@${selected.target.sha}\n`,
+      );
+      const oriented = captureStdout(() =>
+        unblockOrient(
+          new Map([
+            ["--report", report.reportPath],
+            ["--target", `${selected.target.tag}@${selected.target.sha}`],
+          ]),
+          cwd,
+          runner,
+        ),
+      );
+      report = oriented.value;
+      if (!orientationCoheres(report, runner)) stopAuto(oriented.output, report.reportPath);
+    }
+
+    while (report.stage === "oriented" || report.stage === "conflicts") {
+      const rehearsal = captureStdout(() =>
+        unblockRehearse(new Map([["--report", report.reportPath]]), cwd, runner),
+      );
+      report = rehearsal.value;
+      if (report.stage !== "conflicts") continue;
+      report =
+        autoResolveConflicts(report, runner) ??
+        stopAuto(autoConflictStopSurface(rehearsal.output, report.reportPath), report.reportPath);
+    }
+
+    if (report.stage === "replayed") {
+      report = captureStdout(() =>
+        unblockCheck(new Map([["--report", report.reportPath]]), cwd, runner),
+      ).value;
+    }
+
+    if (report.stage === "checked") {
+      let record = NodeFS.readFileSync(report.recordPath, "utf8");
+      const behaviourSeam = (report.silentSeams ?? []).find(
+        ({ touchesBehaviour }) => touchesBehaviour,
+      );
+      if (behaviourSeam !== undefined && report.behaviourSeamStopPresented !== true) {
+        report = { ...report, behaviourSeamStopPresented: true };
+        writeReport(report);
+        stopAuto(
+          `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: silent seam touches behaviour: ${behaviourSeam.path}: ${behaviourSeam.summary}\n`,
+          report.reportPath,
+        );
+      }
+
+      const canonical = record === renderRecord(report);
+      let signed = resume && report.behaviourSeamStopPresented === true;
+      if (resume && !canonical) {
+        try {
+          validateSignedRecord(record, report);
+          parseDecisionRows(record);
+          signed = true;
+        } catch {
+          stopAuto(`${report.reportPath}\n${decisionSurface(record)}`, report.reportPath);
+        }
+      }
+      if (!signed) {
+        const reason = gateFourStopReason(report);
+        if (reason !== null)
+          stopAuto(
+            `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: ${reason}\n`,
+            report.reportPath,
+          );
+        report =
+          autoGateFour(report) ??
+          stopAuto(
+            `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: automatic decision did not produce a record\n`,
+            report.reportPath,
+          );
+        writeReport(report);
+        writeRecord(report);
+        record = NodeFS.readFileSync(report.recordPath, "utf8");
+      }
+
+      report = refreshAutoBotSnapshot(report, runner);
+      if (!orientationCoheres(report, runner))
+        stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
+      validateAutoLane(report, runner);
+      report = captureStdout(() =>
+        unblockApply(
+          new Map([
+            ["--report", report.reportPath],
+            ["--record", report.recordPath],
+          ]),
+          cwd,
+          runner,
+        ),
+      ).value;
+      process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
+    }
+
+    if (report.stage === "applied" && report.reconciliation?.state !== "dispatched") {
+      report = reconcileAfterApply(report, runner);
+      process.stdout.write(`workflow: ${report.reconciliation?.runUrl ?? "unknown"}\n`);
+    }
+
+    return report;
+  } catch (error) {
+    if (error instanceof AutoStop || error instanceof AutoBotRefusal) throw error;
+    throw new AutoFailure(
+      error instanceof Error ? error.message : String(error),
+      report.reportPath,
+    );
+  }
+};
+
 export const execute = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
@@ -1101,6 +1671,7 @@ export const execute = (
   if (argv[0]?.startsWith("stable-"))
     return executeStable(argv, cwd, runner) as unknown as SyncReport;
   const { verb, values } = parseVerbArgs(argv);
+  if (verb === "unblock-auto") return unblockAuto(values, cwd, runner);
   if (verb === "unblock-list") return unblockList(values, cwd, runner);
   if (verb === "unblock-orient") return unblockOrient(values, cwd, runner);
   if (verb === "unblock-rehearse") return unblockRehearse(values, cwd, runner);
@@ -1122,6 +1693,19 @@ export const run = (
     execute(argv, cwd, runner);
     return 0;
   } catch (error) {
+    if (error instanceof AutoStop) return 2;
+    if (error instanceof AutoBotRefusal) {
+      process.stderr.write(
+        `${error.message}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${error.reportPath}\n`,
+      );
+      return 3;
+    }
+    if (error instanceof AutoFailure) {
+      process.stderr.write(
+        `failed: ${error.message}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${error.reportPath}\n`,
+      );
+      return 1;
+    }
     if (error instanceof UsageError) {
       process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
       return 2;

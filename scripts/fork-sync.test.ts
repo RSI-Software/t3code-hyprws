@@ -8,6 +8,8 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
+  autoGateFour,
+  autoResolveConflicts,
   decisionSurface,
   execute,
   gateVerificationEnv,
@@ -19,12 +21,17 @@ import {
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
+  parseSilentSeam,
+  reconcileAfterApply,
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
   renderRecord,
+  resolveAutoTarget,
+  gateFourStopReason,
   resolveUnblockTarget,
   run,
+  validateAutoLane,
   validateReport,
   validateSignedRecord,
   type CommandResult,
@@ -74,6 +81,7 @@ class FakeRunner implements CommandRunner {
     env?: NodeJS.ProcessEnv;
   }> = [];
   readonly responses = new Map<string, CommandResult>();
+  readonly sequences = new Map<string, Array<CommandResult>>();
   fallback: CommandResult = { status: 0, stdout: "", stderr: "" };
 
   key(command: string, args: ReadonlyArray<string>): string {
@@ -81,6 +89,16 @@ class FakeRunner implements CommandRunner {
   }
   set(command: string, args: ReadonlyArray<string>, result: Partial<CommandResult>): void {
     this.responses.set(this.key(command, args), { status: 0, stdout: "", stderr: "", ...result });
+  }
+  setSequence(
+    command: string,
+    args: ReadonlyArray<string>,
+    results: ReadonlyArray<Partial<CommandResult>>,
+  ): void {
+    this.sequences.set(
+      this.key(command, args),
+      results.map((result) => ({ status: 0, stdout: "", stderr: "", ...result })),
+    );
   }
   run(
     command: string,
@@ -90,7 +108,10 @@ class FakeRunner implements CommandRunner {
     env?: NodeJS.ProcessEnv,
   ): CommandResult {
     this.calls.push({ command, args, cwd, ...(env === undefined ? {} : { env }) });
-    return this.responses.get(this.key(command, args)) ?? this.fallback;
+    const key = this.key(command, args);
+    const sequence = this.sequences.get(key);
+    if (sequence !== undefined && sequence.length > 0) return sequence.shift() ?? this.fallback;
+    return this.responses.get(key) ?? this.fallback;
   }
 }
 
@@ -98,6 +119,32 @@ const issueJson = JSON.stringify([
   { number: 352, title: "blocked", body: `body\n<!-- blocking-sha:${A} -->` },
 ]);
 const orientCandidates = [{ tag: "v1.2.3", sha: B }];
+
+it("orders automatic target rules as explicit, tracker, then oldest offered", () => {
+  const candidates = [
+    { tag: "v1.2.5", sha: A },
+    { tag: "v1.2.4", sha: B },
+    { tag: "v1.2.3", sha: C },
+  ];
+  const tracker = [
+    {
+      title: "unblock walk lands v1.2.4 [📡#397]",
+      createdAt: "2026-09-02T10:00:00Z",
+    },
+  ];
+  assert.deepStrictEqual(resolveAutoTarget(candidates, "v1.2.5", tracker), {
+    target: candidates[0],
+    rule: "explicit --target",
+  });
+  assert.deepStrictEqual(resolveAutoTarget(candidates, null, tracker), {
+    target: candidates[1],
+    rule: "open tracker sub-issue",
+  });
+  assert.deepStrictEqual(resolveAutoTarget(candidates, null, []), {
+    target: candidates[2],
+    rule: "oldest offered tag containing the block",
+  });
+});
 
 it("accepts a bare unblock target tag", () => {
   assert.deepStrictEqual(resolveUnblockTarget(orientCandidates, "v1.2.3"), orientCandidates[0]);
@@ -161,6 +208,19 @@ const lastRun = {
 const setBotResponses = (runner: FakeRunner, mode: "off" | "candidate" | "on"): void => {
   runner.set("gh", modeArgs, { stdout: `${mode}\n` });
   runner.set("gh", runListArgs, { stdout: JSON.stringify([lastRun]) });
+};
+
+const coherentOrientation = `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}\n`;
+
+const setOrientationResponses = (
+  runner: FakeRunner,
+  source = C,
+  target = B,
+  sharedBase = A,
+): void => {
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${source}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${target}\n` });
+  runner.set("git", ["merge-base", source, target], { stdout: `${sharedBase}\n` });
 };
 
 const setListResponses = (runner: FakeRunner, root: string): void => {
@@ -690,6 +750,165 @@ it("enables rerere without staging its reused resolutions", () => {
   );
 });
 
+it("auto-classifies and stages rerere rows as mechanical agent decisions", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    stage: "conflicts",
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): preserve scoped behavior",
+        domain: "fork-meta",
+        path: "apps/web/src/reused.ts",
+        class: "TODO",
+        resolution: "review rerere's recorded resolution and stage",
+        agentSafe: "TODO",
+        decidedBy: "human",
+      },
+    ],
+  });
+  const runner = new FakeRunner();
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/reused.ts"), "resolved\n");
+  try {
+    const next = autoResolveConflicts(state, runner);
+    assert.deepInclude(next?.conflicts[0], {
+      class: "mechanical",
+      resolution: "rerere replay",
+      agentSafe: "true",
+      decidedBy: "agent",
+    });
+    assert.isDefined(
+      runner.calls.find(
+        ({ command, args }) =>
+          command === "git" && args.join(" ").endsWith("add -- apps/web/src/reused.ts"),
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("treats a rerere file with leftover markers as a conflict stop", () => {
+  const root = fixtureRoot();
+  const path = "apps/web/src/reused.ts";
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(root, path),
+    "<<<<<<< ours\nresolved?\n=======\nother\n>>>>>>> theirs\n",
+  );
+  const state = report(root, {
+    stage: "conflicts",
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): preserve scoped behavior",
+        domain: "fork-meta",
+        path,
+        class: "TODO",
+        resolution: "review rerere's recorded resolution and stage",
+        agentSafe: "TODO",
+        decidedBy: "human",
+      },
+    ],
+  });
+  const runner = new FakeRunner();
+  try {
+    assert.isNull(autoResolveConflicts(state, runner));
+    assert.isFalse(runner.calls.some(({ args }) => args.includes("add")));
+    assert.deepInclude(state.conflicts[0], { class: "TODO", decidedBy: "human" });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("requires rerere remaining and diff-check validation before auto staging", () => {
+  const root = fixtureRoot();
+  const path = "apps/web/src/reused.ts";
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, path), "resolved\n");
+  const state = report(root, {
+    stage: "conflicts",
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): preserve scoped behavior",
+        domain: "fork-meta",
+        path,
+        class: "TODO",
+        resolution: "review rerere's recorded resolution and stage",
+        agentSafe: "TODO",
+        decidedBy: "human",
+      },
+    ],
+  });
+  const rerereArgs = [
+    "-c",
+    "core.commentChar=auto",
+    "-c",
+    "rerere.enabled=true",
+    "rerere",
+    "remaining",
+  ] as const;
+  try {
+    const remaining = new FakeRunner();
+    remaining.set("git", rerereArgs, { stdout: `${path}\n` });
+    assert.isNull(autoResolveConflicts(state, remaining));
+
+    const badDiff = new FakeRunner();
+    badDiff.set("git", rerereArgs, { stdout: "" });
+    badDiff.set("git", ["-c", "core.commentChar=auto", "diff", "--check", "--", path], {
+      status: 1,
+      stderr: "whitespace error",
+    });
+    assert.isNull(autoResolveConflicts(state, badDiff));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("takes the conflict stop path when rerere remaining exits nonzero", () => {
+  const root = fixtureRoot();
+  const path = "apps/web/src/reused.ts";
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, path), "resolved\n");
+  const state = report(root, {
+    stage: "conflicts",
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): preserve scoped behavior",
+        domain: "fork-meta",
+        path,
+        class: "TODO",
+        resolution: "review rerere's recorded resolution and stage",
+        agentSafe: "TODO",
+        decidedBy: "human",
+      },
+    ],
+  });
+  const runner = new FakeRunner();
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "-c", "rerere.enabled=true", "rerere", "remaining"],
+    { status: 1, stderr: "rerere failed" },
+  );
+  try {
+    assert.isNull(autoResolveConflicts(state, runner));
+    assert.isFalse(runner.calls.some(({ args }) => args.includes("add")));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("discloses rerere reuse in the stop and conflict record row", () => {
   const commit = { sha: C, subject: "fix(web): preserve scoped behavior", domain: "fork-meta" };
   const conflicts = ["apps/web/src/reused.ts", "apps/web/src/unresolved.ts"];
@@ -925,7 +1144,369 @@ it("still asks for grounding when a row carries a claim", () => {
   );
 });
 
-it("re-reads the mode and refuses apply when it was restored to on", () => {
+it("Gate 4 auto-keeps keep and stops on retire or partial verdicts", () => {
+  const root = fixtureRoot();
+  const decision = (verdict: "keep" | "retire" | "partial"): SyncReport =>
+    report(root, {
+      orientationDecisions: [
+        {
+          subject: `feat: ${verdict}`,
+          domain: "fork-meta",
+          verdict,
+          decidedBy: "human",
+        },
+      ],
+    });
+  try {
+    assert.isNull(gateFourStopReason(decision("keep")));
+    assert.deepInclude(autoGateFour(decision("keep"))?.orientationDecisions?.[0], {
+      verdict: "keep",
+      decidedBy: "agent",
+    });
+    assert.include(gateFourStopReason(decision("retire")) ?? "", "retire");
+    assert.include(gateFourStopReason(decision("partial")) ?? "", "partial");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("Gate 4 parses candidate overlap fail-closed", () => {
+  const root = fixtureRoot();
+  const candidate = (overlap?: string): SyncReport =>
+    report(root, {
+      orientation:
+        overlap === undefined
+          ? "  [candidate] `feat: candidate` (fork-meta)\n"
+          : `  [candidate] \`feat: candidate\` (fork-meta)\n      behaviour-overlap: ${overlap}\n`,
+      orientationDecisions: [
+        {
+          subject: "feat: candidate",
+          domain: "fork-meta",
+          verdict: "candidate",
+          decidedBy: "human",
+        },
+      ],
+    });
+  try {
+    assert.include(gateFourStopReason(candidate()) ?? "", "no parsed behaviour overlap");
+    assert.include(gateFourStopReason(candidate("none")) ?? "", "no parsed behaviour overlap");
+    assert.isNull(gateFourStopReason(candidate("weak hunk overlap: file.ts@1~2")));
+    assert.include(
+      gateFourStopReason(candidate("medium overlap: file.ts")) ?? "",
+      "behaviour-overlap: medium overlap: file.ts",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
+  const root = fixtureRoot();
+  const path = "packages/contracts/src/settings.test.ts";
+  const base = report(root, {
+    orientation: [
+      "  [candidate] `feat(files): reveal ignored workspace files (#73)` (workspace-files)",
+      `      behaviour-overlap: hard: ${path} (1 hunk)`,
+    ].join("\n"),
+    orientationDecisions: orientationDecisionRows(
+      "  [candidate] `feat(files): reveal ignored workspace files (#73)` (workspace-files)",
+    ),
+  });
+  const conflict = {
+    commit: C,
+    subject: "feat(files): reveal ignored workspace files (#73)",
+    domain: "workspace-files",
+    path,
+    class: "mechanical" as const,
+    resolution: "rerere replay",
+    agentSafe: "true",
+    decidedBy: "agent" as const,
+  };
+  try {
+    assert.include(gateFourStopReason(base) ?? "", "hard overlap lacks a mechanical conflict");
+    const decided = autoGateFour({ ...base, conflicts: [conflict] });
+    assert.deepInclude(decided?.orientationDecisions?.[0], {
+      verdict: "candidate",
+      action: "keep (mechanical seam)",
+      decidedBy: "agent",
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const slice4Orientation = [
+  "fork-sync gate 1 orientation",
+  "",
+  "target:       v0.0.38-nightly.20260831.1236@9b2d04317c68233782e0630464ac86d77d0686f3",
+  "              nightly tag; the apply gate needs --allow-nightly, reachable from upstream/main",
+  "source:       origin/hyprws@1f429a345f3846e42225786ce393ca004161d408",
+  "shared base:  30175a8af04c0daa359652b5e8dc8230b40b462a",
+  "mirror:       origin/main matches upstream/main at 5b7d72aad14e",
+  "dependencies: node_modules is present",
+  "",
+  "## Feasibility",
+  "",
+  "2 of 5 upstream commits clean; first conflict `3958111 fix(preview): improve browser recording quality (#8839)`",
+  "",
+  "1 conflicting files:",
+  "  - packages/contracts/src/settings.test.ts (1 hunks)",
+  "",
+  "## Automerged overlap",
+  "",
+  "32 upstream-changed, 511 fork-changed, 14 overlap (1 hard-conflict, 13 automerged)",
+  "",
+  "Automerged files are a semantic review surface, not proof the fork behavior survived:",
+  "  - apps/desktop/src/ipc/methods/preview.ts",
+  "  - apps/desktop/src/preview/Manager.test.ts",
+  "  - apps/desktop/src/preview/Manager.ts",
+  "  - apps/desktop/src/settings/DesktopClientSettings.test.ts",
+  "  - apps/web/src/components/ChatView.tsx",
+  "  - apps/web/src/components/chat/ChatComposer.tsx",
+  "  - apps/web/src/components/chat/MessagesTimeline.tsx",
+  "  - apps/web/src/components/settings/SettingsPanels.tsx",
+  "  - apps/web/src/components/settings/settingsSearch.test.ts",
+  "  - apps/web/src/components/settings/settingsSearch.ts",
+  "  - packages/contracts/src/ipc.ts",
+  "  - packages/contracts/src/settings.ts",
+  "  - pnpm-lock.yaml",
+  "",
+  "## Retire candidates",
+  "",
+  "  [candidate] `feat(desktop): namespace previews by window` (project-windows)",
+  "      behaviour-overlap: weak hunk overlap: apps/desktop/src/preview/Manager.test.ts@2075~2078, apps/desktop/src/preview/Manager.test.ts@2093-2099~2100-2104, apps/desktop/src/preview/Manager.ts@4160-4240~4199",
+  "  [keep] `feat(terminal): attach thread terminals to the checkout's managed zmux session` (zmux-estate)",
+  "      behaviour-overlap: weak hunk overlap: packages/contracts/src/settings.test.ts@52-69~69-88",
+  "  [candidate] `feat(files): reveal ignored workspace files (#73)` (workspace-files)",
+  "      behaviour-overlap: hard: packages/contracts/src/settings.test.ts (1 hunk)",
+  "  [keep] `feat: New worktrunk thread mode replaces the Worktrunk hook switches` (worktrunk-hooks)",
+  "      behaviour-overlap: weak hunk overlap: packages/contracts/src/settings.ts@940,0~937",
+  "  [keep] `feat(web): add GitHub link destination controls (#178)` (github-issues)",
+  "      behaviour-overlap: weak hunk overlap: packages/contracts/src/settings.test.ts@88-109~69-88",
+  "  [candidate] `feat(web): open child work from the Agents panel` (custom-agents)",
+  "      behaviour-overlap: weak hunk overlap: apps/web/src/components/chat/MessagesTimeline.tsx@229~227,0",
+  "",
+  "## upstream-watch against v0.0.38-nightly.20260831.1236",
+  "",
+  '  `#145` [waiting] `[📡#110] preview_open answers "open failed on client" when the reused tab cannot load the page`',
+  "  `#154` [uncited] `[📡#110] Bulk thread deletion prompts for every orphaned worktree`",
+  "  `#182` [waiting] `[📡#110] Repo-local skills are missing from Codex and Claude command menus`",
+  "  `#206` [waiting] `[📥] play video uploads in place in the pull request Summary tab (review evidence without leaving the app)`",
+  "  `#239` [ready] `[📥] hyprws CI Test job goes red on unchanged code from upstream's mobile diff highlighter test`",
+  "  `#240` [uncited] `[📥] hyprws CI Test Server 2 job goes red then passes on rerun from upstream's ProviderRegistry re-probe test`",
+  "  `#385` [pending-tag] `Claude model catalog moves to the remote manifest upstream; fork waits instead of patching [📡#110]`",
+  "  `#414` [waiting] `Dead Claude adapter session leaves thread un-settleable until deleted [📥]`",
+  "  `#415` [waiting] `Moved project folder fails every thread with a generic runtime error and cannot be repointed [📡#110]`",
+  "",
+  "## Stop",
+  "",
+  "Stop. This report is orientation, not permission to modify a ref.",
+  "",
+  "Show the human:",
+  "  target:             v0.0.38-nightly.20260831.1236@9b2d04317c68233782e0630464ac86d77d0686f3",
+  "  source:             origin/hyprws@1f429a345f3846e42225786ce393ca004161d408",
+  "  shared base:        30175a8af04c0daa359652b5e8dc8230b40b462a",
+  "  mirror:             origin/main matches upstream/main at 5b7d72aad14e",
+  "  feasibility:        2 of 5 upstream commits clean; first conflict `3958111 fix(preview): improve browser recording quality (#8839)`",
+  "  automerged overlap: 13 files",
+  "  retire candidates:  6",
+  "  upstream-watch:     9 open: 5 waiting, 2 uncited, 1 ready, 1 pending-tag",
+  "",
+  "Continue only after the human confirms the target.",
+].join("\n");
+
+it("Gate 4 carries the complete slice-4 orientation with a type-only silent seam", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    stage: "checked",
+    installedHead: B,
+    orientation: slice4Orientation,
+    orientationDecisions: orientationDecisionRows(slice4Orientation),
+    conflicts: [
+      {
+        commit: C,
+        subject: "feat(files): reveal ignored workspace files (#73)",
+        domain: "workspace-files",
+        path: "packages/contracts/src/settings.test.ts",
+        class: "mechanical",
+        resolution: "rerere replay",
+        agentSafe: "true",
+        decidedBy: "agent",
+      },
+    ],
+    silentSeams: [
+      {
+        path: "apps/desktop/src/preview/Manager.ts",
+        summary: "return upstream DesktopPreviewRecordingSource",
+        touchesBehaviour: false,
+      },
+    ],
+  });
+  try {
+    assert.isNull(gateFourStopReason(state));
+    const decided = autoGateFour(state);
+    assert.isNotNull(decided);
+    assert.lengthOf(
+      decided?.orientationDecisions?.filter(
+        ({ verdict, action }) => verdict === "candidate" && action === "keep (mechanical seam)",
+      ) ?? [],
+      3,
+    );
+    const record = renderRecord(decided ?? state);
+    assert.include(record, "[type]: return upstream DesktopPreviewRecordingSource");
+    assert.include(record, "| keep (mechanical seam) |");
+    validateSignedRecord(record, decided ?? state);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("silent seam evidence distinguishes type adaptation from behaviour", () => {
+  assert.deepStrictEqual(parseSilentSeam("apps/a.ts=adapt upstream return type:type"), {
+    path: "apps/a.ts",
+    summary: "adapt upstream return type",
+    touchesBehaviour: false,
+  });
+  const root = fixtureRoot();
+  const typeOnly = report(root, {
+    silentSeams: [
+      { path: "apps/a.ts", summary: "adapt upstream return type", touchesBehaviour: false },
+    ],
+  });
+  const behaviour = {
+    ...typeOnly,
+    silentSeams: [
+      { path: "apps/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
+    ],
+  };
+  try {
+    assert.isNull(gateFourStopReason(typeOnly));
+    assert.include(gateFourStopReason(behaviour) ?? "", "silent seam touches behaviour");
+    assert.include(renderRecord(behaviour), "`apps/a.ts` [behaviour]: changed visible behavior");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(typeOnly.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto stops once with Gate 4 evidence for a behaviour seam", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}\n`,
+    silentSeams: [
+      { path: "apps/web/src/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
+    ],
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  try {
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+    );
+    assert.strictEqual(result, 2);
+    assert.include(output, "`apps/web/src/a.ts` [behaviour]: changed visible behavior");
+    assert.include(output, "Gate 4 refusal: silent seam touches behaviour");
+    assert.isTrue(
+      validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")))
+        .behaviourSeamStopPresented,
+    );
+
+    let stderr = "";
+    const original = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += chunk.toString();
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const second = captureStdout(() =>
+        run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+      );
+      assert.strictEqual(second.result, 1);
+      assert.notInclude(second.output, "Gate 4 refusal: silent seam touches behaviour");
+      assert.include(stderr, "checked rehearsal head moved");
+    } finally {
+      process.stderr.write = original;
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("auto-keeps weak overlap but stops for a retire-candidate conflict", () => {
+  const root = fixtureRoot();
+  const weak = report(root, {
+    stage: "checked",
+    installedHead: B,
+    orientation:
+      "  [candidate] `feat(web): preserve behavior` (fork-meta)\n      behaviour-overlap: weak hunk overlap: apps/web/src/a.ts@1~2\n",
+    orientationDecisions: [
+      {
+        subject: "feat(web): preserve behavior",
+        domain: "fork-meta",
+        verdict: "candidate",
+        decidedBy: "human",
+      },
+    ],
+  });
+  const decided = autoGateFour(weak);
+  assert.deepInclude(decided?.orientationDecisions?.[0], {
+    verdict: "candidate",
+    action: "keep (mechanical seam)",
+    decidedBy: "agent",
+  });
+
+  const blocked = report(root, {
+    stage: "checked",
+    installedHead: B,
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): choose behavior",
+        domain: "fork-meta",
+        path: "apps/web/src/a.ts",
+        class: "retire-candidate",
+        resolution: "human choice",
+        agentSafe: "no",
+        decidedBy: "human",
+      },
+    ],
+  });
+  NodeFS.writeFileSync(blocked.reportPath, JSON.stringify(blocked));
+  NodeFS.writeFileSync(blocked.recordPath, renderRecord(blocked));
+  const blockedRunner = new FakeRunner();
+  setBotResponses(blockedRunner, "candidate");
+  try {
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--resume", "--report", blocked.reportPath], root, blockedRunner),
+    );
+    assert.strictEqual(result, 2);
+    assert.include(output, decisionSurface(renderRecord(blocked)));
+    assert.include(
+      output,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${blocked.reportPath}\n`,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(weak.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(blocked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("re-reads the bot snapshot and refuses apply when its mode was restored to on", () => {
   const root = fixtureRoot();
   const checked = report(root, {
     stage: "checked",
@@ -936,7 +1517,7 @@ it("re-reads the mode and refuses apply when it was restored to on", () => {
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   const runner = new FakeRunner();
-  runner.set("gh", modeArgs, { stdout: "on\n" });
+  setBotResponses(runner, "on");
   try {
     assert.throws(
       () =>
@@ -945,11 +1526,53 @@ it("re-reads the mode and refuses apply when it was restored to on", () => {
           root,
           runner,
         ),
-      /auto-rebase bot mode is on; pause it before applying/,
+      /auto-rebase bot mode is on; pause it before continuing/,
     );
-    assert.lengthOf(runner.calls, 1);
-    assert.deepStrictEqual(runner.calls[0]?.args, modeArgs);
+    assert.deepStrictEqual(
+      runner.calls.slice(0, 2).map(({ args }) => args),
+      [modeArgs, runListArgs],
+    );
   } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-apply refuses a RUNNING bot with status 3", () => {
+  const root = fixtureRoot();
+  const checked = report(root, { stage: "checked" });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]),
+  });
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(
+      run(
+        ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+        root,
+        runner,
+      ),
+      3,
+    );
+    assert.include(stderr, "bot run is in progress");
+    assert.include(
+      stderr,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${checked.reportPath}\n`,
+    );
+    assert.deepStrictEqual(
+      runner.calls.slice(0, 2).map(({ args }) => args),
+      [modeArgs, runListArgs],
+    );
+  } finally {
+    process.stderr.write = original;
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
@@ -957,23 +1580,26 @@ it("re-reads the mode and refuses apply when it was restored to on", () => {
 
 it("requires signed decisions and calls the existing sync gate before apply", () => {
   const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
   const checked = report(root, {
     stage: "checked",
     target: { tag: "v1.2.3", sha: B },
     source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    lane: { branch, worktree: root },
     installedHead: B,
     ciHead: B,
+    orientation: coherentOrientation,
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
-  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
     "git",
-    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", "refs/heads/rehearse/v1.2.3"],
-    { stdout: `${B}\trefs/heads/rehearse/v1.2.3\n` },
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
   );
   runner.set(
     "gh",
@@ -1006,7 +1632,7 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
     assert.isDefined(
       runner.calls.find(
         ({ command, args }) =>
-          command === "git" && args.join(" ").endsWith("push origin --delete rehearse/v1.2.3"),
+          command === "git" && args.join(" ").endsWith(`push origin --delete ${branch}`),
       ),
     );
   } finally {
@@ -1015,25 +1641,76 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
   }
 });
 
-it("refuses apply when the pushed lane moved after the CI verdict", () => {
+it("unblock-auto prints the resume line after an apply refusal", () => {
   const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
   const checked = report(root, {
     stage: "checked",
     target: { tag: "v1.2.3", sha: B },
     source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  runner.set("vp", ["run", "fork:upstream-refs", checked.recordPath], {
+    status: 1,
+    stderr: "apply refused",
+  });
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+      1,
+    );
+    assert.include(stderr, "failed: vp run fork:upstream-refs");
+    assert.include(
+      stderr,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${checked.reportPath}\n`,
+    );
+  } finally {
+    process.stderr.write = original;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses apply when the pushed lane moved after the CI verdict", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
     installedHead: B,
     ciHead: B,
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
-  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  setBotResponses(runner, "candidate");
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
     "git",
-    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", "refs/heads/rehearse/v1.2.3"],
-    { stdout: `${C}\trefs/heads/rehearse/v1.2.3\n` },
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${C}\trefs/heads/${branch}\n` },
   );
   try {
     assert.throws(
@@ -1049,6 +1726,295 @@ it("refuses apply when the pushed lane moved after the CI verdict", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-apply refuses when origin/hyprws moved", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner, A);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  try {
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          root,
+          runner,
+        ),
+      /orientation no longer coheres with live refs/,
+    );
+    assert.isFalse(runner.calls.some(({ command }) => command === "vp"));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a tampered rehearsal lane before apply or deletion", () => {
+  const root = fixtureRoot();
+  const tampered = report(root, {
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/not-the-bound-lane", worktree: root },
+  });
+  const runner = new FakeRunner();
+  try {
+    assert.throws(() => validateAutoLane(tampered, runner), /rehearsal lane mismatch/);
+    assert.isFalse(runner.calls.some(({ args }) => args.includes("--delete")));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(tampered.reportPath), { recursive: true, force: true });
+  }
+});
+
+const dispatchListArgs = [
+  "run",
+  "list",
+  "--workflow",
+  "hyprws-upstream-sync.yml",
+  "--event",
+  "workflow_dispatch",
+  "-L",
+  "10",
+  "--json",
+  "databaseId,url",
+  "--repo",
+  "RSI-Software/t3code-hyprws",
+] as const;
+
+it("identifies the new reconciliation run instead of the old race winner", () => {
+  const root = fixtureRoot();
+  const applied = report(root, { stage: "applied" });
+  const runner = new FakeRunner();
+  runner.setSequence("gh", dispatchListArgs, [
+    { stdout: JSON.stringify([{ databaseId: 10, url: "https://example.test/runs/old" }]) },
+    {
+      stdout: JSON.stringify([
+        { databaseId: 11, url: "https://example.test/runs/new" },
+        { databaseId: 10, url: "https://example.test/runs/old" },
+      ]),
+    },
+  ]);
+  try {
+    const next = reconcileAfterApply(applied, runner);
+    assert.deepStrictEqual(next.reconciliation, {
+      state: "dispatched",
+      baselineRunId: 10,
+      runUrl: "https://example.test/runs/new",
+    });
+    assert.isDefined(
+      runner.calls.find(
+        ({ command, args }) =>
+          command === "gh" &&
+          args.join(" ") ===
+            "workflow run hyprws-upstream-sync.yml --ref hyprws --repo RSI-Software/t3code-hyprws",
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("resumes an ambiguous reconciliation without redispatching", () => {
+  const root = fixtureRoot();
+  const applied = report(root, {
+    stage: "applied",
+    reconciliation: { state: "ambiguous", baselineRunId: 10 },
+  });
+  const runner = new FakeRunner();
+  runner.set("gh", dispatchListArgs, {
+    stdout: JSON.stringify([{ databaseId: 12, url: "https://example.test/runs/resumed" }]),
+  });
+  try {
+    const next = reconcileAfterApply(applied, runner);
+    assert.strictEqual(next.reconciliation?.runUrl, "https://example.test/runs/resumed");
+    assert.isFalse(
+      runner.calls.some(
+        ({ command, args }) => command === "gh" && args[0] === "workflow" && args[1] === "run",
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("prints resume after an ambiguous reconciliation failure", () => {
+  const root = fixtureRoot();
+  const applied = report(root, { stage: "applied" });
+  NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
+  const runner = new FakeRunner();
+  runner.set("gh", dispatchListArgs, { stdout: "[]" });
+  runner.set(
+    "gh",
+    [
+      "workflow",
+      "run",
+      "hyprws-upstream-sync.yml",
+      "--ref",
+      "hyprws",
+      "--repo",
+      "RSI-Software/t3code-hyprws",
+    ],
+    { status: 1, stderr: "dispatch failed" },
+  );
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", applied.reportPath], root, runner),
+      1,
+    );
+    assert.include(stderr, "failed: gh workflow run");
+    assert.include(
+      stderr,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${applied.reportPath}`,
+    );
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(applied.reportPath, "utf8"))).reconciliation
+        ?.state,
+      "ambiguous",
+    );
+  } finally {
+    process.stderr.write = original;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto takes the conflict STOP path when rerere remaining fails", () => {
+  const root = fixtureRoot();
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-auto-lane-"));
+  const oriented = report(root, {
+    stage: "oriented",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    orientation: `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}\n`,
+  });
+  NodeFS.writeFileSync(oriented.reportPath, JSON.stringify(oriented));
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  runner.set("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
+    status: 1,
+  });
+  runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${A}..${C}`,
+    ],
+    { stdout: "feat: one\x1e" },
+  );
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${A}..${C}`], {
+    stdout: "1\n",
+  });
+  runner.set(
+    "wt",
+    ["switch", "--create", branch, "--base", C, "--no-cd", "--format", "json", "--yes"],
+    { stdout: JSON.stringify({ worktree_path: worktree }) },
+  );
+  runner.set("git", rehearsalRebaseArgs(["rebase", B]), {
+    status: 1,
+    stderr: "conflict",
+  });
+  runner.set("git", ["-c", "core.commentChar=auto", "diff", "--name-only", "--diff-filter=U"], {
+    stdout: "apps/web/src/manual.ts\n",
+  });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "show", "-s", "--format=%H%x1f%s%x1f%b", "REBASE_HEAD"],
+    { stdout: `${C}\x1ffix(web): choose behavior\x1fFork-Domain: fork-meta\n` },
+  );
+  runner.setSequence(
+    "git",
+    ["-c", "core.commentChar=auto", "-c", "rerere.enabled=true", "rerere", "remaining"],
+    [{ stdout: "apps/web/src/manual.ts\n" }, { status: 1, stderr: "rerere failed" }],
+  );
+  try {
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--resume", "--report", oriented.reportPath], root, runner),
+    );
+    assert.strictEqual(result, 2);
+    assert.include(output, "Stop. Rebase conflict in fix(web): choose behavior");
+    assert.include(
+      output,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${oriented.reportPath}\n`,
+    );
+    assert.lengthOf(
+      output.split("\n").filter((line) => line.includes("unblock-rehearse")),
+      1,
+    );
+    assert.notInclude(output, "then rerun unblock-rehearse");
+    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(oriented.reportPath, "utf8")));
+    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "human" });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto refuses a RUNNING bot with status 3", () => {
+  const root = fixtureRoot();
+  const listed = report(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]),
+  });
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
+      3,
+    );
+    assert.strictEqual(
+      stderr,
+      `bot run is in progress; wait for it and rerun unblock-list\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${listed.reportPath}\n`,
+    );
+  } finally {
+    process.stderr.write = original;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -1074,13 +2040,17 @@ const replayedRun = (): {
   const replayed = report(root, {
     stage: "replayed",
     target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch, worktree },
+    orientation: coherentOrientation,
     originalMessages: messages,
     originalCount: 1,
   });
   NodeFS.writeFileSync(replayed.reportPath, JSON.stringify(replayed));
 
   const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
   runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
     stdout: "1\n",
   });
@@ -1109,7 +2079,9 @@ const replayedRun = (): {
   return { runner, root, worktree, reportPath: replayed.reportPath, branch };
 };
 
-const checkedRun = (): {
+const checkedRun = (
+  silentSeam?: string,
+): {
   runner: FakeRunner;
   root: string;
   worktree: string;
@@ -1143,7 +2115,16 @@ const checkedRun = (): {
       ]),
     },
   );
-  execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+  execute(
+    [
+      "unblock-check",
+      "--report",
+      state.reportPath,
+      ...(silentSeam === undefined ? [] : ["--silent-seam", silentSeam]),
+    ],
+    state.root,
+    state.runner,
+  );
   return state;
 };
 
@@ -1151,6 +2132,28 @@ const order = (runner: FakeRunner, command: string, args: ReadonlyArray<string>)
   runner.calls.findIndex(
     (call) => call.command === command && call.args.join(" ") === args.join(" "),
   );
+
+it("unblock-check persists explicit silent seam evidence", () => {
+  const state = checkedRun("apps/desktop/src/preview/Manager.ts=adapt return type:type");
+  try {
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(checked.silentSeams, [
+      {
+        path: "apps/desktop/src/preview/Manager.ts",
+        summary: "adapt return type",
+        touchesBehaviour: false,
+      },
+    ]);
+    assert.include(
+      NodeFS.readFileSync(checked.recordPath, "utf8"),
+      "`apps/desktop/src/preview/Manager.ts` [type]: adapt return type",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
 
 it("installs the replayed tree before the scan that typechecks it", () => {
   const { runner, root, worktree } = checkedRun();
@@ -1162,6 +2165,36 @@ it("installs the replayed tree before the scan that typechecks it", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto prints the resume line after a Gate 3 failure", () => {
+  const state = replayedRun();
+  state.runner.set("vp", ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"], {
+    status: 1,
+    stderr: "scan failed",
+  });
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", state.reportPath], state.root, state.runner),
+      1,
+    );
+    assert.include(stderr, "failed: vp run --no-cache fork:scan --target v1.2.3");
+    assert.include(
+      stderr,
+      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${state.reportPath}\n`,
+    );
+  } finally {
+    process.stderr.write = original;
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
