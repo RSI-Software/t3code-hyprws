@@ -417,6 +417,40 @@ it("uses candidate mode when the repository variable is missing", () => {
   }
 });
 
+it("prefers an injected bot mode over the repository variable API", () => {
+  const root = fixtureRoot();
+  const outputPath = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-out-")),
+    "report.json",
+  );
+  const runner = new FakeRunner();
+  setListResponses(runner, root);
+  // The API read is left unstubbed, so reaching it would fail the mode validation.
+  runner.set("gh", runListArgs, { stdout: "[]" });
+  const previous = process.env["HYPRWS_AUTO_REBASE"];
+  try {
+    process.env["HYPRWS_AUTO_REBASE"] = "on";
+    const { result } = captureStdout(() =>
+      execute(["unblock-list", "--output", outputPath], root, runner),
+    );
+    assert.strictEqual(result.bot?.mode, "on");
+    assert.isUndefined(
+      runner.calls.find(({ command, args }) => command === "gh" && args[0] === "variable"),
+    );
+
+    process.env["HYPRWS_AUTO_REBASE"] = "yes";
+    assert.throws(
+      () => execute(["unblock-list", "--output", outputPath], root, runner),
+      /^HYPRWS_AUTO_REBASE has unsupported mode: yes$/,
+    );
+  } finally {
+    if (previous === undefined) delete process.env["HYPRWS_AUTO_REBASE"];
+    else process.env["HYPRWS_AUTO_REBASE"] = previous;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(outputPath), { recursive: true, force: true });
+  }
+});
+
 it("derives the next fire from the workflow cron", () => {
   assert.strictEqual(
     nextScheduledFire("23 */4 * * *", new Date("2026-09-02T04:24:00.000Z")),
