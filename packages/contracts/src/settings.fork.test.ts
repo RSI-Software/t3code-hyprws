@@ -1,17 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import * as Schema from "effect/Schema";
-import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
-  ClientSettingsSchema,
-  ClientSettingsPatch,
-  ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
-  defaultEnabledForDriver,
   migrateLegacyForkThreadEnvModeSettings,
   migrateLegacyZmuxSettings,
-  resolveProviderInstanceEnabled,
-  ServerSettings,
-  ServerSettingsPatch,
 } from "./settings.ts";
 import {
   decodeServerSettings,
