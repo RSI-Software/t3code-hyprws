@@ -23,6 +23,7 @@ import {
   FORK_REPOSITORY,
   HYPRWS_REF,
   isNightlyUpstreamTag,
+  parseUpstreamReleaseTag,
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
@@ -1066,6 +1067,10 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
 };
 
 export const expectedRehearsalBranch = (report: SyncReport): string => {
+  if (report.kind === "rewrite") {
+    if (report.rewrite === undefined) throw new Error("rehearsal branch binding is incomplete");
+    return `rehearse/rewrite-${report.rewrite.fromShort}-from-${report.rewrite.originShort}`;
+  }
   if (report.target === undefined || report.source === undefined)
     throw new Error("rehearsal branch binding is incomplete");
   return `rehearse/${report.target.tag}-from-${report.source.expectedOld.slice(0, 12)}`;
@@ -1078,6 +1083,16 @@ export const validateAutoLane = (report: SyncReport, runner: CommandRunner): voi
     throw new Error(`rehearsal lane mismatch: expected ${expected}, got ${report.lane.branch}`);
   if (git(runner, report.lane.worktree, ["status", "--porcelain"], true) !== "")
     throw new Error("rehearsal lane worktree is not clean");
+};
+
+export const baseReleaseTag = (runner: CommandRunner, root: string, baseSha: string): string => {
+  const tags = lines(git(runner, root, ["tag", "--points-at", baseSha]))
+    .map((tag) => tag.trim())
+    .filter((tag) => tag !== "" && parseUpstreamReleaseTag(tag) !== null);
+  const tag = tags[0];
+  if (tag === undefined)
+    throw new Error(`no upstream release tag points at the rewrite base ${baseSha}`);
+  return tag;
 };
 
 const unblockApply = (
@@ -1095,10 +1110,12 @@ const unblockApply = (
     throw new Error("record path does not match the report binding");
   const record = NodeFS.readFileSync(recordPath, "utf8");
   validateSignedRecord(record, report);
-  if (report.lane === undefined || report.target === undefined || report.source === undefined)
+  const isRewrite = report.kind === "rewrite";
+  if (report.lane === undefined || report.source === undefined)
+    throw new Error("apply binding is incomplete");
+  if (isRewrite ? report.rewrite === undefined : report.target === undefined)
     throw new Error("apply binding is incomplete");
   const lane = report.lane;
-  const target = report.target;
   const source = report.source;
   const worktree = lane.worktree;
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== report.installedHead)
@@ -1107,7 +1124,8 @@ const unblockApply = (
     throw new Error("checked report has no CI verdict for the installed head");
   if (remoteLaneHead(runner, worktree, lane.branch) !== report.ciHead)
     throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
-  if (!orientationCoheres(report, runner))
+  // A rewrite is bound to its own proofs, not to a tag walk's orientation.
+  if (!isRewrite && !orientationCoheres(report, runner))
     throw new Error("orientation no longer coheres with live refs; rerun unblock-orient");
   validateAutoLane(report, runner);
   const applyEnv = laneEnv(worktree);
@@ -1119,14 +1137,19 @@ const unblockApply = (
     undefined,
     applyEnv,
   );
+  // The gate is tag-pinned. A rewrite keeps the fork's current base, so its
+  // release tag is the one the gate must see.
+  const gateTag = isRewrite
+    ? baseReleaseTag(runner, worktree, (report.rewrite as NonNullable<typeof report.rewrite>).base)
+    : (report.target as NonNullable<typeof report.target>).tag;
   const gateArgs = [
     "run",
     "fork:sync-gate",
     "--tag",
-    target.tag,
+    gateTag,
     "--record",
     recordPath,
-    ...(isNightlyUpstreamTag(target.tag) ? ["--allow-nightly"] : []),
+    ...(isNightlyUpstreamTag(gateTag) ? ["--allow-nightly"] : []),
   ];
   requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
   const recordCommentUrl = requireSuccess(
@@ -1161,14 +1184,16 @@ const unblockApply = (
       "-R",
       REPOSITORY,
       "--body",
-      `Resolved blocking upstream commit \`${report.issue.blockingSha}\` while rebasing \`hyprws\` onto \`${target.tag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`,
+      isRewrite
+        ? `Installed the rehearsed rewrite of the fork series on \`${gateTag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`
+        : `Resolved blocking upstream commit \`${report.issue.blockingSha}\` while rebasing \`hyprws\` onto \`${gateTag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`,
     ],
     worktree,
   );
   git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
   report = { ...report, stage: "applied", recordCommentUrl };
   writeReport(report);
-  process.stdout.write(`applied: ${target.tag} with lease ${source.expectedOld}\n`);
+  process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
   return report;
 };
 
