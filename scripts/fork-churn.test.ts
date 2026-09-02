@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import { hotSeams, parseCensusFiles, run, type ChurnEntry } from "./fork-churn.ts";
+import { hotSeams, parseCensusFiles, parseLedger, run, type ChurnEntry } from "./fork-churn.ts";
 import { parseRecord, renderRecord, type SyncReport } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
@@ -63,6 +63,38 @@ it("parses the sequential rebase census table by its rendered columns", () => {
     ),
     [{ path: "apps/web/src/a|b.ts", hunks: 2, commit: "1234567", domain: "project-windows" }],
   );
+});
+
+it("accepts zero-hunk census rows", () => {
+  const rows = parseCensusFiles(
+    [
+      "## Sequential rebase census",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `apps/web/src/routes/-chatIndexTitlebar.test.ts` | 0 | `1234567 fix(web): retain route tests` | upstream-fixes |",
+      "",
+    ].join("\n"),
+  );
+  assert.deepStrictEqual(rows, [
+    {
+      path: "apps/web/src/routes/-chatIndexTitlebar.test.ts",
+      hunks: 0,
+      commit: "1234567",
+      domain: "upstream-fixes",
+    },
+  ]);
+
+  const ledgerEntry: ChurnEntry = {
+    tag: "v1",
+    before: A,
+    after: B,
+    recordUrl: "https://example.test/v1",
+    conflicts: [],
+    decisions: [],
+    censusFiles: rows,
+  };
+  assert.deepStrictEqual(parseLedger(JSON.stringify([ledgerEntry])), [ledgerEntry]);
 });
 
 const entry = (tag: string, conflicts: ChurnEntry["conflicts"]): ChurnEntry => ({

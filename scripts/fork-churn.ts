@@ -115,7 +115,7 @@ export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
     const path = /^`([^`]*)`$/.exec(cells[0] ?? "");
     if (path === null) throw new Error("invalid census File cell: expected a backticked path");
     const hunks = Number(cells[1]);
-    if (!Number.isSafeInteger(hunks) || hunks < 1)
+    if (!Number.isSafeInteger(hunks) || hunks < 0)
       throw new Error(`invalid census Hunks cell: ${cells[1] ?? ""}`);
     const commit = /^`([0-9a-f]{7,12}) .+`$/.exec(cells[2] ?? "");
     if (commit === null) throw new Error("invalid census Fork commit cell: expected `sha subject`");
@@ -182,7 +182,7 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
       if (typeof item !== "object" || item === null)
         throw new Error(`invalid census file ${censusIndex} in entry ${entryIndex}`);
       const row = item as Record<string, unknown>;
-      if (!Number.isSafeInteger(row.hunks) || Number(row.hunks) < 1)
+      if (!Number.isSafeInteger(row.hunks) || Number(row.hunks) < 0)
         throw new Error(`invalid census hunks in entry ${entryIndex}`);
       return {
         path: requireString(row.path, "census path"),
