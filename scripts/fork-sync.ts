@@ -1139,8 +1139,10 @@ const unblockApply = (
   );
   // The gate is tag-pinned. A rewrite keeps the fork's current base, so its
   // release tag is the one the gate must see.
+  const rewrite = report.rewrite;
   const gateTag = isRewrite
-    ? baseReleaseTag(runner, worktree, (report.rewrite as NonNullable<typeof report.rewrite>).base)
+    ? ((rewrite as NonNullable<typeof rewrite>).baseTag ??
+      baseReleaseTag(runner, worktree, (rewrite as NonNullable<typeof rewrite>).base))
     : (report.target as NonNullable<typeof report.target>).tag;
   const gateArgs = [
     "run",
@@ -2032,6 +2034,7 @@ const rewriteRehearse = (
       originSha: expectedOld,
       originShort: originHeadShort,
       base: baseOrigin,
+      baseTag: baseReleaseTag(runner, root, baseOrigin),
       baseToOriginCount: countOrigin,
       baseToFromCount: countFrom,
       allowExtra,
