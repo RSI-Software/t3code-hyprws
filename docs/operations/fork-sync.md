@@ -59,11 +59,40 @@ currently registered—add one only with its deterministic generator and an upda
 
 Do not create, move, delete, or force-push these refs by hand:
 
-| Ref                     | Meaning                                                                           |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `hyprws-previous`       | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite. |
-| `hyprws-next`           | The verified candidate stack published while the repository is in candidate mode. |
-| `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.             |
+| Ref                     | Meaning                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `hyprws-previous`       | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite.   |
+| `hyprws-next`           | The verified candidate stack published while the repository is in candidate mode.   |
+| `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.               |
+| `refs/fork/churn`       | The churn ledger: one orphan history holding `fork-churn.json`, one entry per walk. |
+| `refs/fork/rerere`      | The shared `.git/rr-cache`, so a carried walk replays what earlier walks resolved.  |
+
+The `refs/fork/*` family is append-only and is never rebased, so a walk's data never enters the
+fork series and no rebase has to carry it. Read one without a checkout:
+
+```bash
+git fetch origin '+refs/fork/*:refs/fork/*'
+git show refs/fork/churn:fork-churn.json
+```
+
+### Churn ledger
+
+The ledger moved off `docs/internals/fork-churn.json` onto `refs/fork/churn`. The document at
+`docs/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both
+files, along with the `docs(fork-churn): row ...` commits, at a later rebase. Seed the ref once
+from the file, from a clean canonical checkout of `hyprws`:
+
+```bash
+node scripts/fork-churn.ts seed --from docs/internals/fork-churn.json --push
+```
+
+Verify with `git show refs/fork/churn:fork-churn.json | head`. Until the ref exists, every reader
+refuses rather than reporting an empty ledger.
+
+After each walk, `node scripts/fork-churn.ts append ... --push` adds the row and publishes the ref.
+Each report run posts a `## Churn` section on the open block issue with the conflict class mix, the
+agent/human split, the silent seams, and the hot-seam movement since the previous report. The
+section replaces itself, so the issue carries one live view.
 
 A release snapshot never follows later trunk work. It is the immutable branch from which a human
 chooses a stable fork tag. If a manual leased apply lands the trunk on a stable upstream tag, the
@@ -83,6 +112,32 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 
 In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
 commit and one for the bot-pushed rebased head.
+
+### Carried unblock walk
+
+In `on` mode a blocked candidate does not stop at the report. The workflow's carry job restores the
+shared rerere cache from `refs/fork/rerere` and then runs the walk non-interactively:
+
+```bash
+node scripts/fork-sync.ts unblock-auto --bot-carried --target <newest tag beyond the block>
+```
+
+The walk's own exit code decides the run:
+
+| Exit | Meaning                            | The run                                                               |
+| ---- | ---------------------------------- | --------------------------------------------------------------------- |
+| 0    | Every conflict was mechanical      | Applies under the walk's own expected-old lease and posts the record. |
+| 2    | A gate stopped on a real judgement | Posts the stop surface verbatim on the block issue for an agent.      |
+| 3    | A precondition refused the walk    | Reports only. Nothing is written.                                     |
+
+`--bot-carried` refuses unless `GITHUB_RUN_ID` is set, `HYPRWS_AUTO_REBASE` is `on`, and the bot's
+last recorded run is this run, so a carried walk can never take a lease another run holds. The
+workflow's `hyprws-rebase` concurrency group is the outer guard. `off` and `candidate` never carry.
+
+A carried walk mints its rehearsal lane with `git worktree` rather than Worktrunk, which a runner
+cannot install, and skips the post-apply reconciliation dispatch because its own leased push to
+`hyprws` already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
+every carried walk, applied or stopped, and after every leased apply.
 
 ### Walk pause
 
@@ -361,9 +416,9 @@ The human still owns target selection, semantic conflict classification, retirem
 judgement, grounding, login/date, and the explicit go. Every other transition refuses stale refs,
 wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed checks, or a
 missing sign-off. A stale lease voids the report; restart at `unblock-list` instead of refreshing it.
-Never move a bot-owned ref as part of the unblock. A successful leased push starts the bot run that
-reconciles the resolved blocking SHA and any later block. After apply, append the walk to
-`fork-churn`, verify the rendered document, and open its docs-only row pull request against `hyprws`.
+Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
+leased push starts the bot run that reconciles the resolved blocking SHA and any later block. After
+apply, append the walk to `refs/fork/churn` with `--push`; the next sync report renders it.
 
 ## Cut a stable release
 

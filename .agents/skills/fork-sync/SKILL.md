@@ -132,12 +132,12 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
 6. Ledger row:
 
    ```bash
-   node scripts/fork-churn.ts append --record <record> --issue <blocked-issue-number> --tag <tag> --before <expected-old> --after <installed-head>
-   vp run fork:churn:check
+   node scripts/fork-churn.ts append --record <record> --issue <blocked-issue-number> --tag <tag> --before <expected-old> --after <installed-head> --push
    ```
 
-   Open the docs-only pull request `docs(fork-churn): row for <tag>` against `hyprws`; the row lands
-   after apply and is not part of the rebased lane.
+   The row lands on `refs/fork/churn`, a bot-owned ref outside the rebased lane, so there is no
+   pull request and no fork commit to replay. The next sync report renders it into the `## Churn`
+   section on the notification issue.
 
 ## Entry point: cut stable
 

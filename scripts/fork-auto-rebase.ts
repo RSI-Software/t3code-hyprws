@@ -667,6 +667,8 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
           `blocked=${result.blocked === null ? "false" : "true"}`,
           `blocked_status=${result.blocked === null ? "clear" : "blocked"}`,
           `blocking_sha=${result.blocked?.blockingSha ?? ""}`,
+          // The bot-carried unblock walk targets this tag (RSI-Software/t3code-hyprws#444).
+          `blocked_tag=${result.blocked?.newestUpstreamTagBeyondWindow ?? ""}`,
           `stable_candidate_count=${result.stableCandidates.length}`,
           `stable_status=${result.stableCandidates.length === 0 ? "none" : "stable-candidate"}`,
         ].join("\n") + "\n",

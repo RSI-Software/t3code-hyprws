@@ -16,7 +16,7 @@ Upstream guidance below remains the default unless this section or the fork guid
 - Rebase `hyprws` onto any upstream release tag, stable or nightly; never merge upstream into the fork branch.
 - Never target an untagged upstream commit; use the `fork-sync` skill for the rebase.
 - Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
-- Every action taken from the churn ledger ships the guard that stops its recurrence; read the hot seams in `docs/internals/fork-churn.md` before touching a file they name.
+- Every action taken from the churn ledger ships the guard that stops its recurrence; read the hot seams in the `## Churn` section of the latest sync report before touching a file they name.
 - Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
 - Publish rebased history only with the explicit expected-old lease documented in the fork guide.
 - Keep patches small, upstream-native, and checked across every affected client and connection mode.
