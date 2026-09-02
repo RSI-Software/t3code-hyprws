@@ -577,17 +577,18 @@ Retired with the fork.
 
 ### Rebase scan
 
-| Path                                                          | Why it matters                                                                             |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `README.md`, `AGENTS.md`, `docs/README.md`                    | Upstream edits these often and they carry fork-only sections.                              |
-| `package.json` scripts block                                  | The `fork:*` aliases sit between upstream aliases.                                         |
-| `docs/internals/scripts.md`                                   | Carries the `fork:*` script entries.                                                       |
-| `docs/internals/ci.md`                                        | Documents fork-specific CI and advisory scan behavior.                                     |
-| `docs/internals/glossary.md`                                  | Carries fork-sync glossary terms and references.                                           |
-| `scripts/*.ts` siblings                                       | The ledger script copies their Effect CLI shape.                                           |
-| `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts` | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection. |
-| `.github/workflows/hyprws-upstream-sync.yml`                  | Owns bot mode, runner setup, and fork-local issue upserts.                                 |
-| `.github/pull_request_template.md`                            | Carries the fork trailer block every squash body needs.                                    |
+| Path                                                                                                                                         | Why it matters                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md`                                                                                                   | Upstream edits these often and they carry fork-only sections.                                                          |
+| `package.json` scripts block                                                                                                                 | The `fork:*` aliases sit between upstream aliases.                                                                     |
+| `docs/internals/scripts.md`                                                                                                                  | Carries the `fork:*` script entries.                                                                                   |
+| `docs/internals/ci.md`                                                                                                                       | Documents fork-specific CI and advisory scan behavior.                                                                 |
+| `docs/internals/glossary.md`                                                                                                                 | Carries fork-sync glossary terms and references.                                                                       |
+| `scripts/*.ts` siblings                                                                                                                      | The ledger script copies their Effect CLI shape.                                                                       |
+| `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts`                                                                                | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection.                             |
+| `.github/workflows/hyprws-upstream-sync.yml`                                                                                                 | Owns bot mode, runner setup, and fork-local issue upserts.                                                             |
+| `.github/pull_request_template.md`                                                                                                           | Carries the fork trailer block every squash body needs.                                                                |
+| `packages/contracts/src/settings.test.ts`, `apps/web/src/components/ChatView.logic.test.ts`, `apps/web/src/components/Sidebar.logic.test.ts` | Fork cases live in `*.fork.test.ts` siblings, so these files keep only upstream cases and take upstream edits cleanly. |
 
 ## distribution
 
