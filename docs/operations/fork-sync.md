@@ -377,11 +377,13 @@ carries gate state:
    number. The human selects one of the reported issues; recency is not permission to infer it.
 2. `vp run fork:sync stable-prepare --report <report> --issue <selected-issue>` rereads the exact
    selected issue, fetches its bot-owned snapshot and tags, binds the remote commit, and creates the
-   collision-refusing `cut/vX.Y.Z-hyprws` Worktrunk lane. It installs and runs `fork:delta --check`,
-   `vp check`, `vp run typecheck`, and `vp run test`, derives the next stable tag through the release
-   helper, refuses a local or remote tag collision, and revalidates the snapshot, clean lane, and
-   checked head. It also calls the existing `fork:uat` dry-run surface for the exact snapshot and
-   writes the draft beside the external report.
+   collision-refusing `cut/vX.Y.Z-hyprws` Worktrunk lane. It installs with the lockfile frozen and
+   runs `fork:delta --check`, `vp check`, `vp run typecheck`, and `vp run test`, derives the next
+   stable tag through the release helper, refuses a local or remote tag collision, and revalidates
+   the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
+   for the exact snapshot and writes the draft beside the external report. A preparation failure
+   removes the cut lane before requiring a fresh `stable-list`; if Worktrunk cannot remove it, the
+   refusal prints the exact recovery command.
 3. `vp run fork:sync stable-publish --report <report> --go <exact-candidate>` requires the human to
    repeat the selected `vX.Y.Z-hyprws` candidate after UAT judgement. It rereads the open candidate,
    refetches and revalidates the bound snapshot, clean lane, and absent tag, creates the annotated

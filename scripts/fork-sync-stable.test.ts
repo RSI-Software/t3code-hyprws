@@ -70,6 +70,47 @@ const reportFixture = (root: string, overrides: Partial<StableReport> = {}): Sta
   };
 };
 
+const prepareRunner = (lane: string): FakeRunner => {
+  const runner = new FakeRunner();
+  runner.set(
+    "gh",
+    ["issue", "view", "355", "-R", REPOSITORY, "--json", "number,title,body,state"],
+    { stdout: issueJson() },
+  );
+  runner.set("git", ["rev-parse", "origin/release/v1.2.3-hyprws^{commit}"], {
+    stdout: `${SHA}\n`,
+  });
+  runner.set("git", ["show-ref", "--verify", "--quiet", "refs/heads/cut/v1.2.3-hyprws"], {
+    status: 1,
+  });
+  runner.set(
+    "wt",
+    [
+      "switch",
+      "--create",
+      "cut/v1.2.3-hyprws",
+      "--base",
+      "origin/release/v1.2.3-hyprws",
+      "--no-cd",
+      "--format",
+      "json",
+      "--yes",
+    ],
+    { stdout: JSON.stringify({ worktree_path: lane }) },
+  );
+  runner.set("git", ["rev-parse", "HEAD"], { stdout: `${SHA}\n` });
+  runner.set("git", ["tag", "--list", "v*-hyprws.*"], {
+    stdout: "v1.2.3-hyprws.1\nv1.2.3-hyprws.3\nv1.2.4-hyprws.8\n",
+  });
+  runner.set("git", ["show-ref", "--verify", "--quiet", "refs/tags/v1.2.3-hyprws.4"], {
+    status: 1,
+  });
+  runner.set("git", ["ls-remote", "--exit-code", "--tags", "origin", "refs/tags/v1.2.3-hyprws.4"], {
+    status: 2,
+  });
+  return runner;
+};
+
 it("stable-list reads every candidate into an external report without accepting a selection", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-list-root-"));
   const output = NodePath.join(
@@ -117,43 +158,7 @@ it("stable-prepare binds the selected snapshot, runs the release checks, and ren
   const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
   const listed = reportFixture(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
-  const runner = new FakeRunner();
-  runner.set(
-    "gh",
-    ["issue", "view", "355", "-R", REPOSITORY, "--json", "number,title,body,state"],
-    { stdout: issueJson() },
-  );
-  runner.set("git", ["rev-parse", "origin/release/v1.2.3-hyprws^{commit}"], {
-    stdout: `${SHA}\n`,
-  });
-  runner.set("git", ["show-ref", "--verify", "--quiet", "refs/heads/cut/v1.2.3-hyprws"], {
-    status: 1,
-  });
-  runner.set(
-    "wt",
-    [
-      "switch",
-      "--create",
-      "cut/v1.2.3-hyprws",
-      "--base",
-      "origin/release/v1.2.3-hyprws",
-      "--no-cd",
-      "--format",
-      "json",
-      "--yes",
-    ],
-    { stdout: JSON.stringify({ worktree_path: lane }) },
-  );
-  runner.set("git", ["rev-parse", "HEAD"], { stdout: `${SHA}\n` });
-  runner.set("git", ["tag", "--list", "v*-hyprws.*"], {
-    stdout: "v1.2.3-hyprws.1\nv1.2.3-hyprws.3\nv1.2.4-hyprws.8\n",
-  });
-  runner.set("git", ["show-ref", "--verify", "--quiet", "refs/tags/v1.2.3-hyprws.4"], {
-    status: 1,
-  });
-  runner.set("git", ["ls-remote", "--exit-code", "--tags", "origin", "refs/tags/v1.2.3-hyprws.4"], {
-    status: 2,
-  });
+  const runner = prepareRunner(lane);
 
   const prepared = executeStable(
     ["stable-prepare", "--report", listed.reportPath, "--issue", "355"],
@@ -168,7 +173,7 @@ it("stable-prepare binds the selected snapshot, runs the release checks, and ren
     priorTags: ["v1.2.3-hyprws.1", "v1.2.3-hyprws.3"],
   });
   for (const args of [
-    ["i"],
+    ["install", "--frozen-lockfile"],
     ["run", "fork:delta", "--check"],
     ["check"],
     ["run", "typecheck"],
@@ -182,6 +187,57 @@ it("stable-prepare binds the selected snapshot, runs the release checks, and ren
     runner.calls.some(
       (call) => call.command === "vp" && call.args.slice(0, 3).join(" ") === "run fork:uat --ref",
     ),
+  );
+});
+
+it("stable-prepare removes its cut lane when a release check fails", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
+  const listed = reportFixture(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = prepareRunner(lane);
+  runner.set("vp", ["run", "test"], { status: 1, stderr: "transient test failure" });
+
+  assert.throws(
+    () =>
+      executeStable(
+        ["stable-prepare", "--report", listed.reportPath, "--issue", "355"],
+        root,
+        runner,
+      ),
+    /vp run test failed: transient test failure[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws[\s\S]*Restart with: vp run fork:sync stable-list/,
+  );
+  assert.isTrue(
+    runner.calls.some(
+      (call) => call.command === "wt" && call.args.join(" ") === "remove -D cut/v1.2.3-hyprws",
+    ),
+  );
+  assert.strictEqual(
+    validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
+    "stable-listed",
+  );
+});
+
+it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
+  const listed = reportFixture(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = prepareRunner(lane);
+  runner.set("vp", ["run", "test"], { status: 1, stderr: "transient test failure" });
+  runner.set("wt", ["remove", "-D", "cut/v1.2.3-hyprws"], {
+    status: 1,
+    stderr: "worktree is busy",
+  });
+
+  assert.throws(
+    () =>
+      executeStable(
+        ["stable-prepare", "--report", listed.reportPath, "--issue", "355"],
+        root,
+        runner,
+      ),
+    /failed to clean stable cut lane cut\/v1\.2\.3-hyprws: worktree is busy[\s\S]*Recover with: wt remove -D cut\/v1\.2\.3-hyprws[\s\S]*Then restart with: vp run fork:sync stable-list/,
   );
 });
 

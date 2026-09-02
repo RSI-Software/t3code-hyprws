@@ -329,97 +329,119 @@ const stablePrepare = (
       ),
     ),
   };
-  if (git(runner, lane.worktree, ["rev-parse", "HEAD"]) !== snapshotSha) {
-    throw new Error("stable cut lane does not match the selected snapshot SHA");
-  }
 
-  const checks: ReadonlyArray<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
-    [
-      { command: "vp", args: ["i"] },
+  try {
+    if (git(runner, lane.worktree, ["rev-parse", "HEAD"]) !== snapshotSha) {
+      throw new Error("stable cut lane does not match the selected snapshot SHA");
+    }
+
+    const checks: ReadonlyArray<{
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+    }> = [
+      { command: "vp", args: ["install", "--frozen-lockfile"] },
       { command: "vp", args: ["run", "fork:delta", "--check"] },
       { command: "vp", args: ["check"] },
       { command: "vp", args: ["run", "typecheck"] },
       { command: "vp", args: ["run", "test"] },
     ];
-  const verification: Array<{ command: string; result: string }> = [];
-  for (const check of checks) {
-    requireSuccess(runner, check.command, check.args, lane.worktree);
-    verification.push({ command: commandText(check.command, check.args), result: "passed" });
-  }
+    const verification: Array<{ command: string; result: string }> = [];
+    for (const check of checks) {
+      requireSuccess(runner, check.command, check.args, lane.worktree);
+      verification.push({ command: commandText(check.command, check.args), result: "passed" });
+    }
 
-  const allTags = lines(git(runner, lane.worktree, ["tag", "--list", "v*-hyprws.*"]));
-  const upstreamVersion = selected.name.slice(1, -"-hyprws".length);
-  const releaseTag = resolveNextForkStableTag(upstreamVersion, allTags);
-  if (releaseTag === null) throw new Error(`could not derive a stable tag for ${selected.name}`);
-  const priorTags = matchingStableTags(selected, allTags);
-  assertRefAbsent(
-    runner,
-    lane.worktree,
-    ["show-ref", "--verify", "--quiet", `refs/tags/${releaseTag}`],
-    `local tag ${releaseTag}`,
-  );
-  assertRefAbsent(
-    runner,
-    lane.worktree,
-    ["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${releaseTag}`],
-    `remote tag ${releaseTag}`,
-  );
+    const allTags = lines(git(runner, lane.worktree, ["tag", "--list", "v*-hyprws.*"]));
+    const upstreamVersion = selected.name.slice(1, -"-hyprws".length);
+    const releaseTag = resolveNextForkStableTag(upstreamVersion, allTags);
+    if (releaseTag === null) throw new Error(`could not derive a stable tag for ${selected.name}`);
+    const priorTags = matchingStableTags(selected, allTags);
+    assertRefAbsent(
+      runner,
+      lane.worktree,
+      ["show-ref", "--verify", "--quiet", `refs/tags/${releaseTag}`],
+      `local tag ${releaseTag}`,
+    );
+    assertRefAbsent(
+      runner,
+      lane.worktree,
+      ["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${releaseTag}`],
+      `remote tag ${releaseTag}`,
+    );
 
-  const uatDraftPath = NodePath.join(
-    NodePath.dirname(report.reportPath),
-    `uat-${selected.name}.md`,
-  );
-  const uatArgs = [
-    "run",
-    "fork:uat",
-    "--ref",
-    `origin/${selected.branch}`,
-    "--relates-to",
-    String(selected.issue),
-    "--output",
-    uatDraftPath,
-  ];
-  requireSuccess(runner, "vp", uatArgs, lane.worktree);
-  verification.push({ command: commandText("vp", uatArgs), result: "draft rendered" });
+    const uatDraftPath = NodePath.join(
+      NodePath.dirname(report.reportPath),
+      `uat-${selected.name}.md`,
+    );
+    const uatArgs = [
+      "run",
+      "fork:uat",
+      "--ref",
+      `origin/${selected.branch}`,
+      "--relates-to",
+      String(selected.issue),
+      "--output",
+      uatDraftPath,
+    ];
+    requireSuccess(runner, "vp", uatArgs, lane.worktree);
+    verification.push({ command: commandText("vp", uatArgs), result: "draft rendered" });
 
-  requireSuccess(
-    runner,
-    "git",
-    [
-      "fetch",
-      "--no-tags",
-      "origin",
-      `refs/heads/${selected.branch}:refs/remotes/origin/${selected.branch}`,
-    ],
-    lane.worktree,
-  );
-  if (
-    git(runner, lane.worktree, ["rev-parse", `origin/${selected.branch}^{commit}`]) !== snapshotSha
-  ) {
-    throw new Error("stable snapshot moved during preparation; start again");
-  }
-  if (git(runner, lane.worktree, ["rev-parse", "HEAD"]) !== snapshotSha) {
-    throw new Error("stable cut lane HEAD changed during preparation");
-  }
-  if (git(runner, lane.worktree, ["status", "--porcelain"]).length !== 0) {
-    throw new Error("stable cut lane is dirty after preparation");
-  }
+    requireSuccess(
+      runner,
+      "git",
+      [
+        "fetch",
+        "--no-tags",
+        "origin",
+        `refs/heads/${selected.branch}:refs/remotes/origin/${selected.branch}`,
+      ],
+      lane.worktree,
+    );
+    if (
+      git(runner, lane.worktree, ["rev-parse", `origin/${selected.branch}^{commit}`]) !==
+      snapshotSha
+    ) {
+      throw new Error("stable snapshot moved during preparation; start again");
+    }
+    if (git(runner, lane.worktree, ["rev-parse", "HEAD"]) !== snapshotSha) {
+      throw new Error("stable cut lane HEAD changed during preparation");
+    }
+    if (git(runner, lane.worktree, ["status", "--porcelain"]).length !== 0) {
+      throw new Error("stable cut lane is dirty after preparation");
+    }
 
-  const next: StableReport = {
-    ...report,
-    stage: "stable-prepared",
-    selected,
-    snapshot: { branch: selected.branch, sha: snapshotSha },
-    lane,
-    release: { tag: releaseTag, priorTags },
-    uatDraftPath,
-    verification,
-  };
-  writeStableReport(next);
-  process.stdout.write(
-    `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\n${uatDraftPath}\nStop. Review and create the UAT under the fork-uat judgement boundary, obtain human sign-off, then obtain an explicit go for ${selected.name}.\n`,
-  );
-  return next;
+    const next: StableReport = {
+      ...report,
+      stage: "stable-prepared",
+      selected,
+      snapshot: { branch: selected.branch, sha: snapshotSha },
+      lane,
+      release: { tag: releaseTag, priorTags },
+      uatDraftPath,
+      verification,
+    };
+    writeStableReport(next);
+    process.stdout.write(
+      `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\n${uatDraftPath}\nStop. Review and create the UAT under the fork-uat judgement boundary, obtain human sign-off, then obtain an explicit go for ${selected.name}.\n`,
+    );
+    return next;
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    const cleanup = runner.run("wt", ["remove", "-D", lane.branch], root);
+    if (cleanup.status === 0 && cleanup.error === undefined) {
+      throw new Error(
+        `${failure}\ncleaned: stable cut lane ${lane.branch}\nRestart with: vp run fork:sync stable-list`,
+        { cause: error },
+      );
+    }
+    const detail = [cleanup.stdout.trim(), cleanup.stderr.trim(), cleanup.error?.message]
+      .filter((value): value is string => value !== undefined && value.length > 0)
+      .join("\n");
+    throw new Error(
+      `${failure}\nfailed to clean stable cut lane ${lane.branch}${detail.length === 0 ? "" : `: ${detail}`}\nRecover with: wt remove -D ${lane.branch}\nThen restart with: vp run fork:sync stable-list`,
+      { cause: error },
+    );
+  }
 };
 
 const preparedBindings = (
@@ -524,7 +546,7 @@ const stablePublish = (
     "--json",
     "databaseId,headBranch",
     "--jq",
-    `map(select(.headBranch == \"${release.tag}\"))[0].databaseId // empty`,
+    `map(select(.headBranch == "${release.tag}"))[0].databaseId // empty`,
   ];
   for (let attempt = 0; attempt < 12; attempt += 1) {
     runId = requireSuccess(runner, "gh", runArgs, root).trim();
