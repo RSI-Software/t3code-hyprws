@@ -347,7 +347,8 @@ judgement, grounding, login/date, and the explicit go. Every other transition re
 wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed checks, or a
 missing sign-off. A stale lease voids the report; restart at `unblock-list` instead of refreshing it.
 Never move a bot-owned ref as part of the unblock. A successful leased push starts the bot run that
-reconciles the resolved blocking SHA and any later block.
+reconciles the resolved blocking SHA and any later block. After apply, append the walk to
+`fork-churn`, verify the rendered document, and open its docs-only row pull request against `hyprws`.
 
 ## Cut a stable release
 
