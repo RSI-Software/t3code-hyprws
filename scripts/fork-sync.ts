@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Operator state machine runs before Effect exists.
 
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -1772,15 +1773,7 @@ const rewriteRehearse = (
       undefined,
       { ...process.env, ...COMMENT_CONFIG },
     );
-    // Use sha256sum via node crypto if available; fallback to runner's sha256sum command if needed
-    try {
-      const crypto = eval("require")("node:crypto") as {
-        createHash: (a: string) => { update: (s: string) => { digest: (e: string) => string } };
-      };
-      return crypto.createHash("sha256").update(raw).digest("hex");
-    } catch {
-      return raw.length.toString();
-    }
+    return NodeCrypto.createHash("sha256").update(raw).digest("hex");
   })();
   // First-N digest: compare first min(countOrigin, countFrom) commit messages; for allow-extra case compare first countOrigin
   const fromFirstN = (() => {
@@ -1813,14 +1806,7 @@ const rewriteRehearse = (
       undefined,
       { ...process.env, ...COMMENT_CONFIG },
     );
-    try {
-      const crypto = eval("require")("node:crypto") as {
-        createHash: (a: string) => { update: (s: string) => { digest: (e: string) => string } };
-      };
-      return crypto.createHash("sha256").update(raw).digest("hex");
-    } catch {
-      return raw.length.toString();
-    }
+    return NodeCrypto.createHash("sha256").update(raw).digest("hex");
   })();
   const originHeadShort = shortSha(expectedOld);
   const fromShort = shortSha(fromSha);
