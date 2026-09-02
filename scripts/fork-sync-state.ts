@@ -38,6 +38,20 @@ export interface ConflictRow {
 }
 
 export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
+export type BotMode = "off" | "candidate" | "on";
+
+export interface BotRun {
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly createdAt: string;
+  readonly url: string;
+}
+
+export interface BotSnapshot {
+  readonly mode: BotMode;
+  readonly lastRun: BotRun | null;
+  readonly nextFire: string;
+}
 
 export interface OrientationDecisionRow {
   readonly subject: string;
@@ -53,6 +67,7 @@ export interface SyncReport {
   readonly recordPath: string;
   readonly issue: { readonly number: number; readonly blockingSha: string; readonly title: string };
   readonly candidates: ReadonlyArray<{ readonly tag: string; readonly sha: string }>;
+  readonly bot?: BotSnapshot;
   readonly target?: { readonly tag: string; readonly sha: string };
   readonly source?: {
     readonly sha: string;
