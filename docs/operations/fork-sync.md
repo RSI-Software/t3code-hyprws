@@ -99,6 +99,10 @@ chooses a stable fork tag. If a manual leased apply lands the trunk on a stable 
 next sync run snapshots that exact trunk head unless the snapshot or a published stable already
 exists.
 
+The two channels are cut differently. `hyprws-release.yml` fires on every push to `hyprws`, so a
+leased apply cuts the nightly by itself and no operator ever cuts one. The stable channel is the
+only one that needs a `stable-list` candidate, a UAT cycle, and an explicit human go.
+
 ## Auto-rebase modes
 
 The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset variable means
