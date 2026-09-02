@@ -304,6 +304,26 @@ needs no curation. Once commits land, never squash the stack. See
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
+### Ledger guards run in the scan
+
+An action the churn ledger records ships its guard in the same change, and the sub-issue carrying
+that action names the guard it adds. A rule only prose states is a rule the next walk pays for
+again.
+
+`vp run fork:scan` collects them over the fork stack:
+
+- `hot-seam`: the commit edits a path [Fork churn](./fork-churn.md) lists as a hot seam. Read what
+  the earlier walks resolved there before adding to it.
+- `upstream-test`: the commit adds a test block to an upstream-owned test file rather than the
+  `*.fork.test.ts` sibling below.
+- `footprint`: one commit edits more than six upstream files, which is more seam than a single
+  rebase intent should carry.
+
+Warnings are advisory. `fork:scan` prints them and still exits on its own scan verdict, so a guard
+can ship before the stack it describes is clean and no existing walk breaks. `--strict` makes them
+fatal. `--since <ref>` restricts them to commits after that ref, which is how CI shows a pull
+request the shapes it introduces instead of the whole replayed stack.
+
 ### Fork tests live in fork-owned files
 
 Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` or
