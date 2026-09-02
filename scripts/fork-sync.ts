@@ -58,6 +58,7 @@ import {
   type BotRun,
   type BotSnapshot,
   type ConflictRow,
+  type RewriteProof,
   type SilentSeam,
   type SyncReport,
 } from "./fork-sync-state.ts";
@@ -76,6 +77,7 @@ export {
   type ConflictRow,
   type OrientationDecisionRow,
   type OrientationVerdict,
+  type RewriteProof,
   type SilentSeam,
   type SyncReport,
   type SyncStage,
@@ -906,9 +908,15 @@ const unblockCheck = (
   const silentSeam = oneValue(values, "--silent-seam", false);
   if (report.stage !== "replayed")
     throw new Error(`unblock-check requires replayed state, got ${report.stage}`);
-  if (report.lane === undefined || report.target === undefined)
-    throw new Error("replay binding is incomplete");
-  verifyReplay(report, runner);
+  if (report.kind === "rewrite") {
+    if (report.lane === undefined || report.rewrite === undefined)
+      throw new Error("replay binding is incomplete");
+    // rewrite has no tag replay to verify; binding is the lane head itself
+  } else {
+    if (report.lane === undefined || report.target === undefined)
+      throw new Error("replay binding is incomplete");
+    verifyReplay(report, runner);
+  }
   const worktree = report.lane.worktree;
   const verificationEnv = laneEnv(worktree);
   const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
@@ -930,7 +938,9 @@ const unblockCheck = (
         [
           "log",
           "--format=%s",
-          `${report.target.sha}..HEAD`,
+          report.kind === "rewrite"
+            ? `${report.rewrite!.base}..HEAD`
+            : `${report.target!.sha}..HEAD`,
           "--",
           "package.json",
           ":(glob)**/package.json",
@@ -949,13 +959,25 @@ const unblockCheck = (
     throw new Error("vp i introduced importer drift after replay");
   if (installedAfter !== before) restoreSnapshotDrift(runner, worktree);
   const installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
-  const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
-    {
-      command: "vp",
-      args: ["run", "--no-cache", "fork:scan", "--target", report.target.tag],
-    },
-    { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
-  ];
+  const commands: Array<{ command: string; args: ReadonlyArray<string> }> =
+    report.kind === "rewrite"
+      ? [
+          { command: "vp", args: ["run", "--no-cache", "fork:scan"] },
+          { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
+        ]
+      : [
+          {
+            command: "vp",
+            args: [
+              "run",
+              "--no-cache",
+              "fork:scan",
+              "--target",
+              (report.target as NonNullable<typeof report.target>).tag,
+            ],
+          },
+          { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
+        ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
@@ -1663,6 +1685,364 @@ const unblockAuto = (
   }
 };
 
+const shortSha = (sha: string): string => sha.slice(0, 12);
+
+// Minimal glob matcher: supports * and **
+const pathGlobToRegExp = (glob: string): RegExp => {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i] ?? "";
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        re += ".*";
+        i++;
+      } else re += "[^/]*";
+    } else re += c.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`);
+};
+
+const rewriteRehearse = (
+  values: ReadonlyMap<string, string>,
+  cwd: string,
+  runner: CommandRunner,
+): SyncReport => {
+  const fromArg = values.get("--from");
+  if (fromArg === undefined || fromArg.length === 0) throw new UsageError("--from is required");
+  const issueArg = values.get("--issue");
+  const allowExtraRaw = values.get("--allow-extra");
+  const allowPathsRaw = values.get("--allow-paths");
+  const dryRun = values.has("--dry-run");
+  const allowedFlags = new Set([
+    "--from",
+    "--issue",
+    "--allow-extra",
+    "--allow-paths",
+    "--dry-run",
+  ]);
+  for (const k of values.keys())
+    if (!allowedFlags.has(k)) throw new UsageError(`unknown option: ${k}`);
+  const allowExtra = allowExtraRaw === undefined ? 0 : Number(allowExtraRaw);
+  if (allowExtraRaw !== undefined && (!Number.isInteger(allowExtra) || allowExtra < 0))
+    throw new UsageError("--allow-extra requires a non-negative integer");
+  const allowPaths =
+    allowPathsRaw === undefined
+      ? []
+      : allowPathsRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+  const root = rootFor(runner, cwd);
+  const bot2 = readBotSnapshot(runner, root);
+  if (
+    bot2.mode === "on" ||
+    (bot2.lastRun !== null &&
+      ["queued", "waiting", "requested", "pending", "in_progress"].includes(bot2.lastRun.status))
+  ) {
+    const msg =
+      bot2.mode === "on"
+        ? `auto-rebase bot mode is on; pause it before continuing:\ngh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`
+        : "bot run is in progress; wait for it and rerun unblock-list";
+    const err = new Error(msg) as Error & { reportPath?: string; isBotRefusal?: boolean };
+    (err as unknown as { isBotRefusal: boolean }).isBotRefusal = true;
+    throw err;
+  }
+  const expectedOld = git(runner, root, ["rev-parse", "origin/hyprws"]);
+  const fromSha = git(runner, root, ["rev-parse", fromArg]);
+  const baseOrigin = git(runner, root, ["merge-base", "upstream/main", "origin/hyprws"]);
+  const baseFrom = git(runner, root, ["merge-base", "upstream/main", fromSha]);
+  const countOrigin = Number(
+    git(runner, root, ["rev-list", "--count", `${baseOrigin}..origin/hyprws`]),
+  );
+  const countFrom = Number(git(runner, root, ["rev-list", "--count", `${baseFrom}..${fromSha}`]));
+  const originDigest = (() => {
+    const raw = requireSuccess(
+      runner,
+      "git",
+      [
+        "-c",
+        "core.commentChar=auto",
+        "log",
+        "--reverse",
+        "--topo-order",
+        "--format=%B%x1e",
+        `${baseOrigin}..origin/hyprws`,
+      ],
+      root,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG },
+    );
+    // Use sha256sum via node crypto if available; fallback to runner's sha256sum command if needed
+    try {
+      const crypto = eval("require")("node:crypto") as {
+        createHash: (a: string) => { update: (s: string) => { digest: (e: string) => string } };
+      };
+      return crypto.createHash("sha256").update(raw).digest("hex");
+    } catch {
+      return raw.length.toString();
+    }
+  })();
+  // First-N digest: compare first min(countOrigin, countFrom) commit messages; for allow-extra case compare first countOrigin
+  const fromFirstN = (() => {
+    const n = Math.min(countOrigin, countFrom);
+    if (n === 0) return "";
+    // Find the sha that is n commits after base on the from branch
+    const list = git(runner, root, [
+      "rev-list",
+      "--reverse",
+      "--topo-order",
+      `${baseFrom}..${fromSha}`,
+    ])
+      .split("\n")
+      .filter(Boolean);
+    const nth = list[n - 1];
+    if (nth === undefined) return "";
+    const raw = requireSuccess(
+      runner,
+      "git",
+      [
+        "-c",
+        "core.commentChar=auto",
+        "log",
+        "--reverse",
+        "--topo-order",
+        "--format=%B%x1e",
+        `${baseFrom}..${nth}`,
+      ],
+      root,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG },
+    );
+    try {
+      const crypto = eval("require")("node:crypto") as {
+        createHash: (a: string) => { update: (s: string) => { digest: (e: string) => string } };
+      };
+      return crypto.createHash("sha256").update(raw).digest("hex");
+    } catch {
+      return raw.length.toString();
+    }
+  })();
+  const originHeadShort = shortSha(expectedOld);
+  const fromShort = shortSha(fromSha);
+  const diffRaw = (() => {
+    // git diff <from> origin/hyprws -- ':!*.test.ts' ':!*.test.tsx' plus allowPaths filtering
+    // Do base diff, then filter allowed paths if any
+    const baseArgs = [
+      "diff",
+      "--name-only",
+      fromSha,
+      "origin/hyprws",
+      "--",
+      ":!*.test.ts",
+      ":!*.test.tsx",
+    ] as const;
+    const names = requireSuccess(runner, "git", [...baseArgs], root)
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowPaths.length === 0) return names;
+    const pats = allowPaths.map(pathGlobToRegExp);
+    return names.filter((p) => !pats.some((re) => re.test(p)));
+  })();
+  const diffEmpty = diffRaw.length === 0;
+  const sameBase = baseFrom === baseOrigin;
+  const countPass = countFrom === countOrigin || countFrom === countOrigin + allowExtra;
+  const digestPass = originDigest === fromFirstN || countOrigin === 0;
+  // For count-0 special: digest computed over first min so it matches when counts differ by 1 due to docs commit? We compare full origin digest vs first-N from digest
+  // When counts differ by allowExtra, origin digest should equal first-countOrigin digest of from
+  const proofs: RewriteProof[] = [
+    {
+      name: "bot paused",
+      expected: "candidate/off and not RUNNING",
+      actual: `${bot2.mode}${bot2.lastRun ? `/${bot2.lastRun.status}` : ""}`,
+      pass: true,
+    },
+    {
+      name: "same base",
+      expected: baseOrigin.slice(0, 12),
+      actual: `${baseFrom.slice(0, 12)} (origin ${baseOrigin.slice(0, 12)})`,
+      pass: sameBase,
+      ...(sameBase ? {} : { detail: `from base ${baseFrom} != origin base ${baseOrigin}` }),
+    },
+    {
+      name: "commit count",
+      expected:
+        allowExtra > 0 ? `${countOrigin} or ${countOrigin + allowExtra}` : String(countOrigin),
+      actual: String(countFrom),
+      pass: countPass,
+      ...(countPass
+        ? {}
+        : {
+            detail: `stale base: from has ${countFrom}, origin has ${countOrigin}${allowExtra ? ` (+allow ${allowExtra})` : ""}`,
+          }),
+    },
+    {
+      name: "message digest (first N)",
+      expected: originDigest.slice(0, 12),
+      actual: fromFirstN.slice(0, 12),
+      pass: digestPass,
+      ...(digestPass
+        ? {}
+        : {
+            detail: `origin ${originDigest.slice(0, 12)} != from-first-N ${fromFirstN.slice(0, 12)}`,
+          }),
+    },
+    {
+      name: "non-test diff",
+      expected: allowPaths.length ? `empty after excluding ${allowPaths.join(",")}` : "empty",
+      actual: diffEmpty ? "empty" : diffRaw.join(", "),
+      pass: diffEmpty,
+    },
+  ];
+  const proofTable = [
+    "## Rewrite proofs",
+    "| Proof | Expected | Actual | Pass |",
+    "| --- | --- | --- | --- |",
+    ...proofs.map(
+      (p) => `| ${p.name} | ${p.expected} | ${p.actual} | ${p.pass ? "pass" : "fail"} |`,
+    ),
+    "",
+    `- base: ${baseOrigin}`,
+    `- origin: ${expectedOld}`,
+    `- from: ${fromSha} (${fromArg})`,
+  ].join("\n");
+  for (const p of proofs) {
+    process.stdout.write(
+      `${p.pass ? "pass" : "fail"}: ${p.name} expected=${p.expected} actual=${p.actual}${p.detail ? ` (${p.detail})` : ""}\n`,
+    );
+  }
+  process.stdout.write(proofTable + "\n");
+  const firstFail = proofs.find((p) => !p.pass);
+  if (firstFail !== undefined) {
+    const err = new Error(
+      `${firstFail.name} proof failed: expected ${firstFail.expected}, got ${firstFail.actual}${firstFail.detail ? ` (${firstFail.detail})` : ""}\n${proofTable}`,
+    ) as Error & { isBotRefusal?: boolean };
+    // Count/base failures should be exit 3 per brief; bot was already handled above.
+    // Mark non-bot precondition failures so run() maps to 3 as well if desired. For now throw plain and let run() map bot only; but brief says each precondition refusal is exit 3.
+    // We add a marker so run() can map any precondition failure to 3.
+    (err as unknown as { isPrecondition: boolean }).isPrecondition = true;
+    throw err;
+  }
+  // Resolve issue number for the report (optional, for record linkage). If --issue given use it, else try to read the rebase-blocked issue if open.
+  let issueNumber = 0;
+  let blockingSha = "0".repeat(40);
+  let issueTitle = "rewrite rehearsal";
+  if (issueArg !== undefined) {
+    issueNumber = Number(issueArg);
+    blockingSha = expectedOld; // not used for rewrite; keep a valid SHA
+  } else {
+    try {
+      const raw = requireSuccess(
+        runner,
+        "gh",
+        [
+          "issue",
+          "list",
+          "--state",
+          "open",
+          "--label",
+          BLOCK_LABEL,
+          "-R",
+          REPOSITORY,
+          "--json",
+          "number,title,body",
+        ],
+        root,
+      );
+      const arr = JSON.parse(raw) as Array<{ number: number; title: string; body: string }>;
+      if (arr.length === 1 && arr[0] !== undefined) {
+        issueNumber = arr[0].number;
+        issueTitle = arr[0].title;
+        const m = /<!-- blocking-sha:([0-9a-f]{40,64}) -->/.exec(arr[0].body);
+        if (m) blockingSha = m[1] ?? blockingSha;
+      }
+    } catch {}
+  }
+  if (issueNumber === 0) {
+    issueNumber = 1;
+  }
+  const laneBranch = `rehearse/rewrite-${fromShort}-from-${originHeadShort}`;
+  const reportDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-rewrite-"));
+  const reportPath = NodePath.join(reportDir, "report.json");
+  const recordPath = NodePath.join(reportDir, "record.md");
+  let worktree = "";
+  if (!dryRun) {
+    // Check branch doesn't already exist
+    const exists =
+      runner.run("git", ["show-ref", "--verify", "--quiet", `refs/heads/${laneBranch}`], root)
+        .status === 0;
+    if (exists) throw new Error(`rehearsal lane already exists: ${laneBranch}`);
+    const laneResult = requireSuccess(
+      runner,
+      "wt",
+      ["switch", "--create", laneBranch, "--base", fromSha, "--no-cd", "--format", "json", "--yes"],
+      root,
+    );
+    const parsed = JSON.parse(laneResult) as Record<string, unknown>;
+    worktree = String(parsed["worktree_path"] ?? parsed["worktreePath"] ?? parsed["path"] ?? "");
+    if (!worktree) throw new Error("Worktrunk JSON omitted the worktree path");
+    requireSuccess(runner, "vp", ["i"], worktree, undefined, {
+      ...process.env,
+      PATH: [NodePath.join(worktree, "node_modules", ".bin"), process.env.PATH ?? ""].join(
+        NodePath.delimiter,
+      ),
+    } as NodeJS.ProcessEnv);
+  } else {
+    worktree = NodePath.join(root, ".tmp-rewrite-dry-run");
+  }
+  const report: SyncReport = {
+    schemaVersion: 1,
+    stage: "replayed",
+    kind: "rewrite",
+    repositoryRoot: root,
+    reportPath,
+    recordPath,
+    issue: { number: issueNumber, blockingSha, title: issueTitle },
+    candidates: [],
+    bot: bot2,
+    source: { sha: expectedOld, expectedOld, sharedBase: baseOrigin },
+    lane: { branch: laneBranch, worktree },
+    originalMessages: "",
+    originalCount: countFrom,
+    conflicts: [],
+    verification: [],
+    rebasedHead: fromSha,
+    stackSize: countFrom,
+    rewrite: {
+      from: fromArg,
+      fromSha,
+      fromShort,
+      originSha: expectedOld,
+      originShort: originHeadShort,
+      base: baseOrigin,
+      baseToOriginCount: countOrigin,
+      baseToFromCount: countFrom,
+      allowExtra,
+      allowPaths,
+      originDigest,
+      fromFirstNDigest: fromFirstN,
+      diffEmpty,
+      proofs,
+    },
+  };
+  writeReport(report);
+  writeRecord(report);
+  if (!dryRun) {
+    // Push lane (same mechanics as unblock-rehearse)
+    // Push with force-with-lease handled by git push
+    requireSuccess(
+      runner,
+      "git",
+      ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${laneBranch}`],
+      worktree,
+    );
+  } else {
+    process.stdout.write("(dry-run: lane not created or pushed)\n");
+  }
+  process.stdout.write(`${reportPath}\n`);
+  return report;
+};
+
 export const execute = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
@@ -1677,8 +2057,19 @@ export const execute = (
   if (verb === "unblock-rehearse") return unblockRehearse(values, cwd, runner);
   if (verb === "unblock-check") return unblockCheck(values, cwd, runner);
   if (verb === "unblock-apply") return unblockApply(values, cwd, runner);
+  if (verb === "rewrite-rehearse")
+    return rewriteRehearse(values, cwd, runner) as unknown as SyncReport;
   throw new UsageError(`unknown verb: ${verb}`);
 };
+
+const isPreconditionRefusal = (error: unknown): boolean =>
+  (typeof error === "object" &&
+    error !== null &&
+    (error as Record<string, unknown>).isPrecondition === true) ||
+  (error instanceof Error &&
+    /proof failed|same base|commit count|message digest|non-test diff|bot.*paused|bot run is in progress/i.test(
+      error.message,
+    ));
 
 export const run = (
   argv: ReadonlyArray<string>,
@@ -1698,6 +2089,14 @@ export const run = (
       process.stderr.write(
         `${error.message}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${error.reportPath}\n`,
       );
+      return 3;
+    }
+    if ((error as Record<string, unknown> | null)?.isBotRefusal === true) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 3;
+    }
+    if (isPreconditionRefusal(error)) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
       return 3;
     }
     if (error instanceof AutoFailure) {

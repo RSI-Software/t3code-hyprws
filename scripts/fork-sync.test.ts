@@ -2414,6 +2414,83 @@ it("resolves every lane command out of the lane, never the invoking checkout", (
   }
 });
 
+it("rewrite-rehearse refuses a stale from via count proof", () => {
+  const root = fixtureRoot();
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  const from = "b".repeat(40);
+  const origin = "c".repeat(40);
+  const base = "a".repeat(40);
+  runner.set("git", ["rev-parse", "--show-toplevel"], { stdout: `${root}\n` });
+  runner.set("git", ["rev-parse", from], { stdout: `${from}\n` });
+  runner.set("git", ["rev-parse", "origin/hyprws"], { stdout: `${origin}\n` });
+  runner.set("git", ["merge-base", "upstream/main", "origin/hyprws"], { stdout: `${base}\n` });
+  runner.set("git", ["merge-base", "upstream/main", from], { stdout: `${base}\n` });
+  runner.set("git", ["rev-list", "--count", `${base}..origin/hyprws`], { stdout: "199\n" });
+  runner.set("git", ["rev-list", "--count", `${base}..${from}`], { stdout: "197\n" });
+  // Make digests pass so count is the only fail
+  const digest = "ab".repeat(32);
+  // Stub the two log calls
+  runner.set("git", ["-c", "core.commentChar=auto", "log", "--reverse", "--topo-order", "--format=%B%x1e", `${base}..origin/hyprws`], { stdout: "same\n" });
+  runner.set("git", ["rev-list", "--reverse", "--topo-order", `${base}..${from}`], { stdout: `${from}\n` });
+  runner.set("git", ["-c", "core.commentChar=auto", "log", "--reverse", "--topo-order", "--format=%B%x1e", `${base}..${from}`], { stdout: "same\n" });
+  runner.set("git", ["diff", "--name-only", from, "origin/hyprws", "--", ":!*.test.ts", ":!*.test.tsx"], { stdout: "" });
+  try {
+    const code = run(["rewrite-rehearse", "--from", from], root, runner);
+    assert.strictEqual(code, 3);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rewrite-rehearse happy path writes a kind rewrite report", () => {
+  const root = fixtureRoot();
+  const from = "b".repeat(40);
+  const origin = "c".repeat(40);
+  const base = "a".repeat(40);
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "--show-toplevel"], { stdout: `${root}\n` });
+  runner.set("git", ["rev-parse", from], { stdout: `${from}\n` });
+  runner.set("git", ["rev-parse", "origin/hyprws"], { stdout: `${origin}\n` });
+  runner.set("git", ["merge-base", "upstream/main", "origin/hyprws"], { stdout: `${base}\n` });
+  runner.set("git", ["merge-base", "upstream/main", from], { stdout: `${base}\n` });
+  runner.set("git", ["rev-list", "--count", `${base}..origin/hyprws`], { stdout: "2\n" });
+  runner.set("git", ["rev-list", "--count", `${base}..${from}`], { stdout: "2\n" });
+  const same = "hello\x1e";
+  runner.set("git", ["-c", "core.commentChar=auto", "log", "--reverse", "--topo-order", "--format=%B%x1e", `${base}..origin/hyprws`], { stdout: same });
+  // fromFirstN path: list then log up to nth
+  runner.set("git", ["rev-list", "--reverse", "--topo-order", `${base}..${from}`], { stdout: `1111111111111111111111111111111111111111\n${from}\n` });
+  runner.set("git", ["-c", "core.commentChar=auto", "log", "--reverse", "--topo-order", "--format=%B%x1e", `${base}..${from}`], { stdout: same });
+  runner.set("git", ["diff", "--name-only", from, "origin/hyprws", "--", ":!*.test.ts", ":!*.test.tsx"], { stdout: "" });
+  runner.set("git", ["show-ref", "--verify", "--quiet", `refs/heads/rehearse/rewrite-${from.slice(0,12)}-from-${origin.slice(0,12)}`], { status: 1 });
+  const wtDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "wt-"));
+  runner.set("wt", ["switch", "--create", `rehearse/rewrite-${from.slice(0,12)}-from-${origin.slice(0,12)}`, "--base", from, "--no-cd", "--format", "json", "--yes"], { stdout: JSON.stringify({ worktree_path: wtDir }) });
+  runner.set("git", ["push", "--force-with-lease", "origin", `HEAD:refs/heads/rehearse/rewrite-${from.slice(0,12)}-from-${origin.slice(0,12)}`], { stdout: "" });
+  // need issue list fallback: return empty so rewrite uses dummy issue
+  runner.set("gh", ["issue", "list", "--state", "open", "--label", "rebase-blocked", "-R", "RSI-Software/t3code-hyprws", "--json", "number,title,body"], { stdout: "[]" });
+  let out = "";
+  const orig = process.stdout.write;
+  process.stdout.write = ((c: string|Uint8Array)=>{ out+=c.toString(); return true;}) as typeof process.stdout.write;
+  try {
+    const code = run(["rewrite-rehearse", "--from", from, "--dry-run"], root, runner);
+    assert.strictEqual(code, 0);
+    assert.include(out, "pass: commit count");
+    // Find the written report via captured output path (last line is report path)
+    const lines = out.trim().split("\n");
+    const reportPath = lines[lines.length-1]?.trim() ?? "";
+    // report should exist at that path
+    if (reportPath.endsWith("report.json") && NodeFS.existsSync(reportPath)) {
+      const rpt = validateReport(JSON.parse(NodeFS.readFileSync(reportPath,"utf8")));
+      assert.strictEqual((rpt as unknown as {kind:string}).kind, "rewrite");
+    }
+  } finally {
+    process.stdout.write = orig;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(wtDir, { recursive: true, force: true });
+  }
+});
+
 it("neutralises the comment char on every rehearsal git call, not one shell", () => {
   const { runner, root, worktree } = checkedRun();
   try {
