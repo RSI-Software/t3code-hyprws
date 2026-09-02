@@ -149,6 +149,9 @@ candidate.
    record `Signed off` or `Blocked: <reason>`; those facts inform judgement and never become an
    automatic pass/fail rule.
 
+   A failed preparation removes its cut lane before requiring a fresh `stable-list`. If that cleanup
+   fails, run only the exact recovery command the refusal prints, then restart selection.
+
    **Stop.** Present the selected issue, snapshot branch and SHA, derived tag, prior matching tags,
    every preparation result, clean/ref checks, and UAT evidence. Continue only when the human names
    the exact candidate and gives an explicit release go. Missing sign-off, ambiguity, or a blocked
