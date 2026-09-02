@@ -311,8 +311,20 @@ reported the next human task. It does not mean the entire upstream lane was clea
 
 ## Unblocking a `rebase-blocked` issue
 
-Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **unblock** entry
-point. `vp run fork:sync` owns the mechanics as five report transitions. At each stop, the human sees
+Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. Alone, it selects the
+open walk target (or the oldest offered tag), accepts a coherent orientation, stages rerere and
+generated resolutions, takes the pushed-lane CI verdict, records clear keep decisions, applies with
+the existing lease, dispatches one reconciliation run, identifies its URL, and does not wait for
+completion. It stops only when
+orientation does not cohere, a source conflict has no rerere resolution, a retirement or behaviour
+seam needs judgement, or an existing gate refuses. Every judgement stop reproduces the interactive
+surface and prints `node scripts/fork-sync.ts unblock-auto --resume --report <path>`; resolve the
+surface with the existing verbs, then run that resume command against the same external report.
+
+### Walk mode
+
+Use the existing step-by-step verbs for the interactive path. `vp run fork:sync` owns the mechanics
+as five report transitions. At each stop, the human sees
 the emitted decision surface verbatim, then one triage line per decision: `clear — <recommendation>:
 <one-line reason>` for an unambiguous choice, or `judgement — <recommendation>: <reading A> vs
 <reading B>; <why the recommendation>` when a real choice remains. The agent then asks for the exact
@@ -329,9 +341,12 @@ word for every decision and stops; its recommendation is never recorded as the h
    the human reviews and stages it rather than authors it. For `pnpm-lock.yaml` it discards the
    textual/rerere result and applies the [regeneration rule](#regenerable-files) itself.
 4. `unblock-check` classifies post-replay lock drift, installs at the replay head, and runs the fork
-   scan and ledger locally. It pushes the disposable rehearsal lane, then waits up to 45 minutes for
-   the CI verdict on the pushed lane head, polling every 30 seconds. A timeout or failed job stops
-   the gate with its failed log evidence. It then renders the decision and grounding surface.
+   scan and ledger locally. Record one repaired seam with
+   `--silent-seam '<path>=<summary>:type'` or
+   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence for Gate 4. It
+   pushes the disposable rehearsal lane, then waits up to 45 minutes for the CI verdict on the
+   pushed lane head, polling every 30 seconds. A timeout or failed job stops the gate with its failed
+   log evidence. It then renders the decision and grounding surface.
 5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
    the CI verdict, posts the external record, performs the expected-old leased apply, and deletes the
    remote rehearsal branch.
