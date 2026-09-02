@@ -12,7 +12,7 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 ## Entry point: unblock
 
 Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. It selects the
-open walk target (or the oldest offered tag), accepts a coherent orientation, replays rerere and
+open walk target (or the newest offered tag), accepts a coherent orientation, replays rerere and
 generated conflicts, takes the pushed-lane CI verdict, records clear keep decisions, applies with
 the existing lease, dispatches reconciliation, identifies its run URL, and does not wait for completion. It stops only for an incoherent
 orientation, a non-rerere source conflict, a retirement or behaviour seam, or another real
@@ -38,7 +38,11 @@ write one triage line per decision in exactly one of these forms:
 Then ask for the human's exact word for every decision and stop. A recommendation never becomes a
 record entry on its own. In steps 3 and 4, test every `retire-candidate` by asking: “does the upstream
 hunk implement the fork behaviour?” If the row does not make the answer obvious, show both hunks—the
-`git diff` of the fork commit's hunk and the upstream hunk—before recommending. Treat `mechanical`
+`git diff` of the fork commit's hunk and the upstream hunk—before recommending. `unblock-orient`
+already runs that test for an orientation candidate: it greps the target tag's tree for the
+identifiers the fork commit introduces and writes the verdict into the row's class summary, so
+`target-tree: absent` is a proven keep and `target-tree: <name> at <file>:<line>` is the hunk to
+show. Treat `mechanical`
 and `seam-moved` rows as `clear` by default unless the resolution dropped or moved fork behaviour.
 
 0. Pause the bot for the whole ladder or walk series:
@@ -58,8 +62,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    vp run fork:sync unblock-list
    ```
 
+   It prints the newest offered tag; `--all` prints the older tags a bisect would select from.
+
    **Stop.** Apply the stop shape to the blocker and offered tags. Recommend the target named by an
-   open tracker sub-issue titled `unblock walk lands <tag>`; if none is open, recommend the oldest
+   open tracker sub-issue titled `unblock walk lands <tag>`; if none is open, recommend the newest
    offered tag that contains the block. Name which rule fired, and require the human's exact tag;
    recency is not permission to record a selection.
 
@@ -107,7 +113,11 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    last 40 failed-log lines verbatim before any interpretation. Continue only when the human gives
    every keep/retire/partial decision by exact subject and gives an explicit go; when the surface
    names a grounding claim, get that confirmation too. Put only those supplied decisions in the
-   rendered record; never record a recommendation as the human's decision.
+   rendered record; never record a recommendation as the human's decision. Write the decider in the
+   `Decided by` cell beside every action you fill; a cell left on `TODO` records no decision, is
+   counted for nobody in the churn ledger, and is refused at apply. A rerun of the check keeps the
+   cells already filled and refuses when a filled cell disagrees with the decision the report
+   carries.
 
 5. Apply the reviewed record:
 

@@ -7,7 +7,12 @@ import * as NodePath from "node:path";
 
 import { runCommandText } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
-import { parseRecord, type ConflictClass, type OrientationDecisionRow } from "./fork-sync-state.ts";
+import {
+  parseRecord,
+  type ConflictClass,
+  type DecidedBy,
+  type OrientationDecisionRow,
+} from "./fork-sync-state.ts";
 
 export const LEDGER_PATH = "docs/internals/fork-churn.json";
 export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
@@ -30,7 +35,7 @@ export interface ChurnConflict {
   readonly domain: string;
   readonly class: ConflictClass;
   readonly resolution: string;
-  readonly decidedBy: "human" | "agent";
+  readonly decidedBy: DecidedBy;
 }
 
 export interface CensusFile {
@@ -139,6 +144,13 @@ const requireString = (value: unknown, field: string): string => {
   return value;
 };
 
+/** A ledger row written before provenance was recorded carries none, and none is not a human. */
+const readDecidedBy = (value: unknown, invalid: () => Error): DecidedBy => {
+  if (value === undefined || value === "TODO") return "TODO";
+  if (value === "human" || value === "agent") return value;
+  throw invalid();
+};
+
 export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
   const value = JSON.parse(raw) as unknown;
   if (!Array.isArray(value)) throw new Error("fork churn ledger must be an array");
@@ -164,13 +176,10 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
         domain: requireString(row.domain, "conflict domain"),
         class: row.class,
         resolution: requireString(row.resolution, "conflict resolution"),
-        decidedBy: (row.decidedBy === undefined || row.decidedBy === "human"
-          ? "human"
-          : row.decidedBy === "agent"
-            ? "agent"
-            : (() => {
-                throw new Error(`invalid conflict decidedBy in entry ${entryIndex}`);
-              })()) as "human" | "agent",
+        decidedBy: readDecidedBy(
+          row.decidedBy,
+          () => new Error(`invalid conflict decidedBy in entry ${entryIndex}`),
+        ),
       };
     });
     const decisions = entry.decisions.map((item, decisionIndex) => {
@@ -184,13 +193,10 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
         subject: requireString(row.subject, "decision subject"),
         domain: requireString(row.domain, "decision domain"),
         verdict: verdict as OrientationDecisionRow["verdict"],
-        decidedBy: (row.decidedBy === undefined || row.decidedBy === "human"
-          ? "human"
-          : row.decidedBy === "agent"
-            ? "agent"
-            : (() => {
-                throw new Error(`invalid decision decidedBy in entry ${entryIndex}`);
-              })()) as "human" | "agent",
+        decidedBy: readDecidedBy(
+          row.decidedBy,
+          () => new Error(`invalid decision decidedBy in entry ${entryIndex}`),
+        ),
       };
     });
     const censusFiles = entry.censusFiles.map((item, censusIndex) => {
@@ -493,9 +499,11 @@ export const renderMarkdown = (entries: ReadonlyArray<ChurnEntry>, forkDelta: st
       "| --- | --- | --- | ---: | --- |",
     );
     for (const entry of entries) {
+      // A row with no provenance is nobody's decision, so it is counted on neither side rather
+      // than credited to the human by default.
       const decidedRows = [...entry.conflicts, ...entry.decisions];
       const agent = decidedRows.filter(({ decidedBy }) => decidedBy === "agent").length;
-      const human = decidedRows.length - agent;
+      const human = decidedRows.filter(({ decidedBy }) => decidedBy === "human").length;
       lines.push(
         `| ${code(entry.tag)} | ${code(entry.before)} → ${code(entry.after)} | ${classHistogram(entry.conflicts) || "none"} | ${agent}/${human} | [record](${entry.recordUrl}) |`,
       );
