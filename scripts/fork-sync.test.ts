@@ -1625,6 +1625,74 @@ it("unblock-auto stops once with Gate 4 evidence for a behaviour seam", () => {
   }
 });
 
+it("fills the record on a resume from a presented behaviour-seam stop", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const subject = "feat(web): preserve behavior";
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: [
+      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
+      `  [candidate] \`${subject}\` (fork-meta)`,
+      "      behaviour-overlap: weak hunk overlap: apps/web/src/a.ts@1~2",
+      "",
+    ].join("\n"),
+    orientationDecisions: [
+      { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
+    ],
+    silentSeams: [
+      { path: "apps/web/src/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
+    ],
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  const forkCommitRows = (record: string): ReadonlyArray<string> =>
+    (record.split("## Fork commits\n", 2)[1] ?? "")
+      .split("\n## ", 1)[0]
+      ?.split("\n")
+      .filter((line) => line.startsWith("| `")) ?? [];
+  try {
+    assert.strictEqual(
+      captureStdout(() =>
+        run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+      ).result,
+      2,
+    );
+    assert.isTrue(
+      forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8")).some((row) =>
+        row.includes("| TODO |"),
+      ),
+    );
+
+    const original = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner);
+    } finally {
+      process.stderr.write = original;
+    }
+    const rows = forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8"));
+    assert.lengthOf(rows, 1);
+    // The resume owes the same fill the unpresented path runs, so no cell is left for the apply.
+    assert.notInclude(rows[0] ?? "", "TODO");
+    assert.include(rows[0] ?? "", "| keep (mechanical seam) |");
+    assert.include(rows[0] ?? "", "| agent |");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("auto-keeps weak overlap but stops for a retire-candidate conflict", () => {
   const root = fixtureRoot();
   const weak = report(root, {

@@ -1707,7 +1707,11 @@ const retireEvidenceFor = (report: SyncReport): ReadonlyMap<string, RetireEviden
   );
 
 export const gateFourStopReason = (report: SyncReport): string | null => {
-  const behaviourSeam = (report.silentSeams ?? []).find(({ touchesBehaviour }) => touchesBehaviour);
+  // A presented seam is a stop the human already answered by resuming, so it stops the walk once.
+  const behaviourSeam =
+    report.behaviourSeamStopPresented === true
+      ? undefined
+      : (report.silentSeams ?? []).find(({ touchesBehaviour }) => touchesBehaviour);
   if (behaviourSeam !== undefined)
     return `silent seam touches behaviour: ${behaviourSeam.path}: ${behaviourSeam.summary}`;
   const judgementConflict = report.conflicts.find(
@@ -1948,7 +1952,9 @@ const unblockAuto = (
       }
 
       const canonical = record === renderRecord(report);
-      let signed = resume && report.behaviourSeamStopPresented === true;
+      // Presenting a behaviour seam records that the human saw it, never that anyone decided the
+      // rows behind it. Both resume routes fill the record first and sign a complete one.
+      let signed = false;
       if (resume && !canonical) {
         try {
           validateSignedRecord(record, report);
