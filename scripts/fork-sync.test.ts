@@ -348,7 +348,7 @@ it("writes a listed report without accepting or inferring a target", () => {
       () => execute(["unblock-list", "--target", "v1.2.3"], root, runner),
       /unknown option/,
     );
-    // The mirror sync is chosen here, so this is the one verb that requires it.
+    // This walk chooses its own target, so it requires a current mirror.
     assert.deepStrictEqual(runner.calls.find(({ command }) => command === "node")?.args, [
       "scripts/fork-preflight.ts",
     ]);
@@ -2676,6 +2676,45 @@ it("unblock-auto --bot-carried refuses to resume a human-lane report", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("lists a pinned target without requiring mirror currency", () => {
+  const root = fixtureRoot();
+  const reportPath = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-out-")),
+    "report.json",
+  );
+  const runner = new FakeRunner();
+  setListResponses(runner, root);
+  setBotResponses(runner, "on");
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([
+      { ...lastRun, status: "in_progress", conclusion: null, url: "https://example.test/runs/77" },
+    ]),
+  });
+  try {
+    // The carry pushes the mirror itself and upstream can advance behind it, so
+    // the walk it pinned must not fail on a mirror it no longer matches. The
+    // walk stops later for want of orientation; only the list step is asserted.
+    withCapturedStderr(() => {
+      captureStdout(() => {
+        withRunId("77", () => {
+          run(
+            ["unblock-auto", "--bot-carried", "--target", "v1.2.3", "--report", reportPath],
+            root,
+            runner,
+          );
+        });
+      });
+    });
+    assert.deepStrictEqual(runner.calls.find(({ command }) => command === "node")?.args, [
+      "scripts/fork-preflight.ts",
+      "--tag-pinned",
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(reportPath), { recursive: true, force: true });
   }
 });
 
