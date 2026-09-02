@@ -5,7 +5,7 @@ description: Unblock an RSI-Software/t3code-hyprws upstream rebase with a report
 
 # Fork sync
 
-Choose exactly one entry point: **unblock** or **cut stable**. Never post to `pingdotgg/t3code`,
+Choose exactly one entry point: **unblock** or **cut stable**. Unattended is the default; a stop must be a judgement, and a stop that was not one is friction to lodge. Never post to `pingdotgg/t3code`,
 merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 [fork-sync runbook](../../../docs/operations/fork-sync.md) owns the bot model and recovery.
 
