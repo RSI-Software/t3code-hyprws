@@ -109,7 +109,9 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    on behaviour evidence. Never substitute repo-wide local checks.
 
    **Stop.** Apply the stop shape and the retire-candidate test to the emitted Gate 4 decision
-   surface, silent seams, and grounding evidence. On a failed gate, present the failing job names and
+   surface, silent seams, and grounding evidence. The surface names every stop the walk found, so
+   answer the whole set rather than the first line. A behaviour seam stops the walk once: presenting
+   it records that the human saw it, and the resume fills the record it was blocking. On a failed gate, present the failing job names and
    last 40 failed-log lines verbatim before any interpretation. Continue only when the human gives
    every keep/retire/partial decision by exact subject and gives an explicit go; when the surface
    names a grounding claim, get that confirmation too. Put only those supplied decisions in the
@@ -140,6 +142,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    section on the notification issue.
 
 ## Entry point: cut stable
+
+The nightly needs no entry point. The release workflow fires on every push to `hyprws`, so a leased
+apply cuts the nightly by itself; never cut one by hand. Only the stable channel needs this entry
+point, a `stable-list` candidate, a UAT cycle, and a human go.
 
 Use this only for an open stable-candidate issue created from a bot-owned snapshot. The report paths
 are external operator state; never edit them, move a bot-owned ref, replace a tag, or infer a
