@@ -26,7 +26,7 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
-/.dump/runs/fork-rebase-report/
+/.dump
 /docs/internals/generated/
 dist-electron/
 .electron-runtime/
