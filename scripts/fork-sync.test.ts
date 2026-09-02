@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import {
   decisionSurface,
   execute,
+  gateVerificationEnv,
   identifyRerereResolvedPaths,
   lockDriftClass,
   orientationDecisionRows,
@@ -578,6 +579,38 @@ it("installs the replayed tree before the scan that typechecks it", () => {
     const scan = order(runner, "vp", ["run", "fork:scan", "--target", "v1.2.3"]);
     assert.isAbove(install, -1);
     assert.isAbove(scan, install);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("scrubs package-manager and Vite+ bootstrap state from Gate 3 checks", () => {
+  const inherited = {
+    PATH: "/bin",
+    NPM_CONFIG_REGISTRY: "https://registry.example.test",
+    VP_ENV_USE_EVAL_ENABLE: "1",
+    VP_NODE_DIST_MIRROR: "https://node.example.test",
+    VP_NODE_SKIP_SIGNATURE_VERIFY: "1",
+    VP_NODE_VERSION: "24.20.0",
+    npm_config_registry: "https://registry.example.test",
+    npm_lifecycle_event: "fork:sync",
+  };
+  assert.deepStrictEqual(gateVerificationEnv(inherited), { PATH: "/bin" });
+
+  const { runner, root, worktree } = checkedRun();
+  try {
+    const checks = runner.calls.filter(
+      ({ command, args }) =>
+        command === "vp" && (args[0] === "check" || (args[0] === "run" && args[1] !== undefined)),
+    );
+    assert.lengthOf(checks, 5);
+    for (const call of checks) {
+      assert.isDefined(call.env);
+      for (const key of Object.keys(inherited).filter((key) => key !== "PATH")) {
+        assert.notProperty(call.env, key);
+      }
+    }
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });

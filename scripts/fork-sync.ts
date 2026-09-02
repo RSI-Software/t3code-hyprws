@@ -503,6 +503,21 @@ const restoreSnapshotDrift = (runner: CommandRunner, cwd: string): void => {
   git(runner, cwd, ["restore", "--source=HEAD", "--worktree", "--", "pnpm-lock.yaml"], true);
 };
 
+const GATE_VERIFICATION_ENV_KEYS = new Set([
+  "NPM_CONFIG_REGISTRY",
+  "VP_ENV_USE_EVAL_ENABLE",
+  "VP_NODE_DIST_MIRROR",
+  "VP_NODE_SKIP_SIGNATURE_VERIFY",
+  "VP_NODE_VERSION",
+]);
+
+export const gateVerificationEnv = (inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(
+    Object.entries(inherited).filter(
+      ([key]) => !GATE_VERIFICATION_ENV_KEYS.has(key) && !key.startsWith("npm_"),
+    ),
+  );
+
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -555,8 +570,9 @@ const unblockCheck = (
     { command: "vp", args: ["run", "test"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
+  const verificationEnv = gateVerificationEnv(process.env);
   for (const command of commands) {
-    requireSuccess(runner, command.command, command.args, worktree);
+    requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== installedHead)
