@@ -70,6 +70,7 @@ export interface SyncReport {
   readonly rebasedHead?: string;
   readonly stackSize?: number;
   readonly installedHead?: string;
+  readonly ciHead?: string;
   readonly recordCommentUrl?: string;
 }
 
