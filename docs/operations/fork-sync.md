@@ -141,6 +141,10 @@ The carry job passes `HYPRWS_AUTO_REBASE` in as an environment value because a j
 read repository variables, and an injected mode always wins; the API read is the human lane's
 fallback.
 
+A `--target` pins the walk to a tag that cannot move, so every step reports mirror currency without
+requiring it: the same run pushed the mirror minutes earlier, and upstream can advance again before
+the carry reads it.
+
 A carried walk mints its rehearsal lane with `git worktree` rather than Worktrunk, which a runner
 cannot install, and skips the post-apply reconciliation dispatch because its own leased push to
 `hyprws` already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
