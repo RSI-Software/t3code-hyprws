@@ -302,7 +302,34 @@ needs no curation. Once commits land, never squash the stack. See
 - Prefer narrow additions and upstream-native extension points over broad edits to central modules.
 - Reuse upstream terminology and abstractions unless the fork needs a genuinely new concept.
 - Add focused tests beside each behavior change so conflict resolutions remain checkable.
+- Install in a fork worktree with `vp i --frozen-lockfile`, so a routine install cannot drift the
+  lockfile into an unrelated commit. A real dependency change is its own commit, in the domain
+  that needs the dependency.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
+
+### Ledger guards run in the scan
+
+An action the churn ledger records ships its guard in the same change, and the sub-issue carrying
+that action names the guard it adds. A rule only prose states is a rule the next walk pays for
+again.
+
+`vp run fork:scan` collects them over the fork stack:
+
+- `hot-seam`: the commit edits a path [Fork churn](./fork-churn.md) lists as a hot seam. Read what
+  the earlier walks resolved there before adding to it.
+- `upstream-test`: the commit adds a test block to an upstream-owned test file rather than the
+  `*.fork.test.ts` sibling below.
+- `footprint`: one commit edits more than six upstream files, which is more seam than a single
+  rebase intent should carry.
+- `replaced-export`: the commit deletes an upstream-owned export and re-declares the same name,
+  which is the shape below.
+- `lockfile`: the commit changes a lockfile. No domain owns dependency bumps, so every lockfile
+  change warns until one does.
+
+Warnings are advisory. `fork:scan` prints them and still exits on its own scan verdict, so a guard
+can ship before the stack it describes is clean and no existing walk breaks. `--strict` makes them
+fatal. `--since <ref>` restricts them to commits after that ref, which is how CI shows a pull
+request the shapes it introduces instead of the whole replayed stack.
 
 ### Fork tests live in fork-owned files
 
@@ -310,6 +337,17 @@ Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` o
 `<name>.fork.test.tsx`, rather than appending them to the upstream-owned file. The replayed fork
 series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
 Changes to an existing upstream expectation stay in the upstream test file.
+
+### Extend an upstream export, do not replace it
+
+An upstream-exported schema, list, enum, or switch the fork needs more of stays where upstream
+declares it. Deleting that declaration and re-declaring the fork's version — in place, or by moving
+it into a new fork-owned file — reads as a clean rewrite and silently drops every later upstream
+edit to it. The rebase replays the fork's copy and never surfaces what upstream added.
+
+Extend it from a fork-owned sibling instead: import the upstream declaration, compose the fork's
+additions beside it, and export the result under a fork-owned name, leaving the upstream declaration
+in place for the next rebase to carry.
 
 The best fork code looks unsurprising inside upstream T3 Code.
 Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
