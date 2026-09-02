@@ -209,7 +209,10 @@ it("stable-prepare removes its cut lane when a release check fails", () => {
   );
   assert.isTrue(
     runner.calls.some(
-      (call) => call.command === "wt" && call.args.join(" ") === "remove -D cut/v1.2.3-hyprws",
+      (call) =>
+        call.command === "wt" &&
+        call.args.join(" ") ===
+          "remove --foreground --force --force-delete --yes cut/v1.2.3-hyprws",
     ),
   );
   assert.strictEqual(
@@ -225,10 +228,14 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = prepareRunner(lane);
   runner.set("vp", ["run", "test"], { status: 1, stderr: "transient test failure" });
-  runner.set("wt", ["remove", "-D", "cut/v1.2.3-hyprws"], {
-    status: 1,
-    stderr: "worktree is busy",
-  });
+  runner.set(
+    "wt",
+    ["remove", "--foreground", "--force", "--force-delete", "--yes", "cut/v1.2.3-hyprws"],
+    {
+      status: 1,
+      stderr: "worktree is busy",
+    },
+  );
 
   assert.throws(
     () =>
@@ -237,7 +244,7 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
         root,
         runner,
       ),
-    /failed to clean stable cut lane cut\/v1\.2\.3-hyprws: worktree is busy[\s\S]*Recover with: wt remove -D cut\/v1\.2\.3-hyprws[\s\S]*Then restart with: vp run fork:sync stable-list/,
+    /failed to clean stable cut lane cut\/v1\.2\.3-hyprws: worktree is busy[\s\S]*Recover with: wt remove --foreground --force --force-delete --yes cut\/v1\.2\.3-hyprws[\s\S]*Then restart with: vp run fork:sync stable-list/,
   );
 });
 
@@ -346,7 +353,9 @@ it("stable-publish requires the exact go, revalidates create-only refs, and clos
   );
   assert.isTrue(
     runner.calls.some(
-      (call) => call.command === "wt" && call.args.join(" ") === "remove -D cut/v1.2.3-hyprws",
+      (call) =>
+        call.command === "wt" &&
+        call.args.join(" ") === "remove --foreground --force-delete --yes cut/v1.2.3-hyprws",
     ),
   );
   assert.isTrue(
