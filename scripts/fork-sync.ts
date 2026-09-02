@@ -470,6 +470,7 @@ export const rehearsalConflictRows = (
         ? "review rerere's recorded resolution and stage"
         : "TODO",
     agentSafe: isGeneratedPath(path) ? "pending regeneration" : "TODO",
+    decidedBy: "human",
   }));
 };
 

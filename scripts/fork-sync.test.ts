@@ -455,6 +455,7 @@ it("orients only to a tag carried by the previous report", () => {
         verdict: "keep",
         subject: "feat(web): preserve fork behavior",
         domain: "workspace-files",
+        decidedBy: "human",
       },
     ]);
     // The target is a tag from here on, so an upstream tip that moved mid-walk
@@ -492,21 +493,25 @@ it("carries orientation overlap and every retirement verdict into structured sta
       verdict: "candidate",
       subject: "fix(web): review upstream overlap",
       domain: "project-windows",
+      decidedBy: "human",
     },
     {
       verdict: "keep",
       subject: "feat(web): keep fork behavior",
       domain: "workspace-files",
+      decidedBy: "human",
     },
     {
       verdict: "retire",
       subject: "fix(server): use upstream behavior",
       domain: "fork-meta",
+      decidedBy: "human",
     },
     {
       verdict: "partial",
       subject: "feat(desktop): retain one seam",
       domain: "custom-agents",
+      decidedBy: "human",
     },
   ]);
 });
@@ -712,6 +717,7 @@ it("discloses rerere reuse in the stop and conflict record row", () => {
     class: "TODO",
     resolution: "review rerere's recorded resolution and stage",
     agentSafe: "TODO",
+    decidedBy: "human",
   });
 });
 
@@ -730,6 +736,7 @@ it("renders and parses the record schema including conflict judgement", () => {
         class: "TODO",
         resolution: "TODO",
         agentSafe: "TODO",
+        decidedBy: "human",
       },
     ],
   });
@@ -753,6 +760,7 @@ it("renders and parses the record schema including conflict judgement", () => {
     class: "seam-moved",
     resolution: "preserve upstream hook",
     agentSafe: "yes — tested",
+    decidedBy: "human",
   });
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
@@ -767,6 +775,7 @@ it("round-trips escaped pipes and backslashes in conflict cells", () => {
     class: "seam-moved" as const,
     resolution: "keep left | right and \\q",
     agentSafe: "yes | covered by C:\\tests",
+    decidedBy: "agent" as const,
   };
   const rendered = renderRecord(
     report(root, {

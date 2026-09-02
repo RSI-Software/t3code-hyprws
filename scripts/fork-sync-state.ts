@@ -35,6 +35,7 @@ export interface ConflictRow {
   readonly class: ConflictClass | "TODO";
   readonly resolution: string;
   readonly agentSafe: string;
+  readonly decidedBy: "human" | "agent";
 }
 
 export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
@@ -57,6 +58,7 @@ export interface OrientationDecisionRow {
   readonly subject: string;
   readonly domain: string;
   readonly verdict: OrientationVerdict;
+  readonly decidedBy: "human" | "agent";
 }
 
 export interface SyncReport {
@@ -92,6 +94,7 @@ export interface SyncReport {
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
+  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume]
   unblock-list [--output <external-json>]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
@@ -166,19 +169,23 @@ export const parseVerbArgs = (
   const verb = argv[0];
   if (verb === undefined) throw new UsageError("expected an unblock verb");
   const values = new Map<string, string>();
-  for (let index = 1; index < argv.length; index += 2) {
+  for (let index = 1; index < argv.length; ) {
     const flag = argv[index];
-    const value = argv[index + 1];
-    if (
-      flag === undefined ||
-      !flag.startsWith("--") ||
-      value === undefined ||
-      value.startsWith("--")
-    ) {
+    if (flag === undefined || !flag.startsWith("--")) {
       throw new UsageError(`invalid arguments after ${verb}`);
     }
     if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
+    if (flag === "--resume") {
+      values.set(flag, "true");
+      index += 1;
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new UsageError(`invalid arguments after ${verb}`);
+    }
     values.set(flag, value);
+    index += 2;
   }
   return { verb, values };
 };
@@ -260,7 +267,7 @@ export const renderRecord = (report: SyncReport): string => {
   const head = report.rebasedHead ?? "absent";
   const rows = report.conflicts.map(
     (row) =>
-      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} |`,
+      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} | ${row.decidedBy} |`,
   );
   const decisions = new Map<
     string,
@@ -269,6 +276,7 @@ export const renderRecord = (report: SyncReport): string => {
       readonly domain: string;
       readonly classSummary: string;
       readonly action: string;
+      readonly decidedBy: "human" | "agent";
     }
   >();
   for (const row of report.orientationDecisions ?? []) {
@@ -280,6 +288,7 @@ export const renderRecord = (report: SyncReport): string => {
           ? "orientation: candidate; retire-candidate"
           : `orientation: ${row.verdict}`,
       action: row.verdict === "candidate" ? "TODO" : row.verdict,
+      decidedBy: row.decidedBy,
     });
   }
   for (const row of report.conflicts) {
@@ -290,11 +299,12 @@ export const renderRecord = (report: SyncReport): string => {
       domain: row.domain,
       classSummary: existing === undefined ? row.class : `${existing.classSummary}; ${row.class}`,
       action: existing?.action ?? "TODO",
+      decidedBy: existing?.decidedBy ?? row.decidedBy,
     });
   }
   const decisionRows = [...decisions.values()].map(
     (row) =>
-      `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} |`,
+      `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${row.decidedBy} |`,
   );
   return [
     "## Header",
@@ -313,8 +323,8 @@ export const renderRecord = (report: SyncReport): string => {
       : [
           "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`); write a literal backslash as `\\\\`.",
           "",
-          "| Fork commit and subject | Domain | File | Class | Resolution | Agent-safe? |",
-          "| --- | --- | --- | --- | --- | --- |",
+          "| Fork commit and subject | Domain | File | Class | Resolution | Agent-safe? | Decided by |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
           ...rows,
         ]),
     "",
@@ -327,8 +337,8 @@ export const renderRecord = (report: SyncReport): string => {
     ...(decisionRows.length === 0
       ? ["None."]
       : [
-          "| Exact subject | Domain | Class summary | Action | Grounding claim |",
-          "| --- | --- | --- | --- | --- |",
+          "| Exact subject | Domain | Class summary | Action | Grounding claim | Decided by |",
+          "| --- | --- | --- | --- | --- | --- |",
           ...decisionRows,
         ]),
     "",
@@ -404,8 +414,8 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
     const cells = splitTableCells(line);
     if (cells === null || cells[0] === "Fork commit and subject") continue;
     if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 6) {
-      throw new Error(`invalid conflict row: expected 6 columns, found ${cells.length}`);
+    if (cells.length !== 6 && cells.length !== 7) {
+      throw new Error(`invalid conflict row: expected 6 or 7 columns, found ${cells.length}`);
     }
 
     const commitAndSubject = /^`([0-9a-f]{7,12})` `([^`]*)`$/.exec(cells[0] ?? "");
@@ -432,6 +442,14 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
       class: klass as ConflictRow["class"],
       resolution: unescapeCell(cells[4] ?? "", "Resolution"),
       agentSafe: unescapeCell(cells[5] ?? "", "Agent-safe"),
+      decidedBy:
+        cells[6] === undefined || cells[6] === "human"
+          ? "human"
+          : cells[6] === "agent"
+            ? "agent"
+            : (() => {
+                throw invalidConflictCell("Decided by", cells[6] ?? "");
+              })(),
     });
   }
   return rows;
@@ -447,8 +465,8 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
     const cells = splitTableCells(line);
     if (cells === null || cells[0] === "Exact subject") continue;
     if (cells.every((cell) => /^-+$/.test(cell))) continue;
-    if (cells.length !== 5) {
-      throw new Error(`invalid fork commit row: expected 5 columns, found ${cells.length}`);
+    if (cells.length !== 5 && cells.length !== 6) {
+      throw new Error(`invalid fork commit row: expected 5 or 6 columns, found ${cells.length}`);
     }
 
     const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
@@ -465,6 +483,14 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
       subject: unescapeCell(subject[1] ?? "", "Exact subject"),
       domain,
       verdict: verdict as OrientationDecisionRow["verdict"],
+      decidedBy:
+        cells[5] === undefined || cells[5] === "human"
+          ? "human"
+          : cells[5] === "agent"
+            ? "agent"
+            : (() => {
+                throw invalidDecisionCell("Decided by", cells[5] ?? "");
+              })(),
     });
   }
   return rows;
@@ -501,5 +527,6 @@ export const orientationDecisionRows = (
       verdict: (match[1] ?? "candidate") as OrientationVerdict,
       subject: match[2] ?? "",
       domain: match[3] ?? "?",
+      decidedBy: "human",
     }),
   );
