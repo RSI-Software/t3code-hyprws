@@ -5,14 +5,20 @@ import { assert, it } from "@effect/vitest";
 import {
   findIssueTypeId,
   hasPlainSingleSelectOption,
+  reconcileForkIssues,
   reconcileRebaseBlock,
-  type CreateRebaseIssue,
+  reconcileStableCandidates,
+  type CreateNotificationIssue,
   type NotifyInput,
   type RebaseGitHubClient,
   type RebaseIssue,
   type RebaseIssueComment,
 } from "./fork-rebase-notify.ts";
-import { blockedIssueTitle, type BlockedIssue } from "./lib/fork-rebase-issues.ts";
+import {
+  blockedIssueTitle,
+  type BlockedIssue,
+  type StableCandidate,
+} from "./lib/fork-rebase-issues.ts";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -44,13 +50,25 @@ const input = (current: BlockedIssue | null): NotifyInput => ({
   status: "no-op",
   oldSha: "c".repeat(40),
   newSha: null,
+  stableCandidates: [],
   blocked: current,
+});
+
+const stableCandidate = (tag = "v1.2.0"): StableCandidate => ({
+  tag,
+  branch: `release/${tag}-hyprws`,
+  sha: SHA_A,
+  title: `Stable candidate ${tag}-hyprws`,
+  marker: `<!-- hyprws-stable-candidate: ${tag}-hyprws -->`,
+  label: "release",
+  body: `stable candidate for ${tag}\n\n<!-- hyprws-stable-candidate: ${tag}-hyprws -->`,
 });
 
 class FakeGitHub implements RebaseGitHubClient {
   readonly issues: Array<RebaseIssue>;
+  readonly releaseIssues: Array<RebaseIssue>;
   readonly comments = new Map<number, Array<RebaseIssueComment>>();
-  readonly created: Array<CreateRebaseIssue> = [];
+  readonly created: Array<CreateNotificationIssue> = [];
   readonly bodyEdits: Array<number> = [];
   readonly commentEdits: Array<number> = [];
   readonly closed: Array<number> = [];
@@ -58,14 +76,24 @@ class FakeGitHub implements RebaseGitHubClient {
   readonly issueTypeEdits: Array<number> = [];
   labelsEnsured = 0;
   listCalls = 0;
+  releaseListCalls = 0;
   issueTypeLookupError: Error | null = null;
   beforeList: ((call: number) => void) | null = null;
   private nextIssue = 1;
   private nextComment = 100;
 
-  constructor(issues: ReadonlyArray<RebaseIssue> = []) {
+  constructor(
+    issues: ReadonlyArray<RebaseIssue> = [],
+    releaseIssues: ReadonlyArray<RebaseIssue> = [],
+  ) {
     this.issues = issues.map((issue) => ({ ...issue }));
-    this.nextIssue = Math.max(0, ...issues.map((issue) => issue.number)) + 1;
+    this.releaseIssues = releaseIssues.map((issue) => ({ ...issue }));
+    this.nextIssue =
+      Math.max(
+        0,
+        ...issues.map((issue) => issue.number),
+        ...releaseIssues.map((issue) => issue.number),
+      ) + 1;
   }
 
   ensureBlockedLabel(): void {
@@ -76,6 +104,11 @@ class FakeGitHub implements RebaseGitHubClient {
     this.listCalls += 1;
     this.beforeList?.(this.listCalls);
     return this.issues.map((issue) => ({ ...issue }));
+  }
+
+  listReleaseIssues(): ReadonlyArray<RebaseIssue> {
+    this.releaseListCalls += 1;
+    return this.releaseIssues.map((issue) => ({ ...issue }));
   }
 
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment> {
@@ -90,13 +123,15 @@ class FakeGitHub implements RebaseGitHubClient {
 
   applyIssueType(issue: RebaseIssue, issueTypeId: string): void {
     assert.strictEqual(issueTypeId, "notification-type");
-    const stored = this.issues.find((candidate) => candidate.number === issue.number);
+    const stored = [...this.issues, ...this.releaseIssues].find(
+      (candidate) => candidate.number === issue.number,
+    );
     if (stored === undefined) throw new Error("missing fake issue");
     Object.assign(stored, { issueType: "Notification" });
     this.issueTypeEdits.push(issue.number);
   }
 
-  createIssue(issue: CreateRebaseIssue): RebaseIssue {
+  createIssue(issue: CreateNotificationIssue): RebaseIssue {
     this.created.push(issue);
     const number = this.nextIssue++;
     const created = {
@@ -107,7 +142,8 @@ class FakeGitHub implements RebaseGitHubClient {
       body: issue.body,
       issueType: null,
     };
-    this.issues.push(created);
+    if (issue.labels.includes("release")) this.releaseIssues.push(created);
+    else this.issues.push(created);
     return created;
   }
 
@@ -176,6 +212,88 @@ o commit  X block  N nightly tag  S stable tag  Nc = conflicts to that tag
 \`\`\`
 <!-- hyprws-rebase-refresh-tag:v1.2.0-nightly.20260830.1000 -->`,
   );
+});
+
+it("reconciles block and stable-candidate notifications from one workflow payload", () => {
+  const client = new FakeGitHub();
+  const candidate = stableCandidate();
+
+  reconcileForkIssues(client, { ...input(null), stableCandidates: [candidate] });
+
+  assert.strictEqual(client.labelsEnsured, 1);
+  assert.strictEqual(client.releaseIssues.length, 1);
+  assert.strictEqual(client.releaseIssues[0]?.issueType, "Notification");
+});
+
+it("creates stable candidates as typed unassigned notifications", () => {
+  const client = new FakeGitHub();
+  const candidate = stableCandidate();
+
+  reconcileStableCandidates(client, [candidate]);
+
+  assert.deepStrictEqual(client.created, [
+    {
+      title: candidate.title,
+      body: candidate.body,
+      labels: ["release"],
+      priority: "High",
+    },
+  ]);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [1]);
+  assert.strictEqual(client.releaseIssues[0]?.issueType, "Notification");
+});
+
+it("retypes an existing stable candidate without creating a duplicate", () => {
+  const candidate = stableCandidate();
+  const client = new FakeGitHub(
+    [],
+    [
+      {
+        number: 7,
+        nodeId: "issue-7",
+        state: "open",
+        title: candidate.title,
+        body: candidate.body,
+        issueType: null,
+      },
+    ],
+  );
+
+  reconcileStableCandidates(client, [candidate]);
+
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [7]);
+  assert.strictEqual(client.releaseListCalls, 1);
+});
+
+it("re-reads stable candidates before creating to avoid duplicate issues", () => {
+  const candidate = stableCandidate();
+  const client = new FakeGitHub();
+  const originalList = client.listReleaseIssues.bind(client);
+  client.listReleaseIssues = () => {
+    const issues = originalList();
+    if (client.releaseListCalls === 2) {
+      client.releaseIssues.push({
+        number: 9,
+        nodeId: "issue-9",
+        state: "open",
+        title: candidate.title,
+        body: candidate.body,
+        issueType: "Notification 🔔",
+      });
+      return client.releaseIssues.map((issue) => ({ ...issue }));
+    }
+    return issues;
+  };
+
+  reconcileStableCandidates(client, [candidate]);
+
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.issueTypeLookups, []);
+  assert.deepStrictEqual(client.issueTypeEdits, []);
+  assert.strictEqual(client.releaseListCalls, 2);
 });
 
 it("looks up the enabled native Notification type by repository issue-type name", () => {
