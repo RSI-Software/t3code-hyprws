@@ -386,7 +386,9 @@ const unblockRehearse = (
         report.repositoryRoot,
       ),
     );
-    requireSuccess(runner, "vp", ["i"], worktree);
+    // A minted lane has no node_modules, and the first gate battery would fail
+    // on module resolution before it ever reached a verdict.
+    requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree));
     git(runner, worktree, ["restore", "--source=HEAD", "--worktree", "--", "pnpm-lock.yaml"], true);
     report = { ...report, lane: { branch, worktree }, originalMessages, originalCount };
     const rebase = runner.run(
@@ -432,7 +434,14 @@ const unblockRehearse = (
         ["restore", "--source=HEAD", "--staged", "--worktree", "--", "pnpm-lock.yaml"],
         true,
       );
-      requireSuccess(runner, "vp", ["install", "--lockfile-only"], lane.worktree);
+      requireSuccess(
+        runner,
+        "vp",
+        ["install", "--lockfile-only"],
+        lane.worktree,
+        undefined,
+        laneEnv(lane.worktree),
+      );
       git(runner, lane.worktree, ["add", "pnpm-lock.yaml"], true);
     }
     report = {
@@ -520,6 +529,11 @@ const restoreSnapshotDrift = (runner: CommandRunner, cwd: string): void => {
 };
 
 const GATE_VERIFICATION_ENV_KEYS = new Set([
+  // Vite+'s `node_modules/.bin/vp` shim exports an absolute NODE_PATH into the
+  // store of the checkout it belongs to. Inherited, it is a module-resolution
+  // fallback the lane never installed, and the nested test runner reads Vite+
+  // out of the invoking checkout instead.
+  "NODE_PATH",
   "NPM_CONFIG_REGISTRY",
   "VP_ENV_USE_EVAL_ENABLE",
   "VP_NODE_DIST_MIRROR",
@@ -527,15 +541,40 @@ const GATE_VERIFICATION_ENV_KEYS = new Set([
   "VP_NODE_VERSION",
 ]);
 
-export const gateVerificationEnv = (inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  Object.fromEntries(
+const isInsideNodeModules = (entry: string): boolean =>
+  NodePath.resolve(entry).split(NodePath.sep).includes("node_modules");
+
+/**
+ * The lane's own `node_modules/.bin` first, and no other checkout's bin
+ * directory at all. A foreign `.bin` on PATH resolves `vp` to that checkout's
+ * shim, which then pins module resolution to its store for every process below,
+ * so the same verb passes from the lane and fails from the canonical checkout.
+ */
+export const laneExecutablePath = (inherited: string | undefined, worktree: string): string => {
+  const laneBin = NodePath.join(worktree, "node_modules", ".bin");
+  const inheritedEntries = (inherited ?? "")
+    .split(NodePath.delimiter)
+    .filter((entry) => entry.length > 0 && entry !== laneBin && !isInsideNodeModules(entry));
+  return [laneBin, ...inheritedEntries].join(NodePath.delimiter);
+};
+
+/** The environment every lane command runs under, whatever the verb was invoked from. */
+export const gateVerificationEnv = (
+  inherited: NodeJS.ProcessEnv,
+  worktree: string,
+): NodeJS.ProcessEnv => ({
+  ...Object.fromEntries(
     Object.entries(inherited).filter(
       ([key]) =>
         !GATE_VERIFICATION_ENV_KEYS.has(key) &&
         !key.startsWith("npm_") &&
         !key.startsWith("ELECTRON_"),
     ),
-  );
+  ),
+  PATH: laneExecutablePath(inherited.PATH, worktree),
+});
+
+const laneEnv = (worktree: string): NodeJS.ProcessEnv => gateVerificationEnv(process.env, worktree);
 
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
@@ -550,8 +589,16 @@ const unblockCheck = (
     throw new Error("replay binding is incomplete");
   verifyReplay(report, runner);
   const worktree = report.lane.worktree;
+  const verificationEnv = laneEnv(worktree);
   const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
-  requireSuccess(runner, "vp", ["install", "--lockfile-only"], worktree);
+  requireSuccess(
+    runner,
+    "vp",
+    ["install", "--lockfile-only"],
+    worktree,
+    undefined,
+    verificationEnv,
+  );
   const after = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
   const drift = lockDriftClass(before, after);
   if (drift === "importers") {
@@ -575,7 +622,7 @@ const unblockCheck = (
     );
   }
   if (drift === "snapshots") restoreSnapshotDrift(runner, worktree);
-  requireSuccess(runner, "vp", ["i"], worktree);
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv);
   const installedAfter = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
   if (lockDriftClass(before, installedAfter) === "importers")
     throw new Error("vp i introduced importer drift after replay");
@@ -592,7 +639,6 @@ const unblockCheck = (
     { command: "vp", args: ["run", "--no-cache", "test"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
-  const verificationEnv = gateVerificationEnv(process.env);
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
@@ -665,7 +711,15 @@ const unblockApply = (
   const worktree = lane.worktree;
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== report.installedHead)
     throw new Error("checked rehearsal head moved; rerun unblock-check");
-  requireSuccess(runner, "vp", ["run", "fork:upstream-refs", recordPath], worktree);
+  const applyEnv = laneEnv(worktree);
+  requireSuccess(
+    runner,
+    "vp",
+    ["run", "fork:upstream-refs", recordPath],
+    worktree,
+    undefined,
+    applyEnv,
+  );
   const gateArgs = [
     "run",
     "fork:sync-gate",
@@ -675,7 +729,7 @@ const unblockApply = (
     recordPath,
     ...(isNightlyUpstreamTag(target.tag) ? ["--allow-nightly"] : []),
   ];
-  requireSuccess(runner, "vp", gateArgs, worktree);
+  requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
   const recordCommentUrl = requireSuccess(
     runner,
     "gh",
