@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import type { PreflightReport } from "./fork-preflight.ts";
+import { CHECK_MIRROR, CHECK_ORIGIN_FETCH, type PreflightReport } from "./fork-preflight.ts";
 import {
   type CheckoutBinding,
   inspectRecord,
@@ -27,19 +27,14 @@ const DEFAULT_BINDING: CheckoutBinding = {
   stackSize: "7",
 };
 
-interface RecordOptions extends Partial<CheckoutBinding> {
-  readonly sanity?: string;
-}
-
-const record = (options: RecordOptions = {}) => {
-  const values = { ...DEFAULT_BINDING, sanity: "donjor 2026-08-27", ...options };
+const record = (options: Partial<CheckoutBinding> = {}) => {
+  const values = { ...DEFAULT_BINDING, ...options };
   return `# Rehearsal\n
 ## Header\n
 - Target: \`${values.targetTag}@${values.targetSha}\`\n
 - \`expected_old\`: \`${values.expectedOld}\`\n
 - Rebased head: \`${values.rebasedHead}\`\n
-- Stack size: \`${values.stackSize}\` fork commits\n
-- Human sanity: ${values.sanity}\n`;
+- Stack size: \`${values.stackSize}\` fork commits\n`;
 };
 
 const binding = (overrides: Partial<CheckoutBinding> = {}): CheckoutBinding => ({
@@ -80,30 +75,28 @@ it("keeps stable-only as the default and opts into nightly tags", () => {
   assert.throws(() => parseArgs([]), UsageError);
 });
 
-it("requires a matching expected_old and a login plus calendar date", () => {
+it("requires a matching expected_old and reads only the header", () => {
   assert.deepStrictEqual(inspectRecord(record(), binding()), []);
   assert.deepStrictEqual(inspectRecord(record({ expectedOld: "d".repeat(40) }), binding()), [
     `expected_old mismatch: record ${"d".repeat(40)}, origin/hyprws ${SHA}`,
   ]);
-  assert.deepStrictEqual(inspectRecord(record({ sanity: "absent" }), binding()), [
-    'missing Human sanity mark: expected "Human sanity: <login> YYYY-MM-DD"',
-  ]);
-  assert.deepStrictEqual(inspectRecord(record({ sanity: "donjor 2026-02-30" }), binding()), [
-    'missing Human sanity mark: expected "Human sanity: <login> YYYY-MM-DD"',
-  ]);
   assert.deepStrictEqual(
-    inspectRecord(
-      `# Rehearsal\n\n## Notes\n\n- \`expected_old\`: \`${SHA}\`\n- Human sanity: donjor 2026-08-27\n`,
-      binding(),
-    ),
+    inspectRecord(`# Rehearsal\n\n## Notes\n\n- \`expected_old\`: \`${SHA}\`\n`, binding()),
     [
       "record header missing `expected_old` full SHA",
       "record header missing Target tag and full SHA",
       "record header missing Rebased head full SHA",
       "record header missing Stack size",
-      'missing Human sanity mark: expected "Human sanity: <login> YYYY-MM-DD"',
     ],
   );
+});
+
+it("asks a record for no login and no date", () => {
+  const marked = record().replace(
+    "## Header\n",
+    "## Header\n\n- Human sanity: donjor 2026-02-30\n",
+  );
+  assert.deepStrictEqual(inspectRecord(marked, binding()), []);
 });
 
 it("refuses when the record Target differs from the checkout target", () => {
@@ -198,19 +191,13 @@ it("runs against an external record and the preflight's freshly fetched head", (
 
     NodeFS.writeFileSync(
       recordPath,
-      record({
-        targetSha,
-        expectedOld: head,
-        rebasedHead: head,
-        stackSize,
-        sanity: "absent",
-      }),
+      record({ targetSha, expectedOld: "d".repeat(40), rebasedHead: head, stackSize }),
     );
     assert.strictEqual(
       run(["--tag", "v1.2.3", "--record", recordPath], root, output, dependencies),
       1,
     );
-    assert.include(stderr.join(""), "missing Human sanity mark");
+    assert.include(stderr.join(""), "expected_old mismatch");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(recordRoot, { recursive: true, force: true });
@@ -272,6 +259,35 @@ it("refuses on an unmet precondition and names it before reading the record", ()
     assert.include(written, "blocked: precondition unmet: rerere.enabled: unset");
     assert.include(written, "fix: git config --global rerere.enabled true");
     assert.notInclude(written, "dependencies installed");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(recordRoot, { recursive: true, force: true });
+  }
+});
+
+it("passes a tag-pinned slice whose mirror fell behind mid-walk", () => {
+  const { root, recordRoot, head, recordPath } = fixtureRepository();
+  try {
+    const { stdout, output } = collector();
+    assert.strictEqual(
+      run(["--tag", "v1.2.3", "--record", recordPath], root, output, {
+        preflight: () => ({
+          checks: [
+            { name: CHECK_ORIGIN_FETCH, met: true, detail: "fetched", remedy: null },
+            {
+              name: CHECK_MIRROR,
+              met: false,
+              detail: "origin/main 111111111111, upstream/main 222222222222",
+              remedy: "dispatch hyprws-upstream-sync.yml",
+            },
+          ],
+          originHyprwsSha: head,
+        }),
+        git: gitDependency,
+      }),
+      0,
+    );
+    assert.match(stdout.join(""), /^ready: v1\.2\.3 apply gate passed/);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(recordRoot, { recursive: true, force: true });

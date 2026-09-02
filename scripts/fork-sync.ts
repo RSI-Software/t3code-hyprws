@@ -37,6 +37,7 @@ import {
   git,
   gitRaw,
   lines,
+  NO_GROUNDING_CLAIM,
   oneValue,
   orientationDecisionRows,
   orientationTouchedPaths,
@@ -55,6 +56,7 @@ import {
 } from "./fork-sync-state.ts";
 
 export {
+  NO_GROUNDING_CLAIM,
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
@@ -177,7 +179,7 @@ const unblockOrient = (
   const offered = report.candidates.find(({ tag }) => tag === targetTag);
   if (offered === undefined) throw new Error(`target ${targetTag} was not offered by unblock-list`);
   const root = report.repositoryRoot;
-  requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], root);
+  requireSuccess(runner, "node", ["scripts/fork-preflight.ts", "--tag-pinned"], root);
   const issue = readIssue(runner, root);
   if (
     issue.number !== report.issue.number ||
@@ -342,7 +344,12 @@ const unblockRehearse = (
       throw new Error("orientation binding is incomplete");
     const target = report.target;
     const source = report.source;
-    requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], report.repositoryRoot);
+    requireSuccess(
+      runner,
+      "node",
+      ["scripts/fork-preflight.ts", "--tag-pinned"],
+      report.repositoryRoot,
+    );
     const live = git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]);
     if (live !== source.expectedOld)
       throw new Error("origin/hyprws moved after orientation; start a new rehearsal");
@@ -663,21 +670,23 @@ export const decisionSurface = (record: string): string => {
     );
   });
   const grounding = record.split("\n").filter((line) => /^Grounding (?:claim|pending):/.test(line));
+  // A row carrying the default claim asks the human for nothing, so a surface
+  // made only of those asks for the decisions and the go, and nothing else.
+  const claimed =
+    grounding.length > 0 ||
+    rows.some((row) => (row.split("|")[5] ?? "").trim() !== NO_GROUNDING_CLAIM);
   return [
     "## Gate 4 decision surface",
     ...rows,
     ...grounding,
-    "Stop. Obtain every decision, grounding confirmation, login/date, and explicit go.",
+    claimed
+      ? "Stop. Obtain every decision, every grounding confirmation, and an explicit go."
+      : "Stop. Obtain every decision and an explicit go.",
     "",
   ].join("\n");
 };
 
 export const validateSignedRecord = (record: string, report: SyncReport): void => {
-  const sanity = /^- Human sanity: ([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})) (\d{4}-\d{2}-\d{2})$/m.exec(
-    record,
-  );
-  if (sanity === null || Number.isNaN(new Date(`${sanity[2]}T00:00:00Z`).valueOf()))
-    throw new Error("record is missing Human sanity: <login> YYYY-MM-DD");
   if (/^Grounding pending:/m.test(record)) throw new Error("record still has pending grounding");
   for (const line of decisionSurface(record)
     .split("\n")

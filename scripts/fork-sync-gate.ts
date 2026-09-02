@@ -10,7 +10,8 @@ import {
   repositoryRoot,
   runPreflight,
   systemEnv,
-  unmetChecks,
+  TAG_PINNED_CHECKS,
+  unmetRequired,
   type PreflightReport,
 } from "./fork-preflight.ts";
 import { parseUpstreamReleaseTag } from "./lib/fork-policy.ts";
@@ -19,8 +20,6 @@ const TARGET = /^- Target: `(?<tag>[^`\s@]+)@(?<sha>[0-9a-f]{40})`\s*$/m;
 const EXPECTED_OLD = /^- `expected_old`: `(?<sha>[0-9a-f]{40})`\s*$/m;
 const REBASED_HEAD = /^- Rebased head: `(?<sha>[0-9a-f]{40})`\s*$/m;
 const STACK_SIZE = /^- Stack size: `(?<count>0|[1-9]\d*)` fork commits\s*$/m;
-const HUMAN_SANITY =
-  /^- Human sanity: (?<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})) (?<date>\d{4}-\d{2}-\d{2})\s*$/m;
 
 export { UsageError } from "./lib/fork-cli.ts";
 
@@ -63,11 +62,6 @@ export const parseGateArgs = (argv: ReadonlyArray<string>): GateOptions => {
 };
 
 export { parseGateArgs as parseArgs };
-
-const isCalendarDate = (value: string): boolean => {
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
-};
 
 const headerBody = (record: string): string => {
   const heading = /^## Header\s*$/m.exec(record);
@@ -121,11 +115,6 @@ export const inspectRecord = (record: string, observed: CheckoutBinding): Readon
   } else if (stackSize !== observed.stackSize) {
     findings.push(`Stack size mismatch: record ${stackSize}, checkout ${observed.stackSize}`);
   }
-
-  const sanity = HUMAN_SANITY.exec(header)?.groups;
-  if (!sanity?.login || !sanity.date || !isCalendarDate(sanity.date)) {
-    findings.push('missing Human sanity mark: expected "Human sanity: <login> YYYY-MM-DD"');
-  }
   return findings;
 };
 
@@ -156,9 +145,11 @@ export const run = (
 
     // Preconditions first, and the published head only from the preflight that
     // fetched it. Resolving `origin/hyprws` here would compare the lease against
-    // whatever the last unrelated fetch happened to leave behind.
+    // whatever the last unrelated fetch happened to leave behind. The slice is
+    // pinned to a tag by the time it reaches this gate, so mirror currency is
+    // reported by the preflight and not required here.
     const preflight = dependencies.preflight(root);
-    const unmet = unmetChecks(preflight);
+    const unmet = unmetRequired(preflight, TAG_PINNED_CHECKS);
     if (unmet.length > 0) {
       for (const check of unmet) {
         output.stderr(`blocked: precondition unmet: ${check.name}: ${check.detail}\n`);

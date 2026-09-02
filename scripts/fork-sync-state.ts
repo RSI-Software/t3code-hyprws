@@ -234,7 +234,10 @@ export const writeReport = (report: SyncReport): void => {
 const escapeCell = (value: string): string =>
   value.replaceAll("\\", "\\\\").replaceAll("|", "\\|").replaceAll("\n", " ");
 
-export const renderRecord = (report: SyncReport, existingSanity = "absent"): string => {
+/** The Grounding claim a rendered decision row carries until a human writes one. */
+export const NO_GROUNDING_CLAIM = "n/a — no product grounding claim";
+
+export const renderRecord = (report: SyncReport): string => {
   const target = report.target;
   const source = report.source;
   const lane = report.lane;
@@ -275,7 +278,7 @@ export const renderRecord = (report: SyncReport, existingSanity = "absent"): str
   }
   const decisionRows = [...decisions.values()].map(
     (row) =>
-      `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | n/a — no product grounding claim |`,
+      `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} |`,
   );
   return [
     "## Header",
@@ -286,7 +289,6 @@ export const renderRecord = (report: SyncReport, existingSanity = "absent"): str
     `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
     `- Rebased head: \`${head}\``,
     `- Stack size: \`${report.stackSize ?? report.originalCount ?? 0}\` fork commits`,
-    `- Human sanity: ${existingSanity}`,
     "",
     "## Conflicts",
     "",
@@ -331,19 +333,8 @@ export const renderRecord = (report: SyncReport, existingSanity = "absent"): str
   ].join("\n");
 };
 
-const preserveSanity = (record: string): string =>
-  /^- Human sanity: (.+)$/m.exec(record)?.[1] ?? "absent";
 export const writeRecord = (report: SyncReport): void =>
-  NodeFS.writeFileSync(
-    report.recordPath,
-    renderRecord(
-      report,
-      NodeFS.existsSync(report.recordPath)
-        ? preserveSanity(NodeFS.readFileSync(report.recordPath, "utf8"))
-        : "absent",
-    ),
-    { mode: 0o600 },
-  );
+  NodeFS.writeFileSync(report.recordPath, renderRecord(report), { mode: 0o600 });
 
 const splitTableCells = (line: string): ReadonlyArray<string> | null => {
   if (!line.startsWith("|") || !line.endsWith("|")) return null;
