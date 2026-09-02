@@ -82,12 +82,26 @@ export interface BotSnapshot {
   readonly nextFire: string;
 }
 
+export type DecisionAction = "keep (mechanical seam)" | "keep (target tree absent)";
+
 export interface OrientationDecisionRow {
   readonly subject: string;
   readonly domain: string;
   readonly verdict: OrientationVerdict;
   readonly decidedBy: "human" | "agent";
-  readonly action?: "keep (mechanical seam)";
+  readonly action?: DecisionAction;
+}
+
+/**
+ * What the target tag's tree says about one retire candidate. `identifiers` are the names the fork
+ * commit introduces; an empty `matches` means none of them exist upstream, so the candidate is a
+ * proximity artefact rather than a real retirement.
+ */
+export interface RetireEvidence {
+  readonly subject: string;
+  readonly commit: string;
+  readonly identifiers: ReadonlyArray<string>;
+  readonly matches: ReadonlyArray<{ readonly identifier: string; readonly location: string }>;
 }
 
 export interface SilentSeam {
@@ -119,6 +133,7 @@ export interface SyncReport {
   readonly conflicts: ReadonlyArray<ConflictRow>;
   readonly orientation?: string;
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
+  readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   readonly behaviourSeamStopPresented?: boolean;
@@ -359,6 +374,18 @@ const renderRewriteRecord = (report: SyncReport): string => {
   ].join("\n");
 };
 
+/**
+ * The class summary carries the target-tree verdict so a reader sees why a candidate was kept
+ * without rerunning the grep. No evidence means the tree was never queried for that subject.
+ */
+export const retireEvidenceNote = (evidence: RetireEvidence | undefined): string => {
+  if (evidence === undefined || evidence.identifiers.length === 0) return "";
+  const match = evidence.matches[0];
+  return match === undefined
+    ? "; target-tree: absent"
+    : `; target-tree: ${escapeCell(match.identifier)} at ${escapeCell(match.location)}`;
+};
+
 export const renderRecord = (report: SyncReport): string => {
   if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
   const target = report.target;
@@ -379,13 +406,14 @@ export const renderRecord = (report: SyncReport): string => {
       readonly decidedBy: "human" | "agent";
     }
   >();
+  const evidence = new Map((report.retireEvidence ?? []).map((row) => [row.subject, row]));
   for (const row of report.orientationDecisions ?? []) {
     decisions.set(row.subject, {
       subject: row.subject,
       domain: row.domain,
       classSummary:
         row.verdict === "candidate"
-          ? "orientation: candidate; retire-candidate"
+          ? `orientation: candidate; retire-candidate${retireEvidenceNote(evidence.get(row.subject))}`
           : `orientation: ${row.verdict}`,
       action: row.action ?? (row.verdict === "candidate" ? "TODO" : row.verdict),
       decidedBy: row.decidedBy,
@@ -560,6 +588,12 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
   return rows;
 };
 
+/** Keep actions an agent may record on its own, each naming the proof that earned it. */
+export const DECISION_ACTIONS = [
+  "keep (mechanical seam)",
+  "keep (target tree absent)",
+] as const satisfies ReadonlyArray<DecisionAction>;
+
 const invalidDecisionCell = (column: string, detail: string): Error =>
   new Error(`invalid fork commit ${column} cell: ${detail}`);
 
@@ -581,18 +615,19 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
     if (/\\[\\|]/.test(domain))
       throw invalidDecisionCell("Domain", "escaped pipes and backslashes are not accepted");
     const action = cells[3] ?? "";
-    const verdict = action === "keep (mechanical seam)" ? "keep" : action;
+    const qualified = DECISION_ACTIONS.includes(action as DecisionAction);
+    const verdict = qualified ? "keep" : action;
     if (!["keep", "retire", "partial"].includes(verdict)) {
       throw invalidDecisionCell(
         "Action",
-        `expected keep, keep (mechanical seam), retire, or partial; found ${action}`,
+        `expected keep, ${DECISION_ACTIONS.join(", ")}, retire, or partial; found ${action}`,
       );
     }
     rows.push({
       subject: unescapeCell(subject[1] ?? "", "Exact subject"),
       domain,
       verdict: verdict as OrientationDecisionRow["verdict"],
-      ...(action === "keep (mechanical seam)" ? { action } : {}),
+      ...(qualified ? { action: action as DecisionAction } : {}),
       decidedBy:
         cells[5] === undefined || cells[5] === "human"
           ? "human"

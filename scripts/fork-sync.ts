@@ -35,6 +35,7 @@ import {
   BLOCK_LABEL,
   commandText,
   COMMENT_CONFIG,
+  DECISION_ACTIONS,
   externalPath,
   extractBlockingSha,
   git,
@@ -60,6 +61,9 @@ import {
   type BotRun,
   type BotSnapshot,
   type ConflictRow,
+  type DecisionAction,
+  type OrientationDecisionRow,
+  type RetireEvidence,
   type RewriteProof,
   type SilentSeam,
   type SyncReport,
@@ -77,8 +81,10 @@ export {
   type BotSnapshot,
   type ConflictClass,
   type ConflictRow,
+  type DecisionAction,
   type OrientationDecisionRow,
   type OrientationVerdict,
+  type RetireEvidence,
   type RewriteProof,
   type SilentSeam,
   type SyncReport,
@@ -419,13 +425,21 @@ const unblockOrient = (
     ["scripts/fork-orient.ts", "--target", targetTag],
     root,
   );
+  const orientationDecisions = orientationDecisionRows(orientation);
   const next: SyncReport = {
     ...report,
     stage: "oriented",
     target: { tag: targetTag, sha: liveTarget },
     source: { sha: expectedOld, expectedOld, sharedBase },
     orientation,
-    orientationDecisions: orientationDecisionRows(orientation),
+    orientationDecisions,
+    retireEvidence: collectRetireEvidence(
+      runner,
+      root,
+      liveTarget,
+      { sharedBase, source: expectedOld },
+      orientationDecisions,
+    ),
     touchedPaths: orientationTouchedPaths(orientation),
   };
   writeReport(next);
@@ -1072,7 +1086,7 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
     .split("\n")
     .filter((row) => row.startsWith("|"))) {
     const cells = line.split("|").map((cell) => cell.trim());
-    if (!["keep", "keep (mechanical seam)", "retire", "partial"].includes(cells[4] ?? ""))
+    if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[4] ?? ""))
       throw new Error(`decision row has no keep/retire/partial action: ${line}`);
   }
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
@@ -1457,6 +1471,132 @@ const hardOverlapPaths = (overlap: string): ReadonlyArray<string> | null => {
   return paths.length > 0 && paths.every((path) => path.length > 0) ? paths : null;
 };
 
+/** A diff of these says nothing about a fork commit's own identity. */
+const isOpaqueDiffPath = (path: string): boolean =>
+  path === "pnpm-lock.yaml" || path.endsWith(".lock") || path.endsWith(".snap");
+
+const MINIMUM_LITERAL_LENGTH = 12;
+const IDENTIFIER_LIMIT = 40;
+
+/** A settings key is only distinctive once it looks namespaced; `name` matches every tree. */
+const isDistinctiveKey = (key: string): boolean => key.length >= 6 && /[.\-A-Z]/.test(key);
+
+/**
+ * The names a fork commit introduces: exported bindings, test titles, settings keys, and long
+ * string literals. Conflicting near upstream work is not evidence that upstream implemented the
+ * fork behaviour; finding one of these names in the target tree is.
+ */
+export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
+  const found = new Set<string>();
+  let opaque = false;
+  for (const line of diff.split("\n")) {
+    const header = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
+    if (header !== null) {
+      opaque = isOpaqueDiffPath(header[1] ?? "");
+      continue;
+    }
+    if (opaque || !line.startsWith("+")) continue;
+    const added = line.slice(1);
+    const exported =
+      /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/.exec(
+        added,
+      )?.[1];
+    if (exported !== undefined) found.add(exported);
+    const key = /^\s*"([\w][\w.$-]*)"\s*:/.exec(added)?.[1];
+    if (key !== undefined && isDistinctiveKey(key)) found.add(key);
+    for (const match of added.matchAll(
+      /\b(?:it|test|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1).)+?)\1/g,
+    ))
+      if (match[2] !== undefined) found.add(match[2]);
+    for (const match of added.matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)) {
+      const literal = match[2] ?? "";
+      if (literal.length >= MINIMUM_LITERAL_LENGTH && !literal.includes("${")) found.add(literal);
+    }
+  }
+  return [...found].filter((value) => value.trim().length > 0).slice(0, IDENTIFIER_LIMIT);
+};
+
+/** Greps the target tag's tree for identifiers the fork commit introduced. */
+export const retireCandidateMatches = (
+  runner: CommandRunner,
+  root: string,
+  targetSha: string,
+  identifiers: ReadonlyArray<string>,
+): RetireEvidence["matches"] => {
+  if (identifiers.length === 0) return [];
+  const result = runner.run(
+    "git",
+    [
+      "grep",
+      "--no-color",
+      "-I",
+      "-n",
+      "--fixed-strings",
+      ...identifiers.flatMap((value) => ["-e", value]),
+      targetSha,
+    ],
+    root,
+  );
+  if (result.status === 1) return [];
+  if (result.status !== 0)
+    throw new Error(`git grep against ${targetSha} failed: ${result.stderr.trim()}`);
+  const matches: Array<{ identifier: string; location: string }> = [];
+  const seen = new Set<string>();
+  for (const line of result.stdout.split("\n")) {
+    const parsed = /^[^:]*:(.+?):(\d+):(.*)$/.exec(line);
+    if (parsed === null) continue;
+    const text = parsed[3] ?? "";
+    const identifier = identifiers.find((value) => text.includes(value));
+    if (identifier === undefined || seen.has(identifier)) continue;
+    seen.add(identifier);
+    matches.push({ identifier, location: `${parsed[1] ?? ""}:${parsed[2] ?? ""}` });
+  }
+  return matches;
+};
+
+/** Tests every orientation retire candidate against the target tag's tree. */
+export const collectRetireEvidence = (
+  runner: CommandRunner,
+  root: string,
+  targetSha: string,
+  range: { readonly sharedBase: string; readonly source: string },
+  decisions: ReadonlyArray<OrientationDecisionRow>,
+): ReadonlyArray<RetireEvidence> => {
+  const candidates = decisions.filter(({ verdict }) => verdict === "candidate");
+  if (candidates.length === 0) return [];
+  const commits = new Map<string, string>();
+  for (const line of lines(
+    git(runner, root, ["log", "--format=%H%x09%s", `${range.sharedBase}..${range.source}`]),
+  )) {
+    const separator = line.indexOf("\t");
+    const subject = separator === -1 ? "" : line.slice(separator + 1);
+    if (subject !== "" && !commits.has(subject)) commits.set(subject, line.slice(0, separator));
+  }
+  return candidates.flatMap((row) => {
+    const commit = commits.get(row.subject);
+    if (commit === undefined) return [];
+    const identifiers = forkCommitIdentifiers(
+      gitRaw(runner, root, ["show", "--format=", "--unified=0", "--no-color", commit]),
+    );
+    if (identifiers.length === 0) return [];
+    return [
+      {
+        subject: row.subject,
+        commit,
+        identifiers,
+        matches: retireCandidateMatches(runner, root, targetSha, identifiers),
+      },
+    ];
+  });
+};
+
+const retireEvidenceFor = (report: SyncReport): ReadonlyMap<string, RetireEvidence> =>
+  new Map(
+    (report.retireEvidence ?? [])
+      .filter(({ identifiers }) => identifiers.length > 0)
+      .map((row) => [row.subject, row]),
+  );
+
 export const gateFourStopReason = (report: SyncReport): string | null => {
   const behaviourSeam = (report.silentSeams ?? []).find(({ touchesBehaviour }) => touchesBehaviour);
   if (behaviourSeam !== undefined)
@@ -1468,6 +1608,7 @@ export const gateFourStopReason = (report: SyncReport): string | null => {
     return `conflict requires judgement: ${judgementConflict.path} (${judgementConflict.class})`;
 
   const overlaps = behaviourOverlap(report.orientation ?? "");
+  const evidence = retireEvidenceFor(report);
   const mechanicalPaths = new Set(
     report.conflicts.filter(({ class: klass }) => klass === "mechanical").map(({ path }) => path),
   );
@@ -1475,6 +1616,15 @@ export const gateFourStopReason = (report: SyncReport): string | null => {
     if (row.verdict === "keep") continue;
     if (row.verdict === "retire" || row.verdict === "partial")
       return `orientation verdict requires judgement: ${row.verdict} \`${row.subject}\``;
+
+    // The target tree is evidence where proximity is not: a candidate whose own identifiers are
+    // absent upstream was never retired, and one whose identifiers are present is a real question.
+    const tested = evidence.get(row.subject);
+    if (tested !== undefined) {
+      const match = tested.matches[0];
+      if (match === undefined) continue;
+      return `retire candidate is present in the target tree: \`${row.subject}\`: ${match.identifier} at ${match.location}`;
+    }
 
     const overlap = overlaps.get(row.subject);
     if (overlap === undefined || overlap === "none")
@@ -1493,11 +1643,18 @@ export const gateFourStopReason = (report: SyncReport): string | null => {
 
 export const autoGateFour = (report: SyncReport): SyncReport | null => {
   if (gateFourStopReason(report) !== null) return null;
+  const evidence = retireEvidenceFor(report);
   return {
     ...report,
     orientationDecisions: (report.orientationDecisions ?? []).map((row) => ({
       ...row,
-      ...(row.verdict === "candidate" ? { action: "keep (mechanical seam)" as const } : {}),
+      ...(row.verdict === "candidate"
+        ? {
+            action: (evidence.has(row.subject)
+              ? "keep (target tree absent)"
+              : "keep (mechanical seam)") as DecisionAction,
+          }
+        : {}),
       decidedBy: "agent",
     })),
   };

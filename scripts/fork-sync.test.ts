@@ -11,8 +11,10 @@ import {
   autoGateFour,
   baseReleaseTag,
   autoResolveConflicts,
+  collectRetireEvidence,
   decisionSurface,
   execute,
+  forkCommitIdentifiers,
   gateVerificationEnv,
   identifyRerereResolvedPaths,
   laneExecutablePath,
@@ -33,11 +35,13 @@ import {
   gateFourStopReason,
   resolveUnblockTarget,
   run,
+  SystemRunner,
   validateAutoLane,
   validateReport,
   validateSignedRecord,
   type CommandResult,
   type CommandRunner,
+  type RetireEvidence,
   type SyncReport,
 } from "./fork-sync.ts";
 import { inspectRecord } from "./fork-sync-gate.ts";
@@ -1251,6 +1255,140 @@ it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
       action: "keep (mechanical seam)",
       decidedBy: "agent",
     });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("reads a fork commit's own identifiers out of its diff", () => {
+  const diff = [
+    "diff --git a/packages/contracts/src/window.ts b/packages/contracts/src/window.ts",
+    "--- a/packages/contracts/src/window.ts",
+    "+++ b/packages/contracts/src/window.ts",
+    "@@ -0,0 +1,3 @@",
+    "+export const ScopedProjectWindow = 1;",
+    '+const message = "project window is already open";',
+    '+const short = "tiny";',
+    "diff --git a/apps/web/src/settings.json b/apps/web/src/settings.json",
+    "+++ b/apps/web/src/settings.json",
+    '+  "window.perProject": true,',
+    '+  "name": "x",',
+    "diff --git a/apps/web/src/window.test.ts b/apps/web/src/window.test.ts",
+    "+++ b/apps/web/src/window.test.ts",
+    '+it("opens one window per project", () => {});',
+    "diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml",
+    "+++ b/pnpm-lock.yaml",
+    "+  /some-package-name-that-is-long@1.0.0:",
+    '+  resolution: "integrity-sha512-not-a-fork-identifier"',
+  ].join("\n");
+  assert.deepStrictEqual(forkCommitIdentifiers(diff), [
+    "ScopedProjectWindow",
+    "project window is already open",
+    "window.perProject",
+    "opens one window per project",
+  ]);
+});
+
+/** A fixture upstream tree plus two fork commits: one retired upstream, one not. */
+const retireFixture = (): { root: string; tag: string } => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-retire-"));
+  const run = (...args: ReadonlyArray<string>): void => {
+    NodeChildProcess.execFileSync("git", args, {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.test",
+        GIT_COMMITTER_NAME: "fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.test",
+      },
+    });
+  };
+  const write = (path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), contents);
+  };
+  run("init", "-b", "fixture");
+  write("upstream.ts", "export const upstreamOnly = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "upstream: base");
+  // Upstream grows the behaviour one fork commit also carries.
+  write("upstream.ts", "export const upstreamOnly = 1;\nexport const SharedWindowScope = 2;\n");
+  run("add", "-A");
+  run("commit", "-m", "upstream: adopt scoped windows");
+  run("tag", "v1.2.3");
+  write("fork-absent.ts", "export const ForkOnlyHelper = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "feat: absent from the target tree");
+  write("fork-present.ts", "export const SharedWindowScope = 2;\n");
+  run("add", "-A");
+  run("commit", "-m", "feat: present in the target tree");
+  return { root, tag: "v1.2.3" };
+};
+
+it("tests retire candidates against the target tree instead of proximity", () => {
+  const { root, tag } = retireFixture();
+  const runner = new SystemRunner();
+  const git = (...args: ReadonlyArray<string>): string =>
+    runner.run("git", args, root).stdout.trim();
+  const targetSha = git("rev-parse", `refs/tags/${tag}^{commit}`);
+  const source = git("rev-parse", "HEAD");
+  const decisions = [
+    { subject: "feat: absent from the target tree", domain: "fork-meta" },
+    { subject: "feat: present in the target tree", domain: "fork-meta" },
+  ].map((row) => ({ ...row, verdict: "candidate" as const, decidedBy: "human" as const }));
+  try {
+    const evidence = collectRetireEvidence(
+      runner,
+      root,
+      targetSha,
+      { sharedBase: targetSha, source },
+      decisions,
+    );
+    assert.deepStrictEqual(
+      evidence.map(({ subject, matches }) => [subject, matches.length]),
+      [
+        ["feat: absent from the target tree", 0],
+        ["feat: present in the target tree", 1],
+      ],
+    );
+    assert.deepStrictEqual(evidence[1]?.matches[0], {
+      identifier: "SharedWindowScope",
+      location: "upstream.ts:2",
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a present one", () => {
+  const root = fixtureRoot();
+  const orientation = "  [candidate] `feat: candidate` (fork-meta)\n";
+  const state = (matches: RetireEvidence["matches"]): SyncReport =>
+    report(root, {
+      orientation,
+      orientationDecisions: orientationDecisionRows(orientation),
+      retireEvidence: [
+        { subject: "feat: candidate", commit: C, identifiers: ["ForkOnlyHelper"], matches },
+      ],
+    });
+  try {
+    const absent = state([]);
+    assert.isNull(gateFourStopReason(absent));
+    assert.deepInclude(autoGateFour(absent)?.orientationDecisions?.[0], {
+      verdict: "candidate",
+      action: "keep (target tree absent)",
+      decidedBy: "agent",
+    });
+    assert.include(renderRecord(absent), "retire-candidate; target-tree: absent");
+
+    const present = state([{ identifier: "ForkOnlyHelper", location: "apps/web/src/x.ts:14" }]);
+    assert.include(
+      gateFourStopReason(present) ?? "",
+      "retire candidate is present in the target tree: `feat: candidate`: ForkOnlyHelper at apps/web/src/x.ts:14",
+    );
+    assert.isNull(autoGateFour(present));
+    assert.include(renderRecord(present), "target-tree: ForkOnlyHelper at apps/web/src/x.ts:14");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
