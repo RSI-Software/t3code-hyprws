@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import {
   decisionSurface,
   execute,
+  gateVerificationEnv,
   identifyRerereResolvedPaths,
   lockDriftClass,
   orientationDecisionRows,
@@ -526,7 +527,12 @@ it("returns usage status for an unknown verb", () => {
 
 // The scan typechecks the replayed head, so a tree installed before the replay carried its
 // manifests reads exactly like a fresh one. Ordering is the whole guarantee.
-const checkedRun = (): { runner: FakeRunner; root: string; worktree: string } => {
+const checkedRun = (): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  reportPath: string;
+} => {
   const root = fixtureRoot();
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
   const lock = "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers: {}\n";
@@ -563,7 +569,7 @@ const checkedRun = (): { runner: FakeRunner; root: string; worktree: string } =>
   });
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${A}\n` });
   execute(["unblock-check", "--report", replayed.reportPath], root, runner);
-  return { runner, root, worktree };
+  return { runner, root, worktree, reportPath: replayed.reportPath };
 };
 
 const order = (runner: FakeRunner, command: string, args: ReadonlyArray<string>): number =>
@@ -575,9 +581,62 @@ it("installs the replayed tree before the scan that typechecks it", () => {
   const { runner, root, worktree } = checkedRun();
   try {
     const install = order(runner, "vp", ["i"]);
-    const scan = order(runner, "vp", ["run", "fork:scan", "--target", "v1.2.3"]);
+    const scan = order(runner, "vp", ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"]);
     assert.isAbove(install, -1);
     assert.isAbove(scan, install);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("bypasses the task cache and records the executed Gate 3 commands", () => {
+  const { runner, root, worktree, reportPath } = checkedRun();
+  try {
+    const cachedTasks = runner.calls.filter(
+      ({ command, args }) => command === "vp" && args[0] === "run",
+    );
+    assert.lengthOf(cachedTasks, 4);
+    for (const call of cachedTasks) assert.strictEqual(call.args[1], "--no-cache");
+
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(reportPath, "utf8")));
+    assert.deepInclude(checked.verification, {
+      command: "vp run --no-cache test",
+      result: "passed",
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 checks", () => {
+  const preserved = { PATH: "/bin", HOME: "/home/example" };
+  const scrubbed = {
+    NPM_CONFIG_REGISTRY: "https://registry.example.test",
+    VP_ENV_USE_EVAL_ENABLE: "1",
+    VP_NODE_DIST_MIRROR: "https://node.example.test",
+    VP_NODE_SKIP_SIGNATURE_VERIFY: "1",
+    VP_NODE_VERSION: "24.20.0",
+    npm_config_registry: "https://registry.example.test",
+    npm_lifecycle_event: "fork:sync",
+    ELECTRON_RUN_AS_NODE: "1",
+  };
+  assert.deepStrictEqual(gateVerificationEnv({ ...preserved, ...scrubbed }), preserved);
+
+  const { runner, root, worktree } = checkedRun();
+  try {
+    const checks = runner.calls.filter(
+      ({ command, args }) =>
+        command === "vp" && (args[0] === "check" || (args[0] === "run" && args[1] !== undefined)),
+    );
+    assert.lengthOf(checks, 5);
+    for (const call of checks) {
+      assert.isDefined(call.env);
+      for (const key of Object.keys(scrubbed)) {
+        assert.notProperty(call.env, key);
+      }
+    }
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
