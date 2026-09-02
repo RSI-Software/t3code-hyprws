@@ -166,6 +166,37 @@ const unblockList = (
   return report;
 };
 
+export const resolveUnblockTarget = (
+  candidates: ReadonlyArray<{ readonly tag: string; readonly sha: string }>,
+  target: string,
+): { readonly tag: string; readonly sha: string } => {
+  const bare = candidates.find(({ tag }) => tag === target);
+  if (bare !== undefined) return bare;
+
+  const separator = target.lastIndexOf("@");
+  const targetTag = separator === -1 ? target : target.slice(0, separator);
+  const givenSha = separator === -1 ? "" : target.slice(separator + 1);
+  const offered = candidates.find(({ tag }) => tag === targetTag);
+  if (offered !== undefined) {
+    const normalizedGiven = givenSha.toLowerCase();
+    const matchingShas = new Set(
+      candidates
+        .map(({ sha }) => sha.toLowerCase())
+        .filter((sha) => sha.startsWith(normalizedGiven)),
+    );
+    const isFullSha = normalizedGiven === offered.sha.toLowerCase();
+    const isUniquePrefix =
+      /^[0-9a-f]{7,40}$/i.test(givenSha) &&
+      offered.sha.toLowerCase().startsWith(normalizedGiven) &&
+      matchingShas.size === 1;
+    if (isFullSha || isUniquePrefix) return offered;
+    throw new Error(`target ${targetTag} was offered at ${offered.sha}, not ${givenSha}`);
+  }
+
+  const accepted = candidates.flatMap(({ tag, sha }) => [tag, `${tag}@${sha}`]).join(", ");
+  throw new Error(`target ${target} was not offered by unblock-list; accepted forms: ${accepted}`);
+};
+
 const unblockOrient = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -175,9 +206,8 @@ const unblockOrient = (
   const report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "listed")
     throw new Error(`unblock-orient requires a listed report, got ${report.stage}`);
-  const targetTag = oneValue(values, "--target") ?? "";
-  const offered = report.candidates.find(({ tag }) => tag === targetTag);
-  if (offered === undefined) throw new Error(`target ${targetTag} was not offered by unblock-list`);
+  const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
+  const targetTag = offered.tag;
   const root = report.repositoryRoot;
   requireSuccess(runner, "node", ["scripts/fork-preflight.ts", "--tag-pinned"], root);
   const issue = readIssue(runner, root);
