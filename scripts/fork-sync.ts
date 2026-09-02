@@ -514,7 +514,10 @@ const GATE_VERIFICATION_ENV_KEYS = new Set([
 export const gateVerificationEnv = (inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   Object.fromEntries(
     Object.entries(inherited).filter(
-      ([key]) => !GATE_VERIFICATION_ENV_KEYS.has(key) && !key.startsWith("npm_"),
+      ([key]) =>
+        !GATE_VERIFICATION_ENV_KEYS.has(key) &&
+        !key.startsWith("npm_") &&
+        !key.startsWith("ELECTRON_"),
     ),
   );
 

@@ -610,9 +610,9 @@ it("bypasses the task cache and records the executed Gate 3 commands", () => {
   }
 });
 
-it("scrubs package-manager and Vite+ bootstrap state from Gate 3 checks", () => {
-  const inherited = {
-    PATH: "/bin",
+it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 checks", () => {
+  const preserved = { PATH: "/bin", HOME: "/home/example" };
+  const scrubbed = {
     NPM_CONFIG_REGISTRY: "https://registry.example.test",
     VP_ENV_USE_EVAL_ENABLE: "1",
     VP_NODE_DIST_MIRROR: "https://node.example.test",
@@ -620,8 +620,9 @@ it("scrubs package-manager and Vite+ bootstrap state from Gate 3 checks", () => 
     VP_NODE_VERSION: "24.20.0",
     npm_config_registry: "https://registry.example.test",
     npm_lifecycle_event: "fork:sync",
+    ELECTRON_RUN_AS_NODE: "1",
   };
-  assert.deepStrictEqual(gateVerificationEnv(inherited), { PATH: "/bin" });
+  assert.deepStrictEqual(gateVerificationEnv({ ...preserved, ...scrubbed }), preserved);
 
   const { runner, root, worktree } = checkedRun();
   try {
@@ -632,7 +633,7 @@ it("scrubs package-manager and Vite+ bootstrap state from Gate 3 checks", () => 
     assert.lengthOf(checks, 5);
     for (const call of checks) {
       assert.isDefined(call.env);
-      for (const key of Object.keys(inherited).filter((key) => key !== "PATH")) {
+      for (const key of Object.keys(scrubbed)) {
         assert.notProperty(call.env, key);
       }
     }
