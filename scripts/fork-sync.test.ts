@@ -2321,6 +2321,138 @@ it("unblock-auto refuses a RUNNING bot with status 3", () => {
   }
 });
 
+const withCapturedStderr = (effect: () => void): string => {
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    effect();
+  } finally {
+    process.stderr.write = original;
+  }
+  return stderr;
+};
+
+const withRunId = (runId: string | undefined, effect: () => void): void => {
+  const original = process.env.GITHUB_RUN_ID;
+  if (runId === undefined) delete process.env.GITHUB_RUN_ID;
+  else process.env.GITHUB_RUN_ID = runId;
+  try {
+    effect();
+  } finally {
+    if (original === undefined) delete process.env.GITHUB_RUN_ID;
+    else process.env.GITHUB_RUN_ID = original;
+  }
+};
+
+it("unblock-auto --bot-carried accepts the run that holds the lease", () => {
+  const root = fixtureRoot();
+  const listed = { ...report(root), botCarried: true };
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "on\n" });
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([
+      { ...lastRun, status: "in_progress", conclusion: null, url: "https://example.test/runs/77" },
+    ]),
+  });
+  try {
+    // The bot gate passes, so the walk reaches the target selection it has no
+    // orientation for and stops there rather than on the carrier check.
+    const stderr = withCapturedStderr(() => {
+      withRunId("77", () => {
+        assert.notStrictEqual(
+          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
+          3,
+        );
+      });
+    });
+    assert.notInclude(stderr, "auto-rebase bot mode is on");
+    assert.notInclude(stderr, "holds the lease");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto --bot-carried refuses when another run holds the lease", () => {
+  const root = fixtureRoot();
+  const listed = { ...report(root), botCarried: true };
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  runner.set("gh", modeArgs, { stdout: "on\n" });
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([
+      { ...lastRun, status: "in_progress", conclusion: null, url: "https://example.test/runs/99" },
+    ]),
+  });
+  try {
+    const stderr = withCapturedStderr(() => {
+      withRunId("77", () => {
+        assert.strictEqual(
+          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
+          3,
+        );
+      });
+    });
+    assert.include(stderr, "another auto-rebase run holds the lease: https://example.test/runs/99");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto --bot-carried refuses outside the workflow", () => {
+  const root = fixtureRoot();
+  const listed = { ...report(root), botCarried: true };
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "on");
+  try {
+    const stderr = withCapturedStderr(() => {
+      withRunId(undefined, () => {
+        assert.strictEqual(
+          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
+          3,
+        );
+      });
+    });
+    assert.include(stderr, "GITHUB_RUN_ID is unset");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-auto --bot-carried refuses to resume a human-lane report", () => {
+  const root = fixtureRoot();
+  const listed = report(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "on");
+  try {
+    const stderr = withCapturedStderr(() => {
+      withRunId("77", () => {
+        assert.strictEqual(
+          run(
+            ["unblock-auto", "--bot-carried", "--resume", "--report", listed.reportPath],
+            root,
+            runner,
+          ),
+          2,
+        );
+      });
+    });
+    assert.include(stderr, "--bot-carried cannot resume a report the human lane started");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("returns usage status for an unknown verb", () => {
   assert.strictEqual(run(["nope"], process.cwd(), new FakeRunner()), 2);
 });

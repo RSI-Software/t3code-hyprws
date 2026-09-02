@@ -64,7 +64,9 @@ commits, and the newest release tag beyond the block. A maintainer resolves it t
 
 #### `fork-churn`
 
-The generated conflict-churn ledger across landed unblock walks; the `fork-sync` operator appends its row after each apply.
+The conflict-churn ledger across landed unblock walks, kept as `fork-churn.json` on the bot-owned
+`refs/fork/churn` so no fork commit carries it. Each apply appends a row; the sync report renders
+its `## Churn` section on the walk's notification issue.
 
 #### Nightly channel
 
