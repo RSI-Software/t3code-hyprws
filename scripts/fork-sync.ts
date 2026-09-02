@@ -389,14 +389,26 @@ const mintLane = (
   return worktree;
 };
 
+/**
+ * `tagPinned` follows the caller's target, not its lane. A target the caller
+ * pinned cannot move, so mirror currency says nothing about the walk in flight,
+ * and upstream can advance between this run's own mirror push and its carry.
+ * A walk that lists targets to choose from still requires a current mirror.
+ */
 const unblockList = (
   values: ReadonlyMap<string, string>,
   cwd: string,
   runner: CommandRunner,
+  tagPinned = false,
 ): SyncReport => {
   assertOnly(values, ["--output", "--all"]);
   const root = rootFor(runner, cwd);
-  requireSuccess(runner, "node", ["scripts/fork-preflight.ts"], root);
+  requireSuccess(
+    runner,
+    "node",
+    tagPinned ? ["scripts/fork-preflight.ts", "--tag-pinned"] : ["scripts/fork-preflight.ts"],
+    root,
+  );
   const issue = readIssue(runner, root);
   const blockingSha = extractBlockingSha(issue.body);
   if (blockingSha === null)
@@ -1897,7 +1909,9 @@ const unblockAuto = (
     const listValues = new Map<string, string>();
     const reportPath = oneValue(values, "--report", false);
     if (reportPath !== null) listValues.set("--output", reportPath);
-    report = captureStdout(() => unblockList(listValues, cwd, runner)).value;
+    report = captureStdout(() =>
+      unblockList(listValues, cwd, runner, values.has("--target")),
+    ).value;
   }
   // The carrier binding is written before any bot gate reads it, and it stays on
   // the report so a resumed walk cannot silently change lanes.
