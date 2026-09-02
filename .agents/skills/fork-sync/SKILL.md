@@ -14,6 +14,21 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 Each command consumes the prior external report. Never alter its state, continue a rebase directly,
 or bypass a refusal or `fork:sync-gate`.
 
+### Stop shape
+
+At every stop in steps 1–4, first reproduce the emitted decision surface verbatim and unchanged. Then
+write one triage line per decision in exactly one of these forms:
+
+- `clear — <recommendation>: <one-line reason>` for a mechanical or unambiguous choice;
+- `judgement — <recommendation>: <reading A> vs <reading B>; <why the recommendation>` for a real
+  choice, with enough context for a reader who has not seen the diff.
+
+Then ask for the human's exact word for every decision and stop. A recommendation never becomes a
+record entry on its own. In steps 3 and 4, test every `retire-candidate` by asking: “does the upstream
+hunk implement the fork behaviour?” If the row does not make the answer obvious, show both hunks—the
+`git diff` of the fork commit's hunk and the upstream hunk—before recommending. Treat `mechanical`
+and `seam-moved` rows as `clear` by default unless the resolution dropped or moved fork behaviour.
+
 0. Pause the bot for the whole ladder or walk series:
 
    ```bash
@@ -31,8 +46,10 @@ or bypass a refusal or `fork:sync-gate`.
    vp run fork:sync unblock-list
    ```
 
-   **Stop.** Show the blocker and offered tags. Continue only after the human selects one; recency
-   is not permission to infer it.
+   **Stop.** Apply the stop shape to the blocker and offered tags. Recommend the target named by an
+   open tracker sub-issue titled `unblock walk lands <tag>`; if none is open, recommend the oldest
+   offered tag that contains the block. Name which rule fired, and require the human's exact tag;
+   recency is not permission to record a selection.
 
 2. Bind that selection and render orientation:
 
@@ -40,8 +57,9 @@ or bypass a refusal or `fork:sync-gate`.
    vp run fork:sync unblock-orient --report <report> --target <human-selected-tag>
    ```
 
-   **Stop.** Show target/source/shared-base SHAs, conflicts, automerged overlap, retire candidates,
-   and watch verdicts. Continue only after the human confirms the exact target.
+   **Stop.** Apply the stop shape to the target/source/shared-base SHAs, conflicts, automerged
+   overlap, retire candidates, and watch verdicts. Continue only after the human confirms the exact
+   target.
 
 3. Start or resume the reported rehearsal:
 
@@ -49,12 +67,14 @@ or bypass a refusal or `fork:sync-gate`.
    vp run fork:sync unblock-rehearse --report <report>
    ```
 
-   At a stop, preserve upstream intent and complete non-generated rows with `mechanical`,
-   `seam-moved`, `retire-candidate`, or `human`; judgement stays human-owned. The verb regenerates
-   `pnpm-lock.yaml` and owns comment-safe continuation. Rerun it until replay complete.
+   At a stop, preserve upstream intent and recommend `mechanical`, `seam-moved`, `retire-candidate`,
+   or `human` for each non-generated row; only the human's exact classification may be recorded. The
+   verb regenerates `pnpm-lock.yaml` and owns comment-safe continuation. Rerun it until replay
+   complete.
 
-   **Stop.** Present every conflict row and any unresolved human choice. Continue only when every
-   row is complete; a clean replay still owes the report's count and byte-identical-message proof.
+   **Stop.** Apply the stop shape and the retire-candidate test to every conflict row and unresolved
+   human choice. Continue only after the human supplies the exact classification for every row; a
+   clean replay still owes the report's count and byte-identical-message proof.
 
 4. Check the completed replay:
 
@@ -67,11 +87,12 @@ or bypass a refusal or `fork:sync-gate`.
    and polls every 30 seconds for the CI verdict on the pushed lane head, with a 45-minute ceiling.
    A timeout fails the gate. Never substitute repo-wide local checks.
 
-   **Stop.** Present the emitted Gate 4 decision surface, silent seams, and grounding evidence.
-   On a failed gate, present the failing job names and last 40 failed-log lines verbatim before any
-   interpretation. Continue only when the human gives every keep/retire/partial decision by exact
-   subject and gives an explicit go; when the surface names a grounding claim, get that confirmation
-   too. Put those decisions in the rendered record; the agent must not infer them.
+   **Stop.** Apply the stop shape and the retire-candidate test to the emitted Gate 4 decision
+   surface, silent seams, and grounding evidence. On a failed gate, present the failing job names and
+   last 40 failed-log lines verbatim before any interpretation. Continue only when the human gives
+   every keep/retire/partial decision by exact subject and gives an explicit go; when the surface
+   names a grounding claim, get that confirmation too. Put only those supplied decisions in the
+   rendered record; never record a recommendation as the human's decision.
 
 5. Apply the reviewed record:
 
