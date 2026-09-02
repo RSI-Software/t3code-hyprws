@@ -55,6 +55,9 @@ export type ConflictClass =
   | "retire-candidate"
   | "human";
 
+/** Who signed a row. `TODO` is the absence of provenance, not a third decider. */
+export type DecidedBy = "human" | "agent" | "TODO";
+
 export interface ConflictRow {
   readonly commit: string;
   readonly subject: string;
@@ -63,7 +66,7 @@ export interface ConflictRow {
   readonly class: ConflictClass | "TODO";
   readonly resolution: string;
   readonly agentSafe: string;
-  readonly decidedBy: "human" | "agent";
+  readonly decidedBy: DecidedBy;
 }
 
 export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
@@ -82,12 +85,33 @@ export interface BotSnapshot {
   readonly nextFire: string;
 }
 
+export type DecisionAction = "keep (mechanical seam)" | "keep (target tree absent)";
+
 export interface OrientationDecisionRow {
   readonly subject: string;
   readonly domain: string;
   readonly verdict: OrientationVerdict;
-  readonly decidedBy: "human" | "agent";
-  readonly action?: "keep (mechanical seam)";
+  readonly decidedBy: DecidedBy;
+  readonly action?: DecisionAction;
+}
+
+/** A decision cell an operator filled in the record by hand, carried across regeneration. */
+export interface RecordDecision {
+  readonly subject: string;
+  readonly action: string;
+  readonly decidedBy: Exclude<DecidedBy, "TODO">;
+}
+
+/**
+ * What the target tag's tree says about one retire candidate. `identifiers` are the names the fork
+ * commit introduces; an empty `matches` means none of them exist upstream, so the candidate is a
+ * proximity artefact rather than a real retirement.
+ */
+export interface RetireEvidence {
+  readonly subject: string;
+  readonly commit: string;
+  readonly identifiers: ReadonlyArray<string>;
+  readonly matches: ReadonlyArray<{ readonly identifier: string; readonly location: string }>;
 }
 
 export interface SilentSeam {
@@ -119,6 +143,8 @@ export interface SyncReport {
   readonly conflicts: ReadonlyArray<ConflictRow>;
   readonly orientation?: string;
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
+  readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
+  readonly recordDecisions?: ReadonlyArray<RecordDecision>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   readonly behaviourSeamStopPresented?: boolean;
@@ -139,7 +165,7 @@ export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
   unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume]
-  unblock-list [--output <external-json>]
+  unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type]
@@ -220,7 +246,7 @@ export const parseVerbArgs = (
       throw new UsageError(`invalid arguments after ${verb}`);
     }
     if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
-    if (flag === "--resume" || flag === "--dry-run") {
+    if (flag === "--resume" || flag === "--dry-run" || flag === "--all") {
       values.set(flag, "true");
       index += 1;
       continue;
@@ -359,6 +385,18 @@ const renderRewriteRecord = (report: SyncReport): string => {
   ].join("\n");
 };
 
+/**
+ * The class summary carries the target-tree verdict so a reader sees why a candidate was kept
+ * without rerunning the grep. No evidence means the tree was never queried for that subject.
+ */
+export const retireEvidenceNote = (evidence: RetireEvidence | undefined): string => {
+  if (evidence === undefined || evidence.identifiers.length === 0) return "";
+  const match = evidence.matches[0];
+  return match === undefined
+    ? "; target-tree: absent"
+    : `; target-tree: ${escapeCell(match.identifier)} at ${escapeCell(match.location)}`;
+};
+
 export const renderRecord = (report: SyncReport): string => {
   if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
   const target = report.target;
@@ -376,16 +414,17 @@ export const renderRecord = (report: SyncReport): string => {
       readonly domain: string;
       readonly classSummary: string;
       readonly action: string;
-      readonly decidedBy: "human" | "agent";
+      readonly decidedBy: DecidedBy;
     }
   >();
+  const evidence = new Map((report.retireEvidence ?? []).map((row) => [row.subject, row]));
   for (const row of report.orientationDecisions ?? []) {
     decisions.set(row.subject, {
       subject: row.subject,
       domain: row.domain,
       classSummary:
         row.verdict === "candidate"
-          ? "orientation: candidate; retire-candidate"
+          ? `orientation: candidate; retire-candidate${retireEvidenceNote(evidence.get(row.subject))}`
           : `orientation: ${row.verdict}`,
       action: row.action ?? (row.verdict === "candidate" ? "TODO" : row.verdict),
       decidedBy: row.decidedBy,
@@ -400,6 +439,17 @@ export const renderRecord = (report: SyncReport): string => {
       classSummary: existing === undefined ? row.class : `${existing.classSummary}; ${row.class}`,
       action: existing?.action ?? "TODO",
       decidedBy: existing?.decidedBy ?? row.decidedBy,
+    });
+  }
+  // A cell an operator filled by hand outlives regeneration; the report is otherwise the only truth
+  // and would reset the decision to TODO.
+  for (const filled of report.recordDecisions ?? []) {
+    const existing = decisions.get(filled.subject);
+    if (existing === undefined) continue;
+    decisions.set(filled.subject, {
+      ...existing,
+      action: filled.action,
+      decidedBy: filled.decidedBy,
     });
   }
   const decisionRows = [...decisions.values()].map(
@@ -488,6 +538,13 @@ const splitTableCells = (line: string): ReadonlyArray<string> | null => {
 const invalidConflictCell = (column: string, detail: string): Error =>
   new Error(`invalid conflict ${column} cell: ${detail}`);
 
+/** An absent column is a record written before provenance existed, so it carries none. */
+const readDecidedBy = (cell: string | undefined, invalid: (detail: string) => Error): DecidedBy => {
+  if (cell === undefined || cell === "TODO") return "TODO";
+  if (cell === "human" || cell === "agent") return cell;
+  throw invalid(cell);
+};
+
 const unescapeCell = (value: string, column: string): string => {
   let result = "";
   for (let index = 0; index < value.length; index += 1) {
@@ -547,18 +604,17 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
       class: klass as ConflictRow["class"],
       resolution: unescapeCell(cells[4] ?? "", "Resolution"),
       agentSafe: unescapeCell(cells[5] ?? "", "Agent-safe"),
-      decidedBy:
-        cells[6] === undefined || cells[6] === "human"
-          ? "human"
-          : cells[6] === "agent"
-            ? "agent"
-            : (() => {
-                throw invalidConflictCell("Decided by", cells[6] ?? "");
-              })(),
+      decidedBy: readDecidedBy(cells[6], (detail) => invalidConflictCell("Decided by", detail)),
     });
   }
   return rows;
 };
+
+/** Keep actions an agent may record on its own, each naming the proof that earned it. */
+export const DECISION_ACTIONS = [
+  "keep (mechanical seam)",
+  "keep (target tree absent)",
+] as const satisfies ReadonlyArray<DecisionAction>;
 
 const invalidDecisionCell = (column: string, detail: string): Error =>
   new Error(`invalid fork commit ${column} cell: ${detail}`);
@@ -581,27 +637,46 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
     if (/\\[\\|]/.test(domain))
       throw invalidDecisionCell("Domain", "escaped pipes and backslashes are not accepted");
     const action = cells[3] ?? "";
-    const verdict = action === "keep (mechanical seam)" ? "keep" : action;
+    const qualified = DECISION_ACTIONS.includes(action as DecisionAction);
+    const verdict = qualified ? "keep" : action;
     if (!["keep", "retire", "partial"].includes(verdict)) {
       throw invalidDecisionCell(
         "Action",
-        `expected keep, keep (mechanical seam), retire, or partial; found ${action}`,
+        `expected keep, ${DECISION_ACTIONS.join(", ")}, retire, or partial; found ${action}`,
       );
     }
     rows.push({
       subject: unescapeCell(subject[1] ?? "", "Exact subject"),
       domain,
       verdict: verdict as OrientationDecisionRow["verdict"],
-      ...(action === "keep (mechanical seam)" ? { action } : {}),
-      decidedBy:
-        cells[5] === undefined || cells[5] === "human"
-          ? "human"
-          : cells[5] === "agent"
-            ? "agent"
-            : (() => {
-                throw invalidDecisionCell("Decided by", cells[5] ?? "");
-              })(),
+      ...(qualified ? { action: action as DecisionAction } : {}),
+      decidedBy: readDecidedBy(cells[5], (detail) => invalidDecisionCell("Decided by", detail)),
     });
+  }
+  return rows;
+};
+
+/**
+ * Decision cells an operator already filled, read without demanding a complete record. A row still
+ * showing `TODO` carries no decision, so it is not returned.
+ */
+export const filledDecisionCells = (record: string): ReadonlyArray<RecordDecision> => {
+  const section = recordSection(record, "## Fork commits");
+  const rows: Array<RecordDecision> = [];
+  for (const line of section.split("\n")) {
+    const cells = splitTableCells(line);
+    if (cells === null || cells[0] === "Exact subject") continue;
+    if (cells.every((cell) => /^-+$/.test(cell))) continue;
+    if (cells.length !== 5 && cells.length !== 6) continue;
+    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
+    const action = cells[3] ?? "";
+    if (subject === null || !["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(action))
+      continue;
+    const decidedBy = readDecidedBy(cells[5], (detail) =>
+      invalidDecisionCell("Decided by", detail),
+    );
+    if (decidedBy === "TODO") continue;
+    rows.push({ subject: unescapeCell(subject[1] ?? "", "Exact subject"), action, decidedBy });
   }
   return rows;
 };
@@ -637,6 +712,6 @@ export const orientationDecisionRows = (
       verdict: (match[1] ?? "candidate") as OrientationVerdict,
       subject: match[2] ?? "",
       domain: match[3] ?? "?",
-      decidedBy: "human",
+      decidedBy: "TODO",
     }),
   );
