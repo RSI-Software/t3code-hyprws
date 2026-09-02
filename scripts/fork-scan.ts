@@ -15,8 +15,18 @@ import * as NodePath from "node:path";
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import {
+  collectScanWarnings,
+  commitPatchArguments,
+  parseCommitPatches,
+  readHotSeams,
+  renderScanWarnings,
+  type GuardInput,
+  type ScanWarning,
+} from "./fork-scan-guards.ts";
 
 export const LEDGER_PATH = "docs/internals/fork-delta.md";
+export const CHURN_PATH = "docs/internals/fork-churn.json";
 
 const RECORD_SEPARATOR = "";
 
@@ -27,6 +37,10 @@ export interface ScanOptions {
   readonly head: string;
   readonly target: string;
   readonly typecheck: boolean;
+  // Ledger guards warn about commits after this ref only, so a pull request
+  // sees the shapes it introduces rather than the whole replayed stack.
+  readonly since: string | null;
+  readonly strict: boolean;
 }
 
 export interface ScanRange {
@@ -60,6 +74,7 @@ export interface ScanResult {
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
+  readonly warnings: ReadonlyArray<ScanWarning>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -73,8 +88,15 @@ Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
+  --since <ref>   Warn only about commits after <ref> (default: every commit in the range)
+  --strict        Fail on ledger guard warnings as well as scan gaps
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
+
+Ledger guards read docs/internals/fork-churn.json and warn about a hot seam, a fork test
+block appended to an upstream-owned test file, a commit spread over more than six upstream
+files, and an upstream export a commit deletes and re-declares. They print and exit 0 so an
+existing walk keeps its verdict; --strict turns them into a failure.
 
 The typechecks run only when --head resolves to the checkout HEAD, because they read the
 working tree. A scan of any other ref reports declarations alone.
@@ -91,20 +113,23 @@ const defaultOptions = (): ScanOptions => ({
   head: "HEAD",
   target: "upstream/main",
   typecheck: true,
+  since: null,
+  strict: false,
 });
 
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set(["--base", "--head", "--target"]);
+  const valueFlags = new Set(["--base", "--head", "--target", "--since"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
-    if (argument === "--no-typecheck") {
+    if (argument === "--no-typecheck" || argument === "--strict") {
       if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
       seen.add(argument);
-      options.typecheck = false;
+      if (argument === "--strict") options.strict = true;
+      else options.typecheck = false;
       continue;
     }
     if (!valueFlags.has(argument)) throw new UsageError(`unknown option: ${argument}`);
@@ -117,11 +142,15 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     index += 1;
     if (argument === "--base") options.base = value;
     else if (argument === "--head") options.head = value;
+    else if (argument === "--since") options.since = value;
     else options.target = value;
   }
 
   if (options.base !== null && options.base.length === 0) {
     throw new UsageError("--base cannot be empty");
+  }
+  if (options.since !== null && options.since.length === 0) {
+    throw new UsageError("--since cannot be empty");
   }
   if (options.head.length === 0) throw new UsageError("--head cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
@@ -217,6 +246,9 @@ export interface ScanInput extends ScanRange {
   readonly scans: ReadonlyMap<string, ReadonlyArray<string>>;
   readonly forkChanged: ReadonlySet<string>;
   readonly upstreamChanged: ReadonlySet<string>;
+  // Absent when the caller only wants the rebase-scan verdict, as the unit
+  // tests and the ledger-only walks do.
+  readonly guard?: GuardInput;
 }
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
@@ -272,6 +304,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     typecheckGaps: [],
     undeclaredDomains,
     untaggedCommits,
+    warnings: input.guard === undefined ? [] : collectScanWarnings(input.guard),
   };
 };
 
@@ -332,6 +365,7 @@ export const renderScanReport = (result: ScanResult): string => {
     for (const gap of result.typecheckGaps)
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
+  lines.push(...renderScanWarnings(result.warnings));
   if (result.untaggedCommits.length > 0) {
     lines.push(
       `skipped ${result.untaggedCommits.length} commit(s) without Fork-Domain (vp run fork:delta --check owns them): ${result.untaggedCommits.join(", ")}`,
@@ -428,18 +462,64 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
   target: options.target,
 });
 
-export const readScan = (git: GitReader, options: ScanOptions, ledger: string): ScanResult => {
+// The guard rules read one patch per warned commit, so `--since` is what keeps
+// a pull request's run proportional to the commits it adds.
+const buildGuardInput = (
+  git: GitReader,
+  options: ScanOptions,
+  range: ScanRange,
+  commits: ReadonlyArray<ForkCommit>,
+  filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
+  churn: string | null,
+): GuardInput => {
+  const warned =
+    options.since === null
+      ? null
+      : new Set(readLines(git.run(["rev-list", `${options.since}..${range.head}`])));
+  const guardCommits = commits.flatMap((commit) =>
+    commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
+      ? []
+      : [{ sha: commit.sha, short: commit.short, domain: commit.domain }],
+  );
+  return {
+    commits: guardCommits,
+    filesBySha,
+    patchesBySha:
+      guardCommits.length === 0
+        ? new Map()
+        : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha)))),
+    upstreamFiles:
+      guardCommits.length === 0
+        ? new Set()
+        : new Set(
+            readLines(
+              git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.base]),
+            ),
+          ),
+    hotSeams: churn === null ? new Map() : readHotSeams(churn),
+  };
+};
+
+export const readScan = (
+  git: GitReader,
+  options: ScanOptions,
+  ledger: string,
+  churn: string | null = null,
+): ScanResult => {
   const range = resolveRange(git, options);
   const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
   const shas = commits.flatMap((commit) => (commit.domain === undefined ? [] : [commit.sha]));
+  const filesBySha: ReadonlyMap<string, ReadonlyArray<string>> = shas.length === 0
+    ? new Map()
+    : parseCommitFiles(git.run(commitFilesArguments(shas)));
   return buildScanResult({
     ...range,
     commits,
-    filesBySha:
-      shas.length === 0 ? new Map() : parseCommitFiles(git.run(commitFilesArguments(shas))),
+    filesBySha,
     scans: parseRebaseScans(ledger),
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
+    guard: buildGuardInput(git, options, range, commits, filesBySha, churn),
   });
 };
 
@@ -454,7 +534,9 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
-    const scanned = readScan(git, options, ledger);
+    const churnPath = NodePath.join(root, CHURN_PATH);
+    const churn = NodeFS.existsSync(churnPath) ? NodeFS.readFileSync(churnPath, "utf8") : null;
+    const scanned = readScan(git, options, ledger, churn);
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
@@ -479,6 +561,14 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     if (failures.length > 0) {
       for (const line of scanFailureSummary(result)) process.stderr.write(`${line}\n`);
       return 1;
+    }
+    if (result.warnings.length > 0) {
+      process.stdout.write(
+        options.strict
+          ? `failed: ${result.warnings.length} ledger guard warning(s) under --strict\n`
+          : `warned: ${result.warnings.length} ledger guard warning(s); advisory, --strict fails on them\n`,
+      );
+      if (options.strict) return 1;
     }
     process.stdout.write(
       `ok: ${result.domains.length} domain rebase scans cover every shared file their commits touch\n`,
