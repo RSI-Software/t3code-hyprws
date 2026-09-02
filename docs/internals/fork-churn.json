@@ -11,7 +11,8 @@
         "subject": "feat(server): bind thread worktrees to a managed zmux session",
         "domain": "zmux-estate",
         "class": "mechanical",
-        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`"
+        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`",
+        "decidedBy": "human"
       },
       {
         "path": "pnpm-lock.yaml",
@@ -19,7 +20,8 @@
         "subject": "feat(web): add rich Markdown editing (#28)",
         "domain": "markdown-editing",
         "class": "generated",
-        "resolution": "restore HEAD and regenerate"
+        "resolution": "restore HEAD and regenerate",
+        "decidedBy": "human"
       },
       {
         "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
@@ -27,7 +29,8 @@
         "subject": "feat(files): reveal ignored workspace files (#73)",
         "domain": "workspace-files",
         "class": "mechanical",
-        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`"
+        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`",
+        "decidedBy": "human"
       },
       {
         "path": "apps/web/src/components/ChatView.logic.test.ts",
@@ -35,7 +38,8 @@
         "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
         "domain": "upstream-fixes",
         "class": "mechanical",
-        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`"
+        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`",
+        "decidedBy": "human"
       },
       {
         "path": "apps/web/src/components/ChatMarkdown.tsx",
@@ -43,7 +47,8 @@
         "subject": "feat(web): add GitHub link destination controls (#178)",
         "domain": "github-issues",
         "class": "mechanical",
-        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`"
+        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`",
+        "decidedBy": "human"
       },
       {
         "path": "t3.json",
@@ -51,64 +56,76 @@
         "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
         "domain": "project-windows",
         "class": "mechanical",
-        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`"
+        "resolution": "rerere resolution verified byte-identical to audited replay `3794cb51`",
+        "decidedBy": "human"
       }
     ],
     "decisions": [
       {
         "subject": "docs(readme): hyprws",
         "domain": "fork-meta",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "docs(internals): record the fork delta by domain and tier",
         "domain": "fork-meta",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "fix(server): keep pull requests on origin",
         "domain": "upstream-fixes",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(server): bind thread worktrees to a managed zmux session",
         "domain": "zmux-estate",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): add rich Markdown editing (#28)",
         "domain": "markdown-editing",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(files): reveal ignored workspace files (#73)",
         "domain": "workspace-files",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(server): run Worktrunk hooks around thread worktrees",
         "domain": "worktrunk-hooks",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
         "domain": "upstream-fixes",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
         "domain": "worktrunk-hooks",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): add GitHub link destination controls (#178)",
         "domain": "github-issues",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
         "domain": "project-windows",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       }
     ],
     "censusFiles": [
@@ -396,7 +413,8 @@
         "subject": "feat(web): show which pane owns keyboard focus",
         "domain": "upstream-fixes",
         "class": "seam-moved",
-        "resolution": "kept fork focus cues; moved the composer ring onto upstream's extracted `ComposerSurface.Host`; reviewed rerere resolution"
+        "resolution": "kept fork focus cues; moved the composer ring onto upstream's extracted `ComposerSurface.Host`; reviewed rerere resolution",
+        "decidedBy": "human"
       },
       {
         "path": "apps/web/src/components/ChatView.logic.test.ts",
@@ -404,34 +422,40 @@
         "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
         "domain": "upstream-fixes",
         "class": "mechanical",
-        "resolution": "kept fork composer and terminal focus tests; dropped the adjacent obsolete `shoulderTabReserve` test removed by upstream's composer surface rewrite"
+        "resolution": "kept fork composer and terminal focus tests; dropped the adjacent obsolete `shoulderTabReserve` test removed by upstream's composer surface rewrite",
+        "decidedBy": "human"
       }
     ],
     "decisions": [
       {
         "subject": "feat(web): show which pane owns keyboard focus",
         "domain": "upstream-fixes",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
         "domain": "upstream-fixes",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
         "domain": "worktrunk-hooks",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "fix(provider): resolve repo skills per workspace (#188)",
         "domain": "upstream-fixes",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): open child work from the Agents panel",
         "domain": "custom-agents",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       }
     ],
     "censusFiles": [
@@ -707,7 +731,8 @@
         "subject": "feat(files): reveal ignored workspace files (#73)",
         "domain": "workspace-files",
         "class": "mechanical",
-        "resolution": "kept upstream browser-recording tests and fork ignored-files test"
+        "resolution": "kept upstream browser-recording tests and fork ignored-files test",
+        "decidedBy": "human"
       },
       {
         "path": "packages/contracts/src/settings.test.ts",
@@ -715,39 +740,46 @@
         "subject": "feat(web): add GitHub link destination controls (#178)",
         "domain": "github-issues",
         "class": "mechanical",
-        "resolution": "kept upstream browser-recording tests and fork GitHub-link-destination tests"
+        "resolution": "kept upstream browser-recording tests and fork GitHub-link-destination tests",
+        "decidedBy": "human"
       }
     ],
     "decisions": [
       {
         "subject": "feat(desktop): namespace previews by window",
         "domain": "project-windows",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
         "domain": "zmux-estate",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(files): reveal ignored workspace files (#73)",
         "domain": "workspace-files",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
         "domain": "worktrunk-hooks",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): add GitHub link destination controls (#178)",
         "domain": "github-issues",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       },
       {
         "subject": "feat(web): open child work from the Agents panel",
         "domain": "custom-agents",
-        "verdict": "keep"
+        "verdict": "keep",
+        "decidedBy": "human"
       }
     ],
     "censusFiles": [
@@ -1079,6 +1111,403 @@
         "path": "pnpm-lock.yaml",
         "hunks": 2,
         "commit": "ad354c9",
+        "domain": "markdown-editing"
+      }
+    ]
+  },
+  {
+    "tag": "v0.0.38-nightly.20260831.1241",
+    "before": "04e0e68d4ba7b8269006f103df961fa76227143d",
+    "after": "1e5973a8b10b88a14cc1a5acf61b405fff8af75e",
+    "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/440#issuecomment-5512260936",
+    "conflicts": [
+      {
+        "path": "apps/web/src/components/ChatView.tsx",
+        "commit": "e912a4fd0f2c",
+        "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+        "domain": "worktrunk-hooks",
+        "class": "mechanical",
+        "resolution": "rerere replay",
+        "decidedBy": "agent"
+      }
+    ],
+    "decisions": [
+      {
+        "subject": "feat(web): add project route subtree",
+        "domain": "project-windows",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(agents): select custom main-thread agents (#31)",
+        "domain": "custom-agents",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): add rich Markdown editing (#28)",
+        "domain": "markdown-editing",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(provider): resolve repo skills per workspace (#188)",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(web): open sub-issues in sidebar tabs (#183)",
+        "domain": "github-issues",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat(web): open child work from the Agents panel",
+        "domain": "custom-agents",
+        "verdict": "keep",
+        "action": "keep (mechanical seam)",
+        "decidedBy": "agent"
+      }
+    ],
+    "censusFiles": [
+      {
+        "path": "apps/desktop/src/preload.ts",
+        "hunks": 1,
+        "commit": "4479bfc",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/preview/Manager.test.ts",
+        "hunks": 1,
+        "commit": "3cb5177",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+        "hunks": 1,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+        "hunks": 2,
+        "commit": "a24972d",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/updates/DesktopUpdates.ts",
+        "hunks": 1,
+        "commit": "23c5507",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+        "hunks": 2,
+        "commit": "c239e5b",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/desktop/src/window/DesktopWindow.ts",
+        "hunks": 1,
+        "commit": "c239e5b",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+        "hunks": 1,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/features/settings/SettingsRouteScreen.tsx",
+        "hunks": 2,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/mobile/src/persistence/mobile-preferences.ts",
+        "hunks": 3,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/server/src/git/GitManager.test.ts",
+        "hunks": 1,
+        "commit": "9e5bf8e",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+        "hunks": 5,
+        "commit": "6a7795b",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+        "hunks": 1,
+        "commit": "fee5be1",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts",
+        "hunks": 1,
+        "commit": "6a7795b",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/ClaudeDriver.ts",
+        "hunks": 2,
+        "commit": "7e827cc",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/provider/Drivers/CodexDriver.ts",
+        "hunks": 1,
+        "commit": "2b21f15",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.test.ts",
+        "hunks": 1,
+        "commit": "3d74774",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+        "hunks": 2,
+        "commit": "fee5be1",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ClaudeProvider.ts",
+        "hunks": 1,
+        "commit": "2b21f15",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/provider/Layers/ProviderService.test.ts",
+        "hunks": 1,
+        "commit": "fee5be1",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/server/src/provider/ProviderDriver.ts",
+        "hunks": 1,
+        "commit": "cb3eb8d",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/pullRequest/GitHubPullRequestCli.test.ts",
+        "hunks": 1,
+        "commit": "5fdfcc5",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/server/src/server.test.ts",
+        "hunks": 1,
+        "commit": "8f5bee6",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/server/src/server.ts",
+        "hunks": 1,
+        "commit": "88dedca",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/package.json",
+        "hunks": 1,
+        "commit": "c59c7b0",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+        "hunks": 1,
+        "commit": "50dbba6",
+        "domain": "worktrunk-hooks"
+      },
+      {
+        "path": "apps/web/src/components/ChatMarkdown.tsx",
+        "hunks": 2,
+        "commit": "88dedca",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/ChatView.tsx",
+        "hunks": 5,
+        "commit": "c3fd44d",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/CommandPalette.tsx",
+        "hunks": 2,
+        "commit": "c3fd44d",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/Sidebar.tsx",
+        "hunks": 1,
+        "commit": "fc8cf65",
+        "domain": "thread-ordering"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.test.ts",
+        "hunks": 1,
+        "commit": "157bec1",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+        "hunks": 2,
+        "commit": "157bec1",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/ChatComposer.tsx",
+        "hunks": 3,
+        "commit": "cb3eb8d",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/chat/MessagesTimeline.tsx",
+        "hunks": 1,
+        "commit": "16a8445",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+        "hunks": 2,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+        "hunks": 7,
+        "commit": "c59c7b0",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+        "hunks": 1,
+        "commit": "e1904e2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+        "hunks": 3,
+        "commit": "a54c9b1",
+        "domain": "workspace-files"
+      },
+      {
+        "path": "apps/web/src/components/settings/SourceControlSettings.tsx",
+        "hunks": 1,
+        "commit": "bcdfe6a",
+        "domain": "github-issues"
+      },
+      {
+        "path": "apps/web/src/components/settings/settingsSearch.test.ts",
+        "hunks": 1,
+        "commit": "7e291cc",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/components/sidebar/SidebarChrome.tsx",
+        "hunks": 1,
+        "commit": "6fbebed",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/composerDraftStore.test.ts",
+        "hunks": 1,
+        "commit": "4479bfc",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useHandleNewThread.ts",
+        "hunks": 2,
+        "commit": "c3fd44d",
+        "domain": "project-windows"
+      },
+      {
+        "path": "apps/web/src/hooks/useNowMinute.ts",
+        "hunks": 1,
+        "commit": "a29aa86",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/lib/chatThreadActions.ts",
+        "hunks": 1,
+        "commit": "50dbba6",
+        "domain": "worktrunk-hooks"
+      },
+      {
+        "path": "apps/web/src/markdown-links.ts",
+        "hunks": 1,
+        "commit": "c59c7b0",
+        "domain": "markdown-editing"
+      },
+      {
+        "path": "apps/web/src/providerModels.ts",
+        "hunks": 1,
+        "commit": "2b21f15",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "apps/web/src/routes/-chatIndexTitlebar.test.ts",
+        "hunks": 0,
+        "commit": "7e81f6a",
+        "domain": "upstream-fixes"
+      },
+      {
+        "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+        "hunks": 4,
+        "commit": "e1904e2",
+        "domain": "project-windows"
+      },
+      {
+        "path": "package.json",
+        "hunks": 1,
+        "commit": "71fccdd",
+        "domain": "fork-meta"
+      },
+      {
+        "path": "packages/client-runtime/src/state/threadReducer.ts",
+        "hunks": 1,
+        "commit": "16a8445",
+        "domain": "custom-agents"
+      },
+      {
+        "path": "packages/contracts/src/ipc.ts",
+        "hunks": 2,
+        "commit": "550cdaa",
+        "domain": "project-windows"
+      },
+      {
+        "path": "packages/contracts/src/settings.test.ts",
+        "hunks": 1,
+        "commit": "39a1094",
+        "domain": "zmux-estate"
+      },
+      {
+        "path": "packages/contracts/src/settings.ts",
+        "hunks": 4,
+        "commit": "b58931e",
+        "domain": "github-issues"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "hunks": 2,
+        "commit": "c59c7b0",
         "domain": "markdown-editing"
       }
     ]
