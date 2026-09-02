@@ -249,10 +249,18 @@ const watchCounts = (watch: WatchSummary): string => {
   return `${watch.issues.length} open: ${breakdown}`;
 };
 
+/**
+ * This orientation is embedded verbatim in the rehearsal record, which is
+ * checked by `fork:upstream-refs` and posted to a GitHub thread. A commit
+ * subject or issue title carrying `#4379` reaches upstream from fork prose, so
+ * every value that can hold one is written inside a code span.
+ */
+const span = (value: string): string => `\`${value}\``;
+
 const feasibilityLine = (feasibility: FeasibilitySummary): string =>
   feasibility.firstConflict === null
     ? `all ${feasibility.upstreamCommitCount} upstream commits merge clean`
-    : `${feasibility.cleanCommitCount} of ${feasibility.upstreamCommitCount} upstream commits clean; first conflict ${feasibility.firstConflict}`;
+    : `${feasibility.cleanCommitCount} of ${feasibility.upstreamCommitCount} upstream commits clean; first conflict ${span(feasibility.firstConflict)}`;
 
 export const renderOrientation = (orientation: Orientation): string => {
   const { target, source, feasibility, overlap, retireCandidates, watch } = orientation;
@@ -300,7 +308,7 @@ export const renderOrientation = (orientation: Orientation): string => {
     lines.push("None.");
   } else {
     for (const candidate of retireCandidates) {
-      lines.push(`  [${candidate.decision}] ${candidate.subject} (${candidate.domain})`);
+      lines.push(`  [${candidate.decision}] ${span(candidate.subject)} (${candidate.domain})`);
       for (const signal of candidate.signals) lines.push(`      ${signal}`);
     }
   }
@@ -312,7 +320,7 @@ export const renderOrientation = (orientation: Orientation): string => {
     lines.push("No open upstream-watch issues. Nothing waits on upstream.");
   } else {
     for (const issue of watch.issues) {
-      lines.push(`  #${issue.number} [${issue.status}] ${issue.title}`);
+      lines.push(`  ${span(`#${issue.number}`)} [${issue.status}] ${span(issue.title)}`);
     }
   }
 
