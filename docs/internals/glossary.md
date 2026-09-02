@@ -32,6 +32,11 @@ A Git worktree used as an isolated workspace for a thread. If a thread has a `wo
 
 ### Fork synchronization
 
+#### `unblock-auto`
+
+The unattended `fork-sync` verb that carries `hyprws` to the next release tag through mechanical
+rebase work and stops only when an agent or human must judge behaviour. See [Fork sync][27].
+
 #### `hyprws-previous`
 
 The bot-owned branch that records the published `hyprws` head immediately before an automatic trunk
