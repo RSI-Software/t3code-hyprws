@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 
 import {
   autoGateFour,
+  baseReleaseTag,
   autoResolveConflicts,
   completeGeneratedConflictRegeneration,
   decisionSurface,
@@ -1805,6 +1806,60 @@ it("refuses a tampered rehearsal lane before apply or deletion", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(tampered.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("binds a rewrite lane to its own from/origin naming", () => {
+  const root = fixtureRoot();
+  const rewrite = {
+    from: "origin/prepared",
+    fromSha: B,
+    fromShort: B.slice(0, 12),
+    originSha: C,
+    originShort: C.slice(0, 12),
+    base: A,
+    baseToOriginCount: 201,
+    baseToFromCount: 201,
+    allowExtra: 0,
+    allowPaths: [],
+    originDigest: "d".repeat(64),
+    fromFirstNDigest: "d".repeat(64),
+    diffEmpty: true,
+    proofs: [],
+  };
+  const bound = report(root, {
+    kind: "rewrite",
+    rewrite,
+    lane: { branch: `rehearse/rewrite-${B.slice(0, 12)}-from-${C.slice(0, 12)}`, worktree: root },
+  });
+  const tampered = report(root, {
+    kind: "rewrite",
+    rewrite,
+    lane: { branch: "rehearse/v1.2.3-from-cccccccccccc", worktree: root },
+  });
+  const runner = new FakeRunner();
+  try {
+    validateAutoLane(bound, runner);
+    assert.throws(() => validateAutoLane(tampered, runner), /rehearsal lane mismatch/);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(bound.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(tampered.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("pins the rewrite gate to the release tag at the fork base", () => {
+  const root = fixtureRoot();
+  const runner = new FakeRunner();
+  runner.set("git", ["tag", "--points-at", A], {
+    stdout: "hyprws-checkpoint\nv0.0.38-nightly.20260831.1236\n",
+  });
+  runner.set("git", ["tag", "--points-at", B], { stdout: "hyprws-checkpoint\n" });
+  try {
+    assert.strictEqual(baseReleaseTag(runner, root, A), "v0.0.38-nightly.20260831.1236");
+    assert.throws(() => baseReleaseTag(runner, root, B), /no upstream release tag points at/);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
