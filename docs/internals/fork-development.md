@@ -330,8 +330,8 @@ When the newest upstream tag is unreachable, the bot creates or updates the fork
 `rebase-blocked` issue. Resolve it through the repo-local
 [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
 entry point. Its five gates orient on the newest selected upstream tag beyond the block, rehearse on
-`rehearse/<tag>`, scan every active domain, run focused checks, and present the decisions, silent
-seams, and grounding evidence for human sign-off before the agent records and applies them.
+`rehearse/<tag>`, scan every active domain, take the CI verdict on the pushed lane head, and present
+its decisions, silent seams, and grounding evidence for human sign-off before apply.
 
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
 domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
