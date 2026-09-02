@@ -294,7 +294,7 @@ export const renderRecord = (report: SyncReport): string => {
   }
   const decisionRows = [...decisions.values()].map(
     (row) =>
-      `| \`${row.subject}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} |`,
+      `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} |`,
   );
   return [
     "## Header",
@@ -394,8 +394,11 @@ const unescapeCell = (value: string, column: string): string => {
   return result;
 };
 
+const recordSection = (record: string, heading: string): string =>
+  record.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
+
 export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> => {
-  const section = record.split("## Conflicts\n", 2)[1]?.split("\n## ", 1)[0] ?? "";
+  const section = recordSection(record, "## Conflicts");
   const rows: Array<ConflictRow> = [];
   for (const line of section.split("\n")) {
     const cells = splitTableCells(line);
@@ -432,6 +435,53 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
     });
   }
   return rows;
+};
+
+const invalidDecisionCell = (column: string, detail: string): Error =>
+  new Error(`invalid fork commit ${column} cell: ${detail}`);
+
+export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDecisionRow> => {
+  const section = recordSection(record, "## Fork commits");
+  const rows: Array<OrientationDecisionRow> = [];
+  for (const line of section.split("\n")) {
+    const cells = splitTableCells(line);
+    if (cells === null || cells[0] === "Exact subject") continue;
+    if (cells.every((cell) => /^-+$/.test(cell))) continue;
+    if (cells.length !== 5) {
+      throw new Error(`invalid fork commit row: expected 5 columns, found ${cells.length}`);
+    }
+
+    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
+    if (subject === null)
+      throw invalidDecisionCell("Exact subject", "expected a backticked subject");
+    const domain = cells[1] ?? "";
+    if (/\\[\\|]/.test(domain))
+      throw invalidDecisionCell("Domain", "escaped pipes and backslashes are not accepted");
+    const verdict = cells[3] ?? "";
+    if (!["keep", "retire", "partial"].includes(verdict)) {
+      throw invalidDecisionCell("Action", `expected keep, retire, or partial; found ${verdict}`);
+    }
+    rows.push({
+      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
+      domain,
+      verdict: verdict as OrientationDecisionRow["verdict"],
+    });
+  }
+  return rows;
+};
+
+export interface ParsedRecord {
+  readonly conflicts: ReadonlyArray<ConflictRow>;
+  readonly decisions: ReadonlyArray<OrientationDecisionRow>;
+}
+
+/** Reads only the two tables emitted by renderRecord for a landed walk. */
+export const parseRecord = (record: string): ParsedRecord => {
+  const conflicts = parseConflictRows(record);
+  const incomplete = conflicts.find((row) => row.class === "TODO");
+  if (incomplete !== undefined)
+    throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
+  return { conflicts, decisions: parseDecisionRows(record) };
 };
 
 export const orientationTouchedPaths = (orientation: string): ReadonlyArray<string> => {
