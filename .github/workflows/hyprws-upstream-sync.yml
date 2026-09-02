@@ -6,6 +6,9 @@ name: hyprws upstream sync
 # only the rebase push; reporting and tickets always run. An unset variable uses
 # candidate mode. Auto-rebase drops the checkout token before it runs rebased
 # code; the mirror PAT reaches only the push helper.
+#
+# The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
+# each blocked report renders it as a Churn section on the notification issue.
 
 on:
   push:
@@ -180,3 +183,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
         run: node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
+
+      # The ledger is read from refs/fork/churn, which this repository serves
+      # unauthenticated, so the stripped checkout credential is not needed. The
+      # section replaces itself on the notification issue instead of stacking.
+      - name: Post churn section
+        if: ${{ always() && steps.rebase.outputs.status == 'blocked' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/fork-churn.ts report

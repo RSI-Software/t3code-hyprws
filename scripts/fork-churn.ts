@@ -3,237 +3,53 @@
 // @effect-diagnostics nodeBuiltinImport:off - The churn ledger is standalone fork operator state.
 
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { CHURN_REF, pushBotRef, resolveBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
-import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import {
-  parseRecord,
-  type ConflictClass,
-  type DecidedBy,
-  type OrientationDecisionRow,
-} from "./fork-sync-state.ts";
+  CONFLICT_CLASSES,
+  conflictRowsByPath,
+  hotSeams,
+  parseCensusFiles,
+  parseLedger,
+  parseSilentSeams,
+  readChurnLedger,
+  writeChurnLedger,
+  type CensusFile,
+  type ChurnConflict,
+  type ChurnEntry,
+} from "./fork-churn-ledger.ts";
+import { CHURN_MARKER, renderChurnSection } from "./fork-churn-section.ts";
+import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
+import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 
+export {
+  hotSeams,
+  parseCensusFiles,
+  parseLedger,
+  type CensusFile,
+  type ChurnConflict,
+  type ChurnEntry,
+};
+
+/**
+ * Deprecated. The ledger now lives on `refs/fork/churn`, so no fork commit carries a
+ * row and no rebase has to replay one. These paths stay readable until
+ * RSI-Software/t3code-hyprws#476 retires them.
+ */
 export const LEDGER_PATH = "docs/internals/fork-churn.json";
 export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
 export const DELTA_PATH = "docs/internals/fork-delta.md";
 
-const CONFLICT_CLASSES = [
-  "generated",
-  "mechanical",
-  "seam-moved",
-  "retire-candidate",
-  "human",
-] as const satisfies ReadonlyArray<ConflictClass>;
-const CLASS_RANK = new Map(CONFLICT_CLASSES.map((value, index) => [value, index]));
 const SHA = /^[0-9a-f]{7,64}$/;
-
-export interface ChurnConflict {
-  readonly path: string;
-  readonly commit: string;
-  readonly subject: string;
-  readonly domain: string;
-  readonly class: ConflictClass;
-  readonly resolution: string;
-  readonly decidedBy: DecidedBy;
-}
-
-export interface CensusFile {
-  readonly path: string;
-  readonly hunks: number;
-  readonly commit: string;
-  readonly domain: string;
-}
-
-export interface ChurnEntry {
-  readonly tag: string;
-  readonly before: string;
-  readonly after: string;
-  readonly recordUrl: string;
-  readonly conflicts: ReadonlyArray<ChurnConflict>;
-  readonly decisions: ReadonlyArray<OrientationDecisionRow>;
-  readonly censusFiles: ReadonlyArray<CensusFile>;
-}
 
 interface IssueView {
   readonly body: string;
   readonly url: string;
   readonly comments: ReadonlyArray<{ readonly body: string; readonly url: string }>;
 }
-
-interface HotSeam {
-  readonly path: string;
-  readonly walkCount: number;
-  readonly worstClass: ConflictClass;
-  readonly conflicts: ReadonlyArray<ChurnConflict>;
-}
-
-const splitTableCells = (line: string): ReadonlyArray<string> | null => {
-  if (!line.startsWith("|") || !line.endsWith("|")) return null;
-  const cells: Array<string> = [];
-  let cell = "";
-  let backslashes = 0;
-  for (const character of line.slice(1, -1)) {
-    if (character === "|" && backslashes % 2 === 0) {
-      cells.push(cell.trim());
-      cell = "";
-    } else {
-      cell += character;
-    }
-    backslashes = character === "\\" ? backslashes + 1 : 0;
-  }
-  cells.push(cell.trim());
-  return cells;
-};
-
-const unescapeCell = (value: string): string => {
-  let result = "";
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index] ?? "";
-    if (character !== "\\") {
-      result += character;
-      continue;
-    }
-    const escaped = value[index + 1];
-    if (escaped !== "\\" && escaped !== "|") {
-      throw new Error(
-        `unsupported table escape ${escaped === undefined ? "at end of cell" : `\\${escaped}`}`,
-      );
-    }
-    result += escaped;
-    index += 1;
-  }
-  return result;
-};
-
-const section = (markdown: string, heading: string): string =>
-  markdown.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
-
-export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
-  const rows: Array<CensusFile> = [];
-  for (const line of section(body, "## Sequential rebase census").split("\n")) {
-    const cells = splitTableCells(line);
-    if (cells === null || cells[0] === "File") continue;
-    if (cells.every((cell) => /^-+:?$/.test(cell))) continue;
-    if (cells.length !== 4) {
-      throw new Error(`invalid census row: expected 4 columns, found ${cells.length}`);
-    }
-    const path = /^`([^`]*)`$/.exec(cells[0] ?? "");
-    if (path === null) throw new Error("invalid census File cell: expected a backticked path");
-    const hunks = Number(cells[1]);
-    if (!Number.isSafeInteger(hunks) || hunks < 0)
-      throw new Error(`invalid census Hunks cell: ${cells[1] ?? ""}`);
-    const commit = /^`([0-9a-f]{7,12}) .+`$/.exec(cells[2] ?? "");
-    if (commit === null) throw new Error("invalid census Fork commit cell: expected `sha subject`");
-    rows.push({
-      path: unescapeCell(path[1] ?? ""),
-      hunks,
-      commit: commit[1] ?? "",
-      domain: cells[3] ?? "",
-    });
-  }
-  if (rows.length === 0) throw new Error("sequential rebase census has no file rows");
-  return rows;
-};
-
-const isConflictClass = (value: unknown): value is ConflictClass =>
-  typeof value === "string" && (CONFLICT_CLASSES as ReadonlyArray<string>).includes(value);
-
-const requireString = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`invalid ${field}`);
-  return value;
-};
-
-/** A ledger row written before provenance was recorded carries none, and none is not a human. */
-const readDecidedBy = (value: unknown, invalid: () => Error): DecidedBy => {
-  if (value === undefined || value === "TODO") return "TODO";
-  if (value === "human" || value === "agent") return value;
-  throw invalid();
-};
-
-export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
-  const value = JSON.parse(raw) as unknown;
-  if (!Array.isArray(value)) throw new Error("fork churn ledger must be an array");
-  const entries = value.map((item, entryIndex) => {
-    if (typeof item !== "object" || item === null) throw new Error(`invalid entry ${entryIndex}`);
-    const entry = item as Record<string, unknown>;
-    if (
-      !Array.isArray(entry.conflicts) ||
-      !Array.isArray(entry.decisions) ||
-      !Array.isArray(entry.censusFiles)
-    )
-      throw new Error(`invalid collections in entry ${entryIndex}`);
-    const conflicts = entry.conflicts.map((item, conflictIndex) => {
-      if (typeof item !== "object" || item === null)
-        throw new Error(`invalid conflict ${conflictIndex} in entry ${entryIndex}`);
-      const row = item as Record<string, unknown>;
-      if (!isConflictClass(row.class))
-        throw new Error(`invalid conflict class in entry ${entryIndex}`);
-      return {
-        path: requireString(row.path, "conflict path"),
-        commit: requireString(row.commit, "conflict commit"),
-        subject: requireString(row.subject, "conflict subject"),
-        domain: requireString(row.domain, "conflict domain"),
-        class: row.class,
-        resolution: requireString(row.resolution, "conflict resolution"),
-        decidedBy: readDecidedBy(
-          row.decidedBy,
-          () => new Error(`invalid conflict decidedBy in entry ${entryIndex}`),
-        ),
-      };
-    });
-    const decisions = entry.decisions.map((item, decisionIndex) => {
-      if (typeof item !== "object" || item === null)
-        throw new Error(`invalid decision ${decisionIndex} in entry ${entryIndex}`);
-      const row = item as Record<string, unknown>;
-      const verdict = row.verdict;
-      if (!["keep", "retire", "partial"].includes(String(verdict)))
-        throw new Error(`invalid decision verdict in entry ${entryIndex}`);
-      return {
-        subject: requireString(row.subject, "decision subject"),
-        domain: requireString(row.domain, "decision domain"),
-        verdict: verdict as OrientationDecisionRow["verdict"],
-        decidedBy: readDecidedBy(
-          row.decidedBy,
-          () => new Error(`invalid decision decidedBy in entry ${entryIndex}`),
-        ),
-      };
-    });
-    const censusFiles = entry.censusFiles.map((item, censusIndex) => {
-      if (typeof item !== "object" || item === null)
-        throw new Error(`invalid census file ${censusIndex} in entry ${entryIndex}`);
-      const row = item as Record<string, unknown>;
-      if (!Number.isSafeInteger(row.hunks) || Number(row.hunks) < 0)
-        throw new Error(`invalid census hunks in entry ${entryIndex}`);
-      return {
-        path: requireString(row.path, "census path"),
-        hunks: Number(row.hunks),
-        commit: requireString(row.commit, "census commit"),
-        domain: requireString(row.domain, "census domain"),
-      };
-    });
-    return {
-      tag: requireString(entry.tag, "tag"),
-      before: requireString(entry.before, "before"),
-      after: requireString(entry.after, "after"),
-      recordUrl: requireString(entry.recordUrl, "recordUrl"),
-      conflicts,
-      decisions,
-      censusFiles,
-    } satisfies ChurnEntry;
-  });
-  const tags = new Set<string>();
-  for (const entry of entries) {
-    if (tags.has(entry.tag)) throw new Error(`duplicate tag: ${entry.tag}`);
-    tags.add(entry.tag);
-  }
-  return entries;
-};
-
-const readLedger = (root: string): ReadonlyArray<ChurnEntry> => {
-  const path = NodePath.join(root, LEDGER_PATH);
-  return NodeFS.existsSync(path) ? parseLedger(NodeFS.readFileSync(path, "utf8")) : [];
-};
 
 const unique = (values: ReadonlyArray<string>): ReadonlyArray<string> =>
   [...new Set(values)].toSorted();
@@ -243,45 +59,6 @@ const code = (value: string): string => {
   while (value.includes(delimiter)) delimiter += "`";
   return `${delimiter}${value}${delimiter}`;
 };
-const conflictRowsByPath = (
-  entries: ReadonlyArray<ChurnEntry>,
-): ReadonlyMap<string, ReadonlyArray<{ readonly tag: string; readonly row: ChurnConflict }>> => {
-  const paths = new Map<string, Array<{ readonly tag: string; readonly row: ChurnConflict }>>();
-  for (const entry of entries) {
-    for (const row of entry.conflicts) {
-      const values = paths.get(row.path) ?? [];
-      values.push({ tag: entry.tag, row });
-      paths.set(row.path, values);
-    }
-  }
-  return paths;
-};
-
-export const hotSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<HotSeam> =>
-  [...conflictRowsByPath(entries)]
-    .map(([path, values]) => {
-      const conflicts = values.map(({ row }) => row);
-      return {
-        path,
-        walkCount: new Set(values.map(({ tag }) => tag)).size,
-        worstClass: conflicts.reduce<ConflictClass>(
-          (worst, row) => (CLASS_RANK.get(row.class)! > CLASS_RANK.get(worst)! ? row.class : worst),
-          "generated",
-        ),
-        conflicts,
-      };
-    })
-    .filter(
-      (seam) =>
-        seam.walkCount >= 2 ||
-        seam.conflicts.some((row) => row.class === "human" || row.class === "retire-candidate"),
-    )
-    .toSorted(
-      (left, right) =>
-        right.walkCount - left.walkCount ||
-        CLASS_RANK.get(right.worstClass)! - CLASS_RANK.get(left.worstClass)! ||
-        left.path.localeCompare(right.path),
-    );
 
 const retirementAnchors = (forkDelta: string): ReadonlyMap<string, string> => {
   const anchors = new Map<string, string>();
@@ -331,6 +108,9 @@ export const renderMarkdown = (entries: ReadonlyArray<ChurnEntry>, forkDelta: st
     "# Fork conflict churn",
     "",
     "> Generated by `vp run fork:churn`. Do not edit by hand.",
+    "",
+    "> Deprecated. `refs/fork/churn` is the ledger; this document and `fork-churn.json` are a",
+    "> frozen mirror that RSI-Software/t3code-hyprws#476 retires at a later rebase.",
     "",
     `- Entries: ${entries.length}`,
     `- Tag range: ${entries.length === 0 ? "none" : `${code(entries[0]?.tag ?? "")} → ${code(entries.at(-1)?.tag ?? "")}`}`,
@@ -534,8 +314,14 @@ const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<string, string> 
   return options;
 };
 
+const takeFlag = (args: ReadonlyArray<string>, flag: string): [boolean, ReadonlyArray<string>] => [
+  args.includes(flag),
+  args.filter((value) => value !== flag),
+];
+
 const append = (args: ReadonlyArray<string>, root: string): void => {
-  const options = parseOptions(args);
+  const [push, rest] = takeFlag(args, "--push");
+  const options = parseOptions(rest);
   const allowed = ["--record", "--issue", "--tag", "--before", "--after"];
   for (const option of options.keys())
     if (!allowed.includes(option)) throw new Error(`unknown option: ${option}`);
@@ -553,7 +339,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     throw new Error("--issue must be a positive integer");
   if (!SHA.test(before) || !SHA.test(after))
     throw new Error("--before and --after must be Git SHAs");
-  const entries = readLedger(root);
+  const entries = readChurnLedger(root);
   if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
@@ -581,6 +367,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       decidedBy,
     }),
   );
+  const silentSeams = parseSilentSeams(record);
   const next = [
     ...entries,
     {
@@ -591,13 +378,130 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       conflicts,
       decisions: parsed.decisions,
       censusFiles: parseCensusFiles(issueView.body),
+      ...(silentSeams.length === 0 ? {} : { silentSeams }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;
-  const rendered = renderForRoot(root, next);
-  NodeFS.writeFileSync(NodePath.join(root, LEDGER_PATH), `${JSON.stringify(next, null, 2)}\n`);
-  NodeFS.writeFileSync(NodePath.join(root, DOCUMENT_PATH), rendered);
-  process.stdout.write(`appended ${tag}: ${conflicts.length} conflict(s)\n`);
+  writeChurnLedger(root, next, `churn: ${tag}`);
+  if (push) pushBotRef(root, CHURN_REF);
+  // The document is a frozen mirror (#476); keep it in step for as long as it exists.
+  const documentPath = NodePath.join(root, DOCUMENT_PATH);
+  if (NodeFS.existsSync(documentPath))
+    NodeFS.writeFileSync(documentPath, renderForRoot(root, next));
+  process.stdout.write(
+    `appended ${tag}: ${conflicts.length} conflict(s) on ${CHURN_REF}${push ? " (pushed)" : ""}\n`,
+  );
 };
+
+interface BlockedIssueView {
+  readonly number: number;
+}
+
+/** The single open block issue the walk hangs off, or null when nothing is blocked. */
+const blockedIssueNumber = (root: string): number | null => {
+  const issues = JSON.parse(
+    runCommandText(
+      "gh",
+      [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--label",
+        BLOCK_LABEL,
+        "--repo",
+        FORK_REPOSITORY,
+        "--json",
+        "number",
+      ],
+      { cwd: root },
+    ),
+  ) as ReadonlyArray<BlockedIssueView>;
+  if (issues.length > 1)
+    throw new Error(`expected at most one open ${BLOCK_LABEL} issue, found ${issues.length}`);
+  return issues[0]?.number ?? null;
+};
+
+interface IssueComments {
+  readonly comments: ReadonlyArray<{ readonly id: string; readonly body: string }>;
+}
+
+/**
+ * Post the churn section on the block issue, replacing the section the previous
+ * report left so the issue carries one live view instead of a pile of snapshots.
+ */
+const report = (args: ReadonlyArray<string>, root: string): number => {
+  const options = parseOptions(args);
+  for (const option of options.keys())
+    if (option !== "--issue") throw new Error(`unknown option: ${option}`);
+  const explicit = options.get("--issue");
+  const issue = explicit === undefined ? blockedIssueNumber(root) : Number(explicit);
+  if (issue === null) {
+    process.stdout.write(`no open ${BLOCK_LABEL} issue; churn section not posted\n`);
+    return 0;
+  }
+  if (!Number.isSafeInteger(issue) || issue < 1)
+    throw new Error("--issue must be a positive integer");
+  const view = JSON.parse(
+    runCommandText(
+      "gh",
+      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "comments"],
+      { cwd: root },
+    ),
+  ) as IssueComments;
+  const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
+  const body = renderChurnSection(readChurnLedger(root), existing?.body ?? null);
+  const bodyPath = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
+    "churn.md",
+  );
+  NodeFS.writeFileSync(bodyPath, body);
+  const url = runCommandText(
+    "gh",
+    existing === undefined
+      ? ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", bodyPath]
+      : [
+          "api",
+          "--method",
+          "PATCH",
+          `repos/${FORK_REPOSITORY}/issues/comments/${existing.id}`,
+          "--field",
+          `body=@${bodyPath}`,
+          "--jq",
+          ".html_url",
+        ],
+    { cwd: root },
+  ).trim();
+  process.stdout.write(`churn section on #${issue}: ${url}\n`);
+  return 0;
+};
+
+/**
+ * Move the file-backed ledger onto its bot-owned ref. One-time, and refused once the
+ * ref exists, because the ref outruns the frozen file from the first walk onward.
+ */
+const seed = (args: ReadonlyArray<string>, root: string): number => {
+  const [push, rest] = takeFlag(args, "--push");
+  const options = parseOptions(rest);
+  for (const option of options.keys())
+    if (option !== "--from") throw new Error(`unknown option: ${option}`);
+  const from = NodePath.resolve(root, options.get("--from") ?? LEDGER_PATH);
+  if (resolveBotRef(root, CHURN_REF) !== null)
+    throw new Error(`${CHURN_REF} already exists; it is seeded once and appended to after that`);
+  const entries = parseLedger(NodeFS.readFileSync(from, "utf8"));
+  const commit = writeChurnLedger(
+    root,
+    entries,
+    `churn: seed from ${NodePath.relative(root, from)}`,
+  );
+  if (push) pushBotRef(root, CHURN_REF);
+  process.stdout.write(
+    `${CHURN_REF} at ${commit}: ${entries.length} walk(s)${push ? " (pushed)" : ""}\n`,
+  );
+  return 0;
+};
+
+const USAGE =
+  "usage: fork-churn append <options> | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
 
 export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number => {
   try {
@@ -606,10 +510,12 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
       append(args, root);
       return 0;
     }
-    if (verb !== "render") throw new Error("usage: fork-churn append <options> | render [--check]");
+    if (verb === "report") return report(args, root);
+    if (verb === "seed") return seed(args, root);
+    if (verb !== "render") throw new Error(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new Error("usage: fork-churn render [--check]");
-    const rendered = renderForRoot(root, readLedger(root));
+    const rendered = renderForRoot(root, readChurnLedger(root));
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
     if (args[0] === "--check") {
       const committed = NodeFS.existsSync(documentPath)
