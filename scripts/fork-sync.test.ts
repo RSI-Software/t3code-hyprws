@@ -34,7 +34,7 @@ import {
   rehearsalRebaseArgs,
   renderRecord,
   resolveAutoTarget,
-  gateFourStopReason,
+  gateFourStopReasons,
   resolveUnblockTarget,
   run,
   SystemRunner,
@@ -1225,13 +1225,13 @@ it("Gate 4 auto-keeps keep and stops on retire or partial verdicts", () => {
       ],
     });
   try {
-    assert.isNull(gateFourStopReason(decision("keep")));
+    assert.isEmpty(gateFourStopReasons(decision("keep")));
     assert.deepInclude(autoGateFour(decision("keep"))?.orientationDecisions?.[0], {
       verdict: "keep",
       decidedBy: "agent",
     });
-    assert.include(gateFourStopReason(decision("retire")) ?? "", "retire");
-    assert.include(gateFourStopReason(decision("partial")) ?? "", "partial");
+    assert.include(gateFourStopReasons(decision("retire")).join("\n"), "retire");
+    assert.include(gateFourStopReasons(decision("partial")).join("\n"), "partial");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -1255,11 +1255,14 @@ it("Gate 4 parses candidate overlap fail-closed", () => {
       ],
     });
   try {
-    assert.include(gateFourStopReason(candidate()) ?? "", "no parsed behaviour overlap");
-    assert.include(gateFourStopReason(candidate("none")) ?? "", "no parsed behaviour overlap");
-    assert.isNull(gateFourStopReason(candidate("weak hunk overlap: file.ts@1~2")));
+    assert.include(gateFourStopReasons(candidate()).join("\n"), "no parsed behaviour overlap");
     assert.include(
-      gateFourStopReason(candidate("medium overlap: file.ts")) ?? "",
+      gateFourStopReasons(candidate("none")).join("\n"),
+      "no parsed behaviour overlap",
+    );
+    assert.isEmpty(gateFourStopReasons(candidate("weak hunk overlap: file.ts@1~2")));
+    assert.include(
+      gateFourStopReasons(candidate("medium overlap: file.ts")).join("\n"),
       "behaviour-overlap: medium overlap: file.ts",
     );
   } finally {
@@ -1290,7 +1293,10 @@ it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
     decidedBy: "agent" as const,
   };
   try {
-    assert.include(gateFourStopReason(base) ?? "", "hard overlap lacks a mechanical conflict");
+    assert.include(
+      gateFourStopReasons(base).join("\n"),
+      "hard overlap lacks a mechanical conflict",
+    );
     const decided = autoGateFour({ ...base, conflicts: [conflict] });
     assert.deepInclude(decided?.orientationDecisions?.[0], {
       verdict: "candidate",
@@ -1299,6 +1305,124 @@ it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
     });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("surfaces every gate 4 stop instead of the first one it finds", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const path = "packages/contracts/src/settings.test.ts";
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: [
+      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
+      "  [candidate] `feat(web): hidden behind the first stop` (workspace-files)",
+      `      behaviour-overlap: hard: ${path} (1 hunk)`,
+      "",
+    ].join("\n"),
+    orientationDecisions: [
+      {
+        subject: "fix(server): split upstream",
+        domain: "fork-meta",
+        verdict: "partial",
+        decidedBy: "TODO",
+      },
+      {
+        subject: "feat(web): hidden behind the first stop",
+        domain: "workspace-files",
+        verdict: "candidate",
+        decidedBy: "TODO",
+      },
+    ],
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  try {
+    assert.lengthOf(gateFourStopReasons(checked), 2);
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+    );
+    assert.strictEqual(result, 2);
+    // A stop the operator cannot see costs a whole round trip, so one surface carries them all.
+    assert.include(output, "Gate 4 refusal: orientation verdict requires judgement: partial");
+    assert.include(output, `Gate 4 refusal: hard overlap lacks a mechanical conflict for`);
+    assert.include(output, path);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("takes canonical walker decisions to the independent nightly review boundary", () => {
+  const root = fixtureRoot();
+  const tag = "v0.0.39-nightly.20260904.1";
+  const branch = `rehearse/${tag}-from-${C.slice(0, 12)}`;
+  const subject = "feat(web): reviewed target-tree overlap";
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag, sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: [
+      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
+      `  [candidate] \`${subject}\` (fork-meta)`,
+      "",
+    ].join("\n"),
+    orientationDecisions: [
+      { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
+    ],
+    recordDecisions: [{ subject, action: "keep", decidedBy: "agent" }],
+    verification: [{ command: "hyprws CI https://example.test/runs/42", result: "passed" }],
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", `refs/tags/${tag}^{commit}`], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  runner.set("ghb", ["attest", "handoff"], {
+    stdout: JSON.stringify({
+      schema: "ghb.host-handoff.v1",
+      host: {
+        role: "host",
+        iface: "codex",
+        provider: "openai",
+        model: "gpt-5.6-sol",
+        session: "walk-1",
+      },
+    }),
+  });
+  try {
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+    );
+    assert.strictEqual(result, 2);
+    assert.include(output, "Independent Claude Opus review required");
+    assert.notInclude(output, "Gate 4 refusal");
+    const proposed = validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")));
+    assert.deepStrictEqual(proposed.recordDecisions, checked.recordDecisions);
+    assert.deepInclude(proposed.proposedBy, {
+      iface: "codex",
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      session: "walk-1",
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -1416,7 +1540,7 @@ it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a pre
     });
   try {
     const absent = state([]);
-    assert.isNull(gateFourStopReason(absent));
+    assert.isEmpty(gateFourStopReasons(absent));
     assert.deepInclude(autoGateFour(absent)?.orientationDecisions?.[0], {
       verdict: "candidate",
       action: "keep (target tree absent)",
@@ -1426,7 +1550,7 @@ it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a pre
 
     const present = state([{ identifier: "ForkOnlyHelper", location: "apps/web/src/x.ts:14" }]);
     assert.include(
-      gateFourStopReason(present) ?? "",
+      gateFourStopReasons(present).join("\n"),
       "retire candidate is present in the target tree: `feat: candidate`: ForkOnlyHelper at apps/web/src/x.ts:14",
     );
     assert.isNull(autoGateFour(present));
@@ -1544,7 +1668,7 @@ it("Gate 4 carries the complete slice-4 orientation with a type-only silent seam
     ],
   });
   try {
-    assert.isNull(gateFourStopReason(state));
+    assert.isEmpty(gateFourStopReasons(state));
     const decided = autoGateFour(state);
     assert.isNotNull(decided);
     assert.lengthOf(
@@ -1582,8 +1706,8 @@ it("silent seam evidence distinguishes type adaptation from behaviour", () => {
     ],
   };
   try {
-    assert.isNull(gateFourStopReason(typeOnly));
-    assert.include(gateFourStopReason(behaviour) ?? "", "silent seam touches behaviour");
+    assert.isEmpty(gateFourStopReasons(typeOnly));
+    assert.include(gateFourStopReasons(behaviour).join("\n"), "silent seam touches behaviour");
     assert.include(renderRecord(behaviour), "`apps/a.ts` [behaviour]: changed visible behavior");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -1641,6 +1765,74 @@ it("unblock-auto stops once with Gate 4 evidence for a behaviour seam", () => {
     } finally {
       process.stderr.write = original;
     }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("fills the record on a resume from a presented behaviour-seam stop", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const subject = "feat(web): preserve behavior";
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: [
+      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
+      `  [candidate] \`${subject}\` (fork-meta)`,
+      "      behaviour-overlap: weak hunk overlap: apps/web/src/a.ts@1~2",
+      "",
+    ].join("\n"),
+    orientationDecisions: [
+      { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
+    ],
+    silentSeams: [
+      { path: "apps/web/src/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
+    ],
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  const forkCommitRows = (record: string): ReadonlyArray<string> =>
+    (record.split("## Fork commits\n", 2)[1] ?? "")
+      .split("\n## ", 1)[0]
+      ?.split("\n")
+      .filter((line) => line.startsWith("| `")) ?? [];
+  try {
+    assert.strictEqual(
+      captureStdout(() =>
+        run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+      ).result,
+      2,
+    );
+    assert.isTrue(
+      forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8")).some((row) =>
+        row.includes("| TODO |"),
+      ),
+    );
+
+    const original = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner);
+    } finally {
+      process.stderr.write = original;
+    }
+    const rows = forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8"));
+    assert.lengthOf(rows, 1);
+    // The resume owes the same fill the unpresented path runs, so no cell is left for the apply.
+    assert.notInclude(rows[0] ?? "", "TODO");
+    assert.include(rows[0] ?? "", "| keep (mechanical seam) |");
+    assert.include(rows[0] ?? "", "| agent |");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
