@@ -12,6 +12,7 @@ import {
   execute,
   gateVerificationEnv,
   identifyRerereResolvedPaths,
+  laneExecutablePath,
   lockDriftClass,
   orientationDecisionRows,
   orientationTouchedPaths,
@@ -27,6 +28,7 @@ import {
   type CommandRunner,
   type SyncReport,
 } from "./fork-sync.ts";
+import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -179,7 +181,7 @@ it("orients only to a tag carried by the previous report", () => {
     runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
     runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
       stdout:
-        "## Retire candidates\n  [keep] feat(web): preserve fork behavior (workspace-files)\n",
+        "## Retire candidates\n  [keep] `feat(web): preserve fork behavior` (workspace-files)\n",
     });
     const oriented = execute(
       ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
@@ -210,10 +212,10 @@ it("carries orientation overlap and every retirement verdict into structured sta
     "  - package.json",
     "",
     "## Retire candidates",
-    "  [candidate] fix(web): review upstream overlap (project-windows)",
-    "  [keep] feat(web): keep fork behavior (workspace-files)",
-    "  [retire] fix(server): use upstream behavior (fork-meta)",
-    "  [partial] feat(desktop): retain one seam (custom-agents)",
+    "  [candidate] `fix(web): review upstream overlap` (project-windows)",
+    "  [keep] `feat(web): keep fork behavior` (workspace-files)",
+    "  [retire] `fix(server): use upstream behavior` (fork-meta)",
+    "  [partial] `feat(desktop): retain one seam` (custom-agents)",
     "",
   ].join("\n");
   assert.deepStrictEqual(orientationTouchedPaths(orientation), [
@@ -267,6 +269,60 @@ it("refuses a rehearsal lane collision for the exact target and source", () => {
     assert.isFalse(runner.calls.some(({ command }) => command === "wt"));
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("installs a minted lane before it replays into it", () => {
+  const root = fixtureRoot();
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  const oriented = report(root, {
+    stage: "oriented",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+  });
+  NodeFS.writeFileSync(oriented.reportPath, JSON.stringify(oriented));
+  const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set(
+    "git",
+    ["show-ref", "--verify", "--quiet", `refs/heads/rehearse/v1.2.3-from-${C.slice(0, 12)}`],
+    { status: 1 },
+  );
+  runner.set(
+    "wt",
+    [
+      "switch",
+      "--create",
+      `rehearse/v1.2.3-from-${C.slice(0, 12)}`,
+      "--base",
+      C,
+      "--no-cd",
+      "--format",
+      "json",
+      "--yes",
+    ],
+    { stdout: JSON.stringify({ worktree_path: worktree }) },
+  );
+  try {
+    execute(["unblock-rehearse", "--report", oriented.reportPath], root, runner);
+    const install = runner.calls.findIndex(
+      ({ command, args }) => command === "vp" && args.join(" ") === "i",
+    );
+    const rebase = runner.calls.findIndex(
+      ({ command, args }) => command === "git" && args.includes("rebase"),
+    );
+    assert.isAbove(install, -1);
+    assert.isAbove(rebase, install);
+    const call = runner.calls[install];
+    assert.strictEqual(call?.cwd, worktree);
+    assert.strictEqual(
+      (call?.env?.PATH ?? "").split(NodePath.delimiter)[0],
+      NodePath.join(worktree, "node_modules", ".bin"),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
   }
 });
@@ -480,10 +536,10 @@ it("round-trips orientation verdicts outside conflicts and selects them for Gate
   const root = fixtureRoot();
   const orientationDecisions = orientationDecisionRows(
     [
-      "  [candidate] fix(web): review upstream overlap (project-windows)",
-      "  [keep] feat(web): keep fork behavior (workspace-files)",
-      "  [retire] fix(server): use upstream behavior (fork-meta)",
-      "  [partial] feat(desktop): retain one seam (custom-agents)",
+      "  [candidate] `fix(web): review upstream overlap` (project-windows)",
+      "  [keep] `feat(web): keep fork behavior` (workspace-files)",
+      "  [retire] `fix(server): use upstream behavior` (fork-meta)",
+      "  [partial] `feat(desktop): retain one seam` (custom-agents)",
     ].join("\n"),
   );
   const record = renderRecord(report(root, { orientationDecisions }));
@@ -513,6 +569,38 @@ it("round-trips orientation verdicts outside conflicts and selects them for Gate
     assert.include(surface, subject);
   }
   NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
+// unblock-apply runs fork:upstream-refs over this record and posts it to a GitHub thread.
+// Nothing the tool wrote may refuse the tool's own guard.
+it("writes every item number into the record inside a code span", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3", worktree: root },
+    orientation: [
+      "## Retire candidates",
+      "",
+      "  [candidate] `fix(web): supersede #4379 in the fork` (project-windows)",
+      "",
+      "## upstream-watch against v1.2.3",
+      "",
+      "  `#150` [ready] `zoom flash [\u{1F4E1}#110]`",
+      "",
+    ].join("\n"),
+    orientationDecisions: orientationDecisionRows(
+      "  [candidate] `fix(web): supersede #4379 in the fork` (project-windows)",
+    ),
+    verification: [{ command: "vp run --no-cache test", result: "passed" }],
+  });
+  try {
+    assert.deepStrictEqual(findUpstreamReferences(renderRecord(state)), []);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
 });
 
 it("produces Gate 4 decisions structurally rather than with a typed rg command", () => {
@@ -663,19 +751,26 @@ it("bypasses the task cache and records the executed Gate 3 commands", () => {
   }
 });
 
+const scrubbedGateEnv = {
+  NODE_PATH: "/elsewhere/node_modules/.pnpm/node_modules",
+  NPM_CONFIG_REGISTRY: "https://registry.example.test",
+  VP_ENV_USE_EVAL_ENABLE: "1",
+  VP_NODE_DIST_MIRROR: "https://node.example.test",
+  VP_NODE_SKIP_SIGNATURE_VERIFY: "1",
+  VP_NODE_VERSION: "24.20.0",
+  npm_config_registry: "https://registry.example.test",
+  npm_lifecycle_event: "fork:sync",
+  ELECTRON_RUN_AS_NODE: "1",
+};
+
 it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 checks", () => {
-  const preserved = { PATH: "/bin", HOME: "/home/example" };
-  const scrubbed = {
-    NPM_CONFIG_REGISTRY: "https://registry.example.test",
-    VP_ENV_USE_EVAL_ENABLE: "1",
-    VP_NODE_DIST_MIRROR: "https://node.example.test",
-    VP_NODE_SKIP_SIGNATURE_VERIFY: "1",
-    VP_NODE_VERSION: "24.20.0",
-    npm_config_registry: "https://registry.example.test",
-    npm_lifecycle_event: "fork:sync",
-    ELECTRON_RUN_AS_NODE: "1",
-  };
-  assert.deepStrictEqual(gateVerificationEnv({ ...preserved, ...scrubbed }), preserved);
+  assert.deepStrictEqual(
+    gateVerificationEnv({ HOME: "/home/example", PATH: "/bin", ...scrubbedGateEnv }, "/lane"),
+    {
+      HOME: "/home/example",
+      PATH: `${NodePath.join("/lane", "node_modules", ".bin")}${NodePath.delimiter}/bin`,
+    },
+  );
 
   const { runner, root, worktree } = checkedRun();
   try {
@@ -686,9 +781,40 @@ it("scrubs package-manager, Vite+ bootstrap, and Electron state from Gate 3 chec
     assert.lengthOf(checks, 5);
     for (const call of checks) {
       assert.isDefined(call.env);
-      for (const key of Object.keys(scrubbed)) {
+      for (const key of Object.keys(scrubbedGateEnv)) {
         assert.notProperty(call.env, key);
       }
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+// The failure this pins: the invoking checkout's `node_modules/.bin` resolves `vp` to its
+// own shim, which exports that checkout's NODE_PATH, and the lane's test run then reads
+// Vite+ out of a tree it never installed. Same verb, different verdict per invocation.
+it("resolves every lane command out of the lane, never the invoking checkout", () => {
+  const laneBin = NodePath.join("/lane", "node_modules", ".bin");
+  assert.strictEqual(
+    laneExecutablePath(
+      ["/elsewhere/node_modules/.bin", "/usr/bin", laneBin, "/opt/tools/bin"].join(
+        NodePath.delimiter,
+      ),
+      "/lane",
+    ),
+    [laneBin, "/usr/bin", "/opt/tools/bin"].join(NodePath.delimiter),
+  );
+
+  const { runner, root, worktree } = checkedRun();
+  try {
+    const laneCalls = runner.calls.filter(({ command }) => command === "vp");
+    assert.isAbove(laneCalls.length, 0);
+    for (const call of laneCalls) {
+      assert.strictEqual(call.cwd, worktree);
+      const path = (call.env?.PATH ?? "").split(NodePath.delimiter);
+      assert.strictEqual(path[0], NodePath.join(worktree, "node_modules", ".bin"));
+      for (const entry of path.slice(1)) assert.notInclude(entry, "node_modules");
     }
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
