@@ -104,6 +104,16 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    record, uses only its expected-old lease, and deletes the remote lane after apply. Rejection voids
    the report: retain its external files and restart at step 1. Never commit them.
 
+6. Ledger row:
+
+   ```bash
+   node scripts/fork-churn.ts append --record <record> --issue <blocked-issue-number> --tag <tag> --before <expected-old> --after <installed-head>
+   vp run fork:churn:check
+   ```
+
+   Open the docs-only pull request `docs(fork-churn): row for <tag>` against `hyprws`; the row lands
+   after apply and is not part of the rebased lane.
+
 ## Entry point: cut stable
 
 Use this only for an open stable-candidate issue created from a bot-owned snapshot. The report paths
