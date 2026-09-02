@@ -37,6 +37,8 @@ export interface RewriteBinding {
   readonly originSha: string;
   readonly originShort: string;
   readonly base: string;
+  /** Upstream release tag at `base`; the tag-pinned apply gate needs it. */
+  readonly baseTag?: string;
   readonly baseToOriginCount: number;
   readonly baseToFromCount: number;
   readonly allowExtra: number;
@@ -327,6 +329,7 @@ const renderRewriteRecord = (report: SyncReport): string => {
     "## Header",
     "",
     `- \`from\`: \`${rw.from}@${rw.fromSha}\``,
+    `- Target: \`${rw.baseTag ?? "absent"}@${rw.base}\``,
     `- \`expected_old\`: \`${rw.originSha}\``,
     `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
     `- Rebased head: \`${report.rebasedHead ?? report.rewrite?.fromSha ?? "absent"}\``,
