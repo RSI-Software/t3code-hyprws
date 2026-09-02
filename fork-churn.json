@@ -3658,5 +3658,50 @@
         "domain": "markdown-editing"
       }
     ]
+  },
+  {
+    "tag": "v0.0.39-nightly.20260902.1261",
+    "before": "cd7803960776976f52276da8f2f1fc0df97b9649",
+    "after": "7dd77d077274afc016ef43c0894bcfd5b0ef1060",
+    "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/481#issuecomment-5518106144",
+    "conflicts": [
+      {
+        "path": "apps/server/src/provider/Drivers/ClaudeDriver.ts",
+        "commit": "48d48929b023",
+        "subject": "fix(provider): resolve repo skills per workspace (#188)",
+        "domain": "upstream-fixes",
+        "class": "retire-candidate",
+        "resolution": "partial retirement. Upstream `bc918e7` plus the workspace-snapshot machinery already in the tag supersedes the fork RPC `providers.workspaceSkills`, its contract schemas, the client atom family, the chat-view preference, and the Codex pair; all of that came out. Kept only what upstream does not cover: the cwd-keyed Claude capabilities probe cache at capacity 16, and merging the workspace probe's slash commands into upstream's `snapshotForCwd`.",
+        "decidedBy": "agent"
+      }
+    ],
+    "decisions": [
+      {
+        "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+        "domain": "upstream-fixes",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+        "domain": "worktrunk-hooks",
+        "verdict": "keep",
+        "decidedBy": "agent"
+      },
+      {
+        "subject": "fix(provider): resolve repo skills per workspace (#188)",
+        "domain": "upstream-fixes",
+        "verdict": "partial",
+        "decidedBy": "agent"
+      }
+    ],
+    "censusFiles": [
+      {
+        "path": "apps/server/src/provider/Drivers/ClaudeDriver.ts",
+        "hunks": 1,
+        "commit": "48d4892",
+        "domain": "upstream-fixes"
+      }
+    ]
   }
 ]
