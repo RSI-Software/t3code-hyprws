@@ -251,6 +251,9 @@ const rerereResolvedPaths = (
     lines(git(runner, cwd, ["-c", "rerere.enabled=true", "rerere", "remaining"], true)),
   );
 
+/** unblock-rehearse owns these paths end to end: it restores HEAD and regenerates them itself. */
+const isGeneratedPath = (path: string): boolean => path === "pnpm-lock.yaml";
+
 export const rehearsalConflictRows = (
   commit: { readonly sha: string; readonly subject: string; readonly domain: string },
   conflicts: ReadonlyArray<string>,
@@ -261,14 +264,13 @@ export const rehearsalConflictRows = (
     ...commit,
     commit: commit.sha,
     path,
-    class: path === "pnpm-lock.yaml" ? "generated" : "TODO",
-    resolution:
-      path === "pnpm-lock.yaml"
-        ? "restore HEAD and regenerate"
-        : reused.has(path)
-          ? "review rerere's recorded resolution and stage"
-          : "TODO",
-    agentSafe: path === "pnpm-lock.yaml" ? "pending regeneration" : "TODO",
+    class: isGeneratedPath(path) ? "generated" : "TODO",
+    resolution: isGeneratedPath(path)
+      ? "restore HEAD and regenerate"
+      : reused.has(path)
+        ? "review rerere's recorded resolution and stage"
+        : "TODO",
+    agentSafe: isGeneratedPath(path) ? "pending regeneration" : "TODO",
   }));
 };
 
@@ -280,14 +282,28 @@ export const rehearsalConflictStop = (
   rerereResolved: ReadonlyArray<string> = [],
 ): string => {
   const reused = new Set(rerereResolved);
+  const header = [
+    reportPath,
+    `Stop. Rebase conflict in ${commit.subject} (${commit.sha.slice(0, 12)}).`,
+    "Conflicted paths:",
+  ];
+  // A generated-only conflict owes the human nothing: there is no file to resolve and no TODO row.
+  if (conflicts.every(isGeneratedPath))
+    return [
+      ...header,
+      ...conflicts.map(
+        (path) =>
+          `  - ${path} (generated${reused.has(path) ? "; rerere's recorded resolution is discarded" : ""})`,
+      ),
+      "Nothing to resolve or record. Rerun unblock-rehearse; it restores HEAD, regenerates the lockfile, and continues.",
+      "",
+    ].join("\n");
   const action =
     reused.size === 0
       ? "Resolve and stage non-generated files"
       : "Review and stage rerere-resolved files; resolve and stage remaining non-generated files";
   return [
-    reportPath,
-    `Stop. Rebase conflict in ${commit.subject} (${commit.sha.slice(0, 12)}).`,
-    "Conflicted paths:",
+    ...header,
     ...conflicts.map(
       (path) =>
         `  - ${path}${reused.has(path) ? " (rerere reused a recorded resolution; review before staging)" : ""}`,
@@ -407,9 +423,9 @@ const unblockRehearse = (
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
     );
-    for (const row of pending.filter(({ path }) => path !== "pnpm-lock.yaml"))
+    for (const row of pending.filter(({ path }) => !isGeneratedPath(path)))
       if (!staged.has(row.path)) throw new Error(`resolved conflict is not staged: ${row.path}`);
-    if (pending.some(({ path }) => path === "pnpm-lock.yaml")) {
+    if (pending.some(({ path }) => isGeneratedPath(path))) {
       git(
         runner,
         lane.worktree,

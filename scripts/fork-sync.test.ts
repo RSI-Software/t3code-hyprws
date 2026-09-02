@@ -291,6 +291,59 @@ it("names the in-flight commit and every conflicted path in the rehearsal stop",
   );
 });
 
+it("asks for nothing when the only conflict is the regenerated lockfile", () => {
+  const stop = rehearsalConflictStop(
+    "/tmp/report.json",
+    "/tmp/record.md",
+    { sha: C, subject: "chore(deps): bump upstream" },
+    ["pnpm-lock.yaml"],
+  );
+  assert.strictEqual(
+    stop,
+    [
+      "/tmp/report.json",
+      `Stop. Rebase conflict in chore(deps): bump upstream (${C.slice(0, 12)}).`,
+      "Conflicted paths:",
+      "  - pnpm-lock.yaml (generated)",
+      "Nothing to resolve or record. Rerun unblock-rehearse; it restores HEAD, regenerates the lockfile, and continues.",
+      "",
+    ].join("\n"),
+  );
+  assert.notInclude(stop, "TODO row");
+  assert.notInclude(stop, "Resolve and stage");
+  assert.strictEqual(
+    rehearsalConflictStop(
+      "/tmp/report.json",
+      "/tmp/record.md",
+      { sha: C, subject: "chore(deps): bump upstream" },
+      ["pnpm-lock.yaml"],
+      ["pnpm-lock.yaml"],
+    ),
+    [
+      "/tmp/report.json",
+      `Stop. Rebase conflict in chore(deps): bump upstream (${C.slice(0, 12)}).`,
+      "Conflicted paths:",
+      "  - pnpm-lock.yaml (generated; rerere's recorded resolution is discarded)",
+      "Nothing to resolve or record. Rerun unblock-rehearse; it restores HEAD, regenerates the lockfile, and continues.",
+      "",
+    ].join("\n"),
+  );
+});
+
+it("keeps the resolve-and-record stop when a generated path conflicts alongside a source file", () => {
+  const stop = rehearsalConflictStop(
+    "/tmp/report.json",
+    "/tmp/record.md",
+    { sha: C, subject: "fix(web): preserve scoped behavior" },
+    ["pnpm-lock.yaml", "apps/web/src/a.ts"],
+  );
+  assert.include(
+    stop,
+    "Resolve and stage non-generated files, complete every TODO row in /tmp/record.md, then rerun unblock-rehearse.",
+  );
+  assert.include(stop, "  - pnpm-lock.yaml\n");
+});
+
 it("enables rerere without staging its reused resolutions", () => {
   assert.deepStrictEqual(rehearsalRebaseArgs(["rebase", B]), [
     "-c",
