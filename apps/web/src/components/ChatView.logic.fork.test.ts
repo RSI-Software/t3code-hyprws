@@ -1,46 +1,7 @@
+import { describe, expect, it } from "vite-plus/test";
 import {
-  EnvironmentId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  TurnId,
-} from "@t3tools/contracts";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import type { Thread, ThreadShell } from "../types";
-import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
-import {
-  MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
-  MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
-  branchMismatchKey,
-  buildExpiredTerminalContextToastCopy,
-  buildLoadingThreadFromShell,
-  buildThreadTurnInterruptInput,
-  createLocalDispatchSnapshot,
-  deriveComposerSendState,
-  dismissBranchMismatchForSession,
-  ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
-  getStartedThreadModelChangeBlockReason,
-  hasEnvironmentReconnectWarningGraceElapsed,
-  hasServerAcknowledgedLocalDispatch,
-  isBranchMismatchDismissedForSession,
   nextTerminalFocusRequestId,
-  reconcileMountedTerminalThreadIds,
-  reconcileRetainedMountedThreadIds,
-  resolveBackgroundDraftWorkspaceOptions,
-  resolveDraftPromotionNavigationTarget,
-  resolveThreadMetadataUpdateForNextTurn,
-  resolveSendEnvMode,
-  resolveDraftHeroState,
-  scheduleEnvironmentReconnectWarning,
-  startNewThreadForProject,
-  codexArtifactTemplatePromptToAppend,
   shouldAutoFocusComposerOnThreadChange,
-  shouldDockDraftHeroForSubmission,
-  shouldReleaseTimelineAnchorForToolActivity,
-  shouldShowBranchMismatchBanner,
-  shouldShowPlanFollowUpPrompt,
-  shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
 
 describe("composer focus on thread change", () => {
