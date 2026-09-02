@@ -11,15 +11,19 @@ import {
   autoGateFour,
   baseReleaseTag,
   autoResolveConflicts,
+  collectRetireEvidence,
   completeGeneratedConflictRegeneration,
   decisionSurface,
   execute,
+  filledDecisionCells,
+  forkCommitIdentifiers,
   gateVerificationEnv,
   identifyRerereResolvedPaths,
   laneExecutablePath,
   lockDriftClass,
   nextScheduledFire,
   NO_GROUNDING_CLAIM,
+  offeredTagLines,
   orientationDecisionRows,
   orientationTouchedPaths,
   parseConflictRows,
@@ -33,11 +37,13 @@ import {
   gateFourStopReason,
   resolveUnblockTarget,
   run,
+  SystemRunner,
   validateAutoLane,
   validateReport,
   validateSignedRecord,
   type CommandResult,
   type CommandRunner,
+  type RetireEvidence,
   type SyncReport,
 } from "./fork-sync.ts";
 import { inspectRecord } from "./fork-sync-gate.ts";
@@ -123,7 +129,7 @@ const issueJson = JSON.stringify([
 ]);
 const orientCandidates = [{ tag: "v1.2.3", sha: B }];
 
-it("orders automatic target rules as explicit, tracker, then oldest offered", () => {
+it("orders automatic target rules as explicit, tracker, then newest offered", () => {
   const candidates = [
     { tag: "v1.2.5", sha: A },
     { tag: "v1.2.4", sha: B },
@@ -144,9 +150,27 @@ it("orders automatic target rules as explicit, tracker, then oldest offered", ()
     rule: "open tracker sub-issue",
   });
   assert.deepStrictEqual(resolveAutoTarget(candidates, null, []), {
-    target: candidates[2],
-    rule: "oldest offered tag containing the block",
+    target: candidates[0],
+    rule: "newest offered tag containing the block",
   });
+});
+
+it("prints the newest offered tag alone and every tag under --all", () => {
+  const candidates = [
+    { tag: "v1.2.5", sha: A },
+    { tag: "v1.2.4", sha: B },
+    { tag: "v1.2.3", sha: C },
+  ];
+  assert.deepStrictEqual(offeredTagLines(candidates, false), [
+    `  v1.2.5@${A}`,
+    "  (2 older offered tags hidden; rerun with --all)",
+  ]);
+  assert.deepStrictEqual(offeredTagLines(candidates, true), [
+    `  v1.2.5@${A}`,
+    `  v1.2.4@${B}`,
+    `  v1.2.3@${C}`,
+  ]);
+  assert.deepStrictEqual(offeredTagLines([candidates[0]!], false), [`  v1.2.5@${A}`]);
 });
 
 it("accepts a bare unblock target tag", () => {
@@ -518,7 +542,7 @@ it("orients only to a tag carried by the previous report", () => {
         verdict: "keep",
         subject: "feat(web): preserve fork behavior",
         domain: "workspace-files",
-        decidedBy: "human",
+        decidedBy: "TODO",
       },
     ]);
     // The target is a tag from here on, so an upstream tip that moved mid-walk
@@ -556,25 +580,25 @@ it("carries orientation overlap and every retirement verdict into structured sta
       verdict: "candidate",
       subject: "fix(web): review upstream overlap",
       domain: "project-windows",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "keep",
       subject: "feat(web): keep fork behavior",
       domain: "workspace-files",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "retire",
       subject: "fix(server): use upstream behavior",
       domain: "fork-meta",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
     {
       verdict: "partial",
       subject: "feat(desktop): retain one seam",
       domain: "custom-agents",
-      decidedBy: "human",
+      decidedBy: "TODO",
     },
   ]);
 });
@@ -960,7 +984,7 @@ it("discloses rerere reuse in the stop and conflict record row", () => {
     class: "TODO",
     resolution: "review rerere's recorded resolution and stage",
     agentSafe: "TODO",
-    decidedBy: "human",
+    decidedBy: "TODO",
   });
 });
 
@@ -1148,11 +1172,30 @@ it("asks a record for decisions and a go, never a login or a date", () => {
     assert.include(decisionSurface(rendered), "Stop. Obtain every decision and an explicit go.\n");
     assert.throws(() => validateSignedRecord(rendered, checked), /keep\/retire\/partial/);
     const decided = rendered.replace("| TODO |", "| retire |");
-    validateSignedRecord(decided, checked);
+    // An action nobody signed is the rendered default, not a decision the walk may land on.
+    assert.throws(() => validateSignedRecord(decided, checked), /records no decider/);
+    validateSignedRecord(decided.replace("| TODO |", "| human |"), checked);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
+});
+
+it("reads only the decision cells someone signed", () => {
+  const table = [
+    "## Fork commits",
+    "",
+    "| Exact subject | Domain | Class summary | Action | Grounding claim | Decided by |",
+    "| --- | --- | --- | --- | --- | --- |",
+    "| `fix: signed` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | human |",
+    "| `fix: unsigned` | fork-meta | orientation: candidate; retire-candidate | retire | n/a | TODO |",
+    "| `fix: undecided` | fork-meta | orientation: candidate; retire-candidate | TODO | n/a | TODO |",
+    "",
+    "## Silent seams",
+  ].join("\n");
+  assert.deepStrictEqual(filledDecisionCells(table), [
+    { subject: "fix: signed", action: "retire", decidedBy: "human" },
+  ]);
 });
 
 it("still asks for grounding when a row carries a claim", () => {
@@ -1254,6 +1297,140 @@ it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
       action: "keep (mechanical seam)",
       decidedBy: "agent",
     });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("reads a fork commit's own identifiers out of its diff", () => {
+  const diff = [
+    "diff --git a/packages/contracts/src/window.ts b/packages/contracts/src/window.ts",
+    "--- a/packages/contracts/src/window.ts",
+    "+++ b/packages/contracts/src/window.ts",
+    "@@ -0,0 +1,3 @@",
+    "+export const ScopedProjectWindow = 1;",
+    '+const message = "project window is already open";',
+    '+const short = "tiny";',
+    "diff --git a/apps/web/src/settings.json b/apps/web/src/settings.json",
+    "+++ b/apps/web/src/settings.json",
+    '+  "window.perProject": true,',
+    '+  "name": "x",',
+    "diff --git a/apps/web/src/window.test.ts b/apps/web/src/window.test.ts",
+    "+++ b/apps/web/src/window.test.ts",
+    '+it("opens one window per project", () => {});',
+    "diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml",
+    "+++ b/pnpm-lock.yaml",
+    "+  /some-package-name-that-is-long@1.0.0:",
+    '+  resolution: "integrity-sha512-not-a-fork-identifier"',
+  ].join("\n");
+  assert.deepStrictEqual(forkCommitIdentifiers(diff), [
+    "ScopedProjectWindow",
+    "project window is already open",
+    "window.perProject",
+    "opens one window per project",
+  ]);
+});
+
+/** A fixture upstream tree plus two fork commits: one retired upstream, one not. */
+const retireFixture = (): { root: string; tag: string } => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-retire-"));
+  const run = (...args: ReadonlyArray<string>): void => {
+    NodeChildProcess.execFileSync("git", args, {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.test",
+        GIT_COMMITTER_NAME: "fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.test",
+      },
+    });
+  };
+  const write = (path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), contents);
+  };
+  run("init", "-b", "fixture");
+  write("upstream.ts", "export const upstreamOnly = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "upstream: base");
+  // Upstream grows the behaviour one fork commit also carries.
+  write("upstream.ts", "export const upstreamOnly = 1;\nexport const SharedWindowScope = 2;\n");
+  run("add", "-A");
+  run("commit", "-m", "upstream: adopt scoped windows");
+  run("tag", "v1.2.3");
+  write("fork-absent.ts", "export const ForkOnlyHelper = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "feat: absent from the target tree");
+  write("fork-present.ts", "export const SharedWindowScope = 2;\n");
+  run("add", "-A");
+  run("commit", "-m", "feat: present in the target tree");
+  return { root, tag: "v1.2.3" };
+};
+
+it("tests retire candidates against the target tree instead of proximity", () => {
+  const { root, tag } = retireFixture();
+  const runner = new SystemRunner();
+  const git = (...args: ReadonlyArray<string>): string =>
+    runner.run("git", args, root).stdout.trim();
+  const targetSha = git("rev-parse", `refs/tags/${tag}^{commit}`);
+  const source = git("rev-parse", "HEAD");
+  const decisions = [
+    { subject: "feat: absent from the target tree", domain: "fork-meta" },
+    { subject: "feat: present in the target tree", domain: "fork-meta" },
+  ].map((row) => ({ ...row, verdict: "candidate" as const, decidedBy: "human" as const }));
+  try {
+    const evidence = collectRetireEvidence(
+      runner,
+      root,
+      targetSha,
+      { sharedBase: targetSha, source },
+      decisions,
+    );
+    assert.deepStrictEqual(
+      evidence.map(({ subject, matches }) => [subject, matches.length]),
+      [
+        ["feat: absent from the target tree", 0],
+        ["feat: present in the target tree", 1],
+      ],
+    );
+    assert.deepStrictEqual(evidence[1]?.matches[0], {
+      identifier: "SharedWindowScope",
+      location: "upstream.ts:2",
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a present one", () => {
+  const root = fixtureRoot();
+  const orientation = "  [candidate] `feat: candidate` (fork-meta)\n";
+  const state = (matches: RetireEvidence["matches"]): SyncReport =>
+    report(root, {
+      orientation,
+      orientationDecisions: orientationDecisionRows(orientation),
+      retireEvidence: [
+        { subject: "feat: candidate", commit: C, identifiers: ["ForkOnlyHelper"], matches },
+      ],
+    });
+  try {
+    const absent = state([]);
+    assert.isNull(gateFourStopReason(absent));
+    assert.deepInclude(autoGateFour(absent)?.orientationDecisions?.[0], {
+      verdict: "candidate",
+      action: "keep (target tree absent)",
+      decidedBy: "agent",
+    });
+    assert.include(renderRecord(absent), "retire-candidate; target-tree: absent");
+
+    const present = state([{ identifier: "ForkOnlyHelper", location: "apps/web/src/x.ts:14" }]);
+    assert.include(
+      gateFourStopReason(present) ?? "",
+      "retire candidate is present in the target tree: `feat: candidate`: ForkOnlyHelper at apps/web/src/x.ts:14",
+    );
+    assert.isNull(autoGateFour(present));
+    assert.include(renderRecord(present), "target-tree: ForkOnlyHelper at apps/web/src/x.ts:14");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -2105,7 +2282,7 @@ it("unblock-auto takes the conflict STOP path when rerere remaining fails", () =
     );
     assert.notInclude(output, "then rerun unblock-rehearse");
     const stopped = validateReport(JSON.parse(NodeFS.readFileSync(oriented.reportPath, "utf8")));
-    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "human" });
+    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "TODO" });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
@@ -2205,17 +2382,8 @@ const replayedRun = (): {
   return { runner, root, worktree, reportPath: replayed.reportPath, branch };
 };
 
-const checkedRun = (
-  silentSeam?: string,
-): {
-  runner: FakeRunner;
-  root: string;
-  worktree: string;
-  reportPath: string;
-  branch: string;
-} => {
-  const state = replayedRun();
-  state.runner.set(
+const setCiSuccess = (runner: FakeRunner, branch: string): void => {
+  runner.set(
     "gh",
     [
       "run",
@@ -2223,7 +2391,7 @@ const checkedRun = (
       "--workflow",
       "hyprws-ci.yml",
       "--branch",
-      state.branch,
+      branch,
       "--json",
       "databaseId,headSha,status,conclusion,url",
       "-R",
@@ -2241,6 +2409,19 @@ const checkedRun = (
       ]),
     },
   );
+};
+
+const checkedRun = (
+  silentSeam?: string,
+): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  reportPath: string;
+  branch: string;
+} => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
   execute(
     [
       "unblock-check",
@@ -2357,6 +2538,84 @@ it("pushes the rehearsal and records the CI verdict on its exact head", () => {
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+const SUBJECT = "feat(web): themed menus";
+
+/** A replayed report whose decision surface carries one undecided candidate. */
+const undecidedRun = (): ReturnType<typeof replayedRun> => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const next: SyncReport = {
+    ...replayed,
+    orientationDecisions: [
+      { subject: SUBJECT, domain: "workspace-files", verdict: "candidate", decidedBy: "TODO" },
+    ],
+  };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(next));
+  NodeFS.writeFileSync(next.recordPath, renderRecord(next));
+  return state;
+};
+
+const signRecord = (recordPath: string, action: string, decidedBy: string): void => {
+  const signed = NodeFS.readFileSync(recordPath, "utf8")
+    .replace("| TODO |", `| ${action} |`)
+    .replace("| TODO |", `| ${decidedBy} |`);
+  NodeFS.writeFileSync(recordPath, signed);
+};
+
+it("carries a decision cell filled in the record through the regeneration a check performs", () => {
+  const state = undecidedRun();
+  const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  try {
+    signRecord(recordPath, "retire", "human");
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(checked.recordDecisions, [
+      { subject: SUBJECT, action: "retire", decidedBy: "human" },
+    ]);
+    const row = NodeFS.readFileSync(recordPath, "utf8")
+      .split("\n")
+      .find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
+    assert.include(row ?? "", "| retire |");
+    assert.include(row ?? "", "| human |");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a check when the record and the report decided the same subject differently", () => {
+  const state = undecidedRun();
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  try {
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...replayed,
+        orientationDecisions: [
+          {
+            subject: SUBJECT,
+            domain: "workspace-files",
+            verdict: "candidate",
+            action: "keep (mechanical seam)",
+            decidedBy: "agent",
+          },
+        ],
+      }),
+    );
+    signRecord(replayed.recordPath, "retire", "human");
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /record decision disagrees with the report/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
