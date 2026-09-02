@@ -234,17 +234,29 @@ export const unmetChecks = (report: PreflightReport): ReadonlyArray<PreflightChe
   report.checks.filter((check) => !check.met);
 
 /**
- * The preconditions Gate 1 needs. Orientation runs plain `node` against live
- * refs, so it reports installed dependencies without requiring them; every
- * later gate runs `vp` and requires the full set.
+ * Every precondition except mirror currency. A slice is pinned to an upstream
+ * tag that cannot move, so whether `origin/main` has caught up with
+ * `upstream/main` says nothing about the rebase in flight: the lease on
+ * `origin/hyprws` owns push safety, and the fetch above owns tag freshness.
+ * Mirror currency stays a required precondition only where the walk chooses the
+ * target, and the mirror check itself still runs and reports either way.
  */
-export const GATE_ONE_CHECKS: ReadonlyArray<string> = [
+export const TAG_PINNED_CHECKS: ReadonlyArray<string> = [
   CHECK_ORIGIN_REMOTE,
   CHECK_UPSTREAM_REMOTE,
   CHECK_RERERE,
   CHECK_ORIGIN_FETCH,
-  CHECK_MIRROR,
+  CHECK_DEPENDENCIES,
 ];
+
+/**
+ * The preconditions Gate 1 needs. Orientation runs plain `node` against live
+ * refs, so it reports installed dependencies without requiring them; every
+ * later gate runs `vp` and requires them.
+ */
+export const GATE_ONE_CHECKS: ReadonlyArray<string> = TAG_PINNED_CHECKS.filter(
+  (name) => name !== CHECK_DEPENDENCIES,
+);
 
 /** Unmet checks the caller requires, out of the full set the report carries. */
 export const unmetRequired = (
@@ -256,19 +268,37 @@ export const unmetRequired = (
 export const namedCheck = (report: PreflightReport, name: string): PreflightCheck | undefined =>
   report.checks.find((check) => check.name === name);
 
-export const renderReport = (report: PreflightReport): string => {
+/**
+ * Renders every check, and summarises only the ones `required` names, so a
+ * caller that reports a check without requiring it does not read a failing
+ * summary above a passing exit code.
+ */
+export const renderReport = (
+  report: PreflightReport,
+  required: ReadonlyArray<string> = report.checks.map((check) => check.name),
+): string => {
   const lines = ["fork-sync preflight"];
   for (const check of report.checks) {
-    lines.push(`  ${check.met ? "met  " : "unmet"} ${check.name}: ${check.detail}`);
+    const status = check.met ? "met  " : required.includes(check.name) ? "unmet" : "noted";
+    lines.push(`  ${status} ${check.name}: ${check.detail}`);
     if (check.remedy !== null) lines.push(`        fix: ${check.remedy}`);
   }
-  const unmetNames = unmetChecks(report).map((check) => check.name);
+  const unmetNames = unmetRequired(report, required).map((check) => check.name);
+  const notedNames = unmetChecks(report)
+    .filter((check) => !required.includes(check.name))
+    .map((check) => check.name);
   lines.push("");
-  lines.push(
-    unmetNames.length === 0
-      ? `preflight passed: ${report.checks.length} preconditions met`
-      : `${unmetNames.length} unmet precondition${unmetNames.length === 1 ? "" : "s"}: ${unmetNames.join(", ")}`,
-  );
+  if (unmetNames.length > 0) {
+    lines.push(
+      `${unmetNames.length} unmet precondition${unmetNames.length === 1 ? "" : "s"}: ${unmetNames.join(", ")}`,
+    );
+  } else if (notedNames.length > 0) {
+    lines.push(
+      `preflight passed: ${report.checks.length - notedNames.length} required preconditions met; not required here: ${notedNames.join(", ")}`,
+    );
+  } else {
+    lines.push(`preflight passed: ${report.checks.length} preconditions met`);
+  }
   return `${lines.join("\n")}\n`;
 };
 
@@ -296,24 +326,35 @@ const processOutput: PreflightOutput = {
   stderr: (message) => process.stderr.write(message),
 };
 
-const HELP = `Usage: vp run fork:preflight
+const HELP = `Usage: vp run fork:preflight [--tag-pinned]
 
 Check every precondition the fork-sync gates depend on and name each unmet one.
 Fetches origin/hyprws and upstream so ref freshness is proved, never assumed.
 
 Options:
-  -h, --help   Show help
+  --tag-pinned   Report mirror currency without requiring it
+  -h, --help     Show help
 
 Exit codes:
-  0  every precondition is met
-  1  at least one precondition is unmet
+  0  every required precondition is met
+  1  at least one required precondition is unmet
   2  usage error
 `;
 
-export const parsePreflightArgs = (argv: ReadonlyArray<string>): void => {
-  const unknown = argv.find((argument) => argument !== "-h" && argument !== "--help");
+export interface PreflightOptions {
+  /** A tag-pinned caller reports mirror currency without blocking on it. */
+  readonly tagPinned: boolean;
+}
+
+export const parsePreflightArgs = (argv: ReadonlyArray<string>): PreflightOptions => {
+  const known = new Set(["-h", "--help", "--tag-pinned"]);
+  const unknown = argv.find((argument) => !known.has(argument));
   if (unknown !== undefined) throw new UsageError(`unknown option: ${unknown}`);
-  parseCliArgs(argv, { flags: ["-h", "--help"], duplicateFlags: true });
+  const parsed = parseCliArgs(argv, {
+    flags: ["-h", "--help", "--tag-pinned"],
+    duplicateFlags: true,
+  });
+  return { tagPinned: parsed.flags.has("--tag-pinned") };
 };
 
 export { parsePreflightArgs as parseArgs };
@@ -328,10 +369,11 @@ export const run = (
     return 0;
   }
   try {
-    parsePreflightArgs(argv);
+    const { tagPinned } = parsePreflightArgs(argv);
     const report = runPreflight(systemEnv(repositoryRoot(cwd)));
-    output.stdout(renderReport(report));
-    return unmetChecks(report).length === 0 ? 0 : 1;
+    const required = tagPinned ? TAG_PINNED_CHECKS : report.checks.map((check) => check.name);
+    output.stdout(renderReport(report, required));
+    return unmetRequired(report, required).length === 0 ? 0 : 1;
   } catch (error) {
     if (error instanceof UsageError) {
       output.stderr(`usage: ${error.message}\nTry --help.\n`);

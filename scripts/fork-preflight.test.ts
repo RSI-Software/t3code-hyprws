@@ -17,7 +17,9 @@ import {
   renderReport,
   run,
   runPreflight,
+  TAG_PINNED_CHECKS,
   unmetChecks,
+  unmetRequired,
   type CommandResult,
   type PreflightEnv,
 } from "./fork-preflight.ts";
@@ -179,6 +181,21 @@ it("exits 2 on an unknown option and 0 on help", () => {
   const help = collector();
   assert.strictEqual(run(["--help"], process.cwd(), help.output), 0);
   assert.include(help.stdout.join(""), "Usage: vp run fork:preflight");
+});
+
+it("reports a drifted mirror without requiring it for a tag-pinned caller", () => {
+  const report = runPreflight(
+    harness({ "rev-parse origin/main^{commit}": ok(`${DRIFTED}\n`) }).env,
+  );
+  assert.deepStrictEqual(
+    unmetChecks(report).map((check) => check.name),
+    [CHECK_MIRROR],
+  );
+  assert.deepStrictEqual(unmetRequired(report, TAG_PINNED_CHECKS), []);
+  const rendered = renderReport(report, TAG_PINNED_CHECKS);
+  assert.include(rendered, `noted ${CHECK_MIRROR}`);
+  assert.include(rendered, `not required here: ${CHECK_MIRROR}`);
+  assert.notInclude(rendered, "unmet preconditions:");
 });
 
 it("exits 1 against a repository with no fork remotes", () => {

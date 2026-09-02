@@ -59,8 +59,8 @@ or bypass a refusal or `fork:sync-gate`.
    **Stop.** Present the emitted Gate 4 decision surface, silent seams, and grounding evidence.
    On a failed gate command, present the exact command and its last output lines verbatim before any
    interpretation. Continue only when the human gives every keep/retire/partial decision by exact
-   subject, confirms grounding, records `Human sanity: <login> YYYY-MM-DD`, and gives an explicit go.
-   Put those values in the rendered record; the agent must not infer them.
+   subject and gives an explicit go; when the surface names a grounding claim, get that confirmation
+   too. Put those decisions in the rendered record; the agent must not infer them.
 
 5. Apply the reviewed record:
 
