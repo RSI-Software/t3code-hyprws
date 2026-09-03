@@ -1,16 +1,5 @@
-import { ClaudeSettings } from "@t3tools/contracts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
-import {
-  buildClaudeCapabilitiesProbeQueryOptions,
-  CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
-  probeClaudeCapabilities,
-  withClaudeAgentOptions,
-} from "./ClaudeProvider.ts";
+import { withClaudeAgentOptions } from "./ClaudeProvider.ts";
 it("adds discovered Claude agents to every model", () => {
   const models = withClaudeAgentOptions(
     [{ slug: "claude-test", name: "Claude Test", isCustom: false, capabilities: null }],
@@ -35,4 +24,3 @@ it("adds discovered Claude agents to every model", () => {
     },
   ]);
 });
-const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);

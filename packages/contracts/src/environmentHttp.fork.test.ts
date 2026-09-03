@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
-import {
-  EnvironmentAuthInvalidError,
-  EnvironmentInternalError,
-  EnvironmentOperationForbiddenError,
-  EnvironmentRequestInvalidError,
-  EnvironmentResourceNotFoundError,
-  EnvironmentScopeRequiredError,
-  ThreadGroupTitleGenerationInput,
-} from "./environmentHttp.ts";
-const traceId = "trace-1";
+import { ThreadGroupTitleGenerationInput } from "./environmentHttp.ts";
 describe("thread group title generation HTTP contract", () => {
   it("trims titles and requires at least two group members", () => {
     const decode = Schema.decodeUnknownSync(ThreadGroupTitleGenerationInput);

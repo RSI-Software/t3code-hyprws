@@ -5,8 +5,6 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import {
   ApprovalRequestId,
-  CHILD_ITEM_RENDER_JSON_MAX_BYTES,
-  ChildItemRenderDetail,
   CodexSettings,
   EventId,
   ProviderDriverKind,
@@ -14,7 +12,6 @@ import {
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
-  type ProviderRuntimeEvent,
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -51,11 +48,6 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
 
-const encodeChildItemRenderDetailJson = Schema.encodeSync(
-  Schema.fromJsonString(ChildItemRenderDetail),
-);
-const childItemRenderDetailBytes = (detail: ChildItemRenderDetail) =>
-  new TextEncoder().encode(encodeChildItemRenderDetailJson(detail)).length;
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.

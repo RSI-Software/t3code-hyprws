@@ -7,30 +7,10 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
-  formatShortcutLabel,
   isChatFocusComposerShortcut,
-  isChatNewShortcut,
-  isChatNewLocalShortcut,
-  isDiffToggleShortcut,
-  modelPickerJumpCommandForIndex,
-  modelPickerJumpIndexFromCommand,
-  isOpenFavoriteEditorShortcut,
-  isTerminalClearShortcut,
-  isTerminalCloseShortcut,
-  isTerminalNewShortcut,
-  isTerminalSplitShortcut,
-  isTerminalSplitVerticalShortcut,
   isTerminalFocusShortcut,
-  isTerminalToggleShortcut,
   resolveShortcutCommand,
-  shouldShowModelPickerJumpHints,
   shouldShowThreadJumpHints,
-  shortcutLabelForCommand,
-  terminalDeleteShortcutData,
-  terminalNavigationShortcutData,
-  threadJumpCommandForIndex,
-  threadJumpIndexFromCommand,
-  threadTraversalDirectionFromCommand,
   type ShortcutEventLike,
 } from "./keybindings";
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -62,9 +42,6 @@ function whenIdentifier(name: string): KeybindingWhenNode {
 }
 function whenNot(node: KeybindingWhenNode): KeybindingWhenNode {
   return { type: "not", node };
-}
-function whenAnd(left: KeybindingWhenNode, right: KeybindingWhenNode): KeybindingWhenNode {
-  return { type: "and", left, right };
 }
 interface TestBinding {
   shortcut: KeybindingShortcut;

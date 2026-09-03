@@ -151,6 +151,7 @@ it.layer(NodeServices.layer)("decider project defaults", (it) => {
       const clearEvent = Array.isArray(clear) ? clear[0] : clear;
       const afterClear = yield* projectEvent(afterSet, { ...clearEvent, sequence: 3 });
       expect(afterClear.projects[0]?.defaultThreadEnvMode).toBeNull();
+      expect(afterClear.projects[0]?.defaultThreadEnvModeFork).toBeUndefined();
     }),
   );
 });

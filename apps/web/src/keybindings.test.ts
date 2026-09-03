@@ -6,10 +6,8 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
-  isChatFocusComposerShortcut,
   isChatNewShortcut,
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
@@ -21,7 +19,6 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
-  isTerminalFocusShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
   shouldShowModelPickerJumpHints,

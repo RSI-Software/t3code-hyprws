@@ -1,12 +1,3 @@
-import {
-  CheckpointRef,
-  EventId,
-  MessageId,
-  ProjectId,
-  ThreadId,
-  TurnId,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -14,18 +5,10 @@ import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
-import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { encodeThreadDetailPageCursor } from "../threadDetailCursor.ts";
-import { projectThreadDetailSnapshot } from "../ActivityPayloadProjection.ts";
-const asProjectId = (value: string): ProjectId => ProjectId.make(value);
-const asTurnId = (value: string): TurnId => TurnId.make(value);
-const asMessageId = (value: string): MessageId => MessageId.make(value);
-const asEventId = (value: string): EventId => EventId.make(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provide(ThreadBackgroundLiveness.layer),

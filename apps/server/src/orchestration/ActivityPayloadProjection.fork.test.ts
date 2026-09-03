@@ -8,11 +8,7 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationThreadDetailSnapshot,
 } from "@t3tools/contracts";
-import {
-  projectActivityEvent,
-  projectActivityPayload,
-  projectThreadDetailSnapshot,
-} from "./ActivityPayloadProjection.ts";
+import { projectActivityEvent, projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
   return {
     id: "activity-1",

@@ -179,7 +179,7 @@ it("defers only the two proven file-local integration harnesses", () => {
   );
 });
 
-it("leaves an edited upstream expectation alone, because it adds no test block", () => {
+it("leaves a renamed upstream test alone when its removed and added openers share a hunk", () => {
   const patches = parseCommitPatches(
     patch(
       "a".repeat(40),
@@ -203,6 +203,35 @@ it("leaves an edited upstream expectation alone, because it adds no test block",
       }),
     ),
     [],
+  );
+});
+
+it("warns when an unrelated test is deleted in one hunk and another is appended elsewhere", () => {
+  const path = "apps/web/src/threadRoutes.test.ts";
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -10,2 +10,0 @@",
+        '-it("drops an obsolete upstream case", () => {});',
+        "-",
+        "@@ -50,0 +49,2 @@",
+        '+it("adds a fork-only case", () => {});',
+        "+",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set([path]),
+      }),
+    ).map(({ rule, detail }) => `${rule} ${detail}`),
+    [`upstream-test ${path} gains 1 fork test block(s); move them to ${forkTestSibling(path)}`],
   );
 });
 

@@ -1,25 +1,17 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Options as ClaudeQueryOptions,
   PermissionMode,
-  PermissionResult,
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-  ApprovalRequestId,
   CHILD_ITEM_RENDER_JSON_MAX_BYTES,
   CHILD_ITEM_RENDER_DIFF_MAX_CHARS,
   ChildItemRenderDetail,
   ClaudeSettings,
   ProviderDriverKind,
-  ProviderItemId,
-  ProviderRuntimeEvent,
-  type RuntimeMode,
   ThreadId,
   ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -32,22 +24,12 @@ import * as Layer from "effect/Layer";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
-import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import {
-  SYNTHETIC_CLAUDE_CAPABLE_MODEL,
-  SYNTHETIC_CLAUDE_COLLIDING_ALIAS,
-  SYNTHETIC_CLAUDE_MODEL_CATALOG,
-  SYNTHETIC_CLAUDE_STANDARD_MODEL,
-  SYNTHETIC_CLAUDE_THINKING_MODEL,
-} from "../ClaudeModelCatalog.testFixtures.ts";
-import { ProviderAdapterProcessError, ProviderAdapterValidationError } from "../Errors.ts";
+import { SYNTHETIC_CLAUDE_MODEL_CATALOG } from "../ClaudeModelCatalog.testFixtures.ts";
 import type { ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { makeClaudeAdapter, type ClaudeAdapterLiveOptions } from "./ClaudeAdapter.ts";
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
-const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const encodeChildItemRenderDetailJson = Schema.encodeSync(
   Schema.fromJsonString(ChildItemRenderDetail),
 );
@@ -218,50 +200,7 @@ function makeDeterministicRandomService(seed = 305419896): {
     nextDoubleUnsafe: () => nextIntUnsafe() / 4294967296,
   };
 }
-async function readFirstPromptText(
-  input:
-    | {
-        readonly prompt: AsyncIterable<SDKUserMessage>;
-      }
-    | undefined,
-): Promise<string | undefined> {
-  const iterator = input?.prompt[Symbol.asyncIterator]();
-  if (!iterator) {
-    return undefined;
-  }
-  const next = await iterator.next();
-  if (next.done) {
-    return undefined;
-  }
-  if (typeof next.value.message.content === "string") {
-    return next.value.message.content;
-  }
-  const content = next.value.message.content[0];
-  if (!content || content.type !== "text") {
-    return undefined;
-  }
-  return content.text;
-}
-async function readFirstPromptMessage(
-  input:
-    | {
-        readonly prompt: AsyncIterable<SDKUserMessage>;
-      }
-    | undefined,
-): Promise<SDKUserMessage | undefined> {
-  const iterator = input?.prompt[Symbol.asyncIterator]();
-  if (!iterator) {
-    return undefined;
-  }
-  const next = await iterator.next();
-  if (next.done) {
-    return undefined;
-  }
-  return next.value;
-}
 const THREAD_ID = ThreadId.make("thread-claude-1");
-const RESUME_THREAD_ID = ThreadId.make("thread-claude-resume");
-const SYNTHETIC_SUBAGENT_MODEL = "claude-synthetic-subagent[expanded]";
 describe("ClaudeAdapterLive", () => {
   it.effect("launches the selected Claude custom agent as the main session", () => {
     const harness = makeHarness({ claudeConfig: { launchArgs: "--agent legacy --verbose" } });

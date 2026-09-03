@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  CheckpointRef,
-  CommandId,
-  EventId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  TurnId,
-} from "@t3tools/contracts";
+import { EventId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import type { OrchestrationThread } from "@t3tools/contracts";
 import { applyThreadDetailEvent } from "./threadReducer.ts";
 const baseEventFields = {

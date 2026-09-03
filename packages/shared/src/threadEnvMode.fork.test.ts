@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   fromWireThreadEnvModeFields,
-  isDefaultThreadEnvModeSettled,
-  resolveDefaultThreadEnvMode,
   toWireThreadEnvModeFields,
   toWireThreadEnvModeOverrideFields,
 } from "./threadEnvMode.ts";

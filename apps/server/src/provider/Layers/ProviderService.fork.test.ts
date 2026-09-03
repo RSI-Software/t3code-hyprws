@@ -1,7 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
 import type {
   ProviderApprovalDecision,
   ProviderRuntimeEvent,
@@ -12,13 +9,7 @@ import type {
   ProviderUploadFeedbackResult,
 } from "@t3tools/contracts";
 import {
-  ASSISTANT_CITATION_MAX_TEXT_LENGTH,
-  AssistantCitation,
-  ApprovalRequestId,
-  EnvironmentId,
   EventId,
-  MessageId,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -26,34 +17,12 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import {
-  expandAssistantCitationsForProvider,
-  serializeAssistantCitation,
-} from "@t3tools/shared/assistantCitations";
-import { createModelSelection } from "@t3tools/shared/model";
-import { it, assert, describe, vi } from "@effect/vitest";
-import * as Cause from "effect/Cause";
-import * as Deferred from "effect/Deferred";
+import { it, assert, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Metric from "effect/Metric";
-import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
-import * as Ref from "effect/Ref";
-import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import {
-  ProviderAdapterRequestError,
-  ProviderAdapterSessionNotFoundError,
-  ProviderUnsupportedError,
-  ProviderValidationError,
-  type ProviderAdapterError,
-} from "../Errors.ts";
+import { ProviderAdapterSessionNotFoundError, type ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
@@ -63,10 +32,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../../persistence/Layers/Sqlite.ts";
+import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
@@ -75,32 +41,12 @@ const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTes
 const serverConfigTestLayer = ServerConfig.layerTest(process.cwd(), process.cwd()).pipe(
   Layer.provide(NodeServices.layer),
 );
-const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
-const asEventId = (value: string): EventId => EventId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const codexInstanceId = ProviderInstanceId.make("codex");
-const claudeAgentInstanceId = ProviderInstanceId.make("claudeAgent");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CLAUDE_AGENT_DRIVER = ProviderDriverKind.make("claudeAgent");
 const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
-const assistantQuoteText = 'Keep the shared parser for "résumé".\nPreserve line breaks.';
-const assistantCitation = {
-  version: 1,
-  environmentId: EnvironmentId.make("source-environment/remote"),
-  threadId: asThreadId("source-thread/earlier"),
-  messageId: MessageId.make("source-message/first"),
-  text: assistantQuoteText,
-  start: 17,
-  end: 17 + assistantQuoteText.length,
-  prefix: "Previous advice. ",
-  suffix: " Next steps.",
-} satisfies AssistantCitation;
-const decodeAssistantQuoteContext = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Array(Schema.Struct({ id: Schema.String, citation: AssistantCitation })),
-  ),
-);
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
   readonly eventId: EventId;
@@ -284,18 +230,6 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     stopAll,
   };
 }
-const advanceTestClock = (ms: number) =>
-  TestClock.adjust(`${ms} millis`).pipe(Effect.andThen(Effect.yieldNow));
-const hasMetricSnapshot = (
-  snapshots: ReadonlyArray<Metric.Metric.Snapshot>,
-  id: string,
-  attributes: Readonly<Record<string, string>>,
-) =>
-  snapshots.some(
-    (snapshot) =>
-      snapshot.id === id &&
-      Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
-  );
 function makeProviderServiceLayer(
   input: {
     readonly directory?: ProviderSessionDirectory.ProviderSessionDirectory["Service"];
@@ -383,30 +317,4 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(resumedStartInput?.projectId, projectId);
     }),
   );
-});
-const fanout = makeProviderServiceLayer();
-const citations = makeProviderServiceLayer();
-const validation = makeProviderServiceLayer();
-const activeSessionThreadId = asThreadId("thread-active-session");
-const historicalSessionThreadId = asThreadId("thread-historical-session");
-const listThreadIds = vi.fn(() =>
-  Effect.succeed([activeSessionThreadId, historicalSessionThreadId]),
-);
-const getBinding = vi.fn((threadId: ThreadId) =>
-  Effect.succeed(
-    Option.some({
-      threadId,
-      provider: CODEX_DRIVER,
-      providerInstanceId: codexInstanceId,
-    }),
-  ),
-);
-const boundedListing = makeProviderServiceLayer({
-  directory: {
-    upsert: () => Effect.void,
-    getProvider: () => Effect.die("ProviderService.listSessions does not use getProvider"),
-    getBinding,
-    listThreadIds,
-    listBindings: () => Effect.die("ProviderService.listSessions does not use listBindings"),
-  },
 });

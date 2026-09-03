@@ -3,7 +3,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -40,21 +39,6 @@ const makeWorktrunkHookRunnerLayer = (
       Effect.succeed({ status: "skipped" as const, reason: "missing-config" as const }),
     ...overrides,
   });
-function makeLayer(input: {
-  readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
-}) {
-  return GitWorkflowService.layer.pipe(
-    Layer.provide(
-      Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
-        detect: input.detect,
-      }),
-    ),
-    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-    Layer.provide(Layer.mock(GitManager.GitManager)({})),
-    Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({})),
-    Layer.provide(makeWorktrunkHookRunnerLayer()),
-  );
-}
 describe("GitWorkflowService", () => {
   it.effect("reports the Worktrunk marker on local status", () => {
     const localStatus = {

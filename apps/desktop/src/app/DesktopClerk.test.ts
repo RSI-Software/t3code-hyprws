@@ -2,8 +2,6 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Logger from "effect/Logger";
-import * as References from "effect/References";
 import { beforeEach, vi } from "vite-plus/test";
 
 const { createClerkBridgeMock, storageAdapter, storageMock } = vi.hoisted(() => ({

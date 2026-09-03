@@ -5,9 +5,7 @@ import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
   buildTerminalMenuSessions,
   getTerminalStatusLabel,
-  nextOpenTerminalId,
   previousLiveTerminalId,
-  resolveProjectScriptTerminalId,
   type TerminalMenuSession,
 } from "./terminalMenu";
 function makeMenuSession(input: {

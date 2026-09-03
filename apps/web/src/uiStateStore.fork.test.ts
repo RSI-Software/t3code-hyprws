@@ -1,23 +1,10 @@
-import { ProjectId, ThreadId } from "@t3tools/contracts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import {
-  legacyProjectCwdPreferenceKey,
-  markThreadUnread,
-  markThreadVisited,
   moveProjectThread,
-  parsePersistedState,
-  PERSISTED_STATE_KEY,
-  type PersistedUiState,
-  persistState,
   renameThreadGroup,
   renameThreadGroupIfCurrent,
   reorderProjectThreads,
-  reorderProjects,
-  resolveProjectExpanded,
-  setDefaultAdvertisedEndpointKey,
-  setProjectExpanded,
   setThreadGroupMembership,
-  setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
@@ -308,22 +295,3 @@ describe("uiStateStore pure functions", () => {
     ).toBe(membershipChanged);
   });
 });
-function createLocalStorageStub(): Storage {
-  const store = new Map<string, string>();
-  return {
-    clear: () => {
-      store.clear();
-    },
-    getItem: (key) => store.get(key) ?? null,
-    key: (index) => [...store.keys()][index] ?? null,
-    get length() {
-      return store.size;
-    },
-    removeItem: (key) => {
-      store.delete(key);
-    },
-    setItem: (key, value) => {
-      store.set(key, value);
-    },
-  };
-}

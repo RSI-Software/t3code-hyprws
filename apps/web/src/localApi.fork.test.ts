@@ -1,5 +1,4 @@
 import {
-  DEFAULT_CLIENT_SETTINGS,
   type ConfirmDialogOptions,
   type ContextMenuItem,
   type DesktopBridge,

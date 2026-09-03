@@ -1,7 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as TestClock from "effect/testing/TestClock";
 import type {
   OrchestrationProjectShell,
   ProjectId,
@@ -12,11 +11,7 @@ import type {
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
-import {
-  PullRequestProviderError,
-  type ProviderChangeRequest,
-  type PullRequestProviderApi,
-} from "./PullRequestProvider.ts";
+import { PullRequestProviderError, type PullRequestProviderApi } from "./PullRequestProvider.ts";
 import { PullRequestProviderRegistry, fromProviders } from "./PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
@@ -54,33 +49,6 @@ function project(input: {
     createdAt: "2026-07-01T00:00:00Z",
     updatedAt: "2026-07-01T00:00:00Z",
   };
-}
-function changeRequest(number: number, updatedAt: string): ProviderChangeRequest {
-  return {
-    number,
-    title: `Change request ${number}`,
-    url: `https://host/pull/${number}`,
-    author: { login: "octocat", name: null, avatarUrl: null },
-    headBranch: `feat/${number}`,
-    baseBranch: "main",
-    state: "open",
-    isDraft: false,
-    mergeability: "mergeable",
-    additions: 1,
-    deletions: 0,
-    createdAt: "2026-07-01T00:00:00Z",
-    updatedAt,
-    reviewRequestLogins: [],
-    labels: [],
-  };
-}
-function unusable(provider: SourceControlProviderKind, reason: "missing-tool" | "unauthenticated") {
-  return new PullRequestProviderError({
-    provider,
-    operation: "getViewer",
-    reason,
-    detail: `${provider} is not usable.`,
-  });
 }
 const requestFailed = new PullRequestProviderError({
   provider: "github",
@@ -176,9 +144,6 @@ function makeService(input: {
   );
 }
 /** A row as a host that reads several repositories at once hands it over. */
-function batchedChangeRequest(number: number, repository: string, updatedAt: string) {
-  return { ...changeRequest(number, updatedAt), repository };
-}
 it.effect("uses the requested project to read another repository on the same host", () =>
   Effect.gen(function* () {
     const repositories: string[] = [];

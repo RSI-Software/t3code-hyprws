@@ -4,22 +4,11 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   githubIssueSurface,
   migratePersistedRightPanelState,
-  pullRequestSurfaceId,
-  selectActiveRightPanel,
   selectActiveRightPanelSurface,
-  selectSelectedRightPanelSurface,
   selectThreadRightPanelState,
-  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
-const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
-const agentsSurface = {
-  id: "agents",
-  kind: "agents",
-  selectedAgentId: null,
-  rosterFocusAgentId: null,
-} as const;
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
 });

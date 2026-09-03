@@ -1,5 +1,4 @@
 import { assert, describe, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -16,7 +15,6 @@ import * as TestClock from "effect/testing/TestClock";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
-import { HUB_WINDOW_IDENTITY, projectWindowIdentity } from "../window/WindowIdentity.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 

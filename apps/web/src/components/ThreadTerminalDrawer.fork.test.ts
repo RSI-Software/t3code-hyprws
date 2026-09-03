@@ -9,12 +9,9 @@ import { type ShortcutEventLike } from "../keybindings";
 import {
   isTerminalAttachmentDemanded,
   resolveTerminalWindowDemand,
-  shouldClearTerminalSelectionAction,
   shouldForwardThreadTerminalShortcut,
-  shouldHandleTerminalExit,
   shouldHandleTerminalFocusRequest,
   shouldRestoreTerminalFocusAfterResume,
-  terminalSelectionLineRange,
 } from "./ThreadTerminalDrawer";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {

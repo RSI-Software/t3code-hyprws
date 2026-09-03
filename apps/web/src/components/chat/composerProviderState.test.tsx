@@ -8,12 +8,9 @@ import {
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
-import { DraftId } from "../../composerDraftStore";
 
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and

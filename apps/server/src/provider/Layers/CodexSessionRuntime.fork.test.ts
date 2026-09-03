@@ -1,28 +1,10 @@
 import * as NodeAssert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
-import * as CodexErrors from "effect-codex-app-server/errors";
+import { ThreadId } from "@t3tools/contracts";
 import * as CodexRpc from "effect-codex-app-server/rpc";
-import * as EffectCodexSchema from "effect-codex-app-server/schema";
-import {
-  buildCodexDeveloperInstructions,
-  codexDefaultModeDeveloperInstructions,
-  codexPlanModeDeveloperInstructions,
-} from "../CodexDeveloperInstructions.ts";
-import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
-import {
-  buildTurnStartParams,
-  describeMcpElicitation,
-  hasConfiguredMcpServer,
-  isRecoverableThreadResumeError,
-  makeMemoryConsolidationNotificationFilter,
-  openCodexThread,
-  toMcpElicitationResponse,
-} from "./CodexSessionRuntime.ts";
-const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
+import { buildTurnStartParams, openCodexThread } from "./CodexSessionRuntime.ts";
 function makeThreadOpenResponse(
   threadId: string,
 ): CodexRpc.ClientRequestResponsesByMethod["thread/start"] {
@@ -63,32 +45,6 @@ describe("buildTurnStartParams", () => {
     }),
   );
 });
-function makeThreadStartedNotification(
-  threadId: string,
-  source: EffectCodexSchema.V2ThreadStartedNotification["thread"]["source"],
-  threadSource?: string,
-) {
-  return {
-    method: "thread/started" as const,
-    params: {
-      thread: {
-        cliVersion: "0.0.0",
-        createdAt: 0,
-        cwd: "/tmp/project",
-        ephemeral: true,
-        id: threadId,
-        modelProvider: "openai",
-        preview: "",
-        sessionId: threadId,
-        source,
-        status: { type: "idle" as const },
-        ...(threadSource ? { threadSource } : {}),
-        turns: [],
-        updatedAt: 0,
-      },
-    },
-  };
-}
 describe("openCodexThread", () => {
   it.effect("layers a selected Codex custom agent onto thread start", () =>
     Effect.gen(function* () {

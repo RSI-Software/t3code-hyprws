@@ -6,8 +6,6 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import {
-  getComposerPromptInjectionState,
-  getComposerProviderState,
   renderProviderAgentMenuContent,
   renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
@@ -18,7 +16,6 @@ import { DraftId } from "../../composerDraftStore";
 // optionDescriptors, so these tests use a single synthetic provider/model and
 // vary only the descriptor shape per scenario.
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
-const OPENCODE_PROVIDER: ProviderDriverKind = ProviderDriverKind.make("opencode");
 const MODEL = "test-model";
 function selectDescriptor(
   id: string,
@@ -46,14 +43,6 @@ function selectDescriptor(
       : {}),
   };
 }
-function booleanDescriptor(id: string): Extract<
-  ProviderOptionDescriptor,
-  {
-    type: "boolean";
-  }
-> {
-  return { id, label: id, type: "boolean" };
-}
 function modelWith(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
 ): ReadonlyArray<ServerProviderModel> {
@@ -66,11 +55,6 @@ function selections(
 ): ReadonlyArray<ProviderOptionSelection> {
   return entries.map(([id, value]) => ({ id, value }));
 }
-const ULTRATHINK_FRAME_CLASSES = {
-  composerFrameClassName: "ultrathink-frame",
-  composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.07)_inset]",
-  modelPickerIconClassName: "ultrathink-chroma",
-} as const;
 describe("provider traits render guards", () => {
   it("renders an agent-only descriptor in its dedicated control", () => {
     const models = modelWith([

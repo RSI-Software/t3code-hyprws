@@ -1,9 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import {
-  applyPreferredCodexDefaultModel,
-  mapCodexModelCapabilities,
-  withCodexAgentOptions,
-} from "./CodexProvider.ts";
+import { withCodexAgentOptions } from "./CodexProvider.ts";
 it("adds discovered Codex agents to every model", () => {
   const models = withCodexAgentOptions(
     [{ slug: "gpt-test", name: "GPT Test", isCustom: false, capabilities: null }],

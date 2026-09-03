@@ -1,17 +1,6 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  DEFAULT_TERMINAL_ID,
-  TerminalAttachInput,
-  TerminalClearInput,
-  TerminalCloseInput,
-  TerminalEvent,
-  TerminalOpenInput,
-  TerminalResizeInput,
-  TerminalSessionSnapshot,
-  TerminalThreadInput,
-  TerminalWriteInput,
-} from "./terminal.ts";
+import { DEFAULT_TERMINAL_ID, TerminalEvent, TerminalSessionSnapshot } from "./terminal.ts";
 function decodeSync<S extends Schema.Top>(schema: S, input: unknown): Schema.Schema.Type<S> {
   return Schema.decodeUnknownSync(schema as never)(input) as Schema.Schema.Type<S>;
 }
@@ -51,7 +40,6 @@ describe("TerminalSessionSnapshot", () => {
   });
 });
 describe("TerminalEvent", () => {
-  const isoTimestamp = "2026-01-01T00:00:00.000Z";
   it("announces managed suspension through the existing activity event", () => {
     const event = {
       type: "activity" as const,

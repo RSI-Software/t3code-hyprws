@@ -2,10 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, TerminalSessionSnapshot, ThreadId } from "@t3tools/contracts";
 import {
   applyTerminalAttachStreamEvent,
-  applyTerminalMetadataStreamEvent,
   combineTerminalSessionState,
   EMPTY_TERMINAL_BUFFER_STATE,
-  selectRunningSubprocessTerminalIds,
 } from "./terminalSession.ts";
 const TARGET = {
   environmentId: EnvironmentId.make("env-local"),

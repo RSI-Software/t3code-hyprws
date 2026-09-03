@@ -1,322 +1,28 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
+import { it } from "@effect/vitest";
 import {
   DEFAULT_TERMINAL_ID,
   type TerminalAttachStreamEvent,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
-  type TerminalOpenInput,
-  type TerminalRestartInput,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as PlatformError from "effect/PlatformError";
-import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
-import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
 import * as ProcessRunner from "../processRunner.ts";
-import * as TerminalManager from "./Manager.ts";
-import * as PtyAdapter from "./PtyAdapter.ts";
-class WaitForConditionError extends Data.TaggedError("WaitForConditionError")<{
-  readonly message: string;
-}> {}
-class FakePtyProcess implements PtyAdapter.PtyProcess {
-  readonly writes: string[] = [];
-  readonly resizeCalls: Array<{
-    cols: number;
-    rows: number;
-  }> = [];
-  readonly killSignals: Array<string | undefined> = [];
-  readonly pid: number;
-  writeFailure: unknown | undefined;
-  resizeFailure: unknown | undefined;
-  private readonly dataListeners = new Set<(data: string) => void>();
-  private readonly exitListeners = new Set<(event: PtyAdapter.PtyExitEvent) => void>();
-  killed = false;
-  constructor(pid: number) {
-    this.pid = pid;
-  }
-  write(data: string): void {
-    if (this.writeFailure !== undefined) {
-      throw this.writeFailure;
-    }
-    this.writes.push(data);
-  }
-  resize(cols: number, rows: number): void {
-    if (this.resizeFailure !== undefined) {
-      throw this.resizeFailure;
-    }
-    this.resizeCalls.push({ cols, rows });
-  }
-  kill(signal?: string): void {
-    this.killed = true;
-    this.killSignals.push(signal);
-  }
-  onData(callback: (data: string) => void): () => void {
-    this.dataListeners.add(callback);
-    return () => {
-      this.dataListeners.delete(callback);
-    };
-  }
-  onExit(callback: (event: PtyAdapter.PtyExitEvent) => void): () => void {
-    this.exitListeners.add(callback);
-    return () => {
-      this.exitListeners.delete(callback);
-    };
-  }
-  emitData(data: string): void {
-    for (const listener of this.dataListeners) {
-      listener(data);
-    }
-  }
-  emitExit(event: PtyAdapter.PtyExitEvent): void {
-    for (const listener of this.exitListeners) {
-      listener(event);
-    }
-  }
-}
-class FakeProcessRunner {
-  readonly inputs: ProcessRunner.ProcessRunInput[] = [];
-  private readonly result:
-    | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
-    | ((
-        input: ProcessRunner.ProcessRunInput,
-      ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>);
-  constructor(
-    result:
-      | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
-      | ((
-          input: ProcessRunner.ProcessRunInput,
-        ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>),
-  ) {
-    this.result = result;
-  }
-  readonly service = ProcessRunner.ProcessRunner.of({
-    run: (input) => {
-      this.inputs.push(input);
-      return typeof this.result === "function" ? this.result(input) : this.result;
-    },
-  });
-}
-function processResult(
-  overrides: Partial<ProcessRunner.ProcessRunOutput> = {},
-): ProcessRunner.ProcessRunOutput {
-  return {
-    stdout: "",
-    stderr: "",
-    code: ChildProcessSpawner.ExitCode(0),
-    timedOut: false,
-    stdoutTruncated: false,
-    stderrTruncated: false,
-    stdoutInvalidUtf8: false,
-    stderrInvalidUtf8: false,
-    ...overrides,
-  };
-}
-function resolvedZmuxProcessRunner(): FakeProcessRunner {
-  return new FakeProcessRunner(
-    Effect.succeed(
-      processResult({
-        stdout:
-          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
-      }),
-    ),
-  );
-}
-class FakePtyAdapter {
-  readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
-  readonly processes: FakePtyProcess[] = [];
-  readonly spawnFailures: Error[] = [];
-  private readonly mode: "sync" | "async";
-  private nextPid = 9000;
-  constructor(mode: "sync" | "async" = "sync") {
-    this.mode = mode;
-  }
-  spawn(
-    input: PtyAdapter.PtySpawnInput,
-  ): Effect.Effect<PtyAdapter.PtyProcess, PtyAdapter.PtySpawnError> {
-    this.spawnInputs.push(input);
-    const failure = this.spawnFailures.shift();
-    if (failure) {
-      return Effect.fail(
-        new PtyAdapter.PtySpawnError({
-          adapter: "fake",
-          shell: input.shell,
-          cause: failure,
-        }),
-      );
-    }
-    const process = new FakePtyProcess(this.nextPid++);
-    this.processes.push(process);
-    if (this.mode === "async") {
-      return Effect.tryPromise({
-        try: async () => process,
-        catch: (cause) =>
-          new PtyAdapter.PtySpawnError({
-            adapter: "fake",
-            shell: input.shell,
-            cause,
-          }),
-      });
-    }
-    return Effect.succeed(process);
-  }
-}
-const waitFor = <E, R>(
-  predicate: Effect.Effect<boolean, E, R>,
-  timeout: Duration.Input = 800,
-): Effect.Effect<void, WaitForConditionError | E, R> =>
-  predicate.pipe(
-    Effect.filterOrFail(
-      (done) => done,
-      () => new WaitForConditionError({ message: "Condition not met" }),
-    ),
-    Effect.retry(Schedule.spaced("15 millis")),
-    Effect.timeoutOption(timeout),
-    Effect.flatMap((result) =>
-      Option.match(result, {
-        onNone: () =>
-          Effect.fail(new WaitForConditionError({ message: "Timed out waiting for condition" })),
-        onSome: () => Effect.void,
-      }),
-    ),
-  );
-function openInput(overrides: Partial<TerminalOpenInput> = {}): TerminalOpenInput {
-  return {
-    threadId: "thread-1",
-    terminalId: DEFAULT_TERMINAL_ID,
-    cwd: process.cwd(),
-    cols: 100,
-    rows: 24,
-    ...overrides,
-  };
-}
-function restartInput(overrides: Partial<TerminalRestartInput> = {}): TerminalRestartInput {
-  return {
-    threadId: "thread-1",
-    terminalId: DEFAULT_TERMINAL_ID,
-    cwd: process.cwd(),
-    cols: 100,
-    rows: 24,
-    ...overrides,
-  };
-}
-const historyLogPath = (logsDir: string, threadId = "thread-1") =>
-  Effect.service(Path.Path).pipe(
-    Effect.map(({ join }) => join(logsDir, `terminal_${Encoding.encodeBase64Url(threadId)}.log`)),
-  );
-const multiTerminalHistoryLogPath = (
-  logsDir: string,
-  threadId = "thread-1",
-  terminalId = DEFAULT_TERMINAL_ID,
-) =>
-  Effect.service(Path.Path).pipe(
-    Effect.map(({ join }) => {
-      const threadPart = `terminal_${Encoding.encodeBase64Url(threadId)}`;
-      return join(
-        logsDir,
-        terminalId === DEFAULT_TERMINAL_ID
-          ? `${threadPart}.log`
-          : `${threadPart}_${Encoding.encodeBase64Url(terminalId)}.log`,
-      );
-    }),
-  );
-interface CreateManagerOptions {
-  shellResolver?: () => string;
-  env?: NodeJS.ProcessEnv;
-  subprocessInspector?: (terminalPid: number) => Effect.Effect<{
-    readonly hasRunningSubprocess: boolean;
-    readonly childCommand: string | null;
-    readonly processIds: ReadonlyArray<number>;
-  }>;
-  subprocessPollIntervalMs?: number;
-  processKillGraceMs?: number;
-  managedAttachmentSuspendGraceMs?: number;
-  managedAttachmentFirstAttachDeadlineMs?: number;
-  maxRetainedInactiveSessions?: number;
-  ptyAdapter?: FakePtyAdapter;
-  terminalSessionMode?: "shell" | "zmux";
-}
-interface ManagerFixture {
-  readonly baseDir: string;
-  readonly logsDir: string;
-  readonly ptyAdapter: FakePtyAdapter;
-  readonly manager: TerminalManager.TerminalManager["Service"];
-  readonly getEvents: Effect.Effect<ReadonlyArray<TerminalEvent>>;
-}
-const createManager = (
-  historyLineLimit = 5,
-  options: CreateManagerOptions = {},
-): Effect.Effect<
-  ManagerFixture,
-  PlatformError.PlatformError,
-  FileSystem.FileSystem | Path.Path | Scope.Scope | ProcessRunner.ProcessRunner
-> =>
-  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-terminal-" });
-      const logsDir = join(baseDir, "userdata", "logs", "terminals");
-      const ptyAdapter = options.ptyAdapter ?? new FakePtyAdapter();
-      const manager = yield* TerminalManager.makeWithOptions({
-        logsDir,
-        historyLineLimit,
-        ptyAdapter,
-        ...(options.shellResolver !== undefined ? { shellResolver: options.shellResolver } : {}),
-        ...(options.env !== undefined ? { env: options.env } : {}),
-        ...(options.subprocessInspector !== undefined
-          ? { subprocessInspector: options.subprocessInspector }
-          : {}),
-        ...(options.subprocessPollIntervalMs !== undefined
-          ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
-          : {}),
-        processKillGraceMs: options.processKillGraceMs ?? 1,
-        ...(options.managedAttachmentSuspendGraceMs !== undefined
-          ? { managedAttachmentSuspendGraceMs: options.managedAttachmentSuspendGraceMs }
-          : {}),
-        ...(options.managedAttachmentFirstAttachDeadlineMs !== undefined
-          ? {
-              managedAttachmentFirstAttachDeadlineMs:
-                options.managedAttachmentFirstAttachDeadlineMs,
-            }
-          : {}),
-        ...(options.maxRetainedInactiveSessions !== undefined
-          ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
-          : {}),
-        ...(options.terminalSessionMode !== undefined
-          ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
-          : {}),
-      });
-      const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
-      const unsubscribe = yield* manager.subscribe((event) =>
-        Ref.update(eventsRef, (events) => [...events, event]),
-      );
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-      return {
-        baseDir,
-        logsDir,
-        join,
-        ptyAdapter,
-        manager,
-        getEvents: Ref.get(eventsRef),
-      };
-    }),
-  );
-const withHostPlatform = (platform: NodeJS.Platform) =>
-  Layer.succeed(HostProcessPlatform, platform);
+import {
+  createManager,
+  FakeProcessRunner,
+  openInput,
+  processResult,
+  resolvedZmuxProcessRunner,
+} from "./Manager.fork-test-harness.ts";
 it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
   { excludeTestServices: true },
@@ -864,20 +570,6 @@ it.layer(
       expect(snapshot.history).toContain("plain shell");
     }),
   );
-  const makeDirectory = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
-      fs.makeDirectory(filePath, { recursive: true }),
-    );
-  const chmod = (filePath: string, mode: number) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.chmod(filePath, mode));
-  const pathExists = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.exists(filePath));
-  const readFileString = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.readFileString(filePath));
-  const writeFileString = (filePath: string, contents: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
-      fs.writeFileString(filePath, contents),
-    );
   it.effect("bounds suspended records while preserving exact-target resume identity", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();

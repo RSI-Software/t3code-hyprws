@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { classifyTaskAgentKind, type OrchestrationThreadActivity } from "@t3tools/contracts";
-import {
-  deriveAgentPanelModel,
-  foldSubagentActivities,
-  formatSubagentModelLabel,
-  formatSubagentTokenCount,
-  isAgentAttributedToolActivity,
-  isSubagentActivityKind,
-  isTimelineBypassActivity,
-  workflowCardMembers,
-} from "./subagentRuntime.ts";
+import { foldSubagentActivities } from "./subagentRuntime.ts";
 let sequence = 0;
 /**
  * Fixtures model POST-INGESTION rows: ingestion stamps agentKind on every
@@ -43,21 +34,6 @@ function activity(
   } as unknown as OrchestrationThreadActivity;
 }
 /** A pre-stamp row (legacy thread / old server): no agentKind at all. */
-function legacyActivity(
-  kind: string,
-  payload: Record<string, unknown>,
-): OrchestrationThreadActivity {
-  sequence += 1;
-  return {
-    id: `activity-${sequence}`,
-    tone: "info",
-    kind,
-    summary: kind,
-    payload,
-    turnId: null,
-    createdAt: `2026-08-01T10:00:${String(sequence).padStart(2, "0")}.000Z`,
-  } as unknown as OrchestrationThreadActivity;
-}
 function fold(rows: ReadonlyArray<OrchestrationThreadActivity>) {
   return foldSubagentActivities(rows);
 }

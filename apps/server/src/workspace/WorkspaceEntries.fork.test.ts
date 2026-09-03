@@ -1,7 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFSP from "node:fs/promises";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { FileFinder } from "@ff-labs/fff-node";
 import { it, afterEach, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -10,7 +8,6 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import { vi } from "vite-plus/test";
 import * as ServerConfig from "../config.ts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
@@ -71,22 +68,6 @@ const git = (cwd: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) 
     });
     return result.stdout.trim();
   });
-const searchWorkspaceEntries = (input: {
-  cwd: string;
-  query: string;
-  limit: number;
-  kind?: "file" | "directory";
-}) =>
-  Effect.gen(function* () {
-    const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
-    return yield* workspaceEntries.search(input);
-  });
-const appendSeparator = (input: string) =>
-  Effect.map(HostProcessPlatform, (platform) =>
-    input.endsWith("/") || input.endsWith("\\")
-      ? input
-      : `${input}${platform === "win32" ? "\\" : "/"}`,
-  );
 it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   afterEach(() => {
     vi.restoreAllMocks();

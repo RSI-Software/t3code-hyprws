@@ -52,13 +52,18 @@ export interface ExportDeclaration {
   readonly name: string;
 }
 
+export interface TestBlockHunk {
+  readonly path: string;
+  readonly added: number;
+  readonly removed: number;
+}
+
 export interface CommitPatch {
   readonly removedExports: ReadonlyArray<ExportDeclaration>;
   readonly addedExports: ReadonlyArray<ExportDeclaration>;
-  // Added and removed `it`/`test`/`describe` block openers, counted per file.
-  // The net count distinguishes an append from a renamed upstream expectation.
-  readonly addedTestBlocks: ReadonlyMap<string, number>;
-  readonly removedTestBlocks: ReadonlyMap<string, number>;
+  // `it`/`test`/`describe` block openers stay grouped by zero-context diff
+  // hunk, so only a nearby removal can identify an addition as a replacement.
+  readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
 }
 
 export interface GuardCommit {
@@ -112,19 +117,37 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     if (sha.length === 0) continue;
     const removedExports: Array<ExportDeclaration> = [];
     const addedExports: Array<ExportDeclaration> = [];
-    const addedTestBlocks = new Map<string, number>();
-    const removedTestBlocks = new Map<string, number>();
+    const testBlockHunks: Array<TestBlockHunk> = [];
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
     let targetPath: string | null = null;
+    let hunkAddedTestBlocks = 0;
+    let hunkRemovedTestBlocks = 0;
+    const flushTestBlockHunk = () => {
+      const path = targetPath ?? sourcePath;
+      if (path !== null && (hunkAddedTestBlocks > 0 || hunkRemovedTestBlocks > 0)) {
+        testBlockHunks.push({
+          path,
+          added: hunkAddedTestBlocks,
+          removed: hunkRemovedTestBlocks,
+        });
+      }
+      hunkAddedTestBlocks = 0;
+      hunkRemovedTestBlocks = 0;
+    };
     for (const line of lines) {
       if (line.startsWith("--- ")) {
+        flushTestBlockHunk();
         sourcePath = diffPath(line.slice(4));
         continue;
       }
       if (line.startsWith("+++ ")) {
         targetPath = diffPath(line.slice(4));
+        continue;
+      }
+      if (line.startsWith("@@")) {
+        flushTestBlockHunk();
         continue;
       }
       const added = line.startsWith("+");
@@ -141,11 +164,12 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         });
       }
       if (TEST_BLOCK.test(content)) {
-        const blocks = added ? addedTestBlocks : removedTestBlocks;
-        blocks.set(path, (blocks.get(path) ?? 0) + 1);
+        if (added) hunkAddedTestBlocks += 1;
+        else hunkRemovedTestBlocks += 1;
       }
     }
-    patches.set(sha, { removedExports, addedExports, addedTestBlocks, removedTestBlocks });
+    flushTestBlockHunk();
+    patches.set(sha, { removedExports, addedExports, testBlockHunks });
   }
   return patches;
 };
@@ -180,8 +204,7 @@ export const forkTestSibling = (path: string): string =>
 const EMPTY_PATCH: CommitPatch = {
   removedExports: [],
   addedExports: [],
-  addedTestBlocks: new Map(),
-  removedTestBlocks: new Map(),
+  testBlockHunks: [],
 };
 
 export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarning> => {
@@ -205,11 +228,15 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       );
     }
 
-    for (const [path, addedCount] of [...patch.addedTestBlocks].toSorted(([left], [right]) =>
+    const appendedTestBlocks = new Map<string, number>();
+    for (const hunk of patch.testBlockHunks) {
+      const count = Math.max(0, hunk.added - hunk.removed);
+      if (count === 0) continue;
+      appendedTestBlocks.set(hunk.path, (appendedTestBlocks.get(hunk.path) ?? 0) + count);
+    }
+    for (const [path, count] of [...appendedTestBlocks].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {
-      const count = Math.max(0, addedCount - (patch.removedTestBlocks.get(path) ?? 0));
-      if (count === 0) continue;
       if (!input.upstreamFiles.has(path)) continue;
       if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
       if (UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS.has(path)) continue;

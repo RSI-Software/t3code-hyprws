@@ -1,26 +1,7 @@
 import type { DesktopPreviewFavicon, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  RightPanelTabs,
-  surfaceShortcutActionForKey,
-  surfaceShortcutTargetsTypingContext,
-  tabMuteMenuItem,
-} from "./RightPanelTabs";
-function shortcutEvent(
-  key: string,
-  overrides: Partial<Parameters<typeof surfaceShortcutActionForKey>[1]> = {},
-): Parameters<typeof surfaceShortcutActionForKey>[1] {
-  return {
-    key,
-    altKey: false,
-    ctrlKey: false,
-    defaultPrevented: false,
-    isComposing: false,
-    metaKey: false,
-    ...overrides,
-  };
-}
+import { RightPanelTabs } from "./RightPanelTabs";
 const previewSurface = {
   id: "browser:tab-1" as const,
   kind: "preview" as const,
@@ -49,11 +30,6 @@ const sessions: Readonly<Record<string, PreviewSessionSnapshot>> = {
     updatedAt: "2026-08-09T00:00:00.000Z",
   },
 };
-const favicon = (dataUrl: string, pageUrl: string): DesktopPreviewFavicon => ({
-  dataUrl,
-  pageUrl,
-  capturedAt: 1,
-});
 function overlay(
   icon: DesktopPreviewFavicon | null,
   audio?: {

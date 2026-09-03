@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  planPinnedMove,
-  sortPinnedThreadsByOrderKey,
-  sortThreads,
-  type ThreadSortInput,
-} from "./threadSort.ts";
+import { sortThreads, type ThreadSortInput } from "./threadSort.ts";
 type TestThread = {
   readonly id: string;
 } & ThreadSortInput;

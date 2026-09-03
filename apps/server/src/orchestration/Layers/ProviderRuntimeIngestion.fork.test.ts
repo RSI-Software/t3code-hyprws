@@ -1,75 +1,20 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
 import {
   CHILD_ITEM_RENDER_JSON_MAX_BYTES,
   ChildItemRenderDetail,
-  OrchestrationReadModel,
   ProviderDriverKind,
   ProviderRuntimeEvent,
-  ProviderInstanceId,
-  ProviderSession,
   RuntimeItemId,
 } from "@t3tools/contracts";
-import {
-  ApprovalRequestId,
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  EventId,
-  MessageId,
-  type OrchestrationCommand,
-  ProjectId,
-  type ServerSettings,
-  ThreadId,
-  TurnId,
-} from "@t3tools/contracts";
-import * as Clock from "effect/Clock";
-import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Layer from "effect/Layer";
-import * as ManagedRuntime from "effect/ManagedRuntime";
-import * as PubSub from "effect/PubSub";
-import * as Scope from "effect/Scope";
+import { EventId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
-import { it as effectIt } from "@effect/vitest";
-import { afterEach, describe, expect, it } from "vite-plus/test";
-import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import {
-  ProviderService,
-  type ProviderServiceShape,
-} from "../../provider/Services/ProviderService.ts";
-import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
-import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
-import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
-import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
-import {
-  ProviderRuntimeIngestionLive,
-  runtimeEventToActivities,
-} from "./ProviderRuntimeIngestion.ts";
-import { DEFAULT_THREAD_TITLE } from "../threadTitles.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
+import { describe, expect, it } from "vite-plus/test";
+import { runtimeEventToActivities } from "./ProviderRuntimeIngestion.ts";
 import { projectAgentActivity } from "../AgentActivityProjection.ts";
 import { makeChildItemRenderDetail } from "../../provider/childItemRenderDetail.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
-  return ServerSettingsService.layerTest(overrides);
-}
-const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asItemId = (value: string): RuntimeItemId => RuntimeItemId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
-const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
-const asTurnId = (value: string): TurnId => TurnId.make(value);
 const encodeChildItemRenderDetailJson = Schema.encodeSync(
   Schema.fromJsonString(ChildItemRenderDetail),
 );

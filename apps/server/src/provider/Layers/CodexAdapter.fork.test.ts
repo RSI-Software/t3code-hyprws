@@ -1,8 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeAssert from "node:assert/strict";
-import * as NodeFS from "node:fs";
-import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
 import {
   ApprovalRequestId,
   CHILD_ITEM_RENDER_JSON_MAX_BYTES,
@@ -10,8 +7,6 @@ import {
   CodexSettings,
   EventId,
   ProviderDriverKind,
-  ProviderInstanceId,
-  ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderRuntimeEvent,
@@ -21,24 +16,18 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, vi } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
-import * as CodexErrors from "effect-codex-app-server/errors";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { ProviderAdapterValidationError } from "../Errors.ts";
 import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
@@ -61,7 +50,6 @@ class CodexAdapter extends Context.Service<CodexAdapter, CodexAdapterShape>()(
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
 class FakeCodexRuntime implements CodexSessionRuntimeShape {
   // oxlint-disable-next-line t3code/no-manual-effect-runtime-in-tests -- Fork sibling preserves the upstream file-local runtime harness unchanged.
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());
@@ -163,36 +151,6 @@ function makeRuntimeFactory() {
     },
   };
 }
-function makeScopedRuntimeFactory(options?: { readonly failConstruction?: boolean }) {
-  const runtimes: Array<FakeCodexRuntime> = [];
-  const releasedThreadIds: Array<ThreadId> = [];
-  const factory = vi.fn((runtimeOptions: CodexSessionRuntimeOptions) =>
-    Effect.gen(function* () {
-      yield* Scope.Scope;
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          releasedThreadIds.push(runtimeOptions.threadId);
-        }),
-      );
-      if (options?.failConstruction) {
-        return yield* new CodexErrors.CodexAppServerSpawnError({
-          command: `${runtimeOptions.binaryPath} app-server`,
-          cause: new Error("runtime construction failed"),
-        });
-      }
-      const runtime = new FakeCodexRuntime(runtimeOptions);
-      runtimes.push(runtime);
-      return runtime;
-    }),
-  );
-  return {
-    factory,
-    releasedThreadIds,
-    get lastRuntime(): FakeCodexRuntime | undefined {
-      return runtimes.at(-1);
-    },
-  };
-}
 const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory, {
   upsert: () => Effect.void,
   getProvider: () =>
@@ -201,40 +159,6 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
   listThreadIds: () => Effect.succeed([]),
   listBindings: () => Effect.succeed([]),
 });
-const validationRuntimeFactory = makeRuntimeFactory();
-const validationLayer = it.layer(
-  Layer.effect(
-    CodexAdapter,
-    Effect.gen(function* () {
-      const codexConfig = decodeCodexSettings({});
-      return yield* makeCodexAdapter(codexConfig, {
-        makeRuntime: validationRuntimeFactory.factory,
-      });
-    }),
-  ).pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
-    Layer.provideMerge(providerSessionDirectoryTestLayer),
-    Layer.provideMerge(NodeServices.layer),
-  ),
-);
-const sessionRuntimeFactory = makeRuntimeFactory();
-const sessionErrorLayer = it.layer(
-  Layer.effect(
-    CodexAdapter,
-    Effect.gen(function* () {
-      const codexConfig = decodeCodexSettings({});
-      return yield* makeCodexAdapter(codexConfig, {
-        makeRuntime: sessionRuntimeFactory.factory,
-      });
-    }),
-  ).pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
-    Layer.provideMerge(providerSessionDirectoryTestLayer),
-    Layer.provideMerge(NodeServices.layer),
-  ),
-);
 const lifecycleRuntimeFactory = makeRuntimeFactory();
 const lifecycleLayer = it.layer(
   Layer.effect(
@@ -421,37 +345,3 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 });
-const scopedLifecycleRuntimeFactory = makeScopedRuntimeFactory();
-const scopedLifecycleLayer = it.layer(
-  Layer.effect(
-    CodexAdapter,
-    Effect.gen(function* () {
-      const codexConfig = decodeCodexSettings({});
-      return yield* makeCodexAdapter(codexConfig, {
-        makeRuntime: scopedLifecycleRuntimeFactory.factory,
-      });
-    }),
-  ).pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
-    Layer.provideMerge(providerSessionDirectoryTestLayer),
-    Layer.provideMerge(NodeServices.layer),
-  ),
-);
-const scopedFailureRuntimeFactory = makeScopedRuntimeFactory({ failConstruction: true });
-const scopedFailureLayer = it.layer(
-  Layer.effect(
-    CodexAdapter,
-    Effect.gen(function* () {
-      const codexConfig = decodeCodexSettings({});
-      return yield* makeCodexAdapter(codexConfig, {
-        makeRuntime: scopedFailureRuntimeFactory.factory,
-      });
-    }),
-  ).pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
-    Layer.provideMerge(providerSessionDirectoryTestLayer),
-    Layer.provideMerge(NodeServices.layer),
-  ),
-);
