@@ -1,8 +1,8 @@
-import type { Editor } from "@milkdown/kit/core";
-import { clipboard } from "@milkdown/kit/plugin/clipboard";
-import { history } from "@milkdown/kit/plugin/history";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
-import { gfm } from "@milkdown/kit/preset/gfm";
+import type { Editor } from "@milkdown/core";
+import { clipboard } from "@milkdown/plugin-clipboard";
+import { history } from "@milkdown/plugin-history";
+import { commonmark } from "@milkdown/preset-commonmark";
+import { gfm } from "@milkdown/preset-gfm";
 
 import { frontmatterRemark, frontmatterSchema } from "./markdownFrontmatter";
 import { bulletListSpreadFix, listItemSpreadFix } from "./markdownSerializerFixes";
