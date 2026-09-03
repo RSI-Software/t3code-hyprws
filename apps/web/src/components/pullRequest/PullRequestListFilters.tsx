@@ -422,6 +422,7 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId,
   unavailable,
   onProject,
+  showProjectFilter = true,
 }: {
   onOpenChange?: (open: boolean) => void;
   state: PullRequestListState;
@@ -457,7 +458,7 @@ export function PullRequestFiltersMenu({
     readonly workspaceRoot: string;
     readonly faviconPath?: string | null;
     readonly projectIcon?: ProjectIconOverride | null;
-  }> | null;
+  }>;
   projectId: ProjectId | undefined;
   /**
    * The server the selected project belongs to. A project id is only unique within its own
@@ -472,6 +473,8 @@ export function PullRequestFiltersMenu({
   unavailable: ReadonlyMap<string, string>;
   /** The environment comes with the project id, since picking a row picks a specific server's copy of it. */
   onProject: (projectId: ProjectId | undefined, environmentId: EnvironmentId | undefined) => void;
+  /** Fork integration: project windows own this choice in their project/all-project toggle. */
+  showProjectFilter?: boolean;
 }) {
   const selectedLabels = (filters.labels ?? []).flatMap((group) => group);
   const filterCount = [
@@ -500,32 +503,29 @@ export function PullRequestFiltersMenu({
     projectId === undefined || projectEnvironmentId === undefined
       ? ALL_PROJECTS_VALUE
       : pullRequestProjectKey({ id: projectId, environmentId: projectEnvironmentId });
-  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> =
-    projects === null
-      ? []
-      : [
-          { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
-          ...projects
-            .toSorted(
-              (left, right) =>
-                Number(unavailable.has(pullRequestProjectKey(left))) -
-                Number(unavailable.has(pullRequestProjectKey(right))),
-            )
-            .map((project) => ({
-              value: pullRequestProjectKey(project),
-              label: project.title,
-              Icon: FolderGit2Icon,
-              favicon: {
-                environmentId: project.environmentId,
-                cwd: project.workspaceRoot,
-                faviconPath: project.faviconPath ?? null,
-                projectIcon: project.projectIcon ?? null,
-              },
-              ...(unavailable.has(pullRequestProjectKey(project))
-                ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
-                : {}),
-            })),
-        ];
+  const projectOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
+    { value: ALL_PROJECTS_VALUE, label: "All projects", Icon: LayersIcon },
+    ...projects
+      .toSorted(
+        (left, right) =>
+          Number(unavailable.has(pullRequestProjectKey(left))) -
+          Number(unavailable.has(pullRequestProjectKey(right))),
+      )
+      .map((project) => ({
+        value: pullRequestProjectKey(project),
+        label: project.title,
+        Icon: FolderGit2Icon,
+        favicon: {
+          environmentId: project.environmentId,
+          cwd: project.workspaceRoot,
+          faviconPath: project.faviconPath ?? null,
+          projectIcon: project.projectIcon ?? null,
+        },
+        ...(unavailable.has(pullRequestProjectKey(project))
+          ? { unavailable: unavailable.get(pullRequestProjectKey(project)) }
+          : {}),
+      })),
+  ];
   return (
     <Menu onOpenChange={onOpenChange}>
       <MenuTrigger
@@ -614,7 +614,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
-        {projects === null ? null : (
+        {showProjectFilter ? (
           <>
             <MenuSeparator />
             <PullRequestFilterRadioSubmenu
@@ -630,7 +630,7 @@ export function PullRequestFiltersMenu({
               }}
             />
           </>
-        )}
+        ) : null}
       </MenuPopup>
     </Menu>
   );
