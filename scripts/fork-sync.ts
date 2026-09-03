@@ -27,8 +27,15 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
+import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { parseForkTrailers } from "./lib/fork-trailers.ts";
 
+import {
+  reconcileStableCandidates,
+  SystemGitHub,
+  type RebaseGitHubClient,
+} from "./fork-rebase-notify.ts";
+import { snapshotCrossedStableTags } from "./fork-stable-crossing.ts";
 import { executeStable } from "./fork-sync-stable.ts";
 import {
   assertOnly,
@@ -1254,6 +1261,29 @@ const publishRerereCache = (worktree: string, tag: string): void => {
   }
 };
 
+/**
+ * The snapshot branch is already on `origin` and is the durable artefact, so a failed
+ * announcement is reported and never voids the apply it followed
+ * (RSI-Software/t3code-hyprws#444). Nothing reopens the question later: the bot cannot
+ * see a tag the base has passed, so the printed branch is the whole recovery.
+ */
+export const announceStableCandidates = (
+  candidates: ReadonlyArray<StableCandidate>,
+  client: RebaseGitHubClient = new SystemGitHub(REPOSITORY),
+): void => {
+  if (candidates.length === 0) return;
+  const branches = candidates.map((candidate) => `origin/${candidate.branch}`).join(", ");
+  try {
+    reconcileStableCandidates(client, candidates);
+    process.stdout.write(`stable candidates announced from ${branches}\n`);
+  } catch (error) {
+    process.stderr.write(
+      `warning: stable candidate issues not reconciled: ${error instanceof Error ? error.message : String(error)}\n` +
+        `The snapshots are pushed; open their candidate issues by hand from ${branches}.\n`,
+    );
+  }
+};
+
 const unblockApply = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -1319,6 +1349,19 @@ const unblockApply = (
     ["issue", "comment", String(report.issue.number), "-R", REPOSITORY, "--body-file", recordPath],
     worktree,
   ).trim();
+  // A stable upstream tag is snapshotted and announced by whichever lane moves the
+  // fork base past it. The bot only ever sees the tags inside its own walk window, so
+  // the ones this apply crosses are the lane's to publish
+  // (RSI-Software/t3code-hyprws#499). Snapshots are pushed before the trunk, exactly
+  // as the bot orders them, because a create-only snapshot stands on its own.
+  const newBaseSha = git(runner, worktree, ["rev-parse", `${gateTag}^{commit}`]);
+  const stableCandidates = snapshotCrossedStableTags({
+    root: worktree,
+    oldSha: source.expectedOld,
+    oldBaseSha: git(runner, worktree, ["merge-base", source.expectedOld, newBaseSha]),
+    newBaseSha,
+    warn: (message) => process.stderr.write(`warning: ${message}\n`),
+  });
   const push = runner.run(
     "git",
     [
@@ -1335,6 +1378,7 @@ const unblockApply = (
   );
   if (push.status !== 0)
     throw new Error(`leased apply refused; this report cannot be refreshed: ${push.stderr.trim()}`);
+  announceStableCandidates(stableCandidates);
   requireSuccess(
     runner,
     "gh",

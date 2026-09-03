@@ -8,6 +8,7 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
+  announceStableCandidates,
   autoGateFour,
   baseReleaseTag,
   autoResolveConflicts,
@@ -46,6 +47,8 @@ import {
   type SyncReport,
 } from "./fork-sync.ts";
 import { inspectRecord } from "./fork-sync-gate.ts";
+import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
+import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 
 const A = "a".repeat(40);
@@ -1913,6 +1916,141 @@ it("unblock-apply refuses a RUNNING bot with status 3", () => {
       runner.calls.slice(0, 2).map(({ args }) => args),
       [modeArgs, runListArgs],
     );
+  } finally {
+    process.stderr.write = original;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+const stableCandidateFixture = (tag = "v1.0.0"): StableCandidate => ({
+  tag,
+  branch: `release/${tag}-hyprws`,
+  sha: B,
+  title: `Stable candidate ${tag}-hyprws`,
+  marker: `<!-- hyprws-stable-candidate: ${tag}-hyprws -->`,
+  label: "release",
+  body: `snapshot for ${tag}`,
+});
+
+/**
+ * A repository that already carries this candidate's issue, so a clean reconcile writes
+ * nothing. `onRead` is where a test makes the reconcile fail.
+ */
+const stubGitHub = (candidate: StableCandidate, onRead: () => void = () => {}) => {
+  const unreachable = (): never => {
+    throw new Error("unexpected GitHub write");
+  };
+  const client: RebaseGitHubClient = {
+    ensureBlockedLabel: unreachable,
+    listBlockedIssues: unreachable,
+    listReleaseIssues: () => {
+      onRead();
+      return [
+        {
+          number: 41,
+          nodeId: "issue-41",
+          state: "open",
+          title: candidate.title,
+          body: candidate.marker,
+          issueType: "Notification 🔔",
+        },
+      ];
+    },
+    listIssueComments: unreachable,
+    lookupIssueTypeId: unreachable,
+    applyIssueType: unreachable,
+    createIssue: unreachable,
+    updateIssueBody: unreachable,
+    createIssueComment: unreachable,
+    updateIssueComment: unreachable,
+    stableReleaseTagExists: () => false,
+    closeIssue: unreachable,
+  };
+  return client;
+};
+
+it("names the snapshot branches it announced stable candidates from", () => {
+  const candidate = stableCandidateFixture();
+  const { output } = captureStdout(() =>
+    announceStableCandidates([candidate], stubGitHub(candidate)),
+  );
+  assert.strictEqual(output, "stable candidates announced from origin/release/v1.0.0-hyprws\n");
+});
+
+it("reports a failed candidate announcement without voiding the apply it followed", () => {
+  const candidate = stableCandidateFixture();
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const { output } = captureStdout(() =>
+      announceStableCandidates(
+        [candidate],
+        stubGitHub(candidate, () => {
+          throw new Error("issue list refused");
+        }),
+      ),
+    );
+    assert.strictEqual(output, "");
+    assert.include(stderr, "stable candidate issues not reconciled: issue list refused");
+    assert.include(stderr, "open their candidate issues by hand from origin/release/v1.0.0-hyprws");
+  } finally {
+    process.stderr.write = original;
+  }
+});
+
+it("snapshots the tags between the pre-apply base and the gate tag before the leased push", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  runner.set("git", ["rev-parse", "v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  let stderr = "";
+  const original = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const applied = execute(
+      ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+      root,
+      runner,
+    );
+
+    // The lane reads its own bases: the gate tag it lands on, and the upstream base the
+    // pre-apply head sat on. A crossing it cannot enumerate is reported, never fatal.
+    assert.strictEqual(applied.stage, "applied");
+    assert.include(stderr, "crossed stable upstream tags not enumerated");
+    const index = (match: (args: ReadonlyArray<string>) => boolean): number =>
+      runner.calls.findIndex(({ command, args }) => command === "git" && match(args));
+    const base = index((args) => args[0] === "merge-base" && args[1] === C && args[2] === B);
+    const push = index((args) => args.includes(`--force-with-lease=refs/heads/hyprws:${C}`));
+    assert.isAbove(base, 0);
+    assert.isAbove(push, base);
   } finally {
     process.stderr.write = original;
     NodeFS.rmSync(root, { recursive: true, force: true });

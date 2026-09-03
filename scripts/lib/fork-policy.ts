@@ -142,3 +142,20 @@ export const positionUpstreamReleaseTags = (
       : [{ tag, sha, position, stable: parsed.channel === "stable" }];
   });
 };
+
+/** The create-only snapshot branch a stable upstream tag is cut from. */
+export const stableSnapshotBranch = (tag: string): string => `release/${tag}-hyprws`;
+
+/**
+ * `origin` already carries this stable upstream tag's snapshot branch or a cut
+ * fork release tag, so no lane owes it a snapshot.
+ */
+export const originHasStableRelease = (git: TagPolicyGit, tag: string): boolean =>
+  git
+    .run([
+      "ls-remote",
+      "origin",
+      `refs/heads/${stableSnapshotBranch(tag)}`,
+      `refs/tags/${tag}-hyprws.*`,
+    ])
+    .trim().length > 0;
