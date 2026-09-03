@@ -23,7 +23,7 @@ On each scheduled, pushed, or manually dispatched run, the workflow:
 
 1. fast-forwards the fork's `main` mirror to `upstream/main`;
 2. scans through the newest upstream release tag and finds the newest clean tag within that horizon;
-3. snapshots any newly crossed stable upstream tag on a create-only release branch;
+3. snapshots every stable upstream tag its own walk crosses on a create-only release branch;
 4. replays and verifies the whole fork stack on the selected tag;
 5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
 6. creates or updates stable-candidate and `rebase-blocked` issues as `Notification 🔔` signals.
@@ -95,9 +95,16 @@ agent/human split, the silent seams, and the hot-seam movement since the previou
 section replaces itself, so the issue carries one live view.
 
 A release snapshot never follows later trunk work. It is the immutable branch from which a human
-chooses a stable fork tag. If a manual leased apply lands the trunk on a stable upstream tag, the
-next sync run snapshots that exact trunk head unless the snapshot or a published stable already
-exists.
+chooses a stable fork tag.
+
+**A stable upstream tag is snapshotted and announced by whichever lane moves the fork base past it.**
+The bot only sees the tags inside its own walk window, so a tag the base has already passed is
+invisible to it forever after. An unblock apply therefore snapshots every stable tag it crosses
+before it pushes the trunk, replaying the pre-apply stack onto each one exactly as the bot would.
+Each snapshot is checked for replay shape only, because `stable-prepare` runs the full verification
+again before it mints a tag. A tag whose snapshot cannot be replayed mechanically is named in a
+warning and skipped; the apply that crossed it is already rehearsed, checked, and proved, so it
+stands. Snapshot that tag by hand before cutting it.
 
 The two channels are cut differently. `hyprws-release.yml` fires on every push to `hyprws`, so a
 leased apply cuts the nightly by itself and no operator ever cuts one. The stable channel is the
@@ -116,6 +123,9 @@ The repository variable `HYPRWS_AUTO_REBASE` accepts three values. An unset vari
 
 In `on` mode, a landing that triggers a rebase produces two nightlies by design: one for the landed
 commit and one for the bot-pushed rebased head.
+
+The mode governs the bot only. An unblock apply snapshots and announces the stable tags it crosses
+in every mode, because those tags leave the bot's window the moment the apply lands.
 
 ### Carried unblock walk
 
@@ -416,8 +426,12 @@ word for every decision and stops; its recommendation is never recorded as the h
    pushed lane head, polling every 30 seconds. A timeout or failed job stops the gate with its failed
    log evidence. It then renders the decision and grounding surface.
 5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
-   the CI verdict, posts the external record, performs the expected-old leased apply, and deletes the
-   remote rehearsal branch.
+   the CI verdict, posts the external record, snapshots every stable upstream tag the apply crosses,
+   performs the expected-old leased apply, announces the snapshots as candidate issues, and deletes
+   the remote rehearsal branch. Snapshots go up before the trunk, in the bot's own order, because a
+   create-only branch stands on its own. A failed announcement prints the snapshot branches and never
+   voids the apply; open those candidate issues by hand, because the bot will not see those tags
+   again.
 
 Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
 variable carries gate state. The script also renders and validates the Markdown record schema. Its
@@ -435,10 +449,17 @@ apply, append the walk to `refs/fork/churn` with `--push`; the next sync report 
 
 ## Cut a stable release
 
-The bot opens one `release`-labelled `Notification 🔔` issue per create-only stable snapshot. Invoke the
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry point. The
-stable lane is three external-report transitions; no shell variable or pasted multi-command block
-carries gate state:
+Every stable snapshot gets one `release`-labelled `Notification 🔔` issue, whichever lane created it.
+That issue is the whole entry point: a fresh session needs it and nothing else.
+
+Exactly one candidate issue is open at a time. Each reconcile closes a candidate whose
+`vX.Y.Z-hyprws.N` release tag is already on `origin` as completed, and closes a candidate an
+open newer one has overtaken as not planned, commenting with the newer issue. Only the newest un-cut
+candidate survives, so the issue `stable-list` offers is the live one.
+
+Invoke the [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill at its **cut stable** entry
+point. The stable lane is three external-report transitions; no shell variable or pasted
+multi-command block carries gate state:
 
 1. `vp run fork:sync stable-list` runs fork preflight, reads every open stable candidate, validates
    each candidate title/body/marker, and writes an external selection report. It accepts no issue
