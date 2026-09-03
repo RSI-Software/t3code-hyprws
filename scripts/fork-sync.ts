@@ -37,6 +37,7 @@ import {
 } from "./fork-rebase-notify.ts";
 import { snapshotCrossedStableTags } from "./fork-stable-crossing.ts";
 import { executeStable } from "./fork-sync-stable.ts";
+import { humanVerdictsBySubject, readChurnLedger } from "./fork-churn-ledger.ts";
 import {
   assertOnly,
   BLOCK_LABEL,
@@ -70,6 +71,7 @@ import {
   type BotSnapshot,
   type ConflictRow,
   type DecisionAction,
+  type InheritedVerdict,
   type OrientationDecisionRow,
   type RecordDecision,
   type RetireEvidence,
@@ -527,6 +529,14 @@ const unblockOrient = (
     root,
   );
   const orientationDecisions = orientationDecisionRows(orientation);
+  const retireEvidence = collectRetireEvidence(
+    runner,
+    root,
+    liveTarget,
+    { sharedBase, source: expectedOld },
+    orientationDecisions,
+  );
+  const inheritedVerdicts = resolveInheritedVerdicts(report, orientationDecisions, retireEvidence);
   const next: SyncReport = {
     ...report,
     stage: "oriented",
@@ -534,13 +544,8 @@ const unblockOrient = (
     source: { sha: expectedOld, expectedOld, sharedBase },
     orientation,
     orientationDecisions,
-    retireEvidence: collectRetireEvidence(
-      runner,
-      root,
-      liveTarget,
-      { sharedBase, source: expectedOld },
-      orientationDecisions,
-    ),
+    retireEvidence,
+    inheritedVerdicts,
     touchedPaths: orientationTouchedPaths(orientation),
   };
   writeReport(next);
@@ -1048,7 +1053,7 @@ const reportDecisionFor = (report: SyncReport, subject: string): RecordDecision 
  * performs. Two sources that disagree are not mergeable: the report is machine state and the record
  * is a human signature, and picking either one silently discards a decision someone made.
  */
-const preserveRecordDecisions = (report: SyncReport): SyncReport => {
+export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   if (!NodeFS.existsSync(report.recordPath)) return report;
   const filled = filledDecisionCells(NodeFS.readFileSync(report.recordPath, "utf8"));
   for (const row of filled) {
@@ -1059,7 +1064,15 @@ const preserveRecordDecisions = (report: SyncReport): SyncReport => {
       `record decision disagrees with the report for \`${row.subject}\`: report has ${carried.action} (${carried.decidedBy}), record has ${row.action} (${row.decidedBy})`,
     );
   }
-  return filled.length === 0 ? report : { ...report, recordDecisions: filled };
+  if (filled.length === 0) return report;
+  const filledSubjects = new Set(filled.map(({ subject }) => subject));
+  return {
+    ...report,
+    recordDecisions: [
+      ...(report.recordDecisions ?? []).filter(({ subject }) => !filledSubjects.has(subject)),
+      ...filled,
+    ],
+  };
 };
 
 const unblockCheck = (
@@ -1214,8 +1227,12 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
     const cells = line.split("|").map((cell) => cell.trim());
     if (!["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(cells[4] ?? ""))
       throw new Error(`decision row has no keep/retire/partial action: ${line}`);
-    // An action without a decider is a rendered default, not a decision anyone made.
-    if (!["human", "agent"].includes(cells[6] ?? ""))
+    // An inherited verdict carries a human's prior answer forward but is visibly distinct:
+    // `inherited (<tag>)` never silently becomes `human`. It still counts as a signed row for
+    // Gate 4 so only genuinely new or changed candidates block landing.
+    const decider = cells[6] ?? "";
+    const isInherited = decider.startsWith("inherited (") && decider.endsWith(")");
+    if (!["human", "agent"].includes(decider) && !isInherited)
       throw new Error(`decision row records no decider: ${line}`);
   }
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
@@ -1822,6 +1839,50 @@ const retireEvidenceFor = (report: SyncReport): ReadonlyMap<string, RetireEviden
   );
 
 /**
+ * Verdicts that survived a previous walk on `refs/fork/churn`.
+ * Durable store is `refs/fork/churn` (bot-owned, outside the rebased lane), following
+ * the `refs/fork/churn` precedent over a new ref. A carried verdict renders with an
+ * `inherited (<tag>)` decider and is therefore distinguishable from a fresh one.
+ */
+export const resolveInheritedVerdicts = (
+  report: SyncReport,
+  decisions: ReadonlyArray<OrientationDecisionRow>,
+  _evidence: ReadonlyArray<RetireEvidence>,
+): ReadonlyArray<InheritedVerdict> => {
+  let verdicts: ReadonlyMap<
+    string,
+    {
+      readonly subject: string;
+      readonly domain: string;
+      readonly verdict: string;
+      readonly sourceTag: string;
+    }
+  >;
+  try {
+    const entries = readChurnLedger(report.repositoryRoot);
+    verdicts = humanVerdictsBySubject(entries);
+  } catch {
+    verdicts = new Map();
+  }
+  const decidedSubjects = new Set((report.recordDecisions ?? []).map((r) => r.subject));
+  const carried: Array<InheritedVerdict> = [];
+  for (const row of decisions) {
+    if (row.verdict !== "candidate") continue;
+    if (decidedSubjects.has(row.subject)) continue;
+    const v = verdicts.get(row.subject);
+    if (v === undefined) continue;
+    carried.push({
+      subject: v.subject,
+      domain: v.domain,
+      action: v.verdict,
+      decidedBy: "human",
+      sourceTag: v.sourceTag,
+    });
+  }
+  return carried.filter((c) => decisions.some((d) => d.subject === c.subject));
+};
+
+/**
  * Every reason gate 4 needs a human, in the order the record presents them. One stop hides the rest
  * when a walk reports only the first, so the operator answers them one round trip at a time.
  */
@@ -2094,6 +2155,7 @@ const unblockAuto = (
         try {
           validateSignedRecord(record, report);
           parseDecisionRows(record);
+          report = preserveRecordDecisions(report);
           signed = true;
         } catch {
           if (!canonical)
