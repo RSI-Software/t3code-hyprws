@@ -1,20 +1,8 @@
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  type KeybindingCommand,
-  type ResolvedKeybindingsConfig,
-  THREAD_JUMP_KEYBINDING_COMMANDS,
-} from "@t3tools/contracts";
-import { type ShortcutEventLike } from "../keybindings";
-import {
-  isTerminalAttachmentDemanded,
-  resolveTerminalWindowDemand,
   shouldClearTerminalSelectionAction,
-  shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalExit,
-  shouldHandleTerminalFocusRequest,
-  shouldRestoreTerminalFocusAfterResume,
   terminalContextMenuItems,
   terminalSelectionLineRange,
   terminalSelectionMenuItems,
@@ -104,33 +92,6 @@ describe("terminalThemeFromApp", () => {
     expect(theme.cursor).toEqual({ r: 221, g: 221, b: 221 });
   });
 });
-
-function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
-  return {
-    key: "x",
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...overrides,
-  };
-}
-
-function binding(command: KeybindingCommand): ResolvedKeybindingsConfig {
-  return [
-    {
-      command,
-      shortcut: {
-        key: "x",
-        metaKey: false,
-        ctrlKey: false,
-        shiftKey: false,
-        altKey: false,
-        modKey: true,
-      },
-    },
-  ];
-}
 
 describe("terminal selection actions", () => {
   it("clears a pending or currently owned menu when the selection disappears", () => {
