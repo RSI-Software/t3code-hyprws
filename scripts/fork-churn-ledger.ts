@@ -39,7 +39,35 @@ export interface CensusFile {
   readonly path: string;
   readonly hunks: number;
   readonly commit: string;
+  readonly subject?: string;
   readonly domain: string;
+}
+
+export interface CensusSnapshot {
+  readonly tag: string;
+  readonly fixedAt: string | null;
+  readonly files: ReadonlyArray<CensusFile>;
+}
+
+export interface CensusHotPath {
+  readonly path: string;
+  readonly consecutiveTags: number;
+  readonly firstTag: string;
+  readonly lastTag: string;
+}
+
+export interface RegressedSeam {
+  readonly path: string;
+  readonly commit: string;
+  readonly subject: string;
+  readonly domain: string;
+  readonly tag: string;
+  readonly fixedAt: string;
+}
+
+export interface CensusChurn {
+  readonly hotPaths: ReadonlyArray<CensusHotPath>;
+  readonly regressions: ReadonlyArray<RegressedSeam>;
 }
 
 export interface ChurnEntry {
@@ -116,12 +144,13 @@ export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
     const hunks = Number(cells[1]);
     if (!Number.isSafeInteger(hunks) || hunks < 0)
       throw new Error(`invalid census Hunks cell: ${cells[1] ?? ""}`);
-    const commit = /^`([0-9a-f]{7,12}) .+`$/.exec(cells[2] ?? "");
+    const commit = /^`([0-9a-f]{7,12}) (.+)`$/.exec(cells[2] ?? "");
     if (commit === null) throw new Error("invalid census Fork commit cell: expected `sha subject`");
     rows.push({
       path: unescapeCell(path[1] ?? ""),
       hunks,
       commit: commit[1] ?? "",
+      subject: unescapeCell(commit[2] ?? ""),
       domain: cells[3] ?? "",
     });
   }
@@ -129,7 +158,16 @@ export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
   return rows;
 };
 
-/** Silent seams as `renderRecord` writes them: `- \`path\` [behaviour|type]: summary`. */
+/** Read the target tag named by the generated sequential rebase census. */
+export const parseCensusTag = (body: string): string => {
+  const tag =
+    /A throwaway rebase rehearsal to `([^`]+)` found /.exec(
+      section(body, "## Sequential rebase census"),
+    )?.[1] ?? /Newest upstream tag beyond the clean window: `([^`]+)`/.exec(body)?.[1];
+  if (tag === undefined) throw new Error("sequential rebase census has no target tag");
+  return tag;
+};
+
 export const parseSilentSeams = (record: string): ReadonlyArray<SilentSeam> =>
   [...section(record, "## Silent seams").matchAll(/^- `(.+?)` \[(behaviour|type)\]: (.*)$/gm)].map(
     (match) => ({
@@ -251,6 +289,9 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
         path: requireString(row.path, "census path"),
         hunks: Number(row.hunks),
         commit: requireString(row.commit, "census commit"),
+        ...(row.subject === undefined
+          ? {}
+          : { subject: requireString(row.subject, "census subject") }),
         domain: requireString(row.domain, "census domain"),
       };
     });
@@ -294,6 +335,35 @@ export const serializeLedger = (entries: ReadonlyArray<ChurnEntry>): string =>
   `${JSON.stringify(entries, null, 2)}\n`;
 
 /**
+ * Upgrade legacy census rows to the stable logical commit identity used by churn.
+ * Parsing keeps `subject` optional for the existing ledger shape, but every sanctioned
+ * write calls this first so one successful write removes the old Git-object dependency.
+ */
+export const enrichCensusSubjects = (
+  entries: ReadonlyArray<ChurnEntry>,
+  subjectOf: (commit: string) => string,
+): ReadonlyArray<ChurnEntry> => {
+  const subjects = new Map<string, string>();
+  for (const entry of entries) {
+    for (const file of entry.censusFiles) {
+      if (file.subject !== undefined) subjects.set(file.commit, file.subject);
+    }
+  }
+  return entries.map((entry) => {
+    let changed = false;
+    const censusFiles = entry.censusFiles.map((file) => {
+      if (file.subject !== undefined) return file;
+      const subject = subjects.get(file.commit) ?? subjectOf(file.commit);
+      if (subject.length === 0) throw new Error(`census commit has no subject: ${file.commit}`);
+      subjects.set(file.commit, subject);
+      changed = true;
+      return { ...file, subject };
+    });
+    return changed ? { ...entry, censusFiles } : entry;
+  });
+};
+
+/**
  * The ledger as the bot-owned ref holds it. A missing ref is not an empty ledger:
  * it means the ref was never seeded, and every caller needs to say so rather than
  * silently report zero walks.
@@ -329,6 +399,123 @@ const conflictRowsByPath = (
 };
 
 export { conflictRowsByPath };
+
+const censusSnapshots = (
+  entries: ReadonlyArray<ChurnEntry>,
+  current: CensusSnapshot | null,
+): ReadonlyArray<CensusSnapshot> => {
+  const snapshots = entries.map((entry) => ({
+    tag: entry.tag,
+    fixedAt: entry.after,
+    files: entry.censusFiles,
+  }));
+  if (current === null) return snapshots;
+  if (snapshots.some((snapshot) => snapshot.tag === current.tag)) return snapshots;
+  return [...snapshots, current];
+};
+
+/**
+ * Join the generated census sequence to the durable walk ledger.
+ *
+ * Rebase rewrites a fork commit's SHA on every applied walk. Fork commit subjects are unique in
+ * the stack; subject plus domain therefore identifies the logical commit, and path distinguishes
+ * its separate seams. Each census SHA remains evidence for that tag rather than durable identity.
+ * Paths are hot while they appear in consecutive censuses, regardless of which fork commit owns
+ * the overlap. A seam is fixed only after it disappears from a later census; if that same logical
+ * path/commit seam returns, the walk that last carried it supplies the fix commit.
+ */
+export const censusChurn = (
+  entries: ReadonlyArray<ChurnEntry>,
+  current: CensusSnapshot | null = null,
+): CensusChurn => {
+  const snapshots = censusSnapshots(entries, current);
+  const pathRuns = new Map<
+    string,
+    { readonly count: number; readonly firstTag: string; readonly lastTag: string }
+  >();
+  const seams = new Map<
+    string,
+    {
+      readonly present: boolean;
+      readonly fixedAt: string | null;
+      readonly lastSeenFixedAt: string | null;
+    }
+  >();
+  const regressions: Array<RegressedSeam> = [];
+
+  for (const snapshot of snapshots) {
+    regressions.length = 0;
+    const paths = new Set(snapshot.files.map((file) => file.path));
+    for (const path of paths) {
+      const previous = pathRuns.get(path);
+      pathRuns.set(path, {
+        count: (previous?.count ?? 0) + 1,
+        firstTag: previous?.firstTag ?? snapshot.tag,
+        lastTag: snapshot.tag,
+      });
+    }
+    for (const path of pathRuns.keys()) {
+      if (!paths.has(path)) pathRuns.delete(path);
+    }
+
+    const presentSeams = new Set<string>();
+    for (const file of snapshot.files) {
+      if (file.subject === undefined)
+        throw new Error(`census subject is not enriched: ${file.commit} on ${snapshot.tag}`);
+      const key = `${file.path}\u0000${file.subject}\u0000${file.domain}`;
+      if (presentSeams.has(key)) continue;
+      presentSeams.add(key);
+      const previous = seams.get(key);
+      // Once a fixed seam returns, it remains a regression for every census where it
+      // is still present. A later clean census clears the report because only the
+      // newest snapshot's present seams are collected.
+      if (previous?.fixedAt !== null && previous?.fixedAt !== undefined) {
+        regressions.push({
+          path: file.path,
+          commit: file.commit,
+          subject: file.subject,
+          domain: file.domain,
+          tag: snapshot.tag,
+          fixedAt: previous.fixedAt,
+        });
+      }
+      seams.set(key, {
+        present: true,
+        fixedAt: previous?.fixedAt ?? null,
+        lastSeenFixedAt: snapshot.fixedAt ?? previous?.lastSeenFixedAt ?? null,
+      });
+    }
+    for (const [key, seam] of seams) {
+      if (presentSeams.has(key) || !seam.present) continue;
+      seams.set(key, {
+        present: false,
+        fixedAt: seam.lastSeenFixedAt ?? seam.fixedAt,
+        lastSeenFixedAt: seam.lastSeenFixedAt,
+      });
+    }
+  }
+
+  return {
+    hotPaths: [...pathRuns]
+      .flatMap(([path, run]) =>
+        run.count < 2
+          ? []
+          : [
+              {
+                path,
+                consecutiveTags: run.count,
+                firstTag: run.firstTag,
+                lastTag: run.lastTag,
+              },
+            ],
+      )
+      .toSorted(
+        (left, right) =>
+          right.consecutiveTags - left.consecutiveTags || left.path.localeCompare(right.path),
+      ),
+    regressions,
+  };
+};
 
 export const hotSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<ChurnHotSeam> =>
   [...conflictRowsByPath(entries)]

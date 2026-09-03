@@ -2,8 +2,8 @@
 // every input is the ledger the bot keeps on `refs/fork/churn`, and the previous
 // section's own state marker supplies the hot-seam deltas.
 
-import type { ChurnEntry, ChurnHotSeam } from "./fork-churn-ledger.ts";
-import { CONFLICT_CLASSES, hotSeams } from "./fork-churn-ledger.ts";
+import type { CensusChurn, CensusSnapshot, ChurnEntry, ChurnHotSeam } from "./fork-churn-ledger.ts";
+import { censusChurn, CONFLICT_CLASSES, hotSeams } from "./fork-churn-ledger.ts";
 
 export const CHURN_MARKER = "<!-- hyprws-fork-churn -->";
 const STATE_MARKER = /<!-- hyprws-fork-churn-state:(.*) -->/;
@@ -94,6 +94,32 @@ const decidedBy = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> =>
   ];
 };
 
+const censusChurnTable = (churn: CensusChurn): ReadonlyArray<string> => {
+  if (churn.hotPaths.length === 0) return ["None."];
+  return [
+    "Paths still present in consecutive generated censuses:",
+    "",
+    "<!-- prettier-ignore -->",
+    "| Path | Consecutive tags | Range |",
+    "| --- | ---: | --- |",
+    ...churn.hotPaths.map(
+      (path) =>
+        `| ${escapeCell(code(path.path))} | ${path.consecutiveTags} | ${code(path.firstTag)} → ${code(path.lastTag)} |`,
+    ),
+  ];
+};
+
+export const regressedSeamLines = (churn: CensusChurn): ReadonlyArray<string> =>
+  churn.regressions.map(
+    (seam) =>
+      `regressed seam: ${code(seam.path)} / ${code(seam.subject)} (${seam.domain}) was fixed at ${code(seam.fixedAt)} and reappeared on ${code(seam.tag)} as ${code(seam.commit)}`,
+  );
+
+const regressionTable = (churn: CensusChurn): ReadonlyArray<string> => {
+  const lines = regressedSeamLines(churn);
+  return lines.length === 0 ? ["None."] : lines.map((line) => `- ${line}`);
+};
+
 const silentSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> => {
   const rows = entries.flatMap((entry) =>
     (entry.silentSeams ?? []).map((seam) => ({ tag: entry.tag, seam })),
@@ -138,8 +164,10 @@ const hotSeamTable = (
 export const renderChurnSection = (
   entries: ReadonlyArray<ChurnEntry>,
   previousBody: string | null = null,
+  currentCensus: CensusSnapshot | null = null,
 ): string => {
   const previous = previousBody === null ? null : parseChurnSectionState(previousBody);
+  const census = censusChurn(entries, currentCensus);
   const range =
     entries.length === 0
       ? "no walks yet"
@@ -158,11 +186,19 @@ export const renderChurnSection = (
     "",
     ...decidedBy(entries),
     "",
+    "### Census churn",
+    "",
+    ...censusChurnTable(census),
+    "",
+    "### Regressed seams",
+    "",
+    ...regressionTable(census),
+    "",
     "### Silent seams",
     "",
     ...silentSeams(entries),
     "",
-    "### Hot seams",
+    "### Resolved-conflict hot seams",
     "",
     ...hotSeamTable(entries, previous),
     "",
