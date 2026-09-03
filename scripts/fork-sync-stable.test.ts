@@ -238,13 +238,18 @@ it("stable-prepare binds the selected snapshot, takes the CI verdict, and render
     command: `hyprws CI ${CI_RUN_URL}`,
     result: "passed",
   });
+  // Tooling comes from trunk, product comes from the snapshot: the UAT gate runs the canonical
+  // checkout's `fork:uat` against the snapshot ref, never the lane's frozen copy of the script.
   assert.isTrue(
     runner.calls.some(
       (call) =>
-        call.command === laneVp &&
-        call.args.slice(0, 3).join(" ") === "run fork:uat --ref" &&
-        call.env?.VP_CLI_BIN === laneVp,
+        call.command === "vp" &&
+        call.args.slice(0, 4).join(" ") === `run fork:uat --ref origin/${candidate.branch}` &&
+        call.cwd === root,
     ),
+  );
+  assert.isFalse(
+    runner.calls.some((call) => call.command === laneVp && call.args[1] === "fork:uat"),
   );
 });
 
@@ -350,9 +355,7 @@ it("stable-prepare stops on a failed CI verdict before the UAT draft renders", (
       ),
     /hyprws CI failed: https:\/\/example\.test\/runs\/43[\s\S]*Failing job: Test[\s\S]*provider registry timed out[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws/,
   );
-  assert.isFalse(
-    runner.calls.some((call) => call.command === vpForLane(lane) && call.args[1] === "fork:uat"),
-  );
+  assert.isFalse(runner.calls.some((call) => call.args[1] === "fork:uat"));
   assert.strictEqual(
     validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
     "stable-listed",
@@ -380,9 +383,7 @@ it("stable-prepare stops when the CI verdict never arrives", () => {
     runner.calls.filter(({ command, args }) => command === "sleep" && args.join(" ") === "30"),
     90,
   );
-  assert.isFalse(
-    runner.calls.some((call) => call.command === vpForLane(lane) && call.args[1] === "fork:uat"),
-  );
+  assert.isFalse(runner.calls.some((call) => call.args[1] === "fork:uat"));
   assert.strictEqual(
     validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
     "stable-listed",

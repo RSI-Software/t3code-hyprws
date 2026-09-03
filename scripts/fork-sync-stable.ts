@@ -410,7 +410,12 @@ const stablePrepare = (
       "--output",
       uatDraftPath,
     ];
-    runLaneVp(uatArgs);
+    // Tooling comes from trunk, product comes from the snapshot. The draft describes the snapshot
+    // through `--ref`, so the gate runs the canonical checkout's `fork:uat` and stays current with
+    // the doctrine `ghb` enforces today. A frozen lane copy would refuse a filing trunk allows, and
+    // the lane cannot be patched without failing its own cleanliness check. Every lane-content
+    // check above still runs through the lane.
+    requireSuccess(runner, "vp", uatArgs, root);
     verification.push({ command: commandText("vp", uatArgs), result: "draft rendered" });
 
     requireSuccess(
