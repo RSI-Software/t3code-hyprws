@@ -729,6 +729,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "NSLocalNetworkUsageDescription",
         "T3 Code connects to devices on your local network for remote environments and commands run by terminals and coding agents.",
       );
+      assert.equal(linux.artifactName, "T3-Code-${arch}.${ext}");
+      assert.equal(mac.artifactName, "T3-Code-${version}-${arch}.${ext}");
+      assert.equal(win.artifactName, "T3-Code-${version}-${arch}.${ext}");
       for (const config of [linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
       }
