@@ -542,6 +542,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+      assert.equal(linux.artifactName, "T3-Code-${arch}.${ext}");
+      assert.equal(mac.artifactName, "T3-Code-${version}-${arch}.${ext}");
+      assert.equal(win.artifactName, "T3-Code-${version}-${arch}.${ext}");
   it("stages only the externals of both bundles in merged packages", () => {
     assert.deepStrictEqual(
       resolveMergedStageDependencies({
