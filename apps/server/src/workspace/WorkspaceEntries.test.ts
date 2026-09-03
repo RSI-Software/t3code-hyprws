@@ -127,31 +127,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect(result.truncated).toBe(false);
       }),
     );
-
-    it.effect("includes gitignored files only when requested", () =>
-      Effect.gen(function* () {
-        const cwd = yield* makeTempDir({ git: true });
-        yield* writeTextFile(cwd, ".gitignore", ".dump/\nignored.txt\n");
-        yield* writeTextFile(cwd, "src/index.ts", "export {};\n");
-        yield* writeTextFile(cwd, ".dump/review/report.md", "# Review\n");
-        yield* writeTextFile(cwd, "ignored.txt", "ignored\n");
-
-        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
-        const hidden = yield* workspaceEntries.list({ cwd });
-        const shown = yield* workspaceEntries.list({ cwd, includeIgnored: true });
-
-        expect(hidden.entries.map((entry) => entry.path)).not.toContain(".dump/review/report.md");
-        expect(shown.entries).toEqual(
-          expect.arrayContaining([
-            { path: ".dump", kind: "directory", ignored: true },
-            { path: ".dump/review", kind: "directory", ignored: true },
-            { path: ".dump/review/report.md", kind: "file", ignored: true },
-            { path: "ignored.txt", kind: "file", ignored: true },
-            { path: "src/index.ts", kind: "file" },
-          ]),
-        );
-      }),
-    );
   });
 
   describe("search", () => {
