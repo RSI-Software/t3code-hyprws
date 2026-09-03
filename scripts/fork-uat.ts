@@ -71,10 +71,11 @@ export interface Options {
   readonly output: string | null;
   readonly body: string | null;
   readonly create: boolean;
+  readonly humanApproved: boolean;
 }
 
 const HELP = `Usage: vp run fork:uat [--ref <ref>] [--version <version>] [--since <stable-tag>] [--relates-to <issue>] [--output <path>] [--dry-run]
-       vp run fork:uat --create --body <reviewed-path>
+       vp run fork:uat --create --body <reviewed-path> --human-approved
 
 Render and preflight a human UAT issue for the fork changes at one Git ref.
 
@@ -87,6 +88,7 @@ Options:
   --dry-run             Run ghb's publishing preflight only (default).
   --create              Create from an edited, reviewed draft; requires --body.
   --body <path>         Reviewed draft to post as-is with --create.
+  --human-approved      Record that the human approved the exact draft; required by --create.
   -h, --help            Show this help.
 `;
 
@@ -105,6 +107,7 @@ export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
   let output: string | null = null;
   let body: string | null = null;
   let create = false;
+  let humanApproved = false;
   let mode: "dry-run" | "create" | null = null;
   let hasRenderOptions = false;
   for (let index = 0; index < argv.length; index += 1) {
@@ -135,6 +138,8 @@ export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
     } else if (argument === "--body") {
       body = argv[++index] ?? null;
       if (body === null || body.length === 0) throw new UsageError("--body requires a path");
+    } else if (argument === "--human-approved") {
+      humanApproved = true;
     } else if (argument === "--create" || argument === "--dry-run") {
       const requested = argument.slice(2) as "dry-run" | "create";
       if (mode !== null && mode !== requested) {
@@ -147,11 +152,12 @@ export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
     }
   }
   if (create && body === null) throw new UsageError("--create requires --body <path>");
+  if (!create && humanApproved) throw new UsageError("--human-approved requires --create");
   if (!create && body !== null) throw new UsageError("--body requires --create");
   if (create && hasRenderOptions) {
     throw new UsageError("--create --body uses draft metadata; omit render options");
   }
-  return { ref, version, since, relatesTo, output, body, create };
+  return { ref, version, since, relatesTo, output, body, create, humanApproved };
 };
 
 const commandText = (command: string, args: ReadonlyArray<string>): string =>
@@ -352,6 +358,14 @@ export const reviewedDraft = (body: string): ReviewedDraft => {
   };
 };
 
+// `ghb` requires a Source on every agent-mediated filing, and `--human-approved` on every filing
+// that claims a human filer. The dry-run publishes nothing, so it carries both to validate the
+// draft's shape; the real create earns `--human-approved` from the operator flag of the same name.
+const ISSUE_SOURCE = "fork-sync stable-prepare";
+
+const HUMAN_APPROVAL_REQUIRED =
+  "--create requires --human-approved: filing as Human needs explicit human approval of the exact title and body";
+
 const issueCreateArguments = (
   dryRun: boolean,
   title: string,
@@ -373,6 +387,9 @@ const issueCreateArguments = (
   "Medium",
   "--filed-by",
   "Human",
+  "--human-approved",
+  "--source",
+  ISSUE_SOURCE,
   "--label",
   "release",
   "--no-project",
@@ -403,6 +420,7 @@ const executeReviewedCreate = (bodyPath: string, runner: CommandRunner): string 
 export const execute = (options: Options, runner: CommandRunner): string => {
   if (options.create) {
     if (options.body === null) throw new Error("--create requires --body <path>");
+    if (!options.humanApproved) throw new Error(HUMAN_APPROVAL_REQUIRED);
     return executeReviewedCreate(options.body, runner);
   }
   if (checkedOutRefIsDirty(runner, options.ref)) {
