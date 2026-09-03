@@ -26,7 +26,12 @@ import {
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams } from "./fork-churn-ledger.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
-import { parseRecord, renderRecord, type SyncReport } from "./fork-sync-state.ts";
+import {
+  NIGHTLY_REVIEW_EVIDENCE,
+  parseRecord,
+  renderRecord,
+  type SyncReport,
+} from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -77,6 +82,126 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   const parsed = parseRecord(renderRecord(reportFixture()));
   assert.deepStrictEqual(parsed.conflicts, reportFixture().conflicts);
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
+});
+
+it("keeps nightly proposer and independent reviewer separate in the record and ledger", () => {
+  const proposer = {
+    iface: "codex",
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    session: "walk-1",
+  };
+  const reviewer = {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    session: "review-2",
+  };
+  const nightlyReview = {
+    status: "signed-off" as const,
+    proposer,
+    reviewer,
+    reviewedAt: "2026-09-04T10:00:00.000Z",
+    evidence: {
+      target: "v1.0.0-nightly.20260904.1",
+      targetSha: B,
+      blockingSha: A,
+      expectedOld: A,
+      installedHead: B,
+      ciHead: B,
+      laneBranch: "rehearse/nightly",
+      recordDigest: "d".repeat(64),
+      inspected: NIGHTLY_REVIEW_EVIDENCE,
+    },
+  };
+  const record = renderRecord({
+    ...reportFixture(),
+    target: { tag: "v1.0.0-nightly.20260904.1", sha: B },
+    nightlyReview,
+  });
+  assert.deepStrictEqual(parseRecord(record).nightlyReview, nightlyReview);
+
+  const [parsed] = parseLedger(
+    JSON.stringify([
+      {
+        tag: "v1.0.0-nightly.20260904.1",
+        before: A,
+        after: B,
+        recordUrl: "https://example.test/record",
+        conflicts: [],
+        decisions: [],
+        censusFiles: [],
+        nightlyReview,
+      },
+    ]),
+  );
+  assert.deepStrictEqual(parsed?.nightlyReview, nightlyReview);
+  const section = renderChurnSection(parsed === undefined ? [] : [parsed]);
+  assert.include(section, "agent `codex/openai/gpt-5.6-sol` session `walk-1`");
+  assert.include(section, "agent `claude/anthropic/claude-opus-5` session `review-2`");
+  assert.notInclude(section, "| human | 1 |");
+});
+
+it("rejects incomplete or malformed nightly review ledger provenance", () => {
+  const base = {
+    tag: "v1.0.0-nightly.20260904.1",
+    before: A,
+    after: B,
+    recordUrl: "https://example.test/record",
+    conflicts: [],
+    decisions: [],
+    censusFiles: [],
+  };
+  const identity = {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    session: "review-2",
+  };
+  const withheld = {
+    status: "withheld",
+    proposer: { ...identity, session: "walk-1" },
+    reviewer: identity,
+    reviewedAt: "2026-09-04T10:00:00.000Z",
+    reason: "evidence cannot be verified",
+  };
+  assert.throws(
+    () =>
+      parseLedger(JSON.stringify([{ ...base, nightlyReview: { ...withheld, reason: undefined } }])),
+    /withheld reason/,
+  );
+  assert.throws(
+    () =>
+      parseLedger(
+        JSON.stringify([{ ...base, nightlyReview: { ...withheld, reviewedAt: "tomorrow" } }]),
+      ),
+    /reviewedAt/,
+  );
+  assert.throws(
+    () =>
+      parseLedger(
+        JSON.stringify([
+          {
+            ...base,
+            nightlyReview: {
+              ...withheld,
+              evidence: {
+                target: base.tag,
+                targetSha: B,
+                blockingSha: A,
+                expectedOld: A,
+                installedHead: B,
+                ciHead: B,
+                laneBranch: "rehearse/nightly",
+                recordDigest: "d".repeat(64),
+                inspected: NIGHTLY_REVIEW_EVIDENCE,
+              },
+            },
+          },
+        ]),
+      ),
+    /withheld review has evidence/,
+  );
 });
 
 it("reads a record or ledger row written before provenance as deciding nothing", () => {
