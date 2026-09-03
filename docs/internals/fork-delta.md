@@ -406,6 +406,8 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/web/src/components/githubIssue/GitHubIssueDetailPanel.tsx`                   | Detail rendering and configurable composer hand-off.              |
 | `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting for the hand-off prompt template.          |
 | `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                |
+| `apps/web/src/rightPanelStore.test.ts`                                             | Covers the persisted Issues panel selection.                      |
+| `apps/web/src/components/RightPanelTabs.test.tsx`                                  | Covers the Issues launcher tab.                                   |
 | `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/ChatMarkdown.tsx` | Detail rendering and link interception.                           |
 | `apps/web/src/lib/openPullRequestLink.ts`                                          | Workspace issue URL claiming.                                     |
 | `apps/web/src/lib/openPullRequestLink.test.ts`                                     | Covers issue URL claiming alongside pull requests.                |
@@ -489,6 +491,7 @@ The upstream behavior must persist the selection and apply it on new and resumed
 | `apps/mobile/src/lib/threadActivity.ts`, `apps/mobile/src/lib/threadActivity.test.ts`                                                                                                                                                                                                                                                            | Preserve snapshot order before sequenced live activity.   |
 | `apps/web/src/components/ChatView.tsx`, `apps/web/src/components/AgentsPanel.tsx`, `apps/web/src/components/AgentDetailPanel.tsx`                                                                                                                                                                                                                | Own the roster and read-only child inspector.             |
 | `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/chat/MessagesTimeline.tsx`                                                                                                                                                                                                                                                           | Persist selection and route spawn cards.                  |
+| `apps/web/src/rightPanelStore.test.ts`                                                                                                                                                                                                                                                                                                           | Covers the persisted panel selection for child work.      |
 | `apps/server/src/checkpointing/CheckpointDiffQuery.test.ts`                                                                                                                                                                                                                                                                                      | Covers the diff detail served with child work.            |
 | `apps/server/src/orchestration/ActivityPayloadProjection.test.ts`                                                                                                                                                                                                                                                                                | Covers child-work activity payloads.                      |
 | `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`                                                                                                                                                                                                                                                                                | Projects child work into the snapshot.                    |
@@ -706,21 +709,22 @@ without requiring the fork to migrate or discard saved order.
 
 ### Rebase scan
 
-| Path                                                 | Why it matters                                            |
-| ---------------------------------------------------- | --------------------------------------------------------- |
-| `packages/contracts/src/settings.ts`                 | Carries the Manual sort option.                           |
-| `packages/client-runtime/package.json`               | Client ordering package dependencies.                     |
-| `packages/client-runtime/src/state/threadSort.ts`    | Defines Manual as preserving supplied order.              |
-| `apps/web/src/uiStateStore.ts`                       | Persists client-local per-project thread order.           |
-| `apps/web/src/components/Sidebar.logic.ts`           | Overlays per-project order without crossing groups.       |
-| `apps/web/src/components/Sidebar.logic.test.ts`      | Covers manual ordering beside upstream grouping.          |
-| `apps/web/src/components/Sidebar.tsx`                | Owns the active-thread drag interaction.                  |
-| `apps/web/src/components/SidebarThreadGroup.tsx`     | Renders group headers and name controls.                  |
-| `packages/contracts/src/environmentHttp.ts`          | Types remote-safe group title generation.                 |
-| `apps/server/src/orchestration/ThreadGroupTitles.ts` | Reuses the thread-title generation service.               |
-| `apps/web/src/components/LegacySidebar.tsx`          | Keeps the legacy sort control compatible.                 |
-| `docs/user/thread-sidebar.md`                        | Documents the user-visible behavior.                      |
-| `apps/web/src/connection/runtime.ts`                 | Client runtime that carries the sidebar section grouping. |
+| Path                                                   | Why it matters                                            |
+| ------------------------------------------------------ | --------------------------------------------------------- |
+| `packages/contracts/src/settings.ts`                   | Carries the Manual sort option.                           |
+| `packages/client-runtime/package.json`                 | Client ordering package dependencies.                     |
+| `packages/client-runtime/src/state/threadSort.ts`      | Defines Manual as preserving supplied order.              |
+| `packages/client-runtime/src/state/threadSort.test.ts` | Covers the Manual comparator.                             |
+| `apps/web/src/uiStateStore.ts`                         | Persists client-local per-project thread order.           |
+| `apps/web/src/components/Sidebar.logic.ts`             | Overlays per-project order without crossing groups.       |
+| `apps/web/src/components/Sidebar.logic.test.ts`        | Covers manual ordering beside upstream grouping.          |
+| `apps/web/src/components/Sidebar.tsx`                  | Owns the active-thread drag interaction.                  |
+| `apps/web/src/components/SidebarThreadGroup.tsx`       | Renders group headers and name controls.                  |
+| `packages/contracts/src/environmentHttp.ts`            | Types remote-safe group title generation.                 |
+| `apps/server/src/orchestration/ThreadGroupTitles.ts`   | Reuses the thread-title generation service.               |
+| `apps/web/src/components/LegacySidebar.tsx`            | Keeps the legacy sort control compatible.                 |
+| `docs/user/thread-sidebar.md`                          | Documents the user-visible behavior.                      |
+| `apps/web/src/connection/runtime.ts`                   | Client runtime that carries the sidebar section grouping. |
 
 ## upstream-fixes
 
@@ -857,6 +861,7 @@ Upstream worktree lifecycle exposes create and remove hooks a project can bind s
 | `apps/server/src/git/GitWorkflowService.ts`                            | Status carries the marker; on remove it decides the pre-remove and post-remove calls. |
 | `apps/web/src/components/BranchToolbar.logic.ts`                       | `EnvMode`, its labels, and every worktree-shaped resolver.                            |
 | `apps/web/src/components/BranchToolbarEnvModeSelector.tsx`             | Composer Workspace picker; the third item, its icon, and the locked label.            |
+| `apps/web/src/components/BranchToolbarBranchSelector.tsx`              | Routes the branch selector through `isWorktreeEnvMode`.                               |
 | `apps/web/src/components/BranchToolbar.tsx`                            | Mobile-width Workspace menu; the same third item.                                     |
 | `apps/web/src/components/ChatView.tsx`                                 | Sends `worktrunk: true` on the first turn; feeds the status flag to the toolbar.      |
 | `apps/web/src/components/ChatView.logic.ts`                            | Shares worktree-shaped thread-start logic with the worktrunk mode.                    |
