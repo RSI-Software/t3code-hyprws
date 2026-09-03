@@ -1108,25 +1108,22 @@ const unblockCheck = (
     throw new Error("vp i introduced importer drift after replay");
   if (installedAfter !== before) restoreSnapshotDrift(runner, worktree);
   const installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
-  const commands: Array<{ command: string; args: ReadonlyArray<string> }> =
+  // Both lanes pin the scan to the tag the stack sits on. A rewrite keeps the
+  // fork's current base, so scanning it against a moved `upstream/main` would
+  // fail the rewrite for upstream drift it did not introduce.
+  const scanTag =
     report.kind === "rewrite"
-      ? [
-          { command: "vp", args: ["run", "--no-cache", "fork:scan"] },
-          { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
-        ]
-      : [
-          {
-            command: "vp",
-            args: [
-              "run",
-              "--no-cache",
-              "fork:scan",
-              "--target",
-              (report.target as NonNullable<typeof report.target>).tag,
-            ],
-          },
-          { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
-        ];
+      ? ((report.rewrite as NonNullable<typeof report.rewrite>).baseTag ??
+        baseReleaseTag(
+          runner,
+          worktree,
+          (report.rewrite as NonNullable<typeof report.rewrite>).base,
+        ))
+      : (report.target as NonNullable<typeof report.target>).tag;
+  const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
+    { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
+    { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
+  ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);

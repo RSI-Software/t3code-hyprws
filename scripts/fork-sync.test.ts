@@ -2787,6 +2787,91 @@ it("installs the replayed tree before the scan that typechecks it", () => {
   }
 });
 
+const rewriteReplayedRun = (
+  baseTag: string | undefined,
+): { runner: FakeRunner; root: string; worktree: string; reportPath: string; branch: string } => {
+  const state = replayedRun();
+  const branch = `rehearse/rewrite-${B.slice(0, 12)}-from-${C.slice(0, 12)}`;
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const { target: _target, ...withoutTarget } = replayed as unknown as Record<string, unknown>;
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...withoutTarget,
+      kind: "rewrite",
+      lane: { branch, worktree: state.worktree },
+      rewrite: {
+        from: "fix/lockfile-drift",
+        fromSha: B,
+        fromShort: B.slice(0, 12),
+        originSha: C,
+        originShort: C.slice(0, 12),
+        base: A,
+        ...(baseTag === undefined ? {} : { baseTag }),
+        baseToOriginCount: 1,
+        baseToFromCount: 1,
+        allowExtra: 0,
+        allowPaths: ["pnpm-lock.yaml"],
+        originDigest: "d".repeat(64),
+        fromFirstNDigest: "d".repeat(64),
+        diffEmpty: true,
+        proofs: [],
+      },
+    }),
+  );
+  state.runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${A}\trefs/heads/${branch}\n` },
+  );
+  setCiSuccess(state.runner, branch);
+  return { ...state, branch };
+};
+
+it("pins the rewrite lane scan to its base tag, not upstream/main", () => {
+  const state = rewriteReplayedRun("v0.0.38-nightly.20260831.1236");
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    assert.isAbove(
+      order(state.runner, "vp", [
+        "run",
+        "--no-cache",
+        "fork:scan",
+        "--target",
+        "v0.0.38-nightly.20260831.1236",
+      ]),
+      -1,
+    );
+    assert.strictEqual(order(state.runner, "vp", ["run", "--no-cache", "fork:scan"]), -1);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+  }
+});
+
+it("resolves the rewrite scan tag from the fork base when the report carries none", () => {
+  const state = rewriteReplayedRun(undefined);
+  state.runner.set("git", ["tag", "--points-at", A], {
+    stdout: "hyprws-checkpoint\nv0.0.38-nightly.20260831.1236\n",
+  });
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    assert.isAbove(
+      order(state.runner, "vp", [
+        "run",
+        "--no-cache",
+        "fork:scan",
+        "--target",
+        "v0.0.38-nightly.20260831.1236",
+      ]),
+      -1,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+  }
+});
+
 it("unblock-auto prints the resume line after a Gate 3 failure", () => {
   const state = replayedRun();
   state.runner.set("vp", ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"], {
