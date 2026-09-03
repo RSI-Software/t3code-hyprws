@@ -6,7 +6,6 @@ import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
   buildCommandPaletteRows,
-  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
