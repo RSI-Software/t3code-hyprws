@@ -102,7 +102,7 @@ import { Button } from "../ui/button";
 import { useAssetUrlRefresh, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
-import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";
+import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation";
 import {
   buildAttachmentVideoAsset,
   buildExpandedImagePreview,
@@ -2961,7 +2961,7 @@ const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation(
  */
 const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: TimelineWorkEntry }) {
   const { workEntry } = props;
-  const { agentPanelModel, onOpenAgents } = use(TimelineRowCtx);
+  const { agentPanelModel, onOpenAgents: openAgentsPanel } = use(TimelineRowCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
@@ -3005,16 +3005,17 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   const status =
     live && livePhase ? `${livePhase.title} · ${livePhase.activeCount} working` : summary.status;
 
-  const openTarget = resolveAgentSpawnOpenTarget({
+  const onOpenAgents = createAgentSpawnOpenHandler({
     workflowId: spawn.workflowId,
     agentTaskIds: spawn.agentTaskIds,
     visibleAgentIds: agents.map((agent) => agent.id),
+    onOpenAgents: openAgentsPanel,
   });
 
   return (
     <button
       type="button"
-      onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}
+      onClick={onOpenAgents}
       className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/50 px-2.5 py-1.5 text-left text-[13px] transition hover:bg-accent/50"
     >
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotClass)} />
