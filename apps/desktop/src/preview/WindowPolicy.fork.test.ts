@@ -10,8 +10,7 @@ import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { projectWindowIdentity } from "../window/WindowIdentity.ts";
-import { PROJECT_WINDOW_PRELOAD_ARGUMENT } from "../window/projectWindowArgument.ts";
+import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import { exposePreviewCapability } from "./WindowPolicy.preload.ts";
 import * as WindowPolicy from "./WindowPolicy.ts";
@@ -114,18 +113,90 @@ const makeWindow = () => {
 };
 
 describe("desktop preview window policy", () => {
-  it("exposes preview only in the hub preload", () => {
+  it("exposes preview in every desktop preload", () => {
     const bridge = {} as Omit<DesktopBridge, "preview">;
     const preview = {} as NonNullable<DesktopBridge["preview"]>;
 
-    expect(exposePreviewCapability(["electron"], bridge, preview).preview).toBe(preview);
-    expect(
-      exposePreviewCapability(
-        ["electron", `${PROJECT_WINDOW_PRELOAD_ARGUMENT}=environment/project`],
-        bridge,
-        preview,
-      ).preview,
-    ).toBeUndefined();
+    expect(exposePreviewCapability(bridge, preview).preview).toBe(preview);
+  });
+
+  effectIt.effect("keeps project preview events out of hub compatibility listeners", () => {
+    const operations = makeOperationsFactory();
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+
+    return Effect.gen(function* () {
+      const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
+      const hubDeliveries: string[] = [];
+      yield* policy.subscribeStateChanges((tabId) => Effect.sync(() => hubDeliveries.push(tabId)));
+      const project = yield* policy.forWindow(identity);
+
+      yield* project.createTab("project-tab");
+      yield* policy.hub.createTab("hub-tab");
+
+      expect(operations.tabSets[1]?.has("project-tab")).toBe(true);
+      expect(hubDeliveries).toEqual(["hub-tab"]);
+    }).pipe(Effect.scoped);
+  });
+
+  effectIt.effect("forwards an event only to its owning window", () => {
+    const firstIdentity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const secondIdentity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-2"),
+    );
+    const firstSend = vi.fn();
+    const secondSend = vi.fn();
+    const get = vi.fn((identity: WindowPolicy.WindowIdentity) =>
+      Effect.succeed(
+        Option.some({
+          webContents: {
+            send:
+              windowIdentityKey(identity) === windowIdentityKey(firstIdentity)
+                ? firstSend
+                : secondSend,
+          },
+        } as never),
+      ),
+    );
+    let stateListener: (
+      identity: WindowPolicy.WindowIdentity,
+      tabId: string,
+      state: PreviewTabState,
+    ) => Effect.Effect<void> = () => Effect.void;
+
+    return Effect.gen(function* () {
+      yield* WindowPolicy.installEventForwarding(
+        { get } as never,
+        {
+          subscribeOwnedStateChanges: (listener: typeof stateListener) =>
+            Effect.sync(() => {
+              stateListener = listener;
+            }),
+          subscribeOwnedRecordingFrames: () => Effect.void,
+          subscribeOwnedPointerEvents: () => Effect.void,
+        } as never,
+        {
+          stateChange: "preview-state",
+          recordingFrame: "preview-recording",
+          pointerEvent: "preview-pointer",
+        },
+      );
+
+      yield* stateListener(firstIdentity, "tab-1", idleState("tab-1"));
+
+      expect(get).toHaveBeenCalledOnce();
+      expect(get).toHaveBeenCalledWith(firstIdentity);
+      expect(firstSend).toHaveBeenCalledOnce();
+      expect(firstSend).toHaveBeenCalledWith("preview-state", "tab-1", idleState("tab-1"));
+      expect(secondSend).not.toHaveBeenCalled();
+      expect(get).not.toHaveBeenCalledWith(secondIdentity);
+    }).pipe(Effect.scoped);
   });
 
   effectIt.effect("namespaces tabs and reports cross-window ownership", () => {

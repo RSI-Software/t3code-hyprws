@@ -29,8 +29,8 @@ export type { WindowIdentity };
  * Fork-owned preview policy for desktop windows.
  *
  * The upstream preview manager still owns Chromium behavior. This module owns
- * which desktop window gets an instance, which sender may reach it, and which
- * preload receives the capability.
+ * which desktop window gets an instance, which sender may reach it, and where
+ * its events are delivered.
  */
 
 type StateListener = (tabId: string, state: PreviewTabState) => Effect.Effect<void>;
@@ -162,17 +162,20 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     return { identity, operations, scope } satisfies WindowOperationsEntry;
   });
 
+  // Caller must hold entriesSemaphore. Keeping this helper lock-free lets
+  // setWindow publish a replacement on the entry before a stale close can inspect it.
+  const getOrCreateEntryLocked = Effect.fn("PreviewWindowPolicy.getOrCreateEntryLocked")(function* (
+    identity: WindowIdentity,
+  ) {
+    const key = windowIdentityKey(identity);
+    const existing = entries.get(key);
+    if (existing) return existing;
+    const created = yield* createEntry(identity);
+    entries.set(key, created);
+    return created;
+  });
   const getEntry = (identity: WindowIdentity) =>
-    entriesSemaphore.withPermits(1)(
-      Effect.gen(function* () {
-        const key = windowIdentityKey(identity);
-        const existing = entries.get(key);
-        if (existing) return existing;
-        const created = yield* createEntry(identity);
-        entries.set(key, created);
-        return created;
-      }),
-    );
+    entriesSemaphore.withPermits(1)(getOrCreateEntryLocked(identity));
 
   const authorizeTab = Effect.fn("PreviewWindowPolicy.authorizeTab")(function* (
     entry: WindowOperationsEntry,
@@ -266,8 +269,15 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     identity: WindowIdentity,
     window: BrowserWindow,
   ) {
-    const entry = yield* getEntry(identity);
-    entry.window = window;
+    const entry = yield* entriesSemaphore.withPermits(1)(
+      getOrCreateEntryLocked(identity).pipe(
+        Effect.tap((current) =>
+          Effect.sync(() => {
+            current.window = window;
+          }),
+        ),
+      ),
+    );
     yield* entry.operations.setMainWindow(window);
     window.once("closed", () => {
       runFork(disposeEntry(identity, { entry, window }));

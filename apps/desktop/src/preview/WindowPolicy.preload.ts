@@ -1,12 +1,9 @@
 import type { DesktopBridge } from "@t3tools/contracts";
 
-import { isProjectWindowPreload } from "../window/projectWindowArgument.ts";
-
-/** Keep the unsupported project-window preview path explicit in the sandboxed preload bundle. */
+/** Keep the fork's supported preview capability behind one narrow preload seam. */
 export function exposePreviewCapability(
-  argv: readonly string[],
   bridge: Omit<DesktopBridge, "preview">,
   preview: NonNullable<DesktopBridge["preview"]>,
 ): DesktopBridge {
-  return isProjectWindowPreload(argv) ? bridge : { ...bridge, preview };
+  return { ...bridge, preview };
 }
