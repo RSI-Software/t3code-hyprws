@@ -149,6 +149,55 @@ const prepareRunner = (lane: string): FakeRunner => {
   return runner;
 };
 
+it("stable-list accepts a ghb homing marker with the same output as a bare title", () => {
+  const bare = { number: 355, title: candidate.title, body: candidate.body };
+  const inbox = { number: 356, title: `${candidate.title} [📥]`, body: candidate.body };
+  const homed = { number: 357, title: `${candidate.title} [🧭#443]`, body: candidate.body };
+  const listIssues = (issues: ReadonlyArray<{ number: number; title: string; body: string }>) => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-list-root-"));
+    const output = NodePath.join(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-list-output-")),
+      "report.json",
+    );
+    const runner = new FakeRunner();
+    runner.set("git", ["rev-parse", "--show-toplevel"], { stdout: `${root}\n` });
+    runner.set(
+      "gh",
+      [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--label",
+        "release",
+        "--limit",
+        "1000",
+        "-R",
+        REPOSITORY,
+        "--json",
+        "number,title,body",
+      ],
+      { stdout: JSON.stringify(issues) },
+    );
+    assert.strictEqual(runForkSync(["stable-list", "--output", output], root, runner), 0);
+    return validateStableReport(JSON.parse(NodeFS.readFileSync(output, "utf8")));
+  };
+
+  const listedBare = listIssues([bare]);
+  const listedInbox = listIssues([inbox]);
+  const listedHomed = listIssues([homed]);
+  assert.deepStrictEqual(
+    listedInbox.candidates.map(({ issue: _issue, title: _title, ...rest }) => rest),
+    listedBare.candidates.map(({ issue: _issue, title: _title, ...rest }) => rest),
+  );
+  assert.deepStrictEqual(
+    listedHomed.candidates.map(({ issue: _issue, title: _title, ...rest }) => rest),
+    listedBare.candidates.map(({ issue: _issue, title: _title, ...rest }) => rest),
+  );
+  assert.strictEqual(listedInbox.candidates[0]?.title, inbox.title);
+  assert.strictEqual(listedHomed.candidates[0]?.title, homed.title);
+});
+
 it("stable-list reads every candidate into an external report without accepting a selection", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-list-root-"));
   const output = NodePath.join(
