@@ -211,6 +211,9 @@ reports it as `retired but present` until the rebase drops it.
 | feat(web): add GitHub link destination controls (#178)                         | github-issues    | Markdown and settings overlap did not provide the fork's GitHub link destination control.                                                                                                                                                                                            | v0.0.37-nightly.20260829.1224 |
 | docs(fork): fork sync runbook for the auto-rebase model                        | fork-meta        | Environment-theme glossary additions are independent of the fork synchronization model.                                                                                                                                                                                              | v0.0.37-nightly.20260829.1224 |
 | fix(contracts): released clients decode threads from a worktrunk server (#233) | worktrunk-hooks  | Environment-theme settings do not replace the two-value wire mode plus exact fork-mode sibling required by released clients.                                                                                                                                                         | v0.0.37-nightly.20260829.1224 |
+| fix(web): scale titlebar padding with interface zoom                           | upstream-fixes   | The target still declares bare `--workspace-topbar-height: env(titlebar-area-height, 52px)` and does not supply the fork's `max()` interface-zoom floor.                                                                                                                             | v0.0.39-nightly.20260902.1261 |
+| fix(server): provider spawns drop another harness identity (#108)              | upstream-fixes   | The target has no `packages/shared/src/env.ts` or `HARNESS_IDENTITY_ENV`, and `mergeProviderInstanceEnvironment` still takes two parameters with no driver-kind argument.                                                                                                            | v0.0.39-nightly.20260902.1261 |
+| fix(web): thread jump keys switch threads while the terminal has focus         | upstream-fixes   | The target's `ThreadTerminalDrawer.tsx` still lacks `shouldForwardThreadTerminalShortcut` and `THREAD_TERMINAL_WINDOW_COMMANDS`, so jump keys stay trapped in the terminal.                                                                                                          | v0.0.39-nightly.20260902.1261 |
 
 A kept reason documents the fork behaviour that the overlap signal did not replace. A subject in
 both Retired and Kept is a partial decision and remains in the active fork ledger.
@@ -535,17 +538,18 @@ The replacement must use the existing file-save path and avoid loading its edito
 
 ### Rebase scan
 
-| Path                                                   | Why it matters                                           |
-| ------------------------------------------------------ | -------------------------------------------------------- |
-| `apps/web/src/components/files/FilePreviewPanel.tsx`   | Owns the Rich/Source entry point and file-save boundary. |
-| `apps/web/src/components/files/MarkdownRichEditor.tsx` | Fork-only Milkdown lifecycle and change publisher.       |
-| `apps/web/src/components/files/markdownPipeline.ts`    | Fork-only syntax and serialization chain.                |
-| `apps/web/src/components/files/filePreviewMode.ts`     | Keeps MDX outside the rich-editing boundary.             |
-| `apps/web/src/markdown-links.ts`                       | Resolves file links from rich previews.                  |
-| `apps/web/src/markdown-links.test.ts`                  | Covers Markdown file links.                              |
-| `apps/web/package.json`, `pnpm-lock.yaml`              | Milkdown and round-trip-test dependencies.               |
-| `apps/web/src/components/ChatMarkdown.tsx`             | Upstream preview changes may replace this domain.        |
-| `docs/README.md`                                       | Indexes the fork's Markdown editing documentation.       |
+| Path                                                     | Why it matters                                           |
+| -------------------------------------------------------- | -------------------------------------------------------- |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`     | Owns the Rich/Source entry point and file-save boundary. |
+| `apps/web/src/components/files/MarkdownRichEditor.tsx`   | Fork-only Milkdown lifecycle and change publisher.       |
+| `apps/web/src/components/files/markdownPipeline.ts`      | Fork-only syntax and serialization chain.                |
+| `apps/web/src/components/files/filePreviewMode.ts`       | Keeps MDX outside the rich-editing boundary.             |
+| `apps/web/src/markdown-links.ts`                         | Resolves file links from rich previews.                  |
+| `apps/web/src/markdown-links.test.ts`                    | Covers Markdown file links.                              |
+| `apps/web/package.json`, `pnpm-lock.yaml`                | Milkdown and round-trip-test dependencies.               |
+| `apps/web/src/components/ChatMarkdown.tsx`               | Upstream preview changes may replace this domain.        |
+| `apps/web/src/components/files/FilePreviewPanel.test.ts` | Covers rich-edit gating beside upstream preview edits.   |
+| `docs/README.md`                                         | Indexes the fork's Markdown editing documentation.       |
 
 ## fork-meta
 
@@ -814,6 +818,7 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `packages/contracts/src/git.ts`                          | Carries the managed session binding.                                      |
 | `packages/contracts/src/ipc.ts`                          | Declares the suspend channel.                                             |
 | `packages/contracts/src/settings.test.ts`                | Covers the zmux setting schema.                                           |
+| `apps/server/src/processRunner.ts`                       | Strips tmux inheritance for binder calls; upstream edits break bind.      |
 
 ## worktrunk-hooks
 
