@@ -1,5 +1,6 @@
 import { HOSTED_APP_CHANNEL } from "~/branding";
 import { isElectron, isSecretsFeatureEnabled } from "~/env";
+import { externalWorkspaceSymlinksSearchItemsFork } from "./settingsSearch.fork"; // fork-hook: upstream-fixes/settings-search-external-symlinks-import
 import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/utils";
 import { STATIC_KEYBINDING_COMMANDS, type KeybindingCommand } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -600,11 +601,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Show ignored files",
     to: "/settings/general",
   },
-  {
-    id: "external-workspace-symlinks",
-    title: "Follow external workspace symlinks",
-    to: "/settings/general",
-  },
+  ...externalWorkspaceSymlinksSearchItemsFork, // fork-hook: upstream-fixes/settings-search-external-symlinks
   {
     id: "provider-update-checks",
     title: "Provider update checks",
@@ -1079,11 +1076,6 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "github-link-destination",
     title: "GitHub repository link destination",
-    to: "/settings/source-control",
-  },
-  {
-    id: "github-issue-handoff-prompt",
-    title: "GitHub issue handoff prompt",
     to: "/settings/source-control",
   },
   {
