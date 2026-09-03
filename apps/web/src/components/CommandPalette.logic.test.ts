@@ -4,7 +4,6 @@ import type { Project, Thread } from "../types";
 import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
-  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
