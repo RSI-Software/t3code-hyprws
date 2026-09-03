@@ -1,9 +1,7 @@
 import type { EnvironmentId, ProjectListEntriesResult } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, View, type NativeSyntheticEvent } from "react-native";
-import { AsyncResult } from "effect/unstable/reactivity";
 import {
   Screen,
   ScreenStack,
@@ -16,10 +14,10 @@ import { AppText as Text, AppTextInput as TextInput } from "../../components/App
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { projectEnvironment } from "../../state/projects";
-import { mobilePreferencesAtom } from "../../state/preferences";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 
 export function ThreadFileNavigatorPane(props: {
@@ -31,18 +29,16 @@ export function ThreadFileNavigatorPane(props: {
   readonly onSelectFile: (path: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
-  const preferences = useAtomValue(mobilePreferencesAtom);
-  const showIgnoredFiles =
-    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const theme = useUniwindTheme();
   const foregroundColor = theme["--color-foreground"];
   const sheetColor = theme["--color-sheet"];
   const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd);
   const entriesQuery = useEnvironmentQuery(
     projectEnvironment.listEntries({
       environmentId: props.environmentId,
-      input: showIgnoredFiles ? { cwd: props.cwd, includeIgnored: true } : { cwd: props.cwd },
+      input: workspaceFileListing,
     }),
   );
   const entriesData = entriesQuery.data as ProjectListEntriesResult | null;
