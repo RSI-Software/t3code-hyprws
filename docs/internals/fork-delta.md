@@ -291,9 +291,11 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`                      | Carries `projectId` on the provider session start input.                     |
 | `apps/server/src/keybindings.test.ts`                                                 | Covers project-window keybinding dispatch.                                   |
 | `apps/desktop/src/app/DesktopClerk.ts`                                                | Single-instance lock and deep-link forwarding.                               |
-| `apps/desktop/src/preview/Manager.ts`                                                 | Preview namespacing by window.                                               |
-| `apps/desktop/src/preview/Manager.test.ts`                                            | Covers shared preview behavior beside project-window namespacing.            |
-| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | The bridge surface the web client gates on.                                  |
+| `apps/desktop/src/preview/Manager.ts`                                                 | Upstream preview behavior delegates through the fork ownership boundary.     |
+| `apps/desktop/src/preview/Manager.test.ts`                                            | Covers shared native preview behavior behind that boundary.                  |
+| `apps/desktop/src/preview/WindowPolicy*.ts`                                           | Fork-owned window ownership, sender authorization, and preload capability.   |
+| `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                  | Guards per-window routing, authorization, disposal, and project capability.  |
+| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | Narrow integrations with the fork-owned preview policy.                      |
 | `packages/contracts/src/ipc.ts`                                                       | `openProjectWindow` lives here.                                              |
 | `apps/web/src/routes/project.*`                                                       | Fork-only route subtree.                                                     |
 | `apps/web/src/routes/__root.tsx`                                                      | Mounts the scoped project shell at the root.                                 |
