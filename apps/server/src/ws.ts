@@ -1178,7 +1178,9 @@ const makeWsRpcLayer = (
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
-              const bindResult = yield* zmuxSessionBinder.bind(targetWorktreePath);
+              const bindResult = yield* zmuxSessionBinder.bind(targetWorktreePath, {
+                projectPath: bootstrap.prepareWorktree.projectCwd,
+              });
               if (bindResult.status === "failed") {
                 yield* recordZmuxSessionBindFailure({
                   threadId: command.threadId,

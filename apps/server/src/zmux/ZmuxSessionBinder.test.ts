@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -47,6 +48,7 @@ function makeLayer(
   return ZmuxSessionBinder.layer.pipe(
     Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest(settings)),
+    Layer.provide(NodePath.layer),
     Layer.provide(
       Layer.succeed(HostProcessEnvironment, {
         PATH: "/usr/bin",

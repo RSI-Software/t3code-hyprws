@@ -9039,7 +9039,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
 
-      assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/tmp/bootstrap-worktree");
+      assert.deepStrictEqual(bind.mock.calls[0], [
+        "/tmp/bootstrap-worktree",
+        { projectPath: "/tmp/project" },
+      ]);
       assert.deepStrictEqual(
         dispatchedCommands.map((command) => command.type),
         ["thread.create", "thread.activity.append", "thread.meta.update", "thread.turn.start"],
