@@ -83,27 +83,36 @@ export const refreshRow = (input: RefreshRowInput): string =>
 export const closeComment = (trunkSha: string | null): string =>
   trunkSha === null ? "Resolved: no longer conflicts." : `Resolved by hyprws ${trunkSha}.`;
 
+/** Which lane crossed the stable upstream tag and published its snapshot. */
+export type StableCandidateLane = "bot" | "unblock-apply";
+
+const stableCandidateOrigin = (lane: StableCandidateLane): string =>
+  lane === "bot" ? "The auto-rebase bot" : "The unblock apply lane";
+
 export const stableCandidateBody = (
   tag: string,
   branch: string,
   mode: RebaseMode,
-): string => `The auto-rebase bot created \`${branch}\` from the fork stack rebased onto \`${tag}\`.
+  lane: StableCandidateLane = "bot",
+): string => `${stableCandidateOrigin(lane)} created \`${branch}\` from the fork stack rebased onto \`${tag}\`.
 ${
   mode === "candidate"
     ? "\nCandidate mode created this snapshot from a stack the trunk has not adopted. If that candidate is rejected, the create-only snapshot is hand-fix-only; the bot will not overwrite it.\n"
     : ""
+}${
+  lane === "unblock-apply"
+    ? `\nThe apply that crossed \`${tag}\` landed the fork on a later upstream tag, so this snapshot is the same fork series on the older base. Its replay was checked for shape only; \`stable-prepare\` runs the full verification below.\n`
+    : ""
 }
-Cut the next stable fork release after human verification:
+Cut this stable fork release from this issue. Load the [\`fork-sync\`](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/.agents/skills/fork-sync/SKILL.md) skill and take its **cut stable** entry point:
 
 \`\`\`bash
-git fetch origin
-git switch --detach origin/${branch}
-vp run fork:delta --check
-git tag v${tag.slice(1)}-hyprws.<n>
-git push origin v${tag.slice(1)}-hyprws.<n>
+vp run fork:sync stable-list
+vp run fork:sync stable-prepare --report <report> --issue <this issue>
+vp run fork:sync stable-publish --report <report> --go <exact-candidate>
 \`\`\`
 
-Follow [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#cut-a-stable-release) for verification and the release record.
+Every step stops for a human decision, and \`stable-prepare\` renders the UAT draft. [Cut a stable release](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#cut-a-stable-release) owns the verification and the release record.
 
 <!-- hyprws-stable-candidate: ${tag}-hyprws -->`;
 

@@ -147,9 +147,10 @@ The nightly needs no entry point. The release workflow fires on every push to `h
 apply cuts the nightly by itself; never cut one by hand. Only the stable channel needs this entry
 point, a `stable-list` candidate, a UAT cycle, and a human go.
 
-Use this only for an open stable-candidate issue created from a bot-owned snapshot. The report paths
-are external operator state; never edit them, move a bot-owned ref, replace a tag, or infer a
-candidate.
+Start from the candidate notification. Any lane that moves the fork base past a stable upstream tag
+opens one, so the issue carries everything this entry point needs. Exactly one candidate is open:
+each reconcile closes cut and overtaken ones. The report paths are external operator state; never
+edit them, move a bot-owned ref, replace a tag, or infer a candidate.
 
 1. List candidates with `vp run fork:sync stable-list`.
 
@@ -182,3 +183,7 @@ candidate.
    **Stop on every refusal.** A changed issue or snapshot, moved or dirty lane, existing tag, failed
    push/workflow, or missing asset requires a fresh `stable-list` report and fresh human sign-off;
    never increment, replace, or repair the release by hand.
+
+An apply that warns `stable snapshot release/<tag>-hyprws not created` left no candidate for that
+tag, and no later run will. Report it to the human and cut nothing for it until they snapshot that
+branch by hand.
