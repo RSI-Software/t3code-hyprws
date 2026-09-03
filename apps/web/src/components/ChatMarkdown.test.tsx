@@ -5,9 +5,9 @@ import { create, type ReactTestRenderer } from "react-test-renderer";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
-import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
+import { GitHubIcon } from "./Icons";
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
@@ -163,9 +163,9 @@ describe("ChatMarkdown favicon privacy", () => {
         renderer!.update(markdown("https://example.com"));
       });
       expect(renderer!.root.findAllByType("img")).toHaveLength(1);
-      // GitHub links draw the brand mark in currentColor instead of fetching a favicon.
+      // Bare github.com draws the brand mark in currentColor instead of fetching a favicon.
       await act(async () => {
-        renderer!.update(markdown("https://github.com/pingdotgg/t3code/pull/1"));
+        renderer!.update(markdown("https://github.com"));
       });
       expect(renderer!.root.findAllByType("img")).toHaveLength(0);
       expect(renderer!.root.findAllByType(GitHubIcon)).toHaveLength(1);
