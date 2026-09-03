@@ -28,6 +28,7 @@ import * as Scope from "effect/Scope";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import { refreshPersistedSetupScripts } from "./project/ProjectSetupScriptRunner.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as OrchestrationReactor from "./orchestration/Services/OrchestrationReactor.ts";
@@ -437,6 +438,35 @@ export const clearProviderSessionContinuationMarkers = (threadIds: ReadonlyArray
     yield* clearContinuationMarkers(directory, threadIds);
   }).pipe(Effect.mapError(toServerUpdateThreadContinuationError));
 
+export const reconcilePersistedProjectSetupScripts = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
+  const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const query = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const { projects } = yield* query.getCommandReadModel();
+
+  for (const project of projects) {
+    if (project.deletedAt !== null) {
+      continue;
+    }
+    const scripts = refreshPersistedSetupScripts(project.scripts);
+    if (scripts === project.scripts) {
+      continue;
+    }
+    yield* orchestrationEngine.dispatch({
+      type: "project.meta.update",
+      commandId: CommandId.make(`server:setup-script-refresh:${yield* crypto.randomUUIDv4}`),
+      projectId: project.id,
+      scripts,
+    });
+  }
+}).pipe(
+  Effect.catchCause((cause) =>
+    Cause.hasInterrupts(cause)
+      ? Effect.failCause(cause)
+      : Effect.logWarning("persisted project setup script reconciliation failed", { cause }),
+  ),
+);
+
 export const reconcileProviderSessions = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
@@ -762,6 +792,10 @@ export const make = (options?: StartupOptions) =>
         }),
       );
 
+      yield* runStartupPhase(
+        "project-setup-scripts.reconcile",
+        reconcilePersistedProjectSetupScripts,
+      );
       yield* runStartupPhase("provider-sessions.reconcile", reconcileProviderSessions);
 
       yield* Effect.logDebug("startup phase: syncing clean projects");
