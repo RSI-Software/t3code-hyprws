@@ -381,14 +381,24 @@ textual rebase as permission to retire a fork patch. Stable and nightly tags are
 chosen for release; stable fork tags require separate human sign-off on a bot-owned release snapshot
 before the agent publishes them.
 
-### Human unblock
+### Unblock review
 
 When the newest upstream tag is unreachable, the bot creates or updates the fork's
 `rebase-blocked` issue. Resolve it through the repo-local
 [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
-entry point. Its five gates orient on the newest selected upstream tag beyond the block, rehearse on
-`rehearse/<tag>`, scan every active domain, take the CI verdict on the pushed lane head, and present
-its decisions, silent seams, and grounding evidence for human sign-off before apply.
+entry point. Its gates orient on the newest selected upstream tag beyond the block, rehearse on
+`rehearse/<tag>`, scan every active domain, and take the CI verdict on the pushed lane head.
+
+For an objective nightly walk, the walking host proposes the generated decisions and a separate
+Claude Opus session reviews the risky boundary. The durable record binds both agents' provider,
+model, and session to the target, blocking marker, every non-mechanical verdict, rehearsal evidence,
+exact pushed-lane CI head, silent seams, and live `expected_old`. The reviewer is not recorded as
+human and is not collapsed into the walking agent. Apply's **nightly independent-review guard**
+refuses missing, stale, self-approved, or withheld review.
+
+Undefined fork intent, a non-equivalent retire, user-visible behaviour change, a fork domain or tier
+topology change, any bypass, or evidence that cannot be verified remains a pause for human
+direction. Stable release UAT and release approval remain human-owned.
 
 A walk targets the newest offered tag by default, so `unblock-list` prints that tag alone and needs
 `--all` to print the older ones. Every rehearsal rebase is run with `diff.algorithm=histogram`
@@ -399,7 +409,8 @@ judgement and the operator chooses to bisect; a slice is never the default unit 
 Every decision cell names its decider. `unblock-check` carries the cells already filled through the
 regeneration it performs, and refuses when a filled cell disagrees with the decision the report
 carries. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
-the agent nor the human, and apply refuses it.
+the agent nor the human, and apply refuses it. The churn ledger stores nightly proposal and review
+provenance separately; independent agent review never increments the human decision count.
 
 A walk that lands on a later tag also passes the stable tags between the two bases. A stable upstream
 tag is snapshotted and announced by whichever lane moves the fork base past it, so the apply
@@ -415,14 +426,15 @@ No fork commit is skipped, squashed, reordered, or reworded during an unblock, e
 human `retire` verdict, which authorises dropping exactly the subject it names. When upstream may
 have made one obsolete, preserve a buildable result for rehearsal and key the human's keep, retire,
 or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
-semantic review.
+semantic review; on the objective nightly lane that review is the independent Opus boundary.
 
 After sign-off and a passing gate, the agent's final push uses the full `expected_old` read exactly
 once at rehearsal start. Gate refusals are never bypassed. A rejected lease means the published
 branch moved: fetch and inspect the drift, start a new rehearsal, and repeat the checks and the
-human decision gate. Never replace the lease with an unguarded force push or silently refresh it.
+required review or human decision gate. Never replace the lease with an unguarded force push or
+silently refresh it.
 
-Human rehearsal records are posted as comments on their `rebase-blocked` issues, and automatic
+Rehearsal records are posted as comments on their `rebase-blocked` issues, and automatic
 rewrites are recorded in immutable workflow run summaries. Neither flow adds operational record
 commits to the replayed stack. Existing files under
 [`docs/operations/fork-sync-records/`](../operations/fork-sync-records/) are retained as historical

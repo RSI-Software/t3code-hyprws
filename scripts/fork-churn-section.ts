@@ -94,6 +94,22 @@ const decidedBy = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> =>
   ];
 };
 
+const nightlyReviews = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> => {
+  const rows = entries.flatMap((entry) =>
+    entry.nightlyReview === undefined ? [] : [{ tag: entry.tag, review: entry.nightlyReview }],
+  );
+  if (rows.length === 0) return ["None."];
+  return [
+    "<!-- prettier-ignore -->",
+    "| Tag | Proposer | Independent reviewer | Verdict |",
+    "| --- | --- | --- | --- |",
+    ...rows.map(
+      ({ tag, review }) =>
+        `| ${code(tag)} | agent ${code(`${review.proposer.iface}/${review.proposer.provider}/${review.proposer.model}`)} session ${code(review.proposer.session)} | agent ${code(`${review.reviewer.iface}/${review.reviewer.provider}/${review.reviewer.model}`)} session ${code(review.reviewer.session)} | ${review.status} |`,
+    ),
+  ];
+};
+
 const censusChurnTable = (churn: CensusChurn): ReadonlyArray<string> => {
   if (churn.hotPaths.length === 0) return ["None."];
   return [
@@ -185,6 +201,10 @@ export const renderChurnSection = (
     "### Decided by",
     "",
     ...decidedBy(entries),
+    "",
+    "### Nightly independent review",
+    "",
+    ...nightlyReviews(entries),
     "",
     "### Census churn",
     "",

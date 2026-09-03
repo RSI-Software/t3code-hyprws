@@ -8,7 +8,7 @@ the complete fork stack, and publishes the result according to the configured mo
 intervenes only to resolve a reported block, enable trunk rewrites, or cut a stable release.
 
 [Fork development](../internals/fork-development.md) owns the repository discipline. The repo-local
-[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated human sign-off procedures
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated nightly review and stable human sign-off procedures
 for unblocking a rebase and cutting a stable release.
 
 ## Model
@@ -398,24 +398,62 @@ git rev-parse origin/hyprws-next
 ```
 
 A green run with a `rebase-blocked` issue means the bot advanced as far as it safely could and then
-reported the next human task. It does not mean the entire upstream lane was clean.
+reported the next operator task. It does not mean the entire upstream lane was clean.
 
 ## Unblocking a `rebase-blocked` issue
 
 Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. Alone, it selects the
-open walk target (or the oldest offered tag), accepts a coherent orientation, stages rerere and
-generated resolutions, takes the pushed-lane CI verdict, records clear keep decisions, applies with
-the existing lease, dispatches one reconciliation run, identifies its URL, and does not wait for
-completion. It stops only when
-orientation does not cohere, a source conflict has no rerere resolution, a retirement or behaviour
-seam needs judgement, or an existing gate refuses. Every judgement stop reproduces the interactive
-surface and prints `node scripts/fork-sync.ts unblock-auto --resume --report <path>`; resolve the
-surface with the existing verbs, then run that resume command against the same external report.
+open walk target (or the newest offered tag), accepts a coherent orientation, stages rerere and
+generated resolutions, takes the pushed-lane CI verdict, and records the walking agent's clear keep
+decisions. For a nightly target it then stops exactly once at the independent-review boundary; after
+a distinct Claude Opus session signs the bound evidence, resume applies with the existing lease,
+dispatches one reconciliation run, identifies its URL, and does not wait for completion.
+
+The walking host hands the emitted report and record paths to Claude Opus. The reviewer inspects the
+generated target, live blocking marker, every non-mechanical verdict, rehearsal evidence, pushed-lane
+CI on the exact installed head, every silent seam, and the live `expected_old` lease. It then records
+one of:
+
+```bash
+vp run fork:sync unblock-review --report <report> --sign-off
+vp run fork:sync unblock-review --report <report> --withhold '<reason>'
+```
+
+The command records interface, provider, model, and session for both proposer and reviewer, reading
+each identity from `ghb attest handoff` in the active runtime. Operators must not copy a handoff
+between sessions or edit those fields into the report. The reviewer is an agent, not a human, and
+its provenance is not replaced by the walking agent's identity. Sign-off is
+withheld for undefined fork intent, a non-equivalent retire, a user-visible behaviour change, a fork
+domain or tier topology change, any bypass, or evidence that cannot be verified. The existing
+automation also pauses before review when it can detect those judgement surfaces. After sign-off the
+walking host runs `vp run fork:sync unblock-auto --resume --report <report>`.
+
+Apply names this control the **nightly independent-review guard**. It refuses a missing or withheld
+review, a reviewer that is not Opus, the proposing session reviewing itself, any change to the
+reviewed record/bindings, moved rehearsal or CI heads, and a moved lease. A new proposal or movement
+requires a new independent review; never copy review fields between reports.
+
+An objective bot-carried walk is exempt from the independent-review guard because it has no
+agent judgement verdict. Any conflict or judgement stops the workflow before apply. Restart
+that target in a host agent session; the host proposal and independent Opus review then become
+mandatory. This preserves unattended clean nightlies without treating a workflow process as a
+reviewer.
+
+The report is an operator-owned state file, not a cryptographic signature. The command proves the
+active runtime identity when it records review and binds that result to the record, refs, CI head,
+and lease. An operator able to rewrite the external report can fabricate its contents; the control
+is procedural provenance and stale-state detection, not protection from a malicious local operator.
+
+Outside this objective nightly lane, orientation incoherence, a source conflict without a verified
+resolution, retirement or behaviour judgement, undefined intent, domain/tier/topology change,
+bypass, or unverifiable evidence remains a pause. Every judgement stop reproduces the interactive
+surface and prints `node scripts/fork-sync.ts unblock-auto --resume --report <path>`; resolve that
+surface without weakening a gate, then resume the same external report.
 
 ### Walk mode
 
 Use the existing step-by-step verbs for the interactive path. `vp run fork:sync` owns the mechanics
-as five report transitions. At each stop, the human sees
+as six report transitions. At each judgement stop, the human sees
 the emitted decision surface verbatim, then one triage line per decision: `clear — <recommendation>:
 <one-line reason>` for an unambiguous choice, or `judgement — <recommendation>: <reading A> vs
 <reading B>; <why the recommendation>` when a real choice remains. The agent then asks for the exact
@@ -440,7 +478,13 @@ word for every decision and stops; its recommendation is never recorded as the h
    pushes the disposable rehearsal lane, then waits up to 45 minutes for the CI verdict on the
    pushed lane head, polling every 30 seconds. A timeout or failed job stops the gate with its failed
    log evidence. It then renders the decision and grounding surface.
-5. After recorded human sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
+5. For a nightly target, a walk-mode host first runs
+   `vp run fork:sync unblock-auto --resume --report <report>` to bind its proposal identity and emit
+   the review stop. `unblock-review` then binds the proposal record, target, blocking SHA,
+   `expected_old`, installed/CI head, and rehearsal branch to a distinct Claude Opus session. A
+   withheld review is durable and cannot apply. A non-nightly judgement path retains its recorded
+   human decision boundary.
+6. After the required sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
    the CI verdict, posts the external record, snapshots every stable upstream tag the apply crosses,
    performs the expected-old leased apply, announces the snapshots as candidate issues, and deletes
    the remote rehearsal branch. Snapshots go up before the trunk, in the bot's own order, because a
@@ -454,10 +498,13 @@ focused tests are the schema definition, so there is no separate prose template 
 The report and record stay outside the repository and new rehearsals never add to
 `docs/operations/fork-sync-records/`.
 
-The human still owns target selection, semantic conflict classification, retirement/product
-judgement, grounding, login/date, and the explicit go. Every other transition refuses stale refs,
-wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed checks, or a
-missing sign-off. A stale lease voids the report; restart at `unblock-list` instead of refreshing it.
+For an objective nightly walk, the host owns target selection and the proposal while one independent
+Claude Opus session owns review and sign-off. A reviewer sign-off is never counted as a human
+choice. Real semantic ambiguity, retirement/product judgement, grounding, user-visible change,
+domain/tier/topology change, bypass, or unverifiable evidence still pauses for human direction. Every
+other transition refuses stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned
+importer drift, failed checks, or missing/stale/self-approved/withheld review. A stale lease voids the
+report; restart at `unblock-list` instead of refreshing it.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
 leased push starts the bot run that reconciles the resolved blocking SHA and any later block. After
 apply, append the walk to `refs/fork/churn` with `--push`; the next sync report renders it.
