@@ -390,7 +390,9 @@ entry point. Its five gates orient on the newest selected upstream tag beyond th
 its decisions, silent seams, and grounding evidence for human sign-off before apply.
 
 A walk targets the newest offered tag by default, so `unblock-list` prints that tag alone and needs
-`--all` to print the older ones. An intermediate slice issue is opened only when a walk stops at a
+`--all` to print the older ones. Every rehearsal rebase is run with `diff.algorithm=histogram`
+alongside `core.commentChar=auto` so adjacent additions that share boilerplate do not collapse
+into a single false-conflict hunk. An intermediate slice issue is opened only when a walk stops at a
 judgement and the operator chooses to bisect; a slice is never the default unit of work.
 
 Every decision cell names its decider. `unblock-check` carries the cells already filled through the
