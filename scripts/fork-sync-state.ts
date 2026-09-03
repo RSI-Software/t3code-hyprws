@@ -170,11 +170,12 @@ export interface SyncReport {
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
-  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume] [--bot-carried]
+  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume] [--bot-carried] [--silent-seam <path>=<summary>:behaviour|type ...]
   unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
-  unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type]
+  unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...]
+  unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
   rewrite-rehearse --from <branch-or-sha> [--issue N] [--allow-extra N] [--allow-paths <glob,...>] [--dry-run]
 
@@ -251,7 +252,8 @@ export const parseVerbArgs = (
     if (flag === undefined || !flag.startsWith("--")) {
       throw new UsageError(`invalid arguments after ${verb}`);
     }
-    if (values.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
+    if (values.has(flag) && flag !== "--silent-seam")
+      throw new UsageError(`duplicate option: ${flag}`);
     if (
       flag === "--resume" ||
       flag === "--dry-run" ||
@@ -266,7 +268,11 @@ export const parseVerbArgs = (
     if (value === undefined || value.startsWith("--")) {
       throw new UsageError(`invalid arguments after ${verb}`);
     }
-    values.set(flag, value);
+    if (flag === "--silent-seam" && values.has(flag)) {
+      values.set(flag, `${values.get(flag)}\n${value}`);
+    } else {
+      values.set(flag, value);
+    }
     index += 2;
   }
   return { verb, values };
@@ -491,7 +497,9 @@ export const renderRecord = (report: SyncReport): string => {
     "",
     "## Automerged overlap review",
     "",
-    report.orientation ?? "See orientation in the JSON report.",
+    report.orientation === undefined
+      ? "See orientation in the JSON report."
+      : orientationReviewSection(report.orientation),
     "",
     "## Fork commits",
     "",
@@ -704,6 +712,12 @@ export const parseRecord = (record: string): ParsedRecord => {
   if (incomplete !== undefined)
     throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
   return { conflicts, decisions: parseDecisionRows(record) };
+};
+
+export const orientationReviewSection = (orientation: string): string => {
+  const raw = orientation.trimEnd();
+  const stopIndex = raw.search(/\n## Stop\n/);
+  return stopIndex === -1 ? raw : raw.slice(0, stopIndex).trimEnd();
 };
 
 export const orientationTouchedPaths = (orientation: string): ReadonlyArray<string> => {
