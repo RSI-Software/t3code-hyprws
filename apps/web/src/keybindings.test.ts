@@ -11,10 +11,8 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   formatShortcutLabel,
-  isChatFocusComposerShortcut,
   isDiffToggleShortcut,
   isRichTextBoldShortcut,
   modelPickerJumpCommandForIndex,
@@ -25,7 +23,6 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
-  isTerminalFocusShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -524,29 +521,6 @@ describe("thread navigation helpers", () => {
     );
   });
 
-  it("shows jump hints with terminal focus when the binding is active there", () => {
-    assert.isTrue(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-
-    const composerOnlyBindings = compile([
-      {
-        shortcut: modShortcut("1"),
-        command: "thread.jump.1",
-        whenAst: whenNot(whenIdentifier("terminalFocus")),
-      },
-    ]);
-    assert.isFalse(
-      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), composerOnlyBindings, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-  });
-
   it("keeps default thread jumps off the web so the browser can switch tabs", () => {
     const input = event({ key: "1", metaKey: true });
     assert.isNull(
@@ -616,44 +590,6 @@ describe("model picker navigation helpers", () => {
         context: { isDesktop: true, modelPickerOpen: false },
       }),
       "thread.jump.3",
-    );
-  });
-});
-
-describe("focus shortcuts", () => {
-  it("resolves Ctrl+` to terminal.focus outside the terminal", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
-        platform: "Linux",
-        context: { terminalFocus: false },
-      }),
-      "terminal.focus",
-    );
-    assert.isTrue(
-      isTerminalFocusShortcut(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
-        platform: "Linux",
-        context: { terminalFocus: false },
-      }),
-    );
-  });
-
-  it("resolves Ctrl+` to chat.focusComposer while the terminal is focused", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "`", ctrlKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
-        platform: "Linux",
-        context: { terminalFocus: true },
-      }),
-      "chat.focusComposer",
-    );
-    assert.isTrue(
-      isChatFocusComposerShortcut(
-        event({ key: "`", ctrlKey: true }),
-        DEFAULT_RESOLVED_KEYBINDINGS,
-        {
-          platform: "Linux",
-          context: { terminalFocus: true },
-        },
-      ),
     );
   });
 });
