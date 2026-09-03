@@ -19,6 +19,23 @@ const STATE_SCHEMA = "t3code.desktop-agent.v1";
 const STATE_DIRECTORY_NAME = "dev-desktop-instances";
 const STOP_TIMEOUT_MS = 10_000;
 const LOCK_TIMEOUT_MS = 5_000;
+const DEV_RUNNER_ENV_KEYS = [
+  "HOST",
+  "PORT",
+  "T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+  "T3CODE_DEV_INSTANCE",
+  "T3CODE_HOME",
+  "T3CODE_HOST",
+  "T3CODE_LOG_WS_EVENTS",
+  "T3CODE_MODE",
+  "T3CODE_NO_BROWSER",
+  "T3CODE_PORT",
+  "T3CODE_PORT_OFFSET",
+  "T3CODE_SINGLE_ORIGIN_DEV",
+  "VITE_DEV_SERVER_URL",
+  "VITE_HTTP_URL",
+  "VITE_WS_URL",
+] as const;
 
 export type DesktopAgentRecord = {
   readonly schema: typeof STATE_SCHEMA;
@@ -32,6 +49,14 @@ export type DesktopAgentRecord = {
   readonly childPid: number | null;
   readonly startedAt: string;
 };
+
+export function withoutInheritedDevRunnerEnv(
+  environment: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  const output = { ...environment };
+  for (const key of DEV_RUNNER_ENV_KEYS) delete output[key];
+  return output;
+}
 
 export function resolveAgentTargetWorkspace(origin: WorkspaceRef): WorkspaceRef {
   if (origin.id <= 1 || origin.name !== String(origin.id)) {
@@ -305,7 +330,14 @@ async function runAgentDesktop(
 ): Promise<number> {
   const repo = resolveRepo();
   const hash = desktopAgentInstanceHash(repo);
-  const repoEnv = loadRepoEnv({ repoRoot: repo });
+  // T3 launches agent commands with its own server and Vite environment.
+  // Keep repository configuration available, but do not let the parent app's
+  // ports, home, or instance selector pin this worktree's dev runner to the
+  // already-running stable process.
+  const repoEnv = loadRepoEnv({
+    baseEnv: withoutInheritedDevRunnerEnv(process.env),
+    repoRoot: repo,
+  });
   const workspace = parseDesktopAgentWorkspaceSelector(
     workspaceOverride ?? repoEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"],
   );
