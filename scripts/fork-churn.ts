@@ -416,6 +416,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       decisions: parsed.decisions,
       censusFiles: parseCensusFiles(issueView.body),
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
+      ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;
   // The document is a frozen mirror (#476). Precompute it before moving the ref so a

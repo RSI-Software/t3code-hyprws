@@ -11,10 +11,11 @@ import {
 import type {
   ConflictClass,
   DecidedBy,
+  NightlyReview,
   OrientationDecisionRow,
   SilentSeam,
 } from "./fork-sync-state.ts";
-import { isInheritedDecidedBy } from "./fork-sync-state.ts";
+import { isInheritedDecidedBy, requireNightlyReview } from "./fork-sync-state.ts";
 
 export const CONFLICT_CLASSES = [
   "generated",
@@ -80,6 +81,8 @@ export interface ChurnEntry {
   readonly censusFiles: ReadonlyArray<CensusFile>;
   /** Seams the walk repaired without a conflict; absent on entries written before #476. */
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
+  /** Distinct proposer/reviewer provenance for a humanless nightly apply (#531). */
+  readonly nightlyReview?: NightlyReview;
 }
 
 export interface ChurnHotSeam {
@@ -312,6 +315,10 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
               };
             });
           })();
+    const nightlyReview =
+      entry.nightlyReview === undefined
+        ? undefined
+        : requireNightlyReview(entry.nightlyReview, `nightlyReview in entry ${entryIndex}`);
     return {
       tag: requireString(entry.tag, "tag"),
       before: requireString(entry.before, "before"),
@@ -321,6 +328,7 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
       decisions,
       censusFiles,
       ...(silentSeams === undefined ? {} : { silentSeams }),
+      ...(nightlyReview === undefined ? {} : { nightlyReview }),
     } satisfies ChurnEntry;
   });
   const tags = new Set<string>();
