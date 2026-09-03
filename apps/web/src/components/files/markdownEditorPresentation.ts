@@ -1,10 +1,10 @@
-import type { MilkdownPlugin } from "@milkdown/kit/ctx";
-import type { Node as ProseNode } from "@milkdown/kit/prose/model";
-import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
-import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
-import { codeBlockSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
-import { extendListItemSchemaForTask } from "@milkdown/kit/preset/gfm";
-import { $prose, $view } from "@milkdown/kit/utils";
+import type { MilkdownPlugin } from "@milkdown/ctx";
+import type { Node as ProseNode } from "@milkdown/prose/model";
+import { Plugin, PluginKey } from "@milkdown/prose/state";
+import { Decoration, DecorationSet, type EditorView } from "@milkdown/prose/view";
+import { codeBlockSchema, linkSchema } from "@milkdown/preset-commonmark";
+import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
+import { $prose, $view } from "@milkdown/utils";
 
 import { CHAT_FILE_TAG_CHIP_CLASS_NAME } from "~/components/chat/FileTagChip";
 import { resolvePierreIconColor } from "~/components/chat/PierreEntryIcon";
@@ -15,7 +15,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
-import { resolveMarkdownFileLinkMeta } from "~/markdown-links";
+import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
 interface MarkdownEditorPresentationOptions {
   readonly cwd: { current: string };
@@ -192,7 +192,7 @@ function linkView(options: MarkdownEditorPresentationOptions) {
     const render = () => {
       const href = String(mark.attrs["href"] ?? "");
       const title = mark.attrs["title"];
-      const file = resolveMarkdownFileLinkMeta(
+      const file = resolveRichMarkdownEditorLinkMeta(
         href,
         options.cwd.current,
         documentDirectory(options.cwd.current, options.sourcePath.current),
