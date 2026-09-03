@@ -17,6 +17,7 @@ import {
   decisionSurface,
   execute,
   filledDecisionCells,
+  filterRetiredMessagesForTest,
   forkCommitIdentifiers,
   gateVerificationEnv,
   identifyRerereResolvedPaths,
@@ -1496,6 +1497,15 @@ it("reads a fork commit's own identifiers out of its diff", () => {
     "window.perProject",
     "opens one window per project",
   ]);
+});
+
+it("filters a retired middle commit without changing git-log record framing", () => {
+  const original = "feat: first\n\x1e\nfix: retire me\n\x1e\nfeat: last\n\x1e\n";
+
+  assert.strictEqual(
+    filterRetiredMessagesForTest(original, new Set(["fix: retire me"])),
+    "feat: first\n\x1e\nfeat: last\n\x1e\n",
+  );
 });
 
 /** A fixture upstream tree plus two fork commits: one retired upstream, one not. */
@@ -3880,6 +3890,184 @@ it("renders the lease boundary and what movement voids it in the checked stop", 
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
+});
+
+const RETIRE_SUBJECT = "fix(web): superseded upstream";
+const RETIRE_KEEP_SUBJECT = "feat(web): keep fork behavior";
+const retireReplay = (): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  reportPath: string;
+  branch: string;
+} => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
+  const fullMessages = `${RETIRE_SUBJECT}\nFork-Domain: fork-meta\n\x1e${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`;
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const next: SyncReport = {
+    ...replayed,
+    originalMessages: fullMessages,
+    originalCount: 2,
+    orientationDecisions: [
+      { subject: RETIRE_SUBJECT, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
+    ],
+  };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(next));
+  NodeFS.writeFileSync(next.recordPath, renderRecord(next));
+  return state;
+};
+
+it("a recorded retire verdict drops the commit from the replay and verifies as retired, not partial", () => {
+  const state = retireReplay();
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const retired: SyncReport = {
+    ...replayed,
+    recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
+  };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(retired));
+  signRecord(retired.recordPath, "retire", "human");
+  const filteredMessages = `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`;
+  state.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "1\n",
+  });
+  state.runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${B}..HEAD`,
+    ],
+    { stdout: filteredMessages },
+  );
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(checked.recordDecisions, [
+      { subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" },
+    ]);
+    assert.include(NodeFS.readFileSync(checked.recordPath, "utf8"), `| \`${RETIRE_SUBJECT}\` |`);
+    assert.include(NodeFS.readFileSync(checked.recordPath, "utf8"), "| retire |");
+    // The retire row is an enactment, not a downgrade to partial.
+    assert.notInclude(NodeFS.readFileSync(checked.recordPath, "utf8"), "| partial |");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("retire enacts exactly one subject: other count or message changes still fail", () => {
+  const keptMessages = `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`;
+  // Extra drop beyond the one retired commit -> count still throws
+  {
+    const s = retireReplay();
+    try {
+      const replayed = validateReport(JSON.parse(NodeFS.readFileSync(s.reportPath, "utf8")));
+      const retired: SyncReport = {
+        ...replayed,
+        recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
+      };
+      NodeFS.writeFileSync(s.reportPath, JSON.stringify(retired));
+      signRecord(retired.recordPath, "retire", "human");
+      s.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+        stdout: "0\n",
+      });
+      s.runner.set(
+        "git",
+        [
+          "-c",
+          "core.commentChar=auto",
+          "log",
+          "--reverse",
+          "--topo-order",
+          "--format=%B%x1e",
+          `${B}..HEAD`,
+        ],
+        { stdout: "" },
+      );
+      assert.throws(
+        () => execute(["unblock-check", "--report", s.reportPath], s.root, s.runner),
+        /replay commit count changed/,
+      );
+    } finally {
+      NodeFS.rmSync(s.root, { recursive: true, force: true });
+      NodeFS.rmSync(s.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(s.reportPath), { recursive: true, force: true });
+    }
+  }
+  // Same count but wrong message -> messages still throw
+  {
+    const s = retireReplay();
+    try {
+      const replayed = validateReport(JSON.parse(NodeFS.readFileSync(s.reportPath, "utf8")));
+      const retired: SyncReport = {
+        ...replayed,
+        recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
+      };
+      NodeFS.writeFileSync(s.reportPath, JSON.stringify(retired));
+      signRecord(retired.recordPath, "retire", "human");
+      s.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+        stdout: "1\n",
+      });
+      s.runner.set(
+        "git",
+        [
+          "-c",
+          "core.commentChar=auto",
+          "log",
+          "--reverse",
+          "--topo-order",
+          "--format=%B%x1e",
+          `${B}..HEAD`,
+        ],
+        { stdout: "feat(web): tampered\n\x1e" },
+      );
+      assert.throws(
+        () => execute(["unblock-check", "--report", s.reportPath], s.root, s.runner),
+        /replay commit messages changed/,
+      );
+    } finally {
+      NodeFS.rmSync(s.root, { recursive: true, force: true });
+      NodeFS.rmSync(s.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(s.reportPath), { recursive: true, force: true });
+    }
+  }
+  // No retire at all: any count change still throws (pre-existing guard)
+  {
+    const s = replayedRun();
+    try {
+      s.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+        stdout: "0\n",
+      });
+      s.runner.set(
+        "git",
+        [
+          "-c",
+          "core.commentChar=auto",
+          "log",
+          "--reverse",
+          "--topo-order",
+          "--format=%B%x1e",
+          `${B}..HEAD`,
+        ],
+        { stdout: "" },
+      );
+      assert.throws(
+        () => execute(["unblock-check", "--report", s.reportPath], s.root, s.runner),
+        /replay commit count changed/,
+      );
+    } finally {
+      NodeFS.rmSync(s.root, { recursive: true, force: true });
+      NodeFS.rmSync(s.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(s.reportPath), { recursive: true, force: true });
+    }
+  }
+  void keptMessages;
 });
 
 it("neutralises the comment char on every rehearsal git call, not one shell", () => {
