@@ -326,7 +326,7 @@ export const renderBotSnapshot = (bot: BotSnapshot): string => {
   ].join("\n");
 };
 
-const requirePausedBot = (bot: BotSnapshot): void => {
+const botModeRefusal = (bot: BotSnapshot): void => {
   if (bot.mode === "on")
     throw new Error(
       [
@@ -334,8 +334,59 @@ const requirePausedBot = (bot: BotSnapshot): void => {
         `gh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`,
       ].join("\n"),
     );
+};
+
+const requirePausedBot = (bot: BotSnapshot): void => {
+  botModeRefusal(bot);
   if (botIsRunning(bot))
     throw new Error("bot run is in progress; wait for it and rerun unblock-list");
+};
+
+// A push to `hyprws` restarts the roughly 13 minute sync workflow, so a walk
+// that meets a concurrent run holds its window instead of refusing: it names
+// the run it waits on, polls on the same 30 second / 45 minute shape as
+// `waitForCiVerdict` in fork-sync-ci.ts, and fails loudly at the ceiling.
+// Bot mode `on` still refuses: that is a configuration error, not a race.
+const BOT_POLL_SECONDS = 30;
+const BOT_POLL_LIMIT = 91;
+
+const waitForPausedBot = (runner: CommandRunner, root: string, bot: BotSnapshot): BotSnapshot => {
+  botModeRefusal(bot);
+  if (!botIsRunning(bot)) return bot;
+  const runUrl = bot.lastRun?.url ?? "unknown run";
+  process.stdout.write(`waiting for the auto-rebase bot run to finish: ${runUrl}\n`);
+  let current = bot;
+  for (let poll = 0; poll < BOT_POLL_LIMIT; poll += 1) {
+    if (poll + 1 < BOT_POLL_LIMIT)
+      requireSuccess(runner, "sleep", [String(BOT_POLL_SECONDS)], root);
+    current = readBotSnapshot(runner, root);
+    botModeRefusal(current);
+    if (!botIsRunning(current)) {
+      process.stdout.write("bot run finished; continuing\n");
+      return current;
+    }
+  }
+  throw new Error(`bot run is in progress after 45 minutes: ${runUrl}; rerun when it finishes`);
+};
+
+// The human lane waits out a concurrent run; the carrier lane is the bot run
+// itself, so it keeps the lease refusal in `requireBotCarrier` and never
+// waits. A settled snapshot is written back so the next verb does not wait
+// twice on the same run.
+const settleBotState = (
+  report: SyncReport,
+  bot: BotSnapshot,
+  runner: CommandRunner,
+): SyncReport => {
+  if (report.botCarried === true) {
+    requireBotCarrier(bot);
+    return report;
+  }
+  const settled = waitForPausedBot(runner, report.repositoryRoot, bot);
+  if (settled === bot) return report;
+  const next = { ...report, bot: settled };
+  writeReport(next);
+  return next;
 };
 
 /**
@@ -543,7 +594,7 @@ const unblockOrient = (
   runner: CommandRunner,
 ): SyncReport => {
   assertOnly(values, ["--report", "--target"]);
-  const report = readReport(oneValue(values, "--report") ?? "");
+  let report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "listed")
     throw new Error(`unblock-orient requires a listed report, got ${report.stage}`);
   if (report.bot === undefined) throw new Error("report has no bot snapshot; rerun unblock-list");
@@ -553,7 +604,7 @@ const unblockOrient = (
   // source lease (a resumed orient or a stale listed lane that was edited) also
   // gets the staleness refusal here.
   if (report.source?.expectedOld !== undefined) ensureLeaseCurrent(report, runner);
-  requireBotState(report, report.bot);
+  report = settleBotState(report, report.bot, runner);
   const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
   const targetTag = offered.tag;
   const root = report.repositoryRoot;
@@ -1612,7 +1663,8 @@ const stopAuto = (surface: string, reportPath: string): never => {
 const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): SyncReport => {
   const bot = readBotSnapshot(runner, report.repositoryRoot);
   try {
-    requireBotState(report, bot);
+    const settled = settleBotState(report, bot, runner);
+    if (settled !== report) return settled;
   } catch (error) {
     throw new AutoBotRefusal(
       error instanceof Error ? error.message : String(error),
@@ -2171,7 +2223,7 @@ const unblockAuto = (
         if (report.bot === undefined)
           throw new Error("report has no bot snapshot; rerun unblock-auto");
         try {
-          requireBotState(report, report.bot);
+          report = settleBotState(report, report.bot, runner);
         } catch (error) {
           throw new AutoBotRefusal(
             error instanceof Error ? error.message : String(error),
@@ -2361,16 +2413,14 @@ const rewriteRehearse = (
           .map((s) => s.trim())
           .filter(Boolean);
   const root = rootFor(runner, cwd);
+  // The same bounded wait as the unblock walk: a concurrent run holds this
+  // entry verb too. The ceiling message keeps the "bot run is in progress"
+  // wording so the runner still reports it as a precondition refusal.
+  // Bot mode `on` still refuses immediately; only the RUNNING case waits.
+  waitForPausedBot(runner, root, readBotSnapshot(runner, root));
   const bot2 = readBotSnapshot(runner, root);
-  if (
-    bot2.mode === "on" ||
-    (bot2.lastRun !== null &&
-      ["queued", "waiting", "requested", "pending", "in_progress"].includes(bot2.lastRun.status))
-  ) {
-    const msg =
-      bot2.mode === "on"
-        ? `auto-rebase bot mode is on; pause it before continuing:\ngh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`
-        : "bot run is in progress; wait for it and rerun unblock-list";
+  if (bot2.mode === "on") {
+    const msg = `auto-rebase bot mode is on; pause it before continuing:\ngh variable set ${BOT_VARIABLE} --body candidate --repo ${REPOSITORY}`;
     const err = new Error(msg) as Error & { reportPath?: string; isBotRefusal?: boolean };
     (err as unknown as { isBotRefusal: boolean }).isBotRefusal = true;
     throw err;
