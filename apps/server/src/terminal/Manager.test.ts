@@ -99,13 +99,18 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
 
 class FakeProcessRunner {
   readonly inputs: ProcessRunner.ProcessRunInput[] = [];
-  private readonly result: Effect.Effect<
-    ProcessRunner.ProcessRunOutput,
-    ProcessRunner.ProcessRunError
-  >;
+  private readonly result:
+    | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
+    | ((
+        input: ProcessRunner.ProcessRunInput,
+      ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>);
 
   constructor(
-    result: Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>,
+    result:
+      | Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>
+      | ((
+          input: ProcessRunner.ProcessRunInput,
+        ) => Effect.Effect<ProcessRunner.ProcessRunOutput, ProcessRunner.ProcessRunError>),
   ) {
     this.result = result;
   }
@@ -113,7 +118,7 @@ class FakeProcessRunner {
   readonly service = ProcessRunner.ProcessRunner.of({
     run: (input) => {
       this.inputs.push(input);
-      return this.result;
+      return typeof this.result === "function" ? this.result(input) : this.result;
     },
   });
 }
@@ -532,9 +537,22 @@ it.layer(
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("suspends split terminals independently and resumes the exact zmux target", () =>
+  it.effect("re-resolves a suspended checkout after its zmux target is renamed", () =>
     Effect.gen(function* () {
-      const processRunner = resolvedZmuxProcessRunner();
+      let resolveCount = 0;
+      const processRunner = new FakeProcessRunner((input) =>
+        Effect.sync(() => {
+          if (input.command === "zmux") {
+            resolveCount += 1;
+          }
+          const renamed = resolveCount === 3;
+          return processResult({
+            stdout: renamed
+              ? '{"workspace":"zmux","session":"renamed","target":"zmux/renamed","tmuxName":"zws_zmux__renamed","nativeId":"$22","state":"live","match":"worktree"}'
+              : '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+          });
+        }),
+      );
       const { manager, ptyAdapter } = yield* createManager(5, {
         terminalSessionMode: "zmux",
         managedAttachmentSuspendGraceMs: 1_500,
@@ -586,17 +604,19 @@ it.layer(
         snapshot: {
           status: "running",
           history: expect.stringContaining("before suspend"),
-          label: "zmux/main",
         },
       });
-      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(2);
+      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
       expect(ptyAdapter.spawnInputs[2]).toMatchObject({
         shell: "zmux",
-        args: ["open", "zmux", "main"],
+        args: ["open", "zmux", "renamed"],
         cols: 140,
         rows: 40,
       });
       expect(resumedProcess.resizeCalls).toEqual([]);
+      expect((yield* manager.open(openInput({ worktreePath: process.cwd() }))).label).toBe(
+        "zmux/renamed",
+      );
 
       yield* manager.write({
         threadId: "thread-1",
@@ -685,6 +705,62 @@ it.layer(
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect("does not reuse a retained zmux target after the checkout binding disappears", () =>
+    Effect.gen(function* () {
+      let resolveCount = 0;
+      const processRunner = new FakeProcessRunner((input) =>
+        Effect.sync(() => {
+          if (input.command === "zmux") {
+            resolveCount += 1;
+          }
+          return resolveCount === 1
+            ? processResult({
+                stdout:
+                  '{"workspace":"zmux","session":"old","target":"zmux/old","tmuxName":"zws_zmux__old","nativeId":"$22","state":"live","match":"worktree"}',
+              })
+            : processResult({
+                code: ChildProcessSpawner.ExitCode(1),
+                stderr: "worktree binding no longer exists",
+              });
+        }),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        managedAttachmentSuspendGraceMs: 10,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      yield* Effect.addFinalizer(() => manager.close({ threadId: "thread-1" }).pipe(Effect.ignore));
+
+      const release = yield* manager.attachStream(
+        openInput({ worktreePath: process.cwd() }),
+        () => Effect.void,
+      );
+      release();
+      yield* TestClock.adjust("10 millis");
+
+      const resumedEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      const resumedRelease = yield* manager.attachStream(
+        { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID },
+        (event) => Ref.update(resumedEvents, (events) => [...events, event]),
+      );
+
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "zmux",
+        args: ["open", "zmux", "old"],
+      });
+      expect(ptyAdapter.spawnInputs[1]).toMatchObject({ shell: "/bin/bash" });
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      expect((yield* Ref.get(resumedEvents))[0]).toMatchObject({
+        type: "snapshot",
+        snapshot: {
+          history: expect.stringContaining("no managed session"),
+        },
+      });
+
+      resumedRelease();
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("releases managed demand when initial attach delivery is cancelled", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
@@ -758,13 +834,13 @@ it.layer(
         args: ["open", "zmux", "main"],
       });
       expect(ptyAdapter.processes).toHaveLength(2);
-      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(1);
+      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
       retryRelease();
       yield* manager.close({ threadId: "thread-1" });
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("falls back visibly when zmux resolves the workspace main session", () =>
+  it.effect("attaches canonical project terminals to the workspace main session", () =>
     Effect.gen(function* () {
       const processRunner = new FakeProcessRunner(
         Effect.succeed(
@@ -781,8 +857,69 @@ it.layer(
 
       const snapshot = yield* manager.open(openInput());
 
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "zmux",
+        args: ["open", "zmux", "main"],
+        cwd: process.cwd(),
+      });
+      expect(snapshot.label).toBe("zmux/main");
+      expect(snapshot.history).toBe("");
+    }),
+  );
+
+  it.effect("falls back visibly when a linked worktree resolves the workspace main session", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.succeed(
+          processResult({
+            stdout:
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+          }),
+        ),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+
       expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
       expect(snapshot.history).toContain("resolves the workspace main session, not a worktree");
+      expect(snapshot.history).toContain("plain shell");
+    }),
+  );
+
+  it.effect("falls back visibly when a canonical project resolves a worktree session", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
+      expect(snapshot.history).toContain("resolves a worktree session, not the workspace main");
+      expect(snapshot.history).toContain("plain shell");
+    }),
+  );
+
+  it.effect("falls back visibly when zmux returns malformed resolver output", () =>
+    Effect.gen(function* () {
+      const processRunner = new FakeProcessRunner(
+        Effect.succeed(processResult({ stdout: '{"workspace":"zmux"}' })),
+      );
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
+      expect(snapshot.history).toContain(`zmux: no managed session for ${process.cwd()}`);
       expect(snapshot.history).toContain("plain shell");
     }),
   );
@@ -2008,7 +2145,7 @@ it.layer(
         shell: "zmux",
         args: ["open", "zmux", "main"],
       });
-      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(2);
+      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
       reopenedRelease();
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -2102,7 +2239,7 @@ it.layer(
         shell: "zmux",
         args: ["open", "zmux", "main"],
       });
-      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(3);
+      expect(processRunner.inputs.filter((input) => input.command === "zmux")).toHaveLength(4);
       retainedRelease();
       yield* TestClock.adjust("10 millis");
       yield* Deferred.await(secondResuspended);
