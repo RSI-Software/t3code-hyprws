@@ -15,6 +15,7 @@ import {
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
+import { GITHUB_ISSUE_HANDOFF_SEARCH_ANCHOR } from "./githubIssueSettingsSearch";
 import { searchableSetting } from "./settingsSearch";
 
 const GITHUB_CHANGE_REQUEST_DESTINATION_LABELS: Record<GitHubChangeRequestOpenMode, string> = {
@@ -122,7 +123,7 @@ export function GitHubIssueSettingsSection() {
       />
       <SettingsRow
         serverScoped
-        {...searchableSetting("github-issue-handoff-prompt")}
+        {...GITHUB_ISSUE_HANDOFF_SEARCH_ANCHOR}
         description="Controls the unsent text placed in a new thread by Work on this issue."
         resetAction={
           isDirty ? (
