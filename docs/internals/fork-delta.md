@@ -410,7 +410,10 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/web/src/routes/project.$environmentId.$projectId.issues.tsx`                 | Project-scoped route wrapper.                                     |
 | `apps/web/src/components/githubIssue/githubIssueRouteSearch.ts`                    | Shared route search contract.                                     |
 | `apps/web/src/components/githubIssue/GitHubIssueDetailPanel.tsx`                   | Detail rendering and configurable composer hand-off.              |
-| `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting for the hand-off prompt template.          |
+| `apps/web/src/components/settings/GitHubIssueSettings.tsx`                         | Source Control setting and fork-owned search anchor.              |
+| `apps/web/src/components/settings/githubIssueSettingsSearch.ts`                    | Fork-owned issue hand-off search registration.                    |
+| `apps/web/src/components/settings/githubIssueSettingsSearch.fork.test.ts`          | Guards registry order and hand-off search.                        |
+| `apps/web/src/components/settings/useAvailableSettingsSearchItems.ts`              | Attaches the fork search item.                                    |
 | `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`    | Persisted issue surfaces and tabs.                                |
 | `apps/web/src/rightPanelStore.test.ts`                                             | Covers the persisted Issues panel selection.                      |
 | `apps/web/src/components/RightPanelTabs.test.tsx`                                  | Covers the Issues launcher tab.                                   |
@@ -427,7 +430,7 @@ Delete the service and UI when upstream ships a stable GitHub Issues list, detai
 | `apps/web/src/components/CommandPalette.logic.ts`                                  | Adds the Issues entry point.                                      |
 | `apps/web/src/components/CommandPalette.logic.test.ts`                             | Covers that entry point.                                          |
 | `apps/web/src/components/settings/SourceControlSettings.tsx`                       | Hosts the configurable issue handoff prompt.                      |
-| `apps/web/src/components/settings/settingsSearch.ts`                               | Indexes the fork's source-control settings.                       |
+| `apps/web/src/components/settings/settingsSearch.ts`                               | Indexes the fork's GitHub link destination settings.              |
 | `apps/web/src/routes/_chat.pull-requests.tsx`                                      | Hub route the Issues surface sits beside.                         |
 | `apps/web/src/state/pullRequests.ts`                                               | Client state shared by issues and pull requests.                  |
 | `packages/contracts/src/index.ts`                                                  | Exports the issues contracts.                                     |
