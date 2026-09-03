@@ -76,6 +76,81 @@ export interface ProjectSetupScriptRunnerInput {
   };
 }
 
+export const GENERATED_SETUP_COMMAND = "node scripts/setup-worktree.ts";
+
+const LEGACY_GENERATED_SETUP_COMMANDS = new Map<string, ReadonlySet<string>>([
+  [
+    "Setup Worktree",
+    new Set([
+      "vp i && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
+        "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
+        "node apps/web/scripts/warm-dep-cache.ts",
+      "vp i --frozen-lockfile && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
+        "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
+        "node apps/web/scripts/warm-dep-cache.ts",
+      "vp run setup:worktree",
+      GENERATED_SETUP_COMMAND,
+    ]),
+  ],
+  [
+    "Setup Worktree (Windows)",
+    new Set([
+      'vp i && New-Item -ItemType SymbolicLink -Path .env -Target "$env:T3CODE_PROJECT_ROOT\\.env" -Force && ' +
+        'New-Item -ItemType SymbolicLink -Path "infra\\relay\\.env" -Target "$env:T3CODE_PROJECT_ROOT\\infra\\relay\\.env" -Force && ' +
+        "node apps\\web\\scripts\\warm-dep-cache.ts",
+      'vp i --frozen-lockfile && New-Item -ItemType SymbolicLink -Path .env -Target "$env:T3CODE_PROJECT_ROOT\\.env" -Force && ' +
+        'New-Item -ItemType SymbolicLink -Path "infra\\relay\\.env" -Target "$env:T3CODE_PROJECT_ROOT\\infra\\relay\\.env" -Force && ' +
+        "node apps\\web\\scripts\\warm-dep-cache.ts",
+    ]),
+  ],
+]);
+
+function isGeneratedSetupScript(script: ProjectScript): boolean {
+  const generatedCommands = LEGACY_GENERATED_SETUP_COMMANDS.get(script.name);
+  return (
+    generatedCommands?.has(script.command) === true &&
+    script.icon === "configure" &&
+    script.runOnWorktreeCreate &&
+    script.previewUrl === undefined &&
+    script.autoOpenPreview === undefined
+  );
+}
+
+/** Refresh only exact generated setup commands; user-customized scripts remain untouched. */
+export function refreshPersistedSetupScript(script: ProjectScript): ProjectScript {
+  if (!isGeneratedSetupScript(script)) {
+    return script;
+  }
+  if (script.name === "Setup Worktree" && script.command === GENERATED_SETUP_COMMAND) return script;
+
+  return {
+    ...script,
+    name: "Setup Worktree",
+    command: GENERATED_SETUP_COMMAND,
+  };
+}
+
+export function refreshPersistedSetupScripts(
+  scripts: ReadonlyArray<ProjectScript>,
+): ReadonlyArray<ProjectScript> {
+  let changed = false;
+  let foundGeneratedSetup = false;
+  const refreshed: ProjectScript[] = [];
+  for (const script of scripts) {
+    if (isGeneratedSetupScript(script)) {
+      if (foundGeneratedSetup) {
+        changed = true;
+        continue;
+      }
+      foundGeneratedSetup = true;
+    }
+    const next = refreshPersistedSetupScript(script);
+    changed ||= next !== script;
+    refreshed.push(next);
+  }
+  return changed ? refreshed : scripts;
+}
+
 export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
   "ProjectSetupScriptOperationError",
   {
@@ -484,13 +559,15 @@ export const make = Effect.gen(function* () {
     );
     const trigger = input.trigger ?? "setup";
     const scripts = resolveProjectScripts(settings, project);
-    const script =
-      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts);
-    if (!script) {
+    const persistedScript =
+      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts); // fork-hook: upstream-fixes/refresh-persisted-setup-script
+    if (!persistedScript) {
       return {
         status: "no-script",
       } as const;
     }
+
+    const script = refreshPersistedSetupScript(persistedScript);
 
     // Earlier settle shells may still run foreground programs; do not type resumed settles into them.
     const terminalId =
