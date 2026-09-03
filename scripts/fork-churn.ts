@@ -6,7 +6,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { CHURN_REF, pushBotRef, resolveBotRef } from "./lib/fork-bot-refs.ts";
+import { CHURN_REF, pushBotRef, pushBotRefWithLease, resolveBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
   censusChurn,
@@ -62,6 +62,25 @@ const enrichLedgerForRoot = (
   root: string,
   entries: ReadonlyArray<ChurnEntry>,
 ): ReadonlyArray<ChurnEntry> => enrichCensusSubjects(entries, censusSubjectOf(root));
+
+const subjectlessCensusCommits = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> =>
+  [
+    ...new Set(
+      entries.flatMap((entry) =>
+        entry.censusFiles.flatMap((file) => (file.subject === undefined ? [file.commit] : [])),
+      ),
+    ),
+  ].toSorted();
+
+const readDurableLedger = (root: string): ReadonlyArray<ChurnEntry> => {
+  const entries = readChurnLedger(root);
+  const missing = subjectlessCensusCommits(entries);
+  if (missing.length > 0)
+    throw new Error(
+      `${CHURN_REF} has subjectless census commits: ${missing.join(", ")}; run fork-churn migrate-subjects while those objects are available`,
+    );
+  return entries;
+};
 
 interface IssueView {
   readonly body: string;
@@ -357,7 +376,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     throw new Error("--issue must be a positive integer");
   if (!SHA.test(before) || !SHA.test(after))
     throw new Error("--before and --after must be Git SHAs");
-  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
+  const entries = readDurableLedger(root);
   if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
@@ -480,7 +499,7 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     ),
   ) as IssueComments;
   const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
-  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
+  const entries = readDurableLedger(root);
   const currentCensus = {
     tag: parseCensusTag(view.body),
     fixedAt: null,
@@ -541,8 +560,51 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
   return 0;
 };
 
+/**
+ * One-time durable upgrade for census rows written before subjects were stored. Resolve every
+ * missing subject before creating a commit, then publish only against the exact ref we read.
+ */
+const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--push"))
+    throw new Error("usage: fork-churn migrate-subjects [--push]");
+  const push = args[0] === "--push";
+  const expectedOld = resolveBotRef(root, CHURN_REF);
+  if (expectedOld === null)
+    throw new Error(
+      `${CHURN_REF} does not carry a ledger; seed it before migrating census subjects`,
+    );
+  const entries = readChurnLedger(root);
+  const missing = subjectlessCensusCommits(entries);
+  if (missing.length === 0) {
+    process.stdout.write(`${CHURN_REF} already has durable census subjects\n`);
+    return 0;
+  }
+
+  const migrated = enrichLedgerForRoot(root, entries);
+  const commit = writeChurnLedger(root, migrated, "churn: migrate census subjects");
+  if (push) {
+    try {
+      pushBotRefWithLease(root, CHURN_REF, expectedOld);
+    } catch (pushError) {
+      try {
+        runCommandText("git", ["update-ref", CHURN_REF, expectedOld, commit], { cwd: root });
+      } catch (restoreError) {
+        throw new Error(
+          `${pushError instanceof Error ? pushError.message : String(pushError)}\nfailed to restore ${CHURN_REF} to ${expectedOld}: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+          { cause: restoreError },
+        );
+      }
+      throw pushError;
+    }
+  }
+  process.stdout.write(
+    `migrated ${missing.length} census commit(s) on ${CHURN_REF} at ${commit}${push ? " (pushed with expected-old lease)" : ""}\n`,
+  );
+  return 0;
+};
+
 const USAGE =
-  "usage: fork-churn append <options> | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
+  "usage: fork-churn append <options> | migrate-subjects [--push] | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
 
 export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number => {
   try {
@@ -553,10 +615,11 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     }
     if (verb === "report") return report(args, root);
     if (verb === "seed") return seed(args, root);
+    if (verb === "migrate-subjects") return migrateSubjects(args, root);
     if (verb !== "render") throw new Error(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new Error("usage: fork-churn render [--check]");
-    const rendered = renderForRoot(root, enrichLedgerForRoot(root, readChurnLedger(root)));
+    const rendered = renderForRoot(root, readDurableLedger(root));
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
     if (args[0] === "--check") {
       const committed = NodeFS.existsSync(documentPath)

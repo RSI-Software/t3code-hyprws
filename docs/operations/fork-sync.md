@@ -89,6 +89,21 @@ node scripts/fork-churn.ts seed --from docs/internals/fork-churn.json --push
 Verify with `git show refs/fork/churn:fork-churn.json | head`. Until the ref exists, every reader
 refuses rather than reporting an empty ledger.
 
+Ledgers seeded before census subjects became durable need one migration from a trusted checkout
+whose local object store still resolves every census SHA. Do not rely on a fresh fetch: pruned
+fork-nightly refs cannot restore their commits. Run exactly once while those objects are available:
+
+```bash
+node scripts/fork-churn.ts migrate-subjects --push
+```
+
+The all-or-nothing census-subject guard resolves every missing subject before moving the local ref,
+names every unresolved SHA together, and pushes with an exact expected-old lease. A rerun after
+success is a no-op. A failed leased push restores the local ref to its exact pre-migration commit,
+so after fetching the remote winner the migration can be retried; never replace a rejected lease
+with an unleased force push. `report` stays read-only with respect to the ledger and refuses a
+subjectless ledger instead of consulting historical Git objects.
+
 After each walk, `node scripts/fork-churn.ts append ... --push` adds the row and publishes the ref.
 Each report run posts a `## Churn` section on the open block issue with the conflict class mix, the
 agent/human split, the silent seams, and the hot-seam movement since the previous report. The
