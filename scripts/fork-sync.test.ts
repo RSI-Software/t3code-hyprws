@@ -8,6 +8,7 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
+  agentProvenance,
   announceStableCandidates,
   autoGateFour,
   baseReleaseTag,
@@ -23,7 +24,10 @@ import {
   identifyRerereResolvedPaths,
   laneExecutablePath,
   lockDriftClass,
+  nightlyProposalDigest,
   nextScheduledFire,
+  NIGHTLY_REVIEW_EVIDENCE,
+  NIGHTLY_WITHHOLD_RULES,
   NO_GROUNDING_CLAIM,
   offeredTagLines,
   orientationDecisionRows,
@@ -42,6 +46,7 @@ import {
   run,
   SystemRunner,
   validateAutoLane,
+  validateNightlyReview,
   validateReport,
   validateSignedRecord,
   type CommandResult,
@@ -1245,6 +1250,253 @@ it("produces Gate 4 decisions structurally rather than with a typed rg command",
   assert.include(surface, "fix: one");
   assert.include(surface, "fix: two");
   assert.include(surface, "Grounding pending: desktop label");
+});
+
+it("requires a fresh independent Opus review for a nightly apply", () => {
+  const root = fixtureRoot();
+  const proposer = {
+    iface: "codex",
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    session: "walk-1",
+  };
+  const reviewer = {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    session: "review-2",
+  };
+  const base = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3-nightly.20260904.1", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/nightly-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    proposedBy: proposer,
+    verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
+  });
+  try {
+    const proposal = renderRecord(base);
+    assert.throws(() => validateNightlyReview(proposal, base), /independent review is missing/);
+    const evidence = {
+      target: base.target!.tag,
+      targetSha: B,
+      blockingSha: A,
+      expectedOld: C,
+      installedHead: B,
+      ciHead: B,
+      laneBranch: base.lane!.branch,
+      recordDigest: nightlyProposalDigest(proposal),
+      inspected: NIGHTLY_REVIEW_EVIDENCE,
+    };
+    const reviewed: SyncReport = {
+      ...base,
+      nightlyReview: {
+        status: "signed-off",
+        proposer,
+        reviewer,
+        reviewedAt: "2026-09-04T10:00:00.000Z",
+        evidence,
+      },
+    };
+    const record = renderRecord(reviewed);
+    validateNightlyReview(record, reviewed);
+    assert.include(record, "Proposer: agent `codex/openai/gpt-5.6-sol`, session `walk-1`");
+    assert.include(record, "Reviewer: agent `claude/anthropic/claude-opus-5`, session `review-2`");
+    for (const item of NIGHTLY_REVIEW_EVIDENCE) assert.include(record, `  - ${item}`);
+    for (const rule of NIGHTLY_WITHHOLD_RULES) assert.include(record, `  - ${rule}`);
+
+    assert.throws(
+      () =>
+        validateNightlyReview(record, {
+          ...reviewed,
+          nightlyReview: {
+            ...reviewed.nightlyReview!,
+            reviewer: { ...reviewer, session: proposer.session },
+          },
+        }),
+      /cannot approve their own proposal/,
+    );
+    for (const model of [
+      "claude-sonnet-4.6",
+      "claude-3-opus-20240229",
+      "not-claude-opus-4.6",
+      "claude-opus-ish",
+    ]) {
+      assert.throws(
+        () =>
+          validateNightlyReview(record, {
+            ...reviewed,
+            nightlyReview: {
+              ...reviewed.nightlyReview!,
+              reviewer: { ...reviewer, model },
+            },
+          }),
+        /reviewer is not Claude Opus/,
+      );
+    }
+    for (const invalidReviewer of [
+      { ...reviewer, iface: "pi" },
+      { ...reviewer, provider: "openai-codex" },
+    ]) {
+      assert.throws(
+        () =>
+          validateNightlyReview(record, {
+            ...reviewed,
+            nightlyReview: { ...reviewed.nightlyReview!, reviewer: invalidReviewer },
+          }),
+        /reviewer is not Claude Opus/,
+      );
+    }
+
+    const botCarried = { ...base, botCarried: true } satisfies SyncReport;
+    validateNightlyReview(renderRecord(botCarried), botCarried);
+    const withheld: SyncReport = {
+      ...reviewed,
+      nightlyReview: {
+        status: "withheld",
+        proposer,
+        reviewer,
+        reviewedAt: "2026-09-04T10:00:00.000Z",
+        reason: "fork intent is undefined",
+      },
+    };
+    assert.throws(
+      () => validateNightlyReview(renderRecord(withheld), withheld),
+      /review was withheld/,
+    );
+    const changed = {
+      ...reviewed,
+      silentSeams: [{ path: "apps/web/src/a.ts", summary: "late change", touchesBehaviour: false }],
+    } satisfies SyncReport;
+    assert.throws(() => validateNightlyReview(renderRecord(changed), changed), /review is stale/);
+    assert.throws(
+      () => validateNightlyReview(record, changed),
+      /review evidence is stale against the report/,
+    );
+    assert.throws(
+      () =>
+        validateNightlyReview(record, {
+          ...reviewed,
+          target: { tag: "v1.2.3", sha: B },
+        }),
+      /record target binding is stale/,
+    );
+    assert.throws(
+      () =>
+        validateNightlyReview(
+          record.replace("- Reviewed at:", "- Unbound reviewer note\n- Reviewed at:"),
+          reviewed,
+        ),
+      /exact reviewed provenance/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("binds runtime provenance to the active ghb host handoff", () => {
+  const runner = new FakeRunner();
+  runner.set("ghb", ["attest", "handoff"], {
+    stdout: JSON.stringify({
+      schema: "ghb.host-handoff.v1",
+      host: {
+        role: "host",
+        iface: "claude",
+        provider: "anthropic",
+        model: "claude-opus-5",
+        effort: "high",
+        harness: "claude-code@2.1.259",
+        session: "review-2",
+      },
+    }),
+  });
+  assert.deepStrictEqual(agentProvenance(runner, "/repo"), {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    session: "review-2",
+  });
+  assert.deepInclude(runner.calls[0], {
+    command: "ghb",
+    args: ["attest", "handoff"],
+    cwd: "/repo",
+  });
+
+  runner.set("ghb", ["attest", "handoff"], { stdout: "not json" });
+  assert.throws(() => agentProvenance(runner, "/repo"), /invalid ghb handoff JSON/);
+  runner.set("ghb", ["attest", "handoff"], {
+    stdout: JSON.stringify({ schema: "ghb.host-handoff.v2", host: {} }),
+  });
+  assert.throws(() => agentProvenance(runner, "/repo"), /unsupported ghb handoff schema/);
+});
+
+it("drives unblock-review through the command entry point with live runtime provenance", () => {
+  const root = fixtureRoot();
+  const proposer = {
+    iface: "codex",
+    provider: "openai",
+    model: "gpt-5.6-sol",
+    session: "walk-1",
+  };
+  const base = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3-nightly.20260904.1", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/nightly-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    proposedBy: proposer,
+    verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
+  });
+  NodeFS.writeFileSync(base.reportPath, JSON.stringify(base));
+  NodeFS.writeFileSync(base.recordPath, renderRecord(base));
+  const runner = new FakeRunner();
+  runner.set("ghb", ["attest", "handoff"], {
+    stdout: JSON.stringify({
+      schema: "ghb.host-handoff.v1",
+      host: {
+        role: "host",
+        iface: "claude",
+        provider: "anthropic",
+        model: "claude-opus-5",
+        session: "review-2",
+      },
+    }),
+  });
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "unblock-review",
+          "--report",
+          base.reportPath,
+          "--withhold",
+          "evidence cannot be verified",
+        ],
+        root,
+        runner,
+      ),
+      0,
+    );
+    const reviewed = JSON.parse(NodeFS.readFileSync(base.reportPath, "utf8")) as SyncReport;
+    assert.deepStrictEqual(reviewed.nightlyReview?.reviewer, {
+      iface: "claude",
+      provider: "anthropic",
+      model: "claude-opus-5",
+      session: "review-2",
+    });
+    assert.strictEqual(reviewed.nightlyReview?.status, "withheld");
+    assert.include(
+      NodeFS.readFileSync(base.recordPath, "utf8"),
+      "Reviewer: agent `claude/anthropic/claude-opus-5`, session `review-2`",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
+  }
 });
 
 it("asks a record for decisions and a go, never a login or a date", () => {
@@ -3977,9 +4229,8 @@ it("does not refuse when origin/hyprws is still at the leased SHA", () => {
   );
   // The record is signed (checked has no decisions), so the only refusal
   // that remains would be the staleness one — which should be silent here.
-  const branch = checked.lane!.branch;
   runner.set("git", ["status", "--porcelain"], { stdout: "" });
-  // Stub the gate — the full tree read is not exercise its branches here; the
+  // Stub the gate — the full tree read does not exercise its branches here; the
   // staleness is the _last_ guard before push, so any non-staleness refusal
   // proves the lease was correctly read as live.
   try {
@@ -4281,9 +4532,7 @@ it("accepts repeated --silent-seam on unblock-check", () => {
   // Make pnpm-lock.yaml readable via git show HEAD:pnpm-lock.yaml
   NodeFS.mkdirSync(NodePath.join(lane, ".git"), { recursive: true });
   NodeFS.writeFileSync(NodePath.join(lane, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\\n");
-  const runner = new FakeRunner();
-  // Minimal stubs for the full check path - use a real git repo lane to satisfy git calls if possible
-  // Instead, directly test the parsing layer: parseVerbArgs allows repeatable --silent-seam
+  // Directly test the parsing layer: parseVerbArgs allows repeatable --silent-seam.
   const { parseVerbArgs } = require("./fork-sync-state.ts");
   const parsed = parseVerbArgs([
     "unblock-check",
