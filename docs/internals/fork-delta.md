@@ -231,7 +231,7 @@ The hub stays as the all-projects view; it stops being the only view.
 The core is a project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
 
 Launch intents reach the right window through the single-instance lock and hash routes.
-Previews, composer drafts, and preview IPC are namespaced per window.
+Previews, composer drafts, and preview IPC are namespaced per window. The preload policy accepts the complete desktop bridge, so the leased replay can keep upstream's profile-aware bridge assembly intact and remove the original preview-isolation split.
 
 Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
@@ -293,9 +293,9 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/app/DesktopClerk.ts`                                                | Single-instance lock and deep-link forwarding.                               |
 | `apps/desktop/src/preview/Manager.ts`                                                 | Upstream preview behavior delegates through the fork ownership boundary.     |
 | `apps/desktop/src/preview/Manager.test.ts`                                            | Covers shared native preview behavior behind that boundary.                  |
-| `apps/desktop/src/preview/WindowPolicy*.ts`                                           | Fork-owned window ownership, sender authorization, and preload capability.   |
-| `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                  | Guards per-window routing, authorization, disposal, and project capability.  |
-| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | Narrow integrations with the fork-owned preview policy.                      |
+| `apps/desktop/src/preview/WindowPolicy*.ts`                                           | Fork-owned window ownership, sender authorization, and whole-bridge preload. |
+| `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                  | Guards routing, authorization, disposal, and assembled bridge preservation.  |
+| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                              | Narrow preview-policy integrations; bridge assembly stays upstream-shaped.   |
 | `packages/contracts/src/ipc.ts`                                                       | `openProjectWindow` lives here.                                              |
 | `apps/web/src/routes/project.*`                                                       | Fork-only route subtree.                                                     |
 | `apps/web/src/routes/__root.tsx`                                                      | Mounts the scoped project shell at the root.                                 |
