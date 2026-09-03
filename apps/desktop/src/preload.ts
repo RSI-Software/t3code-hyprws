@@ -10,6 +10,7 @@ import { exposeClerkBridge } from "@clerk/electron/preload";
 import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
+import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";
 import { readProjectWindowPreloadParts } from "./window/projectWindowArgument.ts";
 
 const SNAP_SHOT_EVENT_TYPES = new Set([
@@ -58,7 +59,7 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
   return result as Awaited<ReturnType<DesktopBridge["ensureSshEnvironment"]>>;
 }
 
-contextBridge.exposeInMainWorld("desktopBridge", {
+const desktopBridgeWithoutPreview = {
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {
@@ -267,7 +268,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       };
     },
   },
-  preview: {
+} satisfies Omit<DesktopBridge, "preview">;
+
+const previewBridge = {
     createTab: (tabId, defaults) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_CREATE_TAB_CHANNEL, {
         tabId,
@@ -379,5 +382,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () =>
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
-  },
-} satisfies DesktopBridge);
+} satisfies DesktopBridge["preview"];
+
+contextBridge.exposeInMainWorld(
+  "desktopBridge",
+  exposePreviewCapability(desktopBridgeWithoutPreview, previewBridge),
+);
