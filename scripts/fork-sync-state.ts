@@ -379,12 +379,19 @@ const renderRewriteProofs = (rewrite: RewriteBinding): ReadonlyArray<string> => 
 const renderRewriteRecord = (report: SyncReport): string => {
   const rw = report.rewrite!;
   const lane = report.lane;
+  const rewriteLease = `Lease: report leased at \`${rw.originSha}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
+  const rewriteGate =
+    report.stage === "checked"
+      ? "Stop. Lease boundary: any movement of \`origin/hyprws\` past the lease above voids this green rehearsal."
+      : undefined;
   return [
     "## Header",
     "",
     `- \`from\`: \`${rw.from}@${rw.fromSha}\``,
     `- Target: \`${rw.baseTag ?? "absent"}@${rw.base}\``,
     `- \`expected_old\`: \`${rw.originSha}\``,
+    `- ${rewriteLease}`,
+    ...(rewriteGate === undefined ? [] : [`- ${rewriteGate}`]),
     `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
     `- Rebased head: \`${report.rebasedHead ?? report.rewrite?.fromSha ?? "absent"}\``,
     `- Stack size: \`${report.stackSize ?? 0}\` fork commits`,
@@ -507,12 +514,22 @@ export const renderRecord = (report: SyncReport): string => {
         : row.decidedBy;
     return `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${decidedCell} |`;
   });
+  const leaseBoundary =
+    source?.expectedOld === undefined
+      ? "Lease: report has no expected_old — rerun unblock-list"
+      : `Lease: report leased at \`${source.expectedOld}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
+  const leaseGate =
+    report.stage === "checked" && source?.expectedOld !== undefined
+      ? "Stop. Lease boundary: any movement of \`origin/hyprws\` past the lease above voids this green rehearsal."
+      : undefined;
   return [
     "## Header",
     "",
     `- Source: \`origin/hyprws@${source?.expectedOld ?? "absent"}\``,
     `- Target: \`${target?.tag ?? "absent"}@${target?.sha ?? "absent"}\``,
     `- \`expected_old\`: \`${source?.expectedOld ?? "absent"}\``,
+    `- ${leaseBoundary}`,
+    ...(leaseGate === undefined ? [] : [`- ${leaseGate}`]),
     `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
     `- Rebased head: \`${head}\``,
     `- Stack size: \`${report.stackSize ?? report.originalCount ?? 0}\` fork commits`,
