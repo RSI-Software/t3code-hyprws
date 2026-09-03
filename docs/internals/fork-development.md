@@ -410,7 +410,8 @@ domain. It names upstream paths that can silently invalidate or retire a domain.
 first, then reapply the smallest fork behaviour at the new seam. Rerere output is a candidate, not
 proof; every reused resolution needs review and verification.
 
-No fork commit is skipped, squashed, reordered, or reworded during an unblock. When upstream may
+No fork commit is skipped, squashed, reordered, or reworded during an unblock, except for a recorded
+human `retire` verdict, which authorises dropping exactly the subject it names. When upstream may
 have made one obsolete, preserve a buildable result for rehearsal and key the human's keep, retire,
 or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
 semantic review.
