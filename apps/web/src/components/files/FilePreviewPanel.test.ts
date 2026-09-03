@@ -5,11 +5,7 @@ import {
   normalizeFileCommentRange,
   remapFileCommentAnnotations,
 } from "./fileCommentAnnotations";
-import {
-  isMarkdownPreviewFile,
-  isMarkdownRichEditFile,
-  setMarkdownTaskChecked,
-} from "./filePreviewMode";
+import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
 
 describe("file comment annotations", () => {
   it("normalizes and formats selected line ranges", () => {
@@ -67,15 +63,6 @@ describe("isMarkdownPreviewFile", () => {
   it("does not treat other text files as markdown", () => {
     expect(isMarkdownPreviewFile("docs/guide.txt")).toBe(false);
     expect(isMarkdownPreviewFile("docs/markdown.ts")).toBe(false);
-  });
-});
-
-describe("isMarkdownRichEditFile", () => {
-  it("limits rich editing to Markdown files", () => {
-    expect(isMarkdownRichEditFile("README.md")).toBe(true);
-    expect(isMarkdownRichEditFile("docs/guide.MD")).toBe(true);
-    expect(isMarkdownRichEditFile("docs/guide.mdx")).toBe(false);
-    expect(isMarkdownRichEditFile("docs/guide.txt")).toBe(false);
   });
 });
 
