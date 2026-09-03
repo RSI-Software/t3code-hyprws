@@ -325,5 +325,5 @@ const previewBridge = {
 
 contextBridge.exposeInMainWorld(
   "desktopBridge",
-  exposePreviewCapability(desktopBridgeWithoutPreview, previewBridge),
+  exposePreviewCapability({ ...desktopBridgeWithoutPreview, preview: previewBridge }),
 );
