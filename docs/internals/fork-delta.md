@@ -539,17 +539,18 @@ The replacement must use the existing file-save path and avoid loading its edito
 
 ### Rebase scan
 
-| Path                                                   | Why it matters                                           |
-| ------------------------------------------------------ | -------------------------------------------------------- |
-| `apps/web/src/components/files/FilePreviewPanel.tsx`   | Owns the Rich/Source entry point and file-save boundary. |
-| `apps/web/src/components/files/MarkdownRichEditor.tsx` | Fork-only Milkdown lifecycle and change publisher.       |
-| `apps/web/src/components/files/markdownPipeline.ts`    | Fork-only syntax and serialization chain.                |
-| `apps/web/src/components/files/filePreviewMode.ts`     | Keeps MDX outside the rich-editing boundary.             |
-| `apps/web/src/markdown-links.ts`                       | Resolves file links from rich previews.                  |
-| `apps/web/src/markdown-links.test.ts`                  | Covers Markdown file links.                              |
-| `apps/web/package.json`, `pnpm-lock.yaml`              | Milkdown and round-trip-test dependencies.               |
-| `apps/web/src/components/ChatMarkdown.tsx`             | Upstream preview changes may replace this domain.        |
-| `docs/README.md`                                       | Indexes the fork's Markdown editing documentation.       |
+| Path                                                     | Why it matters                                           |
+| -------------------------------------------------------- | -------------------------------------------------------- |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`     | Owns the Rich/Source entry point and file-save boundary. |
+| `apps/web/src/components/files/MarkdownRichEditor.tsx`   | Fork-only Milkdown lifecycle and change publisher.       |
+| `apps/web/src/components/files/markdownPipeline.ts`      | Fork-only syntax and serialization chain.                |
+| `apps/web/src/components/files/filePreviewMode.ts`       | Keeps MDX outside the rich-editing boundary.             |
+| `apps/web/src/markdown-links.ts`                         | Resolves file links from rich previews.                  |
+| `apps/web/src/markdown-links.test.ts`                    | Covers Markdown file links.                              |
+| `apps/web/package.json`, `pnpm-lock.yaml`                | Milkdown and round-trip-test dependencies.               |
+| `apps/web/src/components/ChatMarkdown.tsx`               | Upstream preview changes may replace this domain.        |
+| `apps/web/src/components/files/FilePreviewPanel.test.ts` | Covers rich-edit gating beside upstream preview edits.   |
+| `docs/README.md`                                         | Indexes the fork's Markdown editing documentation.       |
 
 ## fork-meta
 
@@ -818,6 +819,7 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `packages/contracts/src/git.ts`                                                         | Carries the managed session binding.                                                                                                |
 | `packages/contracts/src/ipc.ts`                                                         | Declares the suspend channel.                                                                                                       |
 | `packages/contracts/src/settings.test.ts`                                               | Covers the zmux setting schema.                                                                                                     |
+| `apps/server/src/processRunner.ts`                                                      | Strips tmux inheritance for binder calls; upstream edits break bind.                                                                |
 | `apps/web/src/state/terminalSessions.ts`, `apps/web/src/state/terminalSessions.test.ts` | Retained attachment state keeps scrollback and errors across a suspended stream; upstream reworks this file often.                  |
 | `docs/internals/terminal-runtime.md`                                                    | Holds the managed-attachment lifecycle prose. Upstream already moved this page once from `docs/architecture/terminal-renderers.md`. |
 
