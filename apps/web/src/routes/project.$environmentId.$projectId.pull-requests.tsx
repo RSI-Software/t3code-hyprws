@@ -1,8 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
-import { validatePullRequestsSearch } from "../components/pullRequest/pullRequestListRoute";
 import { resolveProjectRouteRef } from "../projectRoutes";
-import { PullRequestsPage } from "./_chat.pull-requests";
+import { PullRequestsPage, validatePullRequestsSearch } from "./_chat.pull-requests";
 
 function ProjectPullRequestsRouteView() {
   const forcedProjectRef = Route.useParams({ select: resolveProjectRouteRef });
