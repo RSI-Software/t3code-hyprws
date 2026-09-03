@@ -159,8 +159,10 @@ edit them, move a bot-owned ref, replace a tag, or infer a candidate.
 
 2. Bind the selection with
    `vp run fork:sync stable-prepare --report <report> --issue <human-selected-issue>`.
-   Preparation frozen-installs the cut lane and runs every Vite+ check through that lane's binary
-   and project environment.
+   Preparation frozen-installs the cut lane and runs `fork:delta --check` through that lane's binary
+   and project environment. It takes the `check`, typecheck, and test verdict from the `hyprws CI`
+   run on the already-pushed snapshot head, never from a local full-suite run. A failed job or a
+   45-minute timeout stops the prepare with the run URL before the UAT draft is rendered.
 
    Review the emitted UAT draft under the [`fork-uat`](../fork-uat/SKILL.md) judgement boundary:
    write observable rows, remove reviewer-only sections, show the exact draft to the human, and
