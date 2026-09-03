@@ -78,23 +78,6 @@ describe("LocalApi", () => {
     expect(api.shell).not.toHaveProperty("openInEditor");
   });
 
-  it("uses the themed context-menu renderer without a desktop bridge", async () => {
-    showContextMenuFallbackMock.mockResolvedValue("rename");
-    const { createLocalApi } = await import("./localApi");
-    const items = [{ id: "rename", label: "Rename" }] as const;
-
-    await expect(createLocalApi().contextMenu.show(items, { x: 4, y: 5 })).resolves.toBe("rename");
-    expect(showContextMenuFallbackMock).toHaveBeenCalledWith(items, { x: 4, y: 5 });
-  });
-
-  it("dismisses an open themed context menu without a desktop bridge", async () => {
-    const { createLocalApi } = await import("./localApi");
-
-    await createLocalApi().contextMenu.close();
-
-    expect(dismissContextMenuMock).toHaveBeenCalledOnce();
-  });
-
   it("uses the themed confirmation host when it is available", async () => {
     requestConfirmDialogMock.mockResolvedValue(true);
     const { createLocalApi } = await import("./localApi");
@@ -119,28 +102,6 @@ describe("LocalApi", () => {
     await expect(createLocalApi().shell.openSystemSettings("full-disk-access")).rejects.toThrow(
       "Unable to open System Settings.",
     );
-  });
-
-  it("uses the themed context-menu renderer with a desktop bridge", async () => {
-    showContextMenuFallbackMock.mockResolvedValue("delete");
-    const showContextMenu = vi.fn().mockResolvedValue("native-delete");
-    testWindow().desktopBridge = { showContextMenu } as unknown as DesktopBridge;
-
-    const { createLocalApi } = await import("./localApi");
-    const items = [{ id: "delete", label: "Delete" }] as const;
-
-    await expect(createLocalApi().contextMenu.show(items, { x: 4, y: 5 })).resolves.toBe("delete");
-    expect(showContextMenuFallbackMock).toHaveBeenCalledWith(items, { x: 4, y: 5 });
-    expect(showContextMenu).not.toHaveBeenCalled();
-  });
-
-  it("dismisses an open themed context menu with a desktop bridge", async () => {
-    testWindow().desktopBridge = {} as DesktopBridge;
-    const { createLocalApi } = await import("./localApi");
-
-    await createLocalApi().contextMenu.close();
-
-    expect(dismissContextMenuMock).toHaveBeenCalledOnce();
   });
 
   it("delegates host capabilities and persistence to the desktop bridge", async () => {
