@@ -11,7 +11,7 @@ import { usePrimarySessionState } from "~/environments/primary";
 import { primaryServerConfigAtom } from "~/state/server";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
-import { filterAvailableSettingsSearchItems } from "./settingsSearch";
+import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
 
 export function useAvailableSettingsSearchItems() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -27,7 +27,7 @@ export function useAvailableSettingsSearchItems() {
 
   return useMemo(
     () =>
-      filterAvailableSettingsSearchItems({
+      filterAvailableGitHubIssueSettingsSearchItems({
         hasCloudPublicConfig: hasCloudPublicConfig(),
         hasPrimaryEnvironment: primaryEnvironmentId !== null,
         hasProviderSettingsEnvironment: environments.some((environment) =>
