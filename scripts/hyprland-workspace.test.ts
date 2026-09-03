@@ -3,7 +3,9 @@ import { assert, it } from "@effect/vitest";
 import {
   parseHyprlandWorkspaceResponse,
   parseWorkspaceReporterArguments,
+  readHyprctlWorkspace,
   runWorkspaceReporter,
+  selectHyprlandInstance,
   type WorkspaceReporterDependencies,
 } from "./hyprland-workspace.ts";
 
@@ -34,6 +36,48 @@ it("parses active workspace and active window responses", () => {
     ),
     { id: -99, name: "special:scratch" },
   );
+});
+
+it("selects the live compositor instance for the current Wayland socket", () => {
+  const instances = JSON.stringify([
+    { instance: "stale", wl_socket: "wayland-0" },
+    { instance: "live", wl_socket: "wayland-1" },
+  ]);
+  assert.strictEqual(selectHyprlandInstance(instances, "wayland-1"), "live");
+  assert.throws(() => selectHyprlandInstance(instances, "wayland-9"), /found 0/u);
+  assert.throws(
+    () =>
+      selectHyprlandInstance(
+        JSON.stringify([
+          { instance: "one", wl_socket: "wayland-1" },
+          { instance: "two", wl_socket: "wayland-1" },
+        ]),
+        "wayland-1",
+      ),
+    /found 2/u,
+  );
+});
+
+it("retries a stale default socket through the unique live instance", () => {
+  const calls: ReadonlyArray<string>[] = [];
+  const workspace = readHyprctlWorkspace("activewindow", {
+    waylandDisplay: "wayland-1",
+    run: (args) => {
+      calls.push(args);
+      if (args[0] === "-j") throw new Error("stale compositor socket");
+      if (args[0] === "instances") {
+        return JSON.stringify([{ instance: "live-instance", wl_socket: "wayland-1" }]);
+      }
+      return '{"workspace":{"id":6,"name":"6"}}';
+    },
+  });
+
+  assert.deepStrictEqual(workspace, { id: 6, name: "6" });
+  assert.deepStrictEqual(calls, [
+    ["-j", "activewindow"],
+    ["instances", "-j"],
+    ["-i", "live-instance", "-j", "activewindow"],
+  ]);
 });
 
 it("captures the app workspace before waiting and the focused workspace afterward", async () => {
