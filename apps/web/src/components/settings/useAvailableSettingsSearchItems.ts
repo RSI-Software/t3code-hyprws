@@ -12,10 +12,8 @@ import { useEnvironmentScope } from "~/state/session";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import type { SettingsScopeSearch } from "./settingsScope";
-import {
-  filterAvailableSettingsSearchItems,
-  getThreadAutoSettlementSearchAvailability,
-} from "./settingsSearch";
+import { getThreadAutoSettlementSearchAvailability } from "./settingsSearch";
+import { filterAvailableGitHubIssueSettingsSearchItems } from "./githubIssueSettingsSearch";
 
 export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch = {}) {
   const { environments } = useEnvironments();
@@ -33,7 +31,7 @@ export function useAvailableSettingsSearchItems(scopeSearch: SettingsScopeSearch
 
   return useMemo(
     () =>
-      filterAvailableSettingsSearchItems({
+      filterAvailableGitHubIssueSettingsSearchItems({
         localEnvironmentDisabled,
         hasCloudPublicConfig: hasCloudPublicConfig(),
         hasEnvironment: environments.some((environment) => environment.serverConfig !== null),
