@@ -7,7 +7,6 @@ import {
 } from "./fileCommentAnnotations";
 import {
   isMarkdownPreviewFile,
-  isMarkdownRichEditFile,
   resolveFilePreviewPath,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
