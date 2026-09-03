@@ -7,6 +7,7 @@ import {
   desktopAgentPortCandidate,
   parseDesktopAgentWorkspaceSelector,
   resolveAgentTargetWorkspace,
+  withoutInheritedDevRunnerEnv,
 } from "./lib/dev-desktop-agent.ts";
 
 describe("desktop agent launcher", () => {
@@ -82,6 +83,26 @@ describe("desktop agent launcher", () => {
     const candidate = desktopAgentPortCandidate(hash);
     assert.isAtLeast(candidate, 9223);
     assert.isBelow(candidate, 9273);
+  });
+
+  it("does not inherit the parent T3 dev runner's instance configuration", () => {
+    const output = withoutInheritedDevRunnerEnv({
+      PATH: "/usr/bin",
+      T3CODE_DESKTOP_AGENT_WORKSPACE: "-1",
+      T3CODE_PORT: "3773",
+      PORT: "5173",
+      T3CODE_HOME: "/home/user/.t3",
+      T3CODE_PORT_OFFSET: "4",
+      T3CODE_DEV_INSTANCE: "stable",
+      VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
+      VITE_HTTP_URL: "http://127.0.0.1:3773",
+      VITE_WS_URL: "ws://127.0.0.1:3773",
+    });
+
+    assert.deepStrictEqual(output, {
+      PATH: "/usr/bin",
+      T3CODE_DESKTOP_AGENT_WORKSPACE: "-1",
+    });
   });
 
   it("scans past registered and externally bound ports", async () => {
