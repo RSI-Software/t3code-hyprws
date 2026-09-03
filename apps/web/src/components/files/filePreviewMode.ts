@@ -13,10 +13,6 @@ export function shouldShowFileExplorer(input: {
   return input.explorerOpen || input.relativePath === null;
 }
 
-// Milkdown's Markdown parser cannot safely preserve JSX nodes, so rich editing is
-// deliberately limited to ordinary Markdown while MDX keeps the rendered preview.
-export const isMarkdownRichEditFile = (path: string): boolean => /\.md$/i.test(path);
-
 export function setMarkdownTaskChecked(
   markdown: string,
   markerOffset: number,
