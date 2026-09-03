@@ -2110,10 +2110,20 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             let zmuxCandidate: ShellCandidate | null = null;
 
             if (resumeIdentity) {
+              const targetDir = session.worktreePath ?? session.cwd;
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              managedTarget = resumeIdentity.target;
-              zmuxCandidate = resumeIdentity.candidate;
-              shellCandidates = [resumeIdentity.candidate];
+              const resolved = yield* resolveZmuxSession(targetDir, spawnEnv);
+              managedTarget = resolved.target;
+              zmuxCandidate = resolved.candidate;
+              if (resolved.candidate) {
+                // A resolved retained identity stays retryable if attaching to
+                // zmux itself fails. Only a failed re-resolution falls back to
+                // a plain shell; it must never retry the retained target.
+                shellCandidates = [resolved.candidate];
+              }
+              if (resolved.notice) {
+                yield* appendSessionNotice(session, resolved.notice);
+              }
             } else if (mode === "zmux") {
               const targetDir = session.worktreePath ?? session.cwd;
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);

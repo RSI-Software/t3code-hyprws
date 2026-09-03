@@ -20,23 +20,34 @@ const successfulOutput: ProcessRunner.ProcessRunOutput = {
   stderrInvalidUtf8: false,
 };
 
-const bindJson = JSON.stringify({
-  workspace: "t3code",
-  session: {
-    label: "feat/test",
-    qualified: "t3code/feat/test",
-    tmuxName: "t3code__feat_test",
-    tmuxId: "$42",
-  },
-  worktree: { path: "/repo/wt", branch: "feat/test" },
-  created: true,
-  actions: [],
-  errors: [],
-});
+const bindJson = (outcome: "created" | "reused" | "restored" | "renamed" = "created") =>
+  JSON.stringify({
+    workspace: "t3code",
+    session: {
+      label: "feat/test",
+      qualified: "t3code/feat/test",
+      tmuxName: "t3code__feat_test",
+      tmuxId: "$42",
+    },
+    worktree: { path: "/repo/wt", branch: "feat/test" },
+    created: outcome === "created",
+    reused: outcome === "reused",
+    restored: outcome === "restored",
+    renamed: outcome === "renamed",
+    actions: [],
+    errors: [],
+  });
 
 const resolveJson = JSON.stringify({
   target: "t3code/feat/test",
   match: "worktree",
+  tmuxName: "t3code__feat_test",
+  nativeId: "$42",
+  state: "live",
+  binding: {
+    branch: "feat/test",
+    worktreePath: "/repo/wt",
+  },
 });
 
 function makeLayer(
@@ -62,8 +73,11 @@ function makeLayer(
 
 describe("ZmuxSessionBinder", () => {
   it.effect("binds an existing worktree with tmux routing variables stripped", () => {
-    const run = vi.fn((_input: ProcessRunner.ProcessRunInput) =>
-      Effect.succeed({ ...successfulOutput, stdout: bindJson }),
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed({
+        ...successfulOutput,
+        stdout: input.args[0] === "wt" ? bindJson() : resolveJson,
+      }),
     );
 
     return Effect.gen(function* () {
@@ -73,6 +87,7 @@ describe("ZmuxSessionBinder", () => {
       assert.deepStrictEqual(result, {
         status: "bound",
         target: "t3code/feat/test",
+        outcome: "created",
       });
       assert.deepStrictEqual(run.mock.calls[0]?.[0], {
         command: "zmux",
@@ -82,6 +97,73 @@ describe("ZmuxSessionBinder", () => {
           KEEP_ME: "yes",
         },
         extendEnv: false,
+      });
+      assert.deepStrictEqual(run.mock.calls[1]?.[0], {
+        command: "zmux",
+        args: ["session", "resolve", "--cwd", "/repo/wt", "--json"],
+        env: {
+          PATH: "/usr/bin",
+          KEEP_ME: "yes",
+        },
+        extendEnv: false,
+      });
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
+  for (const outcome of ["reused", "restored", "renamed"] as const) {
+    it.effect(`reports a verified ${outcome} adoption without creating another session`, () => {
+      const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+        Effect.succeed({
+          ...successfulOutput,
+          stdout: input.args[0] === "wt" ? bindJson(outcome) : resolveJson,
+        }),
+      );
+
+      return Effect.gen(function* () {
+        const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+        const result = yield* binder.bind("/repo/wt");
+
+        assert.deepStrictEqual(result, {
+          status: "bound",
+          target: "t3code/feat/test",
+          outcome,
+        });
+        assert.deepStrictEqual(
+          run.mock.calls.map(([input]) => input.args),
+          [
+            ["wt", "--adopt", "/repo/wt", "--yes", "--json", "--no-switch"],
+            ["session", "resolve", "--cwd", "/repo/wt", "--json"],
+          ],
+        );
+      }).pipe(Effect.provide(makeLayer(run)));
+    });
+  }
+
+  it.effect("refuses an adoption whose readback points at a different native target", () => {
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed({
+        ...successfulOutput,
+        stdout:
+          input.args[0] === "wt"
+            ? bindJson()
+            : JSON.stringify({
+                ...JSON.parse(resolveJson),
+                tmuxName: "t3code__stale",
+                nativeId: "$7",
+              }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const result = yield* binder.bind("/repo/wt");
+
+      assert.deepStrictEqual(result, {
+        status: "failed",
+        notice: {
+          summary: "zmux session binding could not be verified",
+          detail: "expected t3code/feat/test native target t3code__feat_test, got t3code__stale",
+        },
       });
     }).pipe(Effect.provide(makeLayer(run)));
   });
@@ -103,6 +185,13 @@ describe("ZmuxSessionBinder", () => {
         status: "resolved",
         target: "t3code/feat/test",
         match: "worktree",
+        tmuxName: "t3code__feat_test",
+        nativeId: "$42",
+        state: "live",
+        binding: {
+          branch: "feat/test",
+          worktreePath: "/repo/wt",
+        },
       });
       assert.deepStrictEqual(unbound, {
         status: "unbound",

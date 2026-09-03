@@ -13,12 +13,29 @@ import * as ServerSettings from "../serverSettings.ts";
 const ZmuxBindOutput = Schema.Struct({
   session: Schema.Struct({
     qualified: Schema.String,
+    tmuxName: Schema.String,
+    tmuxId: Schema.String,
   }),
+  worktree: Schema.Struct({
+    path: Schema.String,
+    branch: Schema.String,
+  }),
+  created: Schema.Boolean,
+  reused: Schema.Boolean,
+  restored: Schema.Boolean,
+  renamed: Schema.Boolean,
 });
 
 const ZmuxResolveOutput = Schema.Struct({
   target: Schema.String,
   match: Schema.String,
+  tmuxName: Schema.NullOr(Schema.String),
+  nativeId: Schema.NullOr(Schema.String),
+  state: Schema.String,
+  binding: Schema.Struct({
+    branch: Schema.NullOr(Schema.String),
+    worktreePath: Schema.NullOr(Schema.String),
+  }),
 });
 
 const ZmuxFailureOutput = Schema.Struct({
@@ -40,9 +57,15 @@ export interface ZmuxSessionNotice {
   readonly detail: string;
 }
 
+export type ZmuxBindOutcome = "created" | "reused" | "restored" | "renamed";
+
 export type ZmuxBindResult =
   | { readonly status: "disabled" | "unavailable" }
-  | { readonly status: "bound"; readonly target: string }
+  | {
+      readonly status: "bound";
+      readonly target: string;
+      readonly outcome: ZmuxBindOutcome;
+    }
   | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
 
 export type ZmuxResolveResult =
@@ -51,6 +74,13 @@ export type ZmuxResolveResult =
       readonly status: "resolved";
       readonly target: string;
       readonly match: string;
+      readonly tmuxName?: string | null;
+      readonly nativeId?: string | null;
+      readonly state?: string;
+      readonly binding?: {
+        readonly branch: string | null;
+        readonly worktreePath: string | null;
+      };
     }
   | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
 
@@ -96,6 +126,26 @@ function isMissingZmux(error: ProcessRunner.ProcessRunError): boolean {
 function fallbackDetail(output: ProcessRunner.ProcessRunOutput): string {
   const detail = output.stderr.trim() || output.stdout.trim();
   return detail || `zmux exited with code ${output.code ?? "unknown"}`;
+}
+
+function bindOutcome(output: typeof ZmuxBindOutput.Type): ZmuxBindOutcome | null {
+  const outcomes = [
+    output.created ? "created" : null,
+    output.reused ? "reused" : null,
+    output.restored ? "restored" : null,
+    output.renamed ? "renamed" : null,
+  ].filter((outcome): outcome is ZmuxBindOutcome => outcome !== null);
+  return outcomes.length === 1 ? outcomes[0]! : null;
+}
+
+function verificationFailure(detail: string): ZmuxBindResult {
+  return {
+    status: "failed",
+    notice: {
+      summary: "zmux session binding could not be verified",
+      detail,
+    },
+  };
 }
 
 const failureDetail = Effect.fn("ZmuxSessionBinder.failureDetail")(function* (
@@ -192,6 +242,10 @@ export const make = Effect.gen(function* () {
       status: "resolved",
       target: decoded.success.target,
       match: decoded.success.match,
+      tmuxName: decoded.success.tmuxName,
+      nativeId: decoded.success.nativeId,
+      state: decoded.success.state,
+      binding: decoded.success.binding,
     } as const;
   });
 
@@ -356,7 +410,65 @@ export const make = Effect.gen(function* () {
           },
         } as const;
       }
-      return { status: "bound", target: decoded.success.session.qualified } as const;
+
+      const outcome = bindOutcome(decoded.success);
+      if (outcome === null) {
+        return verificationFailure("zmux returned an invalid adoption outcome");
+      }
+
+      const resolved = yield* resolve(worktreePath);
+      if (resolved.status === "unavailable") {
+        return { status: "unavailable" } as const;
+      }
+      if (resolved.status === "disabled") {
+        return { status: "disabled" } as const;
+      }
+      if (resolved.status !== "resolved") {
+        const detail =
+          resolved.status === "failed"
+            ? resolved.notice.detail
+            : `zmux session resolve did not return the adopted session for ${worktreePath}`;
+        return verificationFailure(detail);
+      }
+
+      const expectedTarget = decoded.success.session.qualified;
+      if (resolved.match !== "worktree") {
+        return verificationFailure(
+          `expected ${worktreePath} to resolve by worktree, got ${resolved.match}`,
+        );
+      }
+      if (resolved.target !== expectedTarget) {
+        return verificationFailure(
+          `expected ${worktreePath} to resolve ${expectedTarget}, got ${resolved.target}`,
+        );
+      }
+      if (resolved.state !== "live") {
+        return verificationFailure(
+          `expected ${expectedTarget} to be live after adoption, got ${resolved.state}`,
+        );
+      }
+      if (resolved.tmuxName !== decoded.success.session.tmuxName) {
+        return verificationFailure(
+          `expected ${expectedTarget} native target ${decoded.success.session.tmuxName}, got ${resolved.tmuxName ?? "none"}`,
+        );
+      }
+      if (resolved.nativeId !== decoded.success.session.tmuxId) {
+        return verificationFailure(
+          `expected ${expectedTarget} native identity ${decoded.success.session.tmuxId}, got ${resolved.nativeId ?? "none"}`,
+        );
+      }
+      if (resolved.binding?.worktreePath !== decoded.success.worktree.path) {
+        return verificationFailure(
+          `expected ${expectedTarget} to bind ${decoded.success.worktree.path}, got ${resolved.binding?.worktreePath ?? "none"}`,
+        );
+      }
+      if (resolved.binding?.branch !== decoded.success.worktree.branch) {
+        return verificationFailure(
+          `expected ${expectedTarget} to bind branch ${decoded.success.worktree.branch}, got ${resolved.binding?.branch ?? "none"}`,
+        );
+      }
+
+      return { status: "bound", target: expectedTarget, outcome } as const;
     },
   );
 
