@@ -349,15 +349,33 @@ export const enrichCensusSubjects = (
       if (file.subject !== undefined) subjects.set(file.commit, file.subject);
     }
   }
+
+  const unresolved: Array<string> = [];
+  const missing = new Set(
+    entries.flatMap((entry) =>
+      entry.censusFiles.flatMap((file) =>
+        file.subject === undefined && !subjects.has(file.commit) ? [file.commit] : [],
+      ),
+    ),
+  );
+  for (const commit of missing) {
+    try {
+      const subject = subjectOf(commit);
+      if (subject.length === 0) unresolved.push(commit);
+      else subjects.set(commit, subject);
+    } catch {
+      unresolved.push(commit);
+    }
+  }
+  if (unresolved.length > 0)
+    throw new Error(`unresolved census commits: ${unresolved.toSorted().join(", ")}`);
+
   return entries.map((entry) => {
     let changed = false;
     const censusFiles = entry.censusFiles.map((file) => {
       if (file.subject !== undefined) return file;
-      const subject = subjects.get(file.commit) ?? subjectOf(file.commit);
-      if (subject.length === 0) throw new Error(`census commit has no subject: ${file.commit}`);
-      subjects.set(file.commit, subject);
       changed = true;
-      return { ...file, subject };
+      return { ...file, subject: subjects.get(file.commit)! };
     });
     return changed ? { ...entry, censusFiles } : entry;
   });
