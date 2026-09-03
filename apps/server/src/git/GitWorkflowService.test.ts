@@ -406,7 +406,11 @@ describe("GitWorkflowService", () => {
     const bind = vi.fn((_dir: string) =>
       Effect.sync(() => {
         calls.push("bind");
-        return { status: "bound" as const, target: "repo/t3code-new-name" };
+        return {
+          status: "bound" as const,
+          target: "repo/t3code-new-name",
+          outcome: "renamed" as const,
+        };
       }),
     );
     const layer = GitWorkflowService.layer.pipe(
@@ -438,7 +442,11 @@ describe("GitWorkflowService", () => {
   it.effect("does not rebind after a rename outside a bound worktree", () => {
     const renameBranch = vi.fn(() => Effect.succeed({ branch: "feat/renamed" }));
     const bind = vi.fn((_dir: string) =>
-      Effect.succeed({ status: "bound" as const, target: "repo/main" }),
+      Effect.succeed({
+        status: "bound" as const,
+        target: "repo/main",
+        outcome: "renamed" as const,
+      }),
     );
     const layer = GitWorkflowService.layer.pipe(
       Layer.provide(
