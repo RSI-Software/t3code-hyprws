@@ -398,6 +398,11 @@ regeneration it performs, and refuses when a filled cell disagrees with the deci
 carries. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
 the agent nor the human, and apply refuses it.
 
+A walk that lands on a later tag also passes the stable tags between the two bases. A stable upstream
+tag is snapshotted and announced by whichever lane moves the fork base past it, so the apply
+publishes those snapshots itself rather than leaving them to a bot that can no longer see them. Both
+lanes read one definition of a crossed tag, in `scripts/fork-stable-crossing.ts`.
+
 Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
 domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
 first, then reapply the smallest fork behaviour at the new seam. Rerere output is a candidate, not
@@ -439,7 +444,9 @@ Stable tags keep the existing `v<upstream version>-hyprws.<n>` shape, for exampl
 `<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto, and `<n>`
 counts up within one upstream version before restarting at 1 when that version changes.
 A maintainer cuts a stable by pushing that tag; a manual stable dispatch must also run from such a
-tag ref.
+tag ref. The cut starts from the candidate notification for that snapshot, and one candidate is open
+at a time: the reconcile closes a candidate once its release tag exists or a newer candidate
+overtakes it.
 Stable releases are normal GitHub releases on the `latest` desktop-update channel.
 
 Nightly tags are `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>`, where `X.Y.Z` is the next stable patch

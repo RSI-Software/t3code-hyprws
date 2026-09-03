@@ -41,21 +41,20 @@ import {
   type FeasibilityGit,
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
-import {
-  pushResult,
-  remoteBranchExists,
-  remoteBranchSha,
-  restoreRemoteBranch,
-} from "./lib/fork-rebase-push.ts";
+import { pushResult, remoteBranchSha, restoreRemoteBranch } from "./lib/fork-rebase-push.ts";
 import {
   buildBlockedIssue,
   inlineCode,
-  stableCandidateBody,
   type BlockedIssue,
   type RebaseStopCensus,
   type StableCandidate,
 } from "./lib/fork-rebase-issues.ts";
-import { HYPRWS_REF, positionUpstreamReleaseTags } from "./lib/fork-policy.ts";
+import {
+  HYPRWS_REF,
+  positionUpstreamReleaseTags,
+  stableSnapshotBranch,
+} from "./lib/fork-policy.ts";
+import { createStableSnapshots, stableCrossingCandidate } from "./fork-stable-crossing.ts";
 
 export type RebaseMode = "off" | "candidate" | "on";
 
@@ -156,29 +155,6 @@ export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOpti
 
 const trackingBranchExists = (git: Pick<FeasibilityGit, "runResult">, branch: string): boolean =>
   git.runResult(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).status === 0;
-
-const createStableSnapshots = (
-  root: string,
-  candidates: Array<StableCandidate>,
-  skipExisting = false,
-): ReadonlyArray<string> => {
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const candidate = candidates[index];
-    if (candidate === undefined || !remoteBranchExists(root, candidate.branch)) continue;
-    if (!skipExisting) {
-      throw new Error(`refusing to replace create-only branch origin/${candidate.branch}`);
-    }
-    process.stdout.write(`skip stable snapshot: origin/${candidate.branch} already exists\n`);
-    candidates.splice(index, 1);
-  }
-  return candidates.map((candidate) => {
-    requireSuccess(
-      `create origin/${candidate.branch}`,
-      pushResult(root, ["origin", `${candidate.sha}:refs/heads/${candidate.branch}`]),
-    );
-    return candidate.branch;
-  });
-};
 
 export type StopCensusRunner = (
   root: string,
@@ -455,28 +431,20 @@ export const executeAutoRebase = (
   for (const stable of plan.stableTags.filter(
     (candidate) => candidate.position <= (target?.position ?? 0),
   )) {
-    const branch = `release/${stable.tag}-hyprws`;
-    if (trackingBranchExists(git, branch)) continue;
+    if (trackingBranchExists(git, stableSnapshotBranch(stable.tag))) continue;
     const stack =
       stable.position === 0
         ? null
         : createRebasedStack(root, plan.oldSha, plan.baseSha, stable.sha, verify);
     if (stack !== null) dependencySetups.add(stack.dependencySetup);
-    const marker = `<!-- hyprws-stable-candidate: ${stable.tag}-hyprws -->`;
-    stableCandidates.push({
-      tag: stable.tag,
-      branch,
-      sha: stack?.sha ?? plan.oldSha,
-      title: `Stable candidate ${stable.tag}-hyprws`,
-      marker,
-      label: "release",
-      body: stableCandidateBody(
+    stableCandidates.push(
+      stableCrossingCandidate(
         stable.tag,
-        branch,
+        stack?.sha ?? plan.oldSha,
         // The trunk has already adopted the position-zero stack.
         stable.position === 0 ? "on" : options.mode,
       ),
-    });
+    );
   }
 
   if (target === null || target.sha === plan.baseSha) {

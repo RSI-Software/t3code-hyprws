@@ -5,6 +5,7 @@ import * as NodeFS from "node:fs";
 
 import { parseArgs as parseCliArgs, UsageError } from "./lib/fork-cli.ts";
 import { runCommand } from "./lib/fork-command.ts";
+import { parseUpstreamReleaseTag, type VersionParts } from "./lib/fork-policy.ts";
 import {
   closeComment,
   refreshRow,
@@ -84,6 +85,9 @@ export const hasPlainSingleSelectOption = (
       field.options?.some((option) => option.name === optionName) === true,
   );
 
+/** Why an issue closed, in GitHub's own vocabulary. */
+export type IssueCloseReason = "completed" | "not_planned";
+
 export interface RebaseGitHubClient {
   ensureBlockedLabel(): void;
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
@@ -95,7 +99,8 @@ export interface RebaseGitHubClient {
   updateIssueBody(issueNumber: number, body: string): void;
   createIssueComment(issueNumber: number, body: string): RebaseIssueComment;
   updateIssueComment(commentId: number, body: string): void;
-  closeIssue(issueNumber: number): void;
+  stableReleaseTagExists(candidate: string): boolean;
+  closeIssue(issueNumber: number, reason?: IssueCloseReason): void;
 }
 
 const blockingSha = (issue: RebaseIssue): string | null =>
@@ -266,11 +271,74 @@ export const reconcileRebaseBlock = (
 const matchesStableCandidate = (issue: RebaseIssue, candidate: StableCandidate): boolean =>
   issue.body.includes(candidate.marker);
 
+const STABLE_CANDIDATE_MARKER = /<!-- hyprws-stable-candidate: (v\d+\.\d+\.\d+)-hyprws -->/;
+
+interface OpenStableCandidate {
+  readonly issue: RebaseIssue;
+  /** The `vX.Y.Z-hyprws` release this candidate would be cut as. */
+  readonly name: string;
+  readonly version: VersionParts;
+}
+
+/** Newest release first, then oldest issue first so a duplicate pair keeps the original. */
+const byNewestCandidate = (left: OpenStableCandidate, right: OpenStableCandidate): number =>
+  right.version.major - left.version.major ||
+  right.version.minor - left.version.minor ||
+  right.version.patch - left.version.patch ||
+  left.issue.number - right.issue.number;
+
+const openStableCandidate = (issue: RebaseIssue): OpenStableCandidate | null => {
+  if (issue.state !== "open") return null;
+  const upstream = parseUpstreamReleaseTag(STABLE_CANDIDATE_MARKER.exec(issue.body)?.[1] ?? "");
+  return upstream === null ? null : { issue, name: `${upstream.tag}-hyprws`, version: upstream };
+};
+
+/**
+ * Leave exactly one open candidate: the newest release nobody has cut yet.
+ *
+ * `stable-list` offers every open candidate as a choice, so a candidate that has been
+ * cut or overtaken is a wrong choice sitting in the list, and the notification route
+ * only works if the issue a fresh session lands on is the live one
+ * (RSI-Software/t3code-hyprws#500).
+ */
+const closeSettledStableCandidates = (
+  client: RebaseGitHubClient,
+  issues: ReadonlyArray<RebaseIssue>,
+): void => {
+  const uncut: Array<OpenStableCandidate> = [];
+  for (const issue of issues) {
+    const candidate = openStableCandidate(issue);
+    if (candidate === null) continue;
+    if (!client.stableReleaseTagExists(candidate.name)) {
+      uncut.push(candidate);
+      continue;
+    }
+    client.createIssueComment(
+      candidate.issue.number,
+      `Cut: \`origin\` carries a \`${candidate.name}\` release tag.`,
+    );
+    client.closeIssue(candidate.issue.number, "completed");
+  }
+  const [newest, ...superseded] = uncut.toSorted(byNewestCandidate);
+  if (newest === undefined) return;
+  for (const candidate of superseded) {
+    client.createIssueComment(
+      candidate.issue.number,
+      `Superseded by #${newest.issue.number}, the candidate for \`${newest.name}\`.`,
+    );
+    client.closeIssue(candidate.issue.number, "not_planned");
+  }
+};
+
+/**
+ * Open a candidate issue for each stable snapshot this run published, then settle the
+ * open ones. Closing is work every run owes, so an empty candidate set is not a reason
+ * to skip it.
+ */
 export const reconcileStableCandidates = (
   client: RebaseGitHubClient,
   candidates: ReadonlyArray<StableCandidate>,
 ): void => {
-  if (candidates.length === 0) return;
   let issues = client.listReleaseIssues();
   let issueTypeId: string | null = null;
   const notificationTypeId = (): string => {
@@ -303,6 +371,8 @@ export const reconcileStableCandidates = (
     client.applyIssueType(created, typeId);
     issues = [...issues, created];
   }
+
+  closeSettledStableCandidates(client, issues);
 };
 
 const captureFailure = (failures: Array<unknown>, action: () => void): void => {
@@ -594,8 +664,22 @@ export class SystemGitHub implements RebaseGitHubClient {
     this.api("PATCH", `repos/${this.repository}/issues/comments/${commentId}`, { body });
   }
 
-  closeIssue(issueNumber: number): void {
-    this.api("PATCH", `repos/${this.repository}/issues/${issueNumber}`, { state: "closed" });
+  stableReleaseTagExists(candidate: string): boolean {
+    // A cut release is `<candidate>.N`, so the trailing dot keeps a prefix match from
+    // reporting an unrelated tag that merely starts with this candidate's name.
+    return (
+      this.api<ReadonlyArray<unknown>>(
+        "GET",
+        `repos/${this.repository}/git/matching-refs/tags/${candidate}.`,
+      ).length > 0
+    );
+  }
+
+  closeIssue(issueNumber: number, reason?: IssueCloseReason): void {
+    this.api("PATCH", `repos/${this.repository}/issues/${issueNumber}`, {
+      state: "closed",
+      ...(reason === undefined ? {} : { state_reason: reason }),
+    });
   }
 }
 
