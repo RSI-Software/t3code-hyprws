@@ -9,6 +9,7 @@ import {
   reconcileRebaseBlock,
   reconcileStableCandidates,
   type CreateNotificationIssue,
+  type IssueCloseReason,
   type NotifyInput,
   type RebaseGitHubClient,
   type RebaseIssue,
@@ -64,6 +65,15 @@ const stableCandidate = (tag = "v1.2.0"): StableCandidate => ({
   body: `stable candidate for ${tag}\n\n<!-- hyprws-stable-candidate: ${tag}-hyprws -->`,
 });
 
+const releaseIssue = (number: number, candidate: StableCandidate): RebaseIssue => ({
+  number,
+  nodeId: `issue-${number}`,
+  state: "open",
+  title: candidate.title,
+  body: candidate.body,
+  issueType: "Notification 🔔",
+});
+
 class FakeGitHub implements RebaseGitHubClient {
   readonly issues: Array<RebaseIssue>;
   readonly releaseIssues: Array<RebaseIssue>;
@@ -72,6 +82,9 @@ class FakeGitHub implements RebaseGitHubClient {
   readonly bodyEdits: Array<number> = [];
   readonly commentEdits: Array<number> = [];
   readonly closed: Array<number> = [];
+  readonly closeReasons = new Map<number, IssueCloseReason | null>();
+  readonly releaseTagChecks: Array<string> = [];
+  readonly cutReleases = new Set<string>();
   readonly issueTypeLookups: Array<string> = [];
   readonly issueTypeEdits: Array<number> = [];
   labelsEnsured = 0;
@@ -171,11 +184,19 @@ class FakeGitHub implements RebaseGitHubClient {
     throw new Error("missing fake comment");
   }
 
-  closeIssue(issueNumber: number): void {
-    const issue = this.issues.find((candidate) => candidate.number === issueNumber);
+  stableReleaseTagExists(candidate: string): boolean {
+    this.releaseTagChecks.push(candidate);
+    return this.cutReleases.has(candidate);
+  }
+
+  closeIssue(issueNumber: number, reason?: IssueCloseReason): void {
+    const issue = [...this.issues, ...this.releaseIssues].find(
+      (candidate) => candidate.number === issueNumber,
+    );
     if (issue === undefined) throw new Error("missing fake issue");
     Object.assign(issue, { state: "closed" });
     this.closed.push(issueNumber);
+    this.closeReasons.set(issueNumber, reason ?? null);
   }
 }
 
@@ -294,6 +315,62 @@ it("re-reads stable candidates before creating to avoid duplicate issues", () =>
   assert.deepStrictEqual(client.issueTypeLookups, []);
   assert.deepStrictEqual(client.issueTypeEdits, []);
   assert.strictEqual(client.releaseListCalls, 2);
+});
+
+it("closes a superseded stable candidate and keeps the newest un-cut one open", () => {
+  const older = stableCandidate("v1.2.0");
+  const newer = stableCandidate("v1.3.0");
+  const client = new FakeGitHub([], [releaseIssue(7, older)]);
+
+  reconcileStableCandidates(client, [newer]);
+
+  const created = client.releaseIssues.find((issue) => issue.title === newer.title);
+  assert.notStrictEqual(created, undefined);
+  assert.strictEqual(created?.state, "open");
+  assert.deepStrictEqual(client.closed, [7]);
+  assert.strictEqual(client.closeReasons.get(7), "not_planned");
+  assert.deepStrictEqual(
+    client.listIssueComments(7).map((comment) => comment.body),
+    [`Superseded by #${created?.number ?? 0}, the candidate for \`v1.3.0-hyprws\`.`],
+  );
+});
+
+it("closes a stable candidate whose release tag is cut, on a run that creates nothing", () => {
+  const candidate = stableCandidate("v1.2.0");
+  const client = new FakeGitHub([], [releaseIssue(7, candidate)]);
+  client.cutReleases.add("v1.2.0-hyprws");
+
+  reconcileStableCandidates(client, []);
+
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.releaseTagChecks, ["v1.2.0-hyprws"]);
+  assert.deepStrictEqual(client.closed, [7]);
+  assert.strictEqual(client.closeReasons.get(7), "completed");
+  assert.deepStrictEqual(
+    client.listIssueComments(7).map((comment) => comment.body),
+    ["Cut: `origin` carries a `v1.2.0-hyprws` release tag."],
+  );
+});
+
+it("leaves a release issue that is not a stable candidate alone", () => {
+  const client = new FakeGitHub(
+    [],
+    [
+      {
+        number: 7,
+        nodeId: "issue-7",
+        state: "open",
+        title: "Release checklist",
+        body: "no candidate marker here",
+        issueType: null,
+      },
+    ],
+  );
+
+  reconcileStableCandidates(client, []);
+
+  assert.deepStrictEqual(client.closed, []);
+  assert.deepStrictEqual(client.releaseTagChecks, []);
 });
 
 it("looks up the enabled native Notification type by repository issue-type name", () => {
