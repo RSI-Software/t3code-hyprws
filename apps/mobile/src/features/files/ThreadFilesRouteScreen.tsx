@@ -1,8 +1,6 @@
 import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AsyncResult } from "effect/unstable/reactivity";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -32,7 +30,6 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { useEnvironmentQuery } from "../../state/query";
 import { projectEnvironment } from "../../state/projects";
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
-import { mobilePreferencesAtom } from "../../state/preferences";
 import {
   useAdaptiveWorkspaceLayout,
   useAdaptiveWorkspacePaneRole,
@@ -43,6 +40,7 @@ import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
@@ -421,18 +419,16 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const headerColor = useUniwindTheme()["--color-header"];
-  const preferences = useAtomValue(mobilePreferencesAtom);
-  const showIgnoredFiles =
-    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const { cwd, environmentId, projectName, selectedThread, threadId } = useThreadFilesWorkspace(
     props.route.params,
   );
   const revealedInspectorRef = useRef(false);
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
   const entriesQuery = useFileTreeEntries({
     environmentId,
     cwd: fileInspector.supported ? null : cwd,
     searchQuery,
-    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-tree-ignored-screen
+    includeIgnored: workspaceFileListing?.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-screen
   });
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
