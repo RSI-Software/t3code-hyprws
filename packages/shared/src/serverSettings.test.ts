@@ -18,14 +18,6 @@ import {
 } from "./serverSettings.ts";
 
 describe("serverSettings helpers", () => {
-  it("applies the global external workspace symlink toggle", () => {
-    expect(
-      applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-        followExternalWorkspaceSymlinks: true,
-      }).followExternalWorkspaceSymlinks,
-    ).toBe(true);
-  });
-
   it("normalizes optional persisted strings", () => {
     expect(normalizePersistedServerSettingString(undefined)).toBeUndefined();
     expect(normalizePersistedServerSettingString("   ")).toBeUndefined();

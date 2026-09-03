@@ -251,10 +251,8 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
 });
 
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
-  it("resolves updater channels for upstream and fork release versions", () => {
+  it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
-    assert.equal(resolveDesktopUpdateChannel("0.0.17-hyprws-nightly.20260413.42"), "nightly");
-    assert.equal(resolveDesktopUpdateChannel("0.0.17-hyprws.2"), "latest");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
   });
 
@@ -662,9 +660,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       ]);
       assert.deepStrictEqual(mac.files, [...DESKTOP_FILE_EXCLUSIONS, ...MAC_FILE_EXCLUSIONS]);
       assert.notProperty(mac.mac as Record<string, unknown>, "sign");
-      assert.equal(linux.artifactName, "T3-Code-${arch}.${ext}");
-      assert.equal(mac.artifactName, "T3-Code-${version}-${arch}.${ext}");
-      assert.equal(win.artifactName, "T3-Code-${version}-${arch}.${ext}");
       for (const config of [linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
         assert.deepStrictEqual(config.files, DESKTOP_FILE_EXCLUSIONS);

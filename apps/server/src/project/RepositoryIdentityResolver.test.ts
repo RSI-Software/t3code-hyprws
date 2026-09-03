@@ -193,27 +193,6 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
-  it.effect("prefers origin over upstream when both remotes are configured", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const cwd = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-repository-identity-origin-test-",
-      });
-
-      yield* git(cwd, ["init"]);
-      yield* git(cwd, ["remote", "add", "origin", "git@github.com:julius/t3code.git"]);
-      yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/t3code.git"]);
-
-      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
-      const identity = yield* resolver.resolve(cwd);
-
-      expect(identity).not.toBeNull();
-      expect(identity?.locator.remoteName).toBe("origin");
-      expect(identity?.canonicalKey).toBe("github.com/julius/t3code");
-      expect(identity?.displayName).toBe("julius/t3code");
-    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
-  );
-
   it.effect("uses the last remote path segment as the repository name for nested groups", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

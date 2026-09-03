@@ -144,57 +144,6 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
-  it.effect("resolves agent placement only for a valid development launch", () =>
-    Effect.gen(function* () {
-      const placement = yield* makeEnvironment(
-        {},
-        {
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-abc",
-        },
-      );
-      assert.deepEqual(
-        placement.devAgentPlacement,
-        Option.some({ workspace: 8, title: "t3code-dev-agent-abc" }),
-      );
-
-      const production = yield* makeEnvironment(
-        {},
-        {
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "8",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "t3code-dev-agent-abc",
-        },
-      );
-      assert.deepEqual(production.devAgentPlacement, Option.none());
-
-      const invalid = yield* makeEnvironment(
-        {},
-        {
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-          T3CODE_DESKTOP_AGENT_WORKSPACE: "0",
-          T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE: "invalid,title",
-        },
-      );
-      assert.deepEqual(invalid.devAgentPlacement, Option.none());
-    }),
-  );
-
-  it.effect("keeps devtools on by default and lets a dev run opt out", () =>
-    Effect.gen(function* () {
-      const defaults = yield* makeEnvironment({}, { VITE_DEV_SERVER_URL: "http://localhost:5173" });
-      assert.equal(defaults.devToolsEnabled, true);
-
-      for (const value of ["0", "false", "off"]) {
-        const environment = yield* makeEnvironment(
-          {},
-          { VITE_DEV_SERVER_URL: "http://localhost:5173", T3CODE_DESKTOP_DEVTOOLS: value },
-        );
-        assert.equal(environment.devToolsEnabled, false, value);
-      }
-    }),
-  );
-
   it.effect("resolves picker defaults without nullish sentinels", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment();

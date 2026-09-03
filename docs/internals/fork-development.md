@@ -339,6 +339,19 @@ Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` o
 series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
 Changes to an existing upstream expectation stay in the upstream test file.
 
+Two exact file-local integration harnesses are deferred from this convention:
+
+- `apps/desktop/src/window/DesktopWindow.test.ts`
+- `apps/server/src/server.test.ts`
+
+Both suites construct the harness in the test module itself. A sibling that imports an exported
+helper also registers every upstream test: the focused rehearsal collected 35 tests instead of 9
+for `DesktopWindow.fork.test.ts`, and 152 instead of 4 for `server.fork.test.ts`. The server fork
+cases also require file-local `exchangeAccessToken` and `getWsServerUrl` helpers, while the desktop
+cases share the module's hoisted Electron mock. Extracting that complete setup would create a larger,
+duplicated harness seam than the test appends it removes. `fork:scan` reads only these two paths from
+`UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS`; add no wildcard or domain-wide exemption.
+
 ### Extend an upstream export, do not replace it
 
 An upstream-exported schema, list, enum, or switch the fork needs more of stays where upstream
