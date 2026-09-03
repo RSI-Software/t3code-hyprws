@@ -359,6 +359,45 @@ const requireBotCarrier = (bot: BotSnapshot): void => {
 const requireBotState = (report: SyncReport, bot: BotSnapshot): void =>
   report.botCarried === true ? requireBotCarrier(bot) : requirePausedBot(bot);
 
+// The store-`expectedOld` lease that `unblock-apply` force-with-leases. Every
+// other verb must tell the operator the lease moved instead of the generic
+// “moved after orientation” phrasing.
+const voidedLeaseMessage = (
+  branch: string,
+  expectedOld: string,
+  live: string,
+  worktree: string | undefined,
+): string => {
+  const trash =
+    worktree !== undefined ? `\nStale rehearsal worktree is pending trash: trash ${worktree}` : "";
+  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; restart at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}`;
+};
+
+const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => {
+  // Make every unblock verb stale-aware. A report that has no source binding
+  // (a fresh listed lane) is not yet leased; everything else names the old
+  // and new SHA and the restart path. An unresolvable live (test fallback or
+  // a missing ref) is not staleness — let the downstream guard decide. Rewrite
+  // lanes sit on originSha so they read origin/hyprws against rewrite.originSha
+  // instead.
+  const leaseSha = report.source?.expectedOld ?? report.rewrite?.originSha;
+  if (leaseSha === undefined) return;
+  const result = runner.run("git", ["rev-parse", "origin/hyprws^{commit}"], report.repositoryRoot);
+  const live = result.stdout.trim();
+  if (result.status !== 0 || live.length === 0) return;
+  if (live === leaseSha) return;
+  const branch =
+    report.lane?.branch ??
+    (() => {
+      try {
+        return expectedRehearsalBranch(report);
+      } catch {
+        return "(rehearsal lane: unknown)";
+      }
+    })();
+  throw new Error(voidedLeaseMessage(branch, leaseSha, live, report.lane?.worktree));
+};
+
 /**
  * The rehearsal lane. Worktrunk owns the human lane so the walk shows up in `wt
  * ls` beside every other branch, but it is not installable on a runner, so a
@@ -508,6 +547,12 @@ const unblockOrient = (
   if (report.stage !== "listed")
     throw new Error(`unblock-orient requires a listed report, got ${report.stage}`);
   if (report.bot === undefined) throw new Error("report has no bot snapshot; rerun unblock-list");
+  // Make sure the lease the operator is binding against is still live; otherwise
+  // the “moved after orientation” branch below would be too late to name the
+  // staleness with the restart path slotted. Any report that already carries a
+  // source lease (a resumed orient or a stale listed lane that was edited) also
+  // gets the staleness refusal here.
+  if (report.source?.expectedOld !== undefined) ensureLeaseCurrent(report, runner);
   requireBotState(report, report.bot);
   const offered = resolveUnblockTarget(report.candidates, oneValue(values, "--target") ?? "");
   const targetTag = offered.tag;
@@ -686,6 +731,9 @@ const unblockRehearse = (
 ): SyncReport => {
   assertOnly(values, ["--report"]);
   let report = readReport(oneValue(values, "--report") ?? "");
+  // Any staleness voids a queued checked rehearsal visibly, with the old/new
+  // SHAs and the restart path named, with the trash line for the lane.
+  ensureLeaseCurrent(report, runner);
   if (report.stage === "oriented") {
     if (report.target === undefined || report.source === undefined)
       throw new Error("orientation binding is incomplete");
@@ -699,7 +747,14 @@ const unblockRehearse = (
     );
     const live = git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]);
     if (live !== source.expectedOld)
-      throw new Error("origin/hyprws moved after orientation; start a new rehearsal");
+      throw new Error(
+        voidedLeaseMessage(
+          `rehearse/${target.tag}-from-${source.expectedOld.slice(0, 12)}`,
+          source.expectedOld,
+          live,
+          undefined,
+        ),
+      );
     const branch = `rehearse/${target.tag}-from-${source.expectedOld.slice(0, 12)}`;
     if (
       runner.run(
@@ -975,6 +1030,10 @@ const unblockCheck = (
 ): SyncReport => {
   assertOnly(values, ["--report", "--silent-seam"]);
   let report = readReport(oneValue(values, "--report") ?? "");
+  // RSI-Software/t3code-hyprws#388: any hyprws movement past the lease voids the
+  // queued checked rehearsal visibly, with the old/new SHAs and the restart
+  // path and the trash line for the stale rehearsal.
+  ensureLeaseCurrent(report, runner);
   const silentSeamRaw = oneValue(values, "--silent-seam", false);
   const silentSeams =
     silentSeamRaw === null ? [] : silentSeamRaw.split("\n").filter(Boolean).map(parseSilentSeam);
@@ -1226,7 +1285,22 @@ const unblockApply = (
   let report = readReport(oneValue(values, "--report") ?? "");
   if (report.stage !== "checked")
     throw new Error(`unblock-apply requires checked state, got ${report.stage}`);
-  report = refreshAutoBotSnapshot(report, runner);
+  // A checked report that is already stale must void as staleness
+  // even when the bot is back on. Probe staleness before the bot so a stale
+  // rehearsal silences the bot complaint. When the lease is still live, the
+  // bot wins first; a staleness that only appears after the orientation check
+  // restores staleness wording at the push edge below.
+  let staleBeforeBot: Error | null = null;
+  try {
+    ensureLeaseCurrent(report, runner);
+  } catch (error) {
+    if (error instanceof Error && /staleness: origin\/hyprws moved/.test(error.message))
+      staleBeforeBot = error;
+  }
+  if (staleBeforeBot !== null)
+    report = refreshAutoBotSnapshot(report, runner).bot === undefined ? report : report;
+  else report = refreshAutoBotSnapshot(report, runner);
+  if (staleBeforeBot !== null) throw staleBeforeBot;
   const recordPath = NodePath.resolve(oneValue(values, "--record") ?? "");
   if (recordPath !== NodePath.resolve(report.recordPath))
     throw new Error("record path does not match the report binding");
@@ -1246,9 +1320,24 @@ const unblockApply = (
     throw new Error("checked report has no CI verdict for the installed head");
   if (remoteLaneHead(runner, worktree, lane.branch, true) !== report.ciHead)
     throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
-  // A rewrite is bound to its own proofs, not to a tag walk's orientation.
+  // A stale report that survived every prior pre-check still names the lease
+  // that moved here, with the old/new SHAs and the restart path slotted. The
+  // staleness does not preempt botMode: a green rehearsal with a still-live
+  // lease must surface the botMode complaint, so staleBeforeBot is only used
+  // to restore staleness wording when orientationCoheres would otherwise give
+  // the generic phrasing.
   if (!isRewrite && !orientationCoheres(report, runner))
-    throw new Error("orientation no longer coheres with live refs; rerun unblock-orient");
+    throw (
+      staleBeforeBot ??
+      new Error(
+        voidedLeaseMessage(
+          lane.branch,
+          source.expectedOld,
+          git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]),
+          lane.worktree,
+        ),
+      )
+    );
   validateAutoLane(report, runner);
   const applyEnv = laneEnv(worktree);
   requireSuccess(
@@ -1955,6 +2044,7 @@ const unblockAuto = (
   try {
     if (report.stage !== "applied") {
       if (resume) {
+        ensureLeaseCurrent(report, runner);
         report = refreshAutoBotSnapshot(report, runner);
         if (report.target !== undefined && !orientationCoheres(report, runner))
           stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
