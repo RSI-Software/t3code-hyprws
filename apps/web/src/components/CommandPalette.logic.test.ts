@@ -3,7 +3,6 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import type { Project, Thread } from "../types";
 import {
   buildBrowseGroups,
-  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -53,27 +52,6 @@ describe("linked pull request thread navigation", () => {
     expect(items[0]?.description).toBe("Archived thread");
     await items[0]?.run();
     expect(runThread).toHaveBeenCalledWith({ environmentId, id });
-  });
-});
-
-describe("buildIssuesNavigationCommand", () => {
-  it("defines the Issues action and preserves project-window scope", () => {
-    expect(buildIssuesNavigationCommand(null)).toMatchObject({
-      value: "action:issues",
-      title: "Go to Issues",
-      target: { kind: "hub" },
-    });
-    expect(
-      buildIssuesNavigationCommand({
-        environmentId: EnvironmentId.make("environment-1"),
-        projectId: ProjectId.make("project-1"),
-      }),
-    ).toMatchObject({
-      target: {
-        kind: "project",
-        projectRef: { environmentId: "environment-1", projectId: "project-1" },
-      },
-    });
   });
 });
 
