@@ -12,7 +12,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
-import { exposePreviewCapability } from "./WindowPolicy.preload.ts";
+import {
+  exposePreviewCapability,
+  type PreviewCapableDesktopBridge,
+} from "./WindowPolicy.preload.ts";
 import * as WindowPolicy from "./WindowPolicy.ts";
 
 const { fromWebContents } = vi.hoisted(() => ({
@@ -113,11 +116,12 @@ const makeWindow = () => {
 };
 
 describe("desktop preview window policy", () => {
-  it("exposes preview in every desktop preload", () => {
-    const bridge = {} as Omit<DesktopBridge, "preview">;
+  it("preserves the assembled upstream bridge in every desktop preload", () => {
     const preview = {} as NonNullable<DesktopBridge["preview"]>;
+    const bridge = { preview } as PreviewCapableDesktopBridge;
 
-    expect(exposePreviewCapability(bridge, preview).preview).toBe(preview);
+    expect(exposePreviewCapability(bridge)).toBe(bridge);
+    expect(exposePreviewCapability(bridge).preview).toBe(preview);
   });
 
   effectIt.effect("keeps project preview events out of hub compatibility listeners", () => {
