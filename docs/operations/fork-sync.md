@@ -407,7 +407,9 @@ word for every decision and stops; its recommendation is never recorded as the h
    the human reviews and stages it rather than authors it. For `pnpm-lock.yaml` it discards the
    textual/rerere result and applies the [regeneration rule](#regenerable-files) itself.
 4. `unblock-check` classifies post-replay lock drift, installs at the replay head, and runs the fork
-   scan and ledger locally. Record one repaired seam with
+   scan and ledger locally. The scan is pinned to the tag the stack sits on: the walk target, or the
+   release tag at the fork base for a trunk rewrite. A moved `upstream/main` therefore cannot fail a
+   lane for upstream drift the lane did not introduce. Record one repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
    `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence for Gate 4. It
    pushes the disposable rehearsal lane, then waits up to 45 minutes for the CI verdict on the
