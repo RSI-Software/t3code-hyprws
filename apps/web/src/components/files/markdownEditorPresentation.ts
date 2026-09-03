@@ -15,7 +15,7 @@ import {
   resolvePierreIconForEntry,
   syntheticFileNameForLanguageId,
 } from "~/pierre-icons";
-import { resolveMarkdownFileLinkMeta } from "~/markdown-links";
+import { resolveRichMarkdownEditorLinkMeta } from "./richMarkdownEditorLinks";
 
 interface MarkdownEditorPresentationOptions {
   readonly cwd: { current: string };
@@ -192,7 +192,7 @@ function linkView(options: MarkdownEditorPresentationOptions) {
     const render = () => {
       const href = String(mark.attrs["href"] ?? "");
       const title = mark.attrs["title"];
-      const file = resolveMarkdownFileLinkMeta(
+      const file = resolveRichMarkdownEditorLinkMeta(
         href,
         options.cwd.current,
         documentDirectory(options.cwd.current, options.sourcePath.current),
