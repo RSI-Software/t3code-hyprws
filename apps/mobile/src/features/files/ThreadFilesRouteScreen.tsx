@@ -1,9 +1,7 @@
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
-import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AsyncResult } from "effect/unstable/reactivity";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
@@ -40,7 +38,6 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { useEnvironmentQuery } from "../../state/query";
 import { projectEnvironment } from "../../state/projects";
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
-import { mobilePreferencesAtom } from "../../state/preferences";
 import {
   useAdaptiveWorkspaceLayout,
   useAdaptiveWorkspacePaneRole,
@@ -56,6 +53,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -311,20 +309,18 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const isAndroid = Platform.OS === "android";
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
-  const preferences = useAtomValue(mobilePreferencesAtom);
-  const showIgnoredFiles =
-    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true;
   const theme = useUniwindTheme();
   const sheetSurfaceColor = theme["--color-sheet-solid"];
   const { cwd, environmentId, projectName, selectedThread, threadId } = useThreadFilesWorkspace(
     props.route.params,
   );
   const revealedInspectorRef = useRef(false);
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd);
   const entriesQuery = useEnvironmentQuery(
-    environmentId !== null && cwd !== null && !fileInspector.supported
+    environmentId !== null && workspaceFileListing !== null && !fileInspector.supported
       ? projectEnvironment.listEntries({
           environmentId,
-          input: showIgnoredFiles ? { cwd, includeIgnored: true } : { cwd },
+          input: workspaceFileListing,
         })
       : null,
   );

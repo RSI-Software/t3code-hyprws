@@ -659,6 +659,7 @@ operator reveal and read artifacts they deliberately created.
 
 - A client-local preference includes gitignored paths in workspace file listings on demand.
 - The file-tree toolbar and General settings expose the same persisted preference.
+- Mobile resolves the optional listing input through `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`, keeping device state and reveal/reset policy behind one fork-owned boundary while the shared routes retain their environment connection.
 - Listing ignored paths never changes repository ignore rules or weakens file-read containment.
 
 ### Retirement condition
@@ -668,23 +669,27 @@ explicitly trusted artifact links shared across worktrees.
 
 ### Rebase scan
 
-| Path                                                        | Why it matters                                      |
-| ----------------------------------------------------------- | --------------------------------------------------- |
-| `apps/server/src/workspace/WorkspaceEntries.ts`             | Combines the normal index with ignored VCS paths.   |
-| `apps/server/src/vcs/GitVcsDriver.ts`                       | Lists ignored paths through Git's native rules.     |
-| `packages/contracts/src/project.ts`                         | Carries the optional listing request.               |
-| `packages/contracts/src/settings.ts`                        | Persists the client-local preference.               |
-| `apps/web/src/components/files/FileBrowserPanel.tsx`        | Owns the file-tree toolbar toggle.                  |
-| `apps/web/src/components/settings/SettingsPanels.tsx`       | Owns the web/desktop settings entry point.          |
-| `apps/mobile/src/features/files/**`                         | Applies the mobile device-local preference.         |
-| `apps/mobile/src/features/settings/SettingsRouteScreen.tsx` | Exposes the preference in mobile settings.          |
-| `apps/server/src/workspace/WorkspaceFileSystem.ts`          | Retains containment and trusted-link read behavior. |
-| `apps/server/src/server.ts`                                 | Provides the workspace filesystem layer.            |
-| `apps/desktop/src/settings/DesktopClientSettings.test.ts`   | Covers the ignored-files preference.                |
-| `apps/mobile/src/persistence/mobile-preferences.ts`         | Persists that preference on mobile.                 |
-| `apps/web/src/components/files/projectFilesQueryState.ts`   | Carries the ignored-files query state.              |
-| `apps/web/src/components/settings/settingsSearch.ts`        | Indexes the files settings this domain adds.        |
-| `packages/contracts/src/settings.test.ts`                   | Covers that settings schema addition.               |
+| Path                                                                                                                                                       | Why it matters                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `apps/server/src/workspace/WorkspaceEntries.ts`                                                                                                            | Combines the normal index with ignored VCS paths.                          |
+| `apps/server/src/vcs/GitVcsDriver.ts`                                                                                                                      | Lists ignored paths through Git's native rules.                            |
+| `packages/contracts/src/project.ts`                                                                                                                        | Carries the optional listing request.                                      |
+| `packages/contracts/src/settings.ts`                                                                                                                       | Persists the client-local preference.                                      |
+| `apps/web/src/components/files/FileBrowserPanel.tsx`                                                                                                       | Owns the file-tree toolbar toggle.                                         |
+| `apps/web/src/components/settings/SettingsPanels.tsx`                                                                                                      | Owns the web/desktop settings entry point.                                 |
+| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`                                                                                            | Fork-owned mobile reveal/reset policy and listing-input adapter.           |
+| `apps/mobile/src/features/files/ignoredWorkspaceFileListing.fork.test.ts`                                                                                  | Guards ordinary, ignored, reset, unresolved, and host-path listing inputs. |
+| `apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx`                                                                                                | Narrow route integration; environment selection stays upstream-shaped.     |
+| `apps/mobile/src/features/files/thread-file-navigator-pane.tsx`                                                                                            | Reuses the same listing boundary in the adaptive inspector.                |
+| `apps/mobile/src/features/files/FileTreeBrowser.tsx`, `apps/mobile/src/features/files/fileTree.ts`, `apps/mobile/src/features/files/fileTree.fork.test.ts` | Preserve, present, and guard ignored state in the mobile tree.             |
+| `apps/mobile/src/features/settings/SettingsRouteScreen.tsx`                                                                                                | Exposes the preference in mobile settings.                                 |
+| `apps/server/src/workspace/WorkspaceFileSystem.ts`                                                                                                         | Retains containment and trusted-link read behavior.                        |
+| `apps/server/src/server.ts`                                                                                                                                | Provides the workspace filesystem layer.                                   |
+| `apps/desktop/src/settings/DesktopClientSettings.test.ts`                                                                                                  | Covers the ignored-files preference.                                       |
+| `apps/mobile/src/persistence/mobile-preferences.ts`                                                                                                        | Persists that preference on mobile.                                        |
+| `apps/web/src/components/files/projectFilesQueryState.ts`                                                                                                  | Carries the ignored-files query state.                                     |
+| `apps/web/src/components/settings/settingsSearch.ts`                                                                                                       | Indexes the files settings this domain adds.                               |
+| `packages/contracts/src/settings.test.ts`                                                                                                                  | Covers that settings schema addition.                                      |
 
 ## thread-ordering
 
