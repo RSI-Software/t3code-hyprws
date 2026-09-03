@@ -487,7 +487,7 @@ it("refuses orientation in on mode with the exact pause remedy", () => {
   }
 });
 
-it("refuses orientation while the bot run is in progress", () => {
+it("waits out a running bot and then orients", () => {
   const root = fixtureRoot();
   const listed = report(root, {
     bot: {
@@ -497,23 +497,64 @@ it("refuses orientation while the bot run is in progress", () => {
     },
   });
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  // No real sleep: one short poll, then the run completes on the repoll.
+  runner.set("sleep", ["30"], { stdout: "" });
+  runner.setSequence("gh", runListArgs, [
+    { stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]) },
+    { stdout: JSON.stringify([lastRun]) },
+  ]);
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
   try {
-    assert.throws(
-      () =>
-        execute(
-          ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
-          root,
-          new FakeRunner(),
-        ),
-      /bot run is in progress; wait for it and rerun unblock-list/,
+    runner.set(
+      "gh",
+      [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--label",
+        "rebase-blocked",
+        "-R",
+        "RSI-Software/t3code-hyprws",
+        "--json",
+        "number,title,body",
+      ],
+      { stdout: issueJson },
     );
+    runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+    runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+    runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+    runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
+      stdout:
+        "## Retire candidates\n  [keep] `feat(web): preserve fork behavior` (workspace-files)\n",
+    });
+    const { output, result } = captureStdout(() =>
+      execute(
+        ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
+        root,
+        runner,
+      ),
+    );
+    assert.strictEqual(result.stage, "oriented");
+    assert.include(
+      output,
+      "waiting for the auto-rebase bot run to finish: https://example.test/runs/1",
+    );
+    assert.include(output, "bot run finished; continuing");
+    assert.isTrue(
+      runner.calls.some(({ command, args }) => command === "sleep" && args[0] === "30"),
+    );
+    // The settled snapshot is written back, so the next verb does not wait twice.
+    const persisted = validateReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8")));
+    assert.strictEqual(persisted.bot?.lastRun?.status, "completed");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
   }
 });
 
-it("refuses orientation while the bot run is queued", () => {
+it("fails loudly when the bot run outlasts the ceiling", () => {
   const root = fixtureRoot();
   const listed = report(root, {
     bot: {
@@ -523,15 +564,27 @@ it("refuses orientation while the bot run is queued", () => {
     },
   });
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  // The run never completes: every repoll still reports it queued, and each
+  // poll's sleep is faked. The ceiling breaks the loop instead of hanging.
+  runner.set("sleep", ["30"], { stdout: "" });
+  runner.set("gh", runListArgs, {
+    stdout: JSON.stringify([{ ...lastRun, status: "queued", conclusion: null }]),
+  });
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
   try {
     assert.throws(
       () =>
         execute(
           ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
           root,
-          new FakeRunner(),
+          runner,
         ),
-      /bot run is in progress; wait for it and rerun unblock-list/,
+      /bot run is in progress after 45 minutes: https:\/\/example\.test\/runs\/1; rerun when it finishes/,
+    );
+    assert.lengthOf(
+      runner.calls.filter(({ command, args }) => command === "sleep" && args[0] === "30"),
+      90,
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -2675,15 +2728,19 @@ it("unblock-auto takes the conflict STOP path when rerere remaining fails", () =
   }
 });
 
-it("unblock-auto refuses a RUNNING bot with status 3", () => {
+it("unblock-auto waits out a RUNNING bot that finishes, and fails loudly at the ceiling", () => {
   const root = fixtureRoot();
   const listed = report(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = new FakeRunner();
   runner.set("gh", modeArgs, { stdout: "candidate\n" });
-  runner.set("gh", runListArgs, {
-    stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]),
-  });
+  // One short poll, then the run completes on the repoll: the walk waits
+  // and then continues past the gate instead of refusing. No real sleep.
+  runner.set("sleep", ["30"], { stdout: "" });
+  runner.setSequence("gh", runListArgs, [
+    { stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]) },
+    { stdout: JSON.stringify([lastRun]) },
+  ]);
   let stderr = "";
   const original = process.stderr.write;
   process.stderr.write = ((chunk: string | Uint8Array) => {
@@ -2691,13 +2748,14 @@ it("unblock-auto refuses a RUNNING bot with status 3", () => {
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(
-      run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
-      3,
-    );
-    assert.strictEqual(
-      stderr,
-      `bot run is in progress; wait for it and rerun unblock-list\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${listed.reportPath}\n`,
+    // Past the bot gate, the listed report still needs a target the tracker
+    // cannot supply here, so the walk stops on target selection rather than
+    // on the bot. The point is the status and the absence of the refusal.
+    const code = run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner);
+    assert.notStrictEqual(code, 3);
+    assert.notInclude(stderr, "bot run is in progress");
+    assert.isTrue(
+      runner.calls.some(({ command, args }) => command === "sleep" && args[0] === "30"),
     );
   } finally {
     process.stderr.write = original;
@@ -3465,6 +3523,83 @@ it("resolves every lane command out of the lane, never the invoking checkout", (
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("rewrite-rehearse waits out a running bot and then continues", () => {
+  const root = fixtureRoot();
+  const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "--show-toplevel"], { stdout: `${root}\n` });
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  // No real sleep: one short poll, then the run completes on the repoll.
+  runner.set("sleep", ["30"], { stdout: "" });
+  runner.setSequence("gh", runListArgs, [
+    { stdout: JSON.stringify([{ ...lastRun, status: "in_progress", conclusion: null }]) },
+    { stdout: JSON.stringify([lastRun]) },
+    { stdout: JSON.stringify([lastRun]) },
+  ]);
+  const from = "b".repeat(40);
+  const origin = "c".repeat(40);
+  const base = "a".repeat(40);
+  runner.set("git", ["rev-parse", from], { stdout: `${from}\n` });
+  runner.set("git", ["rev-parse", "origin/hyprws"], { stdout: `${origin}\n` });
+  runner.set("git", ["merge-base", "upstream/main", "origin/hyprws"], { stdout: `${base}\n` });
+  runner.set("git", ["merge-base", "upstream/main", from], { stdout: `${base}\n` });
+  runner.set("git", ["tag", "--points-at", base], { stdout: "v0.0.38-nightly.20260831.1236\n" });
+  runner.set("git", ["rev-list", "--count", `${base}..origin/hyprws`], { stdout: "199\n" });
+  runner.set("git", ["rev-list", "--count", `${base}..${from}`], { stdout: "197\n" });
+  runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${base}..origin/hyprws`,
+    ],
+    { stdout: "same\n" },
+  );
+  runner.set("git", ["rev-list", "--reverse", "--topo-order", `${base}..${from}`], {
+    stdout: `${from}\n`,
+  });
+  runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${base}..${from}`,
+    ],
+    { stdout: "same\n" },
+  );
+  runner.set(
+    "git",
+    ["diff", "--name-only", from, "origin/hyprws", "--", ":!*.test.ts", ":!*.test.tsx"],
+    { stdout: "" },
+  );
+  try {
+    const { output } = captureStdout(() => {
+      const code = run(["rewrite-rehearse", "--from", from], root, runner);
+      assert.strictEqual(code, 3);
+    });
+    // The walk waited one poll instead of refusing, then continued past the
+    // bot gate to the count proof, which still reports status 3.
+    assert.include(
+      output,
+      "waiting for the auto-rebase bot run to finish: https://example.test/runs/1",
+    );
+    assert.include(output, "bot run finished; continuing");
+    assert.lengthOf(
+      runner.calls.filter(({ command, args }) => command === "sleep" && args[0] === "30"),
+      1,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
