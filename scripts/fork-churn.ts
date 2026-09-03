@@ -9,10 +9,13 @@ import * as NodePath from "node:path";
 import { CHURN_REF, pushBotRef, resolveBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
+  censusChurn,
   CONFLICT_CLASSES,
   conflictRowsByPath,
+  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
+  parseCensusTag,
   parseLedger,
   parseSilentSeams,
   readChurnLedger,
@@ -21,13 +24,16 @@ import {
   type ChurnConflict,
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
-import { CHURN_MARKER, renderChurnSection } from "./fork-churn-section.ts";
+import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 
 export {
+  censusChurn,
+  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
+  parseCensusTag,
   parseLedger,
   type CensusFile,
   type ChurnConflict,
@@ -44,6 +50,18 @@ export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
 export const DELTA_PATH = "docs/internals/fork-delta.md";
 
 const SHA = /^[0-9a-f]{7,64}$/;
+
+const censusSubjectOf =
+  (root: string) =>
+  (commit: string): string =>
+    runCommandText("git", ["show", "-s", "--format=%s", `${commit}^{commit}`], {
+      cwd: root,
+    }).trim();
+
+const enrichLedgerForRoot = (
+  root: string,
+  entries: ReadonlyArray<ChurnEntry>,
+): ReadonlyArray<ChurnEntry> => enrichCensusSubjects(entries, censusSubjectOf(root));
 
 interface IssueView {
   readonly body: string;
@@ -339,7 +357,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     throw new Error("--issue must be a positive integer");
   if (!SHA.test(before) || !SHA.test(after))
     throw new Error("--before and --after must be Git SHAs");
-  const entries = readChurnLedger(root);
+  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
   if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
@@ -381,12 +399,13 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;
+  // The document is a frozen mirror (#476). Precompute it before moving the ref so a
+  // malformed delta cannot leave a locally appended row behind after a failed command.
+  const documentPath = NodePath.join(root, DOCUMENT_PATH);
+  const renderedDocument = NodeFS.existsSync(documentPath) ? renderForRoot(root, next) : null;
   writeChurnLedger(root, next, `churn: ${tag}`);
   if (push) pushBotRef(root, CHURN_REF);
-  // The document is a frozen mirror (#476); keep it in step for as long as it exists.
-  const documentPath = NodePath.join(root, DOCUMENT_PATH);
-  if (NodeFS.existsSync(documentPath))
-    NodeFS.writeFileSync(documentPath, renderForRoot(root, next));
+  if (renderedDocument !== null) NodeFS.writeFileSync(documentPath, renderedDocument);
   process.stdout.write(
     `appended ${tag}: ${conflicts.length} conflict(s) on ${CHURN_REF}${push ? " (pushed)" : ""}\n`,
   );
@@ -422,6 +441,7 @@ const blockedIssueNumber = (root: string): number | null => {
 };
 
 interface IssueComments {
+  readonly body: string;
   readonly comments: ReadonlyArray<{ readonly url: string; readonly body: string }>;
 }
 
@@ -455,12 +475,19 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   const view = JSON.parse(
     runCommandText(
       "gh",
-      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "comments"],
+      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "body,comments"],
       { cwd: root },
     ),
   ) as IssueComments;
   const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
-  const body = renderChurnSection(readChurnLedger(root), existing?.body ?? null);
+  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
+  const currentCensus = {
+    tag: parseCensusTag(view.body),
+    fixedAt: null,
+    files: parseCensusFiles(view.body),
+  } as const;
+  const churn = censusChurn(entries, currentCensus);
+  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus);
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
     "churn.md",
@@ -483,7 +510,10 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     { cwd: root },
   ).trim();
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
-  return 0;
+  const regressions = regressedSeamLines(churn);
+  if (regressions.length === 0) return 0;
+  process.stderr.write(`${regressions.join("\n")}\n`);
+  return 1;
 };
 
 /**
@@ -498,7 +528,7 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
   const from = NodePath.resolve(root, options.get("--from") ?? LEDGER_PATH);
   if (resolveBotRef(root, CHURN_REF) !== null)
     throw new Error(`${CHURN_REF} already exists; it is seeded once and appended to after that`);
-  const entries = parseLedger(NodeFS.readFileSync(from, "utf8"));
+  const entries = enrichLedgerForRoot(root, parseLedger(NodeFS.readFileSync(from, "utf8")));
   const commit = writeChurnLedger(
     root,
     entries,
@@ -526,7 +556,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb !== "render") throw new Error(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new Error("usage: fork-churn render [--check]");
-    const rendered = renderForRoot(root, readChurnLedger(root));
+    const rendered = renderForRoot(root, enrichLedgerForRoot(root, readChurnLedger(root)));
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
     if (args[0] === "--check") {
       const committed = NodeFS.existsSync(documentPath)
