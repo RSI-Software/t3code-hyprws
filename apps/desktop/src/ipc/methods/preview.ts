@@ -23,14 +23,13 @@ import {
   PreviewAutomationSnapshot,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as NodeURL from "node:url";
-import { BrowserWindow } from "electron";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
+import * as PreviewWindowPolicy from "../../preview/WindowPolicy.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
@@ -46,47 +45,25 @@ export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedErrorClass<
 const previewForSender = Effect.fn("desktop.ipc.preview.resolveSender")(function* (
   event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
 ) {
-  if (!event?.sender) {
-    return yield* new PreviewIpcSenderNotAuthorizedError({ reason: "missing-sender" });
-  }
-  const electronWindow = yield* ElectronWindow.ElectronWindow;
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  const identity =
-    senderWindow === null ? Option.none() : yield* electronWindow.identityFor(senderWindow);
-  if (Option.isNone(identity)) {
-    return yield* new PreviewIpcSenderNotAuthorizedError({ reason: "unregistered-window" });
-  }
-  const previewManager = yield* PreviewManager.PreviewManager;
-  const windowManager = yield* previewManager.forWindow(identity.value);
-  return { identity: identity.value, previewManager, windowManager };
+  return yield* PreviewWindowPolicy.resolvePreviewForSender(
+    event,
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    (reason) => new PreviewIpcSenderNotAuthorizedError({ reason }),
+  );
 });
 
 export const installPreviewEventForwarding = Effect.fn(
   "desktop.ipc.preview.installEventForwarding",
 )(function* () {
-  const electronWindow = yield* ElectronWindow.ElectronWindow;
-  const manager = yield* PreviewManager.PreviewManager;
-  const send = (
-    identity: Parameters<typeof electronWindow.get>[0],
-    channel: string,
-    ...args: readonly unknown[]
-  ) =>
-    electronWindow.get(identity).pipe(
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.void,
-          onSome: (window) => Effect.sync(() => window.webContents.send(channel, ...args)),
-        }),
-      ),
-    );
-  yield* manager.subscribeOwnedStateChanges((identity, tabId, state) =>
-    send(identity, IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL, tabId, state),
-  );
-  yield* manager.subscribeOwnedRecordingFrames((identity, frame) =>
-    send(identity, IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL, frame),
-  );
-  yield* manager.subscribeOwnedPointerEvents((identity, event) =>
-    send(identity, IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, event),
+  yield* PreviewWindowPolicy.installEventForwarding(
+    yield* ElectronWindow.ElectronWindow,
+    yield* PreviewManager.PreviewManager,
+    {
+      stateChange: IpcChannels.PREVIEW_STATE_CHANGE_CHANNEL,
+      recordingFrame: IpcChannels.PREVIEW_RECORDING_FRAME_CHANNEL,
+      pointerEvent: IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL,
+    },
   );
 });
 
