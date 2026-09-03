@@ -10,7 +10,6 @@ import {
   censusChurn,
   commentRestId,
   DOCUMENT_PATH,
-  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
   parseCensusTag,
@@ -544,22 +543,26 @@ it("seeds the ledger ref once and refuses a second seed", () => {
   }
 });
 
-it("enriches every legacy census subject on the next append", () => {
+it("migrates every legacy census subject once and survives expired objects", () => {
   const root = repository();
   const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
-  const legacyCommit = runCommandText(
-    "git",
-    ["commit-tree", tree, "-m", "feat(fork): durable legacy identity"],
-    { cwd: root },
-  ).trim();
-  const legacy = censusEntry("v0", [
-    {
-      path: "scripts/legacy.ts",
+  const commits = [
+    runCommandText("git", ["commit-tree", tree, "-m", "feat(fork): first identity"], {
+      cwd: root,
+    }).trim(),
+    runCommandText("git", ["commit-tree", tree, "-m", "fix(fork): second identity"], {
+      cwd: root,
+    }).trim(),
+  ];
+  const legacy = censusEntry(
+    "v0",
+    commits.map((commit, index) => ({
+      path: `scripts/legacy-${index}.ts`,
       hunks: 1,
-      commit: legacyCommit.slice(0, 12),
+      commit: commit.slice(0, 12),
       domain: "fork-meta",
-    },
-  ]);
+    })),
+  );
   writeBotRefFile(
     root,
     CHURN_REF,
@@ -571,8 +574,6 @@ it("enriches every legacy census subject on the next append", () => {
     NodePath.join(root, "docs", "internals", "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
   );
-  const record = renderRecord(reportFixture());
-  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
   const bin = NodePath.join(root, "bin");
   NodeFS.mkdirSync(bin);
   NodeFS.writeFileSync(
@@ -587,61 +588,166 @@ it("enriches every legacy census subject on the next append", () => {
     body: [
       "## Sequential rebase census",
       "",
-      "A throwaway rebase rehearsal to `v1` found 1 conflicting fork commit and 1 conflict-file resolution.",
+      "A throwaway rebase rehearsal to `v0` found 1 conflicting fork commit and 1 conflict-file resolution.",
       "",
       "| File | Hunks | Fork commit | Domain |",
       "| --- | ---: | --- | --- |",
       "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
     ].join("\n"),
-    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
-    url: "https://example.test/issues/1",
+    comments: [],
   });
   try {
-    assert.strictEqual(
-      run(
-        [
-          "append",
-          "--record",
-          "record.md",
-          "--issue",
-          "1",
-          "--tag",
-          "v1",
-          "--before",
-          A,
-          "--after",
-          B,
-        ],
-        root,
+    const before = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.strictEqual(run(["migrate-subjects"], root), 0);
+    const migrated = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.notStrictEqual(migrated, before);
+    assert.deepStrictEqual(
+      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "")[0]?.censusFiles.map(
+        ({ subject }) => subject,
       ),
-      0,
+      ["feat(fork): first identity", "fix(fork): second identity"],
     );
-    const persisted = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
-    assert.isTrue(persisted.flatMap((entry) => entry.censusFiles).every((file) => file.subject));
+
+    assert.strictEqual(run(["migrate-subjects"], root), 0);
     assert.strictEqual(
-      persisted[0]?.censusFiles[0]?.subject,
-      "feat(fork): durable legacy identity",
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      migrated,
     );
 
     runCommandText("git", ["prune", "--expire=now"], { cwd: root });
-    assert.throws(() =>
-      runCommandText("git", ["cat-file", "-e", `${legacyCommit}^{commit}`], { cwd: root }),
-    );
-    assert.deepStrictEqual(
-      censusChurn(
-        enrichCensusSubjects(persisted, () => {
-          throw new Error("old Git object was consulted");
-        }),
-      ).regressions,
-      [],
-    );
+    for (const commit of commits)
+      assert.throws(() =>
+        runCommandText("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root }),
+      );
     assert.strictEqual(run(["render"], root), 0);
+    assert.strictEqual(run(["report", "--issue", "1"], root), 0);
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      migrated,
+    );
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
     if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
     else process.env.FAKE_GH_RESPONSE = previousResponse;
     NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("names every unresolved census commit without moving the ledger ref", () => {
+  const unresolved = ["1111111", "2222222"];
+  const root = ledgerRepository([
+    censusEntry(
+      "v0",
+      unresolved.map((commit) => ({
+        path: `${commit}.ts`,
+        hunks: 1,
+        commit,
+        domain: "fork-meta",
+      })),
+    ),
+  ]);
+  const before = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["migrate-subjects"], root), 1);
+    assert.include(stderr, `unresolved census commits: ${unresolved.join(", ")}`);
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      before,
+    );
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a migration push when the exact expected-old lease is stale", () => {
+  const root = repository();
+  const remote = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-remote-"));
+  runCommandText("git", ["init", "--quiet", "--bare", remote], { cwd: root });
+  runCommandText("git", ["remote", "add", "origin", remote], { cwd: root });
+  const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+  const legacyCommit = runCommandText(
+    "git",
+    ["commit-tree", tree, "-m", "feat(fork): leased identity"],
+    { cwd: root },
+  ).trim();
+  writeBotRefFile(
+    root,
+    CHURN_REF,
+    CHURN_LEDGER_FILE,
+    `${JSON.stringify([
+      censusEntry("v0", [
+        {
+          path: "scripts/legacy.ts",
+          hunks: 1,
+          commit: legacyCommit.slice(0, 12),
+          domain: "fork-meta",
+        },
+      ]),
+    ])}\n`,
+    "churn: legacy fixture",
+  );
+  runCommandText("git", ["push", "--quiet", "origin", `${CHURN_REF}:${CHURN_REF}`], {
+    cwd: root,
+  });
+  const expectedOld = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+  const ledgerTree = runCommandText("git", ["rev-parse", `${CHURN_REF}^{tree}`], {
+    cwd: root,
+  }).trim();
+  const rival = runCommandText(
+    "git",
+    ["commit-tree", ledgerTree, "-p", expectedOld, "-m", "churn: rival writer"],
+    { cwd: root },
+  ).trim();
+  runCommandText("git", ["push", "--quiet", "origin", `${rival}:${CHURN_REF}`], { cwd: root });
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["migrate-subjects", "--push"], root), 1);
+    assert.include(stderr, `--force-with-lease=${CHURN_REF}:${expectedOld}`);
+    assert.strictEqual(
+      runCommandText("git", ["ls-remote", remote, CHURN_REF], { cwd: root }).split("\t")[0],
+      rival,
+    );
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      expectedOld,
+    );
+
+    runCommandText("git", ["fetch", "--quiet", "origin", `+${CHURN_REF}:${CHURN_REF}`], {
+      cwd: root,
+    });
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      rival,
+    );
+    assert.strictEqual(run(["migrate-subjects", "--push"], root), 0);
+    const retried = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.notStrictEqual(retried, rival);
+    assert.strictEqual(
+      runCommandText("git", ["ls-remote", remote, CHURN_REF], { cwd: root }).split("\t")[0],
+      retried,
+    );
+    assert.isTrue(
+      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "").every((entry) =>
+        entry.censusFiles.every((file) => file.subject !== undefined),
+      ),
+    );
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(remote, { recursive: true, force: true });
   }
 });
 
