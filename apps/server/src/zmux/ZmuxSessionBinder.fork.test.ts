@@ -20,15 +20,35 @@ const output = (stdout = "", code = 0, stderr = ""): ProcessRunner.ProcessRunOut
   stderrInvalidUtf8: false,
 });
 
-const resolved = JSON.stringify({
+const resolvedProject = JSON.stringify({
   target: "project/main",
   match: "workspace-main",
+  tmuxName: "zws_project__main",
+  nativeId: "$22",
+  state: "live",
+  binding: { branch: null, worktreePath: null },
+});
+
+const resolvedWorktree = JSON.stringify({
+  target: "project/feature",
+  match: "worktree",
+  tmuxName: "zws_project__feature",
+  nativeId: "$23",
+  state: "live",
+  binding: { branch: "feature", worktreePath: "/repo/project-worktree" },
 });
 
 const bound = JSON.stringify({
   session: {
     qualified: "project/feature",
+    tmuxName: "zws_project__feature",
+    tmuxId: "$23",
   },
+  worktree: { path: "/repo/project-worktree", branch: "feature" },
+  created: true,
+  reused: false,
+  restored: false,
+  renamed: false,
 });
 
 function makeLayer(run: ProcessRunner.ProcessRunner["Service"]["run"]) {
@@ -47,19 +67,27 @@ const bindProjectWorktree = Effect.gen(function* () {
 
 describe("ZmuxSessionBinder project workspace guard", () => {
   it.effect("reuses a workspace that already resolves from the project root", () => {
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
-      Effect.succeed(input.args[0] === "session" ? output(resolved) : output(bound)),
-    );
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] !== "session") return Effect.succeed(output(bound));
+      return Effect.succeed(
+        output(input.args[3] === "/repo/project" ? resolvedProject : resolvedWorktree),
+      );
+    });
 
     return Effect.gen(function* () {
       const result = yield* bindProjectWorktree;
 
-      assert.deepStrictEqual(result, { status: "bound", target: "project/feature" });
+      assert.deepStrictEqual(result, {
+        status: "bound",
+        target: "project/feature",
+        outcome: "created",
+      });
       assert.deepStrictEqual(
         run.mock.calls.map(([input]) => input.args),
         [
           ["session", "resolve", "--cwd", "/repo/project", "--json"],
           ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
+          ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
         ],
       );
     }).pipe(Effect.provide(makeLayer(run)));
@@ -71,7 +99,11 @@ describe("ZmuxSessionBinder project workspace guard", () => {
       switch (input.args[0]) {
         case "session":
           resolveCalls += 1;
-          return Effect.succeed(resolveCalls === 1 ? output("", 1) : output(resolved));
+          return Effect.succeed(
+            resolveCalls === 1
+              ? output("", 1)
+              : output(resolveCalls === 2 ? resolvedProject : resolvedWorktree),
+          );
         case "new":
           return Effect.succeed(output("", 1, "open terminal failed: not a terminal"));
         default:
@@ -82,7 +114,11 @@ describe("ZmuxSessionBinder project workspace guard", () => {
     return Effect.gen(function* () {
       const result = yield* bindProjectWorktree;
 
-      assert.deepStrictEqual(result, { status: "bound", target: "project/feature" });
+      assert.deepStrictEqual(result, {
+        status: "bound",
+        target: "project/feature",
+        outcome: "created",
+      });
       assert.deepStrictEqual(
         run.mock.calls.map(([input]) => ({ args: input.args, cwd: input.cwd })),
         [
@@ -99,6 +135,10 @@ describe("ZmuxSessionBinder project workspace guard", () => {
             args: ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
             cwd: undefined,
           },
+          {
+            args: ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
+            cwd: undefined,
+          },
         ],
       );
     }).pipe(Effect.provide(makeLayer(run)));
@@ -109,7 +149,11 @@ describe("ZmuxSessionBinder project workspace guard", () => {
     const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
       if (input.args[0] === "session") {
         resolveCalls += 1;
-        return Effect.succeed(resolveCalls < 3 ? output("", 1) : output(resolved));
+        return Effect.succeed(
+          resolveCalls < 3
+            ? output("", 1)
+            : output(resolveCalls === 3 ? resolvedProject : resolvedWorktree),
+        );
       }
       if (input.args[0] === "new") {
         return Effect.succeed(output("", 1, 'workspace "project" already exists'));
@@ -123,7 +167,11 @@ describe("ZmuxSessionBinder project workspace guard", () => {
     return Effect.gen(function* () {
       const result = yield* bindProjectWorktree;
 
-      assert.deepStrictEqual(result, { status: "bound", target: "project/feature" });
+      assert.deepStrictEqual(result, {
+        status: "bound",
+        target: "project/feature",
+        outcome: "created",
+      });
       assert.deepStrictEqual(
         run.mock.calls.map(([input]) => input.args),
         [
@@ -133,6 +181,7 @@ describe("ZmuxSessionBinder project workspace guard", () => {
           ["workspace", "set-root", "project", "/repo/project"],
           ["session", "resolve", "--cwd", "/repo/project", "--json"],
           ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
+          ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
         ],
       );
     }).pipe(Effect.provide(makeLayer(run)));
