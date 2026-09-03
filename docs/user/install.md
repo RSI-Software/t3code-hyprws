@@ -78,6 +78,9 @@ The `.deb` updates itself like the other desktop builds. It asks for your
 password to install each update. If your desktop has no password prompt, the
 update fails. Download the new `.deb` and install it the same way.
 
+Linux AppImage downloads use the stable filename `T3-Code-x86_64.AppImage`, so in-app updates replace that file in place.
+If you installed an older versioned AppImage, point your desktop entry or symlink at the stable name after the first upgrade.
+
 ### Nix (nixpkgs)
 
 T3 Code is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code).
