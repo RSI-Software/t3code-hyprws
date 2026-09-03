@@ -7,9 +7,11 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
+  censusChurn,
   commentRestId,
   hotSeams,
   parseCensusFiles,
+  parseCensusTag,
   parseLedger,
   run,
   type ChurnEntry,
@@ -22,7 +24,7 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams } from "./fork-churn-ledger.ts";
-import { CHURN_MARKER, renderChurnSection } from "./fork-churn-section.ts";
+import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { parseRecord, renderRecord, type SyncReport } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
@@ -158,7 +160,15 @@ it("parses the sequential rebase census table by its rendered columns", () => {
         "",
       ].join("\n"),
     ),
-    [{ path: "apps/web/src/a|b.ts", hunks: 2, commit: "1234567", domain: "project-windows" }],
+    [
+      {
+        path: "apps/web/src/a|b.ts",
+        hunks: 2,
+        commit: "1234567",
+        subject: "feat(web): change a | b",
+        domain: "project-windows",
+      },
+    ],
   );
 });
 
@@ -178,6 +188,7 @@ it("accepts zero-hunk census rows", () => {
       path: "apps/web/src/routes/-chatIndexTitlebar.test.ts",
       hunks: 0,
       commit: "1234567",
+      subject: "fix(web): retain route tests",
       domain: "upstream-fixes",
     },
   ]);
@@ -215,6 +226,120 @@ const conflict = (
   class: klass,
   resolution: "resolved",
   decidedBy: "human",
+});
+
+it("reads the generated census target tag", () => {
+  assert.strictEqual(
+    parseCensusTag(
+      [
+        "## Sequential rebase census",
+        "",
+        "A throwaway rebase rehearsal to `v0.0.39-nightly.20260902.1261` found 1 conflicting fork commit and 1 conflict-file resolution.",
+      ].join("\n"),
+    ),
+    "v0.0.39-nightly.20260902.1261",
+  );
+});
+
+const censusEntry = (tag: string, files: ChurnEntry["censusFiles"], after = B): ChurnEntry => ({
+  tag,
+  before: A,
+  after,
+  recordUrl: `https://example.test/${tag}`,
+  conflicts: [],
+  decisions: [],
+  censusFiles: files,
+});
+
+const censusFile = (path: string, commit: string, subject: string) => ({
+  path,
+  hunks: 1,
+  commit,
+  subject,
+  domain: "fork-meta",
+});
+
+it("replays the historical census range and finds the current hot path from generated evidence", () => {
+  const tags = [
+    "v0.0.38-nightly.20260831.1236",
+    "v0.0.38-nightly.20260831.1241",
+    "v0.0.38-nightly.20260901.1242",
+    "v0.0.38-nightly.20260901.1243",
+    "v0.0.38-nightly.20260901.1244",
+    "v0.0.38-nightly.20260901.1245",
+    "v0.0.38-nightly.20260901.1246",
+    "v0.0.39-nightly.20260902.1261",
+  ];
+  const hotPath = "apps/server/src/provider/Drivers/ClaudeDriver.ts";
+  const entries = tags.map((tag, index) =>
+    censusEntry(tag, [
+      censusFile(
+        hotPath,
+        String(index + 1).repeat(7),
+        index === tags.length - 1
+          ? "fix(provider): resolve repo skills per workspace (#188)"
+          : "fix(server): provider spawns drop another harness identity (#108)",
+      ),
+      ...(index === tags.length - 1
+        ? []
+        : [
+            censusFile(
+              "apps/desktop/src/preload.ts",
+              `a${String(index).repeat(6)}`,
+              "fix(desktop): isolate previews",
+            ),
+          ]),
+    ]),
+  );
+
+  const churn = censusChurn(entries);
+  assert.deepStrictEqual(churn.hotPaths, [
+    {
+      path: hotPath,
+      consecutiveTags: 8,
+      firstTag: "v0.0.38-nightly.20260831.1236",
+      lastTag: "v0.0.39-nightly.20260902.1261",
+    },
+  ]);
+  assert.deepStrictEqual(churn.regressions, []);
+  assert.isTrue(entries.every((value) => value.conflicts.length === 0));
+});
+
+it("fails a path and logical commit seam that returns after a census gap", () => {
+  const path = "apps/web/src/regressed.ts";
+  const subject = "feat(web): keep the seam";
+  const fixedAt = "f".repeat(40);
+  const entries = [
+    censusEntry("v1", [censusFile(path, "1111111", subject)], fixedAt),
+    censusEntry("v2", [censusFile("other.ts", "2222222", "feat: other")]),
+  ];
+  const churn = censusChurn(entries, {
+    tag: "v3",
+    fixedAt: null,
+    files: [censusFile(path, "3333333", subject)],
+  });
+
+  assert.deepStrictEqual(churn.regressions, [
+    {
+      path,
+      commit: "3333333",
+      subject,
+      domain: "fork-meta",
+      tag: "v3",
+      fixedAt,
+    },
+  ]);
+  assert.deepStrictEqual(regressedSeamLines(churn), [
+    `regressed seam: \`${path}\` / \`${subject}\` (fork-meta) was fixed at \`${fixedAt}\` and reappeared on \`v3\` as \`3333333\``,
+  ]);
+  assert.include(
+    renderChurnSection(entries, null, {
+      tag: "v3",
+      fixedAt: null,
+      files: [censusFile(path, "3333333", subject)],
+    }),
+    "regressed seam:",
+  );
 });
 
 it("ranks hot seams by walk count, then worst class", () => {

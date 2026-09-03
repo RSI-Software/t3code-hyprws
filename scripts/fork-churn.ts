@@ -9,10 +9,12 @@ import * as NodePath from "node:path";
 import { CHURN_REF, pushBotRef, resolveBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
+  censusChurn,
   CONFLICT_CLASSES,
   conflictRowsByPath,
   hotSeams,
   parseCensusFiles,
+  parseCensusTag,
   parseLedger,
   parseSilentSeams,
   readChurnLedger,
@@ -21,13 +23,15 @@ import {
   type ChurnConflict,
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
-import { CHURN_MARKER, renderChurnSection } from "./fork-churn-section.ts";
+import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 
 export {
+  censusChurn,
   hotSeams,
   parseCensusFiles,
+  parseCensusTag,
   parseLedger,
   type CensusFile,
   type ChurnConflict,
@@ -422,6 +426,7 @@ const blockedIssueNumber = (root: string): number | null => {
 };
 
 interface IssueComments {
+  readonly body: string;
   readonly comments: ReadonlyArray<{ readonly url: string; readonly body: string }>;
 }
 
@@ -455,12 +460,30 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   const view = JSON.parse(
     runCommandText(
       "gh",
-      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "comments"],
+      ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "body,comments"],
       { cwd: root },
     ),
   ) as IssueComments;
   const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
-  const body = renderChurnSection(readChurnLedger(root), existing?.body ?? null);
+  const entries = readChurnLedger(root);
+  const currentCensus = {
+    tag: parseCensusTag(view.body),
+    fixedAt: null,
+    files: parseCensusFiles(view.body),
+  } as const;
+  const subjects = new Map<string, string>();
+  const subjectOf = (commit: string): string => {
+    const cached = subjects.get(commit);
+    if (cached !== undefined) return cached;
+    const subject = runCommandText("git", ["show", "-s", "--format=%s", `${commit}^{commit}`], {
+      cwd: root,
+    }).trim();
+    if (subject.length === 0) throw new Error(`census commit has no subject: ${commit}`);
+    subjects.set(commit, subject);
+    return subject;
+  };
+  const churn = censusChurn(entries, currentCensus, subjectOf);
+  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus, subjectOf);
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
     "churn.md",
@@ -483,7 +506,10 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     { cwd: root },
   ).trim();
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
-  return 0;
+  const regressions = regressedSeamLines(churn);
+  if (regressions.length === 0) return 0;
+  process.stderr.write(`${regressions.join("\n")}\n`);
+  return 1;
 };
 
 /**
