@@ -133,7 +133,7 @@ import { Button } from "../ui/button";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
-import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";
+import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation";
 import {
   buildAttachmentVideoAsset,
   buildAttachmentVideoPreview,
@@ -3741,8 +3741,12 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry } = props;
-  const { agentPanelModel, expandedSpawnEntryIds, onToggleSpawnRow, onOpenAgents } =
-    use(TimelineRowCtx);
+  const {
+    agentPanelModel,
+    expandedSpawnEntryIds,
+    onToggleSpawnRow,
+    onOpenAgents: openAgentsPanel,
+  } = use(TimelineRowCtx);
   const spawn = workEntry.agentSpawn;
   if (!spawn) {
     return null;
@@ -3774,10 +3778,11 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
     onToggleSpawnRow(workEntry.id, !expanded);
   };
 
-  const openTarget = resolveAgentSpawnOpenTarget({
+  const onOpenAgents = createAgentSpawnOpenHandler({
     workflowId: spawn.workflowId,
     agentTaskIds: spawn.agentTaskIds,
     visibleAgentIds: agents.map((agent) => agent.id),
+    onOpenAgents: openAgentsPanel,
   });
 
   return (
@@ -3802,7 +3807,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
           ))}
           <button
             type="button"
-            onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}
+            onClick={onOpenAgents}
             className="mt-1 self-start rounded-sm px-1 text-xs text-muted-foreground hover:text-foreground"
           >
             Open Agents panel ›
