@@ -1,4 +1,4 @@
-import { $nodeSchema, $remark } from "@milkdown/kit/utils";
+import { $nodeSchema, $remark } from "@milkdown/utils";
 import remarkFrontmatter from "remark-frontmatter";
 
 // Frontmatter needs both a remark extension and a ProseMirror carrier node. Without
