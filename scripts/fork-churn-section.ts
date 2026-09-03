@@ -165,10 +165,9 @@ export const renderChurnSection = (
   entries: ReadonlyArray<ChurnEntry>,
   previousBody: string | null = null,
   currentCensus: CensusSnapshot | null = null,
-  subjectOf: (commit: string) => string = (commit) => commit,
 ): string => {
   const previous = previousBody === null ? null : parseChurnSectionState(previousBody);
-  const census = censusChurn(entries, currentCensus, subjectOf);
+  const census = censusChurn(entries, currentCensus);
   const range =
     entries.length === 0
       ? "no walks yet"

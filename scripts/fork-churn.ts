@@ -12,6 +12,7 @@ import {
   censusChurn,
   CONFLICT_CLASSES,
   conflictRowsByPath,
+  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
   parseCensusTag,
@@ -29,6 +30,7 @@ import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.
 
 export {
   censusChurn,
+  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
   parseCensusTag,
@@ -48,6 +50,18 @@ export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
 export const DELTA_PATH = "docs/internals/fork-delta.md";
 
 const SHA = /^[0-9a-f]{7,64}$/;
+
+const censusSubjectOf =
+  (root: string) =>
+  (commit: string): string =>
+    runCommandText("git", ["show", "-s", "--format=%s", `${commit}^{commit}`], {
+      cwd: root,
+    }).trim();
+
+const enrichLedgerForRoot = (
+  root: string,
+  entries: ReadonlyArray<ChurnEntry>,
+): ReadonlyArray<ChurnEntry> => enrichCensusSubjects(entries, censusSubjectOf(root));
 
 interface IssueView {
   readonly body: string;
@@ -343,7 +357,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     throw new Error("--issue must be a positive integer");
   if (!SHA.test(before) || !SHA.test(after))
     throw new Error("--before and --after must be Git SHAs");
-  const entries = readChurnLedger(root);
+  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
   if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
@@ -465,25 +479,14 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     ),
   ) as IssueComments;
   const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
-  const entries = readChurnLedger(root);
+  const entries = enrichLedgerForRoot(root, readChurnLedger(root));
   const currentCensus = {
     tag: parseCensusTag(view.body),
     fixedAt: null,
     files: parseCensusFiles(view.body),
   } as const;
-  const subjects = new Map<string, string>();
-  const subjectOf = (commit: string): string => {
-    const cached = subjects.get(commit);
-    if (cached !== undefined) return cached;
-    const subject = runCommandText("git", ["show", "-s", "--format=%s", `${commit}^{commit}`], {
-      cwd: root,
-    }).trim();
-    if (subject.length === 0) throw new Error(`census commit has no subject: ${commit}`);
-    subjects.set(commit, subject);
-    return subject;
-  };
-  const churn = censusChurn(entries, currentCensus, subjectOf);
-  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus, subjectOf);
+  const churn = censusChurn(entries, currentCensus);
+  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus);
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
     "churn.md",
@@ -524,7 +527,7 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
   const from = NodePath.resolve(root, options.get("--from") ?? LEDGER_PATH);
   if (resolveBotRef(root, CHURN_REF) !== null)
     throw new Error(`${CHURN_REF} already exists; it is seeded once and appended to after that`);
-  const entries = parseLedger(NodeFS.readFileSync(from, "utf8"));
+  const entries = enrichLedgerForRoot(root, parseLedger(NodeFS.readFileSync(from, "utf8")));
   const commit = writeChurnLedger(
     root,
     entries,
@@ -552,7 +555,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb !== "render") throw new Error(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new Error("usage: fork-churn render [--check]");
-    const rendered = renderForRoot(root, readChurnLedger(root));
+    const rendered = renderForRoot(root, enrichLedgerForRoot(root, readChurnLedger(root)));
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
     if (args[0] === "--check") {
       const committed = NodeFS.existsSync(documentPath)

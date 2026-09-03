@@ -335,6 +335,35 @@ export const serializeLedger = (entries: ReadonlyArray<ChurnEntry>): string =>
   `${JSON.stringify(entries, null, 2)}\n`;
 
 /**
+ * Upgrade legacy census rows to the stable logical commit identity used by churn.
+ * Parsing keeps `subject` optional for the existing ledger shape, but every sanctioned
+ * write calls this first so one successful write removes the old Git-object dependency.
+ */
+export const enrichCensusSubjects = (
+  entries: ReadonlyArray<ChurnEntry>,
+  subjectOf: (commit: string) => string,
+): ReadonlyArray<ChurnEntry> => {
+  const subjects = new Map<string, string>();
+  for (const entry of entries) {
+    for (const file of entry.censusFiles) {
+      if (file.subject !== undefined) subjects.set(file.commit, file.subject);
+    }
+  }
+  return entries.map((entry) => {
+    let changed = false;
+    const censusFiles = entry.censusFiles.map((file) => {
+      if (file.subject !== undefined) return file;
+      const subject = subjects.get(file.commit) ?? subjectOf(file.commit);
+      if (subject.length === 0) throw new Error(`census commit has no subject: ${file.commit}`);
+      subjects.set(file.commit, subject);
+      changed = true;
+      return { ...file, subject };
+    });
+    return changed ? { ...entry, censusFiles } : entry;
+  });
+};
+
+/**
  * The ledger as the bot-owned ref holds it. A missing ref is not an empty ledger:
  * it means the ref was never seeded, and every caller needs to say so rather than
  * silently report zero walks.
@@ -388,8 +417,9 @@ const censusSnapshots = (
 /**
  * Join the generated census sequence to the durable walk ledger.
  *
- * Rebase rewrites a fork commit's SHA on every applied walk. Its exact subject plus domain is
- * therefore the stable commit identity, while each census SHA remains the evidence for that tag.
+ * Rebase rewrites a fork commit's SHA on every applied walk. Fork commit subjects are unique in
+ * the stack; subject plus domain therefore identifies the logical commit, and path distinguishes
+ * its separate seams. Each census SHA remains evidence for that tag rather than durable identity.
  * Paths are hot while they appear in consecutive censuses, regardless of which fork commit owns
  * the overlap. A seam is fixed only after it disappears from a later census; if that same logical
  * path/commit seam returns, the walk that last carried it supplies the fix commit.
@@ -397,7 +427,6 @@ const censusSnapshots = (
 export const censusChurn = (
   entries: ReadonlyArray<ChurnEntry>,
   current: CensusSnapshot | null = null,
-  subjectOf: (commit: string) => string = (commit) => commit,
 ): CensusChurn => {
   const snapshots = censusSnapshots(entries, current);
   const pathRuns = new Map<
@@ -431,8 +460,9 @@ export const censusChurn = (
 
     const presentSeams = new Set<string>();
     for (const file of snapshot.files) {
-      const subject = file.subject ?? subjectOf(file.commit);
-      const key = `${file.path}\u0000${subject}\u0000${file.domain}`;
+      if (file.subject === undefined)
+        throw new Error(`census subject is not enriched: ${file.commit} on ${snapshot.tag}`);
+      const key = `${file.path}\u0000${file.subject}\u0000${file.domain}`;
       if (presentSeams.has(key)) continue;
       presentSeams.add(key);
       const previous = seams.get(key);
@@ -440,7 +470,7 @@ export const censusChurn = (
         regressions.push({
           path: file.path,
           commit: file.commit,
-          subject,
+          subject: file.subject,
           domain: file.domain,
           tag: snapshot.tag,
           fixedAt: previous.fixedAt,

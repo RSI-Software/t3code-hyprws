@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 import {
   censusChurn,
   commentRestId,
+  enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
   parseCensusTag,
@@ -342,6 +343,45 @@ it("fails a path and logical commit seam that returns after a census gap", () =>
   );
 });
 
+it("returns only regressions present in the newest census", () => {
+  const path = "apps/web/src/regressed.ts";
+  const subject = "feat(web): keep the seam";
+  const entries = [
+    censusEntry("v1", [censusFile(path, "1111111", subject)]),
+    censusEntry("v2", [censusFile("other.ts", "2222222", "feat: other")]),
+    censusEntry("v3", [censusFile(path, "3333333", subject)]),
+  ];
+
+  assert.deepStrictEqual(
+    censusChurn(entries, {
+      tag: "v4",
+      fixedAt: null,
+      files: [censusFile("latest.ts", "4444444", "feat: latest")],
+    }).regressions,
+    [],
+  );
+});
+
+it("keeps equal subjects in separate domain and path seams", () => {
+  const subject = "feat: shared wording";
+  const entries = [
+    censusEntry("v1", [
+      censusFile("a.ts", "1111111", subject),
+      { ...censusFile("b.ts", "2222222", subject), domain: "project-windows" },
+    ]),
+    censusEntry("v2", [censusFile("other.ts", "3333333", "feat: other")]),
+  ];
+
+  assert.deepStrictEqual(
+    censusChurn(entries, {
+      tag: "v3",
+      fixedAt: null,
+      files: [{ ...censusFile("b.ts", "4444444", subject), domain: "project-windows" }],
+    }).regressions.map(({ path, domain }) => ({ path, domain })),
+    [{ path: "b.ts", domain: "project-windows" }],
+  );
+});
+
 it("ranks hot seams by walk count, then worst class", () => {
   const seams = hotSeams([
     entry("v1", [
@@ -482,6 +522,107 @@ it("seeds the ledger ref once and refuses a second seed", () => {
     ]);
     assert.strictEqual(run(["seed"], root), 1);
   } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("enriches every legacy census subject on the next append", () => {
+  const root = repository();
+  const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+  const legacyCommit = runCommandText(
+    "git",
+    ["commit-tree", tree, "-m", "feat(fork): durable legacy identity"],
+    { cwd: root },
+  ).trim();
+  const legacy = censusEntry("v0", [
+    {
+      path: "scripts/legacy.ts",
+      hunks: 1,
+      commit: legacyCommit.slice(0, 12),
+      domain: "fork-meta",
+    },
+  ]);
+  writeBotRefFile(
+    root,
+    CHURN_REF,
+    CHURN_LEDGER_FILE,
+    `${JSON.stringify([legacy], null, 2)}\n`,
+    "churn: legacy fixture",
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(root, "docs", "internals", "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  const record = renderRecord(reportFixture());
+  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousResponse = process.env.FAKE_GH_RESPONSE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: [
+      "## Sequential rebase census",
+      "",
+      "A throwaway rebase rehearsal to `v1` found 1 conflicting fork commit and 1 conflict-file resolution.",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
+    ].join("\n"),
+    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
+    url: "https://example.test/issues/1",
+  });
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          A,
+          "--after",
+          B,
+        ],
+        root,
+      ),
+      0,
+    );
+    const persisted = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.isTrue(persisted.flatMap((entry) => entry.censusFiles).every((file) => file.subject));
+    assert.strictEqual(
+      persisted[0]?.censusFiles[0]?.subject,
+      "feat(fork): durable legacy identity",
+    );
+
+    runCommandText("git", ["prune", "--expire=now"], { cwd: root });
+    assert.throws(() =>
+      runCommandText("git", ["cat-file", "-e", `${legacyCommit}^{commit}`], { cwd: root }),
+    );
+    assert.deepStrictEqual(
+      censusChurn(
+        enrichCensusSubjects(persisted, () => {
+          throw new Error("old Git object was consulted");
+        }),
+      ).regressions,
+      [],
+    );
+    assert.strictEqual(run(["render"], root), 0);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
+    else process.env.FAKE_GH_RESPONSE = previousResponse;
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
