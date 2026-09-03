@@ -56,7 +56,7 @@ export type ConflictClass =
   | "human";
 
 /** Who signed a row. `TODO` is the absence of provenance, not a third decider. */
-export type DecidedBy = "human" | "agent" | "TODO";
+export type DecidedBy = "human" | "agent" | "TODO" | `inherited (${string})`;
 
 export interface ConflictRow {
   readonly commit: string;
@@ -100,6 +100,16 @@ export interface RecordDecision {
   readonly subject: string;
   readonly action: string;
   readonly decidedBy: Exclude<DecidedBy, "TODO">;
+}
+
+/** A human verdict that survived a previous walk via `refs/fork/churn`, carried into the next render. */
+export interface InheritedVerdict {
+  readonly subject: string;
+  readonly domain: string;
+  readonly action: string;
+  readonly decidedBy: Exclude<DecidedBy, "TODO">;
+  readonly sourceTag: string;
+  readonly sourceSha?: string;
 }
 
 /**
@@ -151,6 +161,7 @@ export interface SyncReport {
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
   readonly recordDecisions?: ReadonlyArray<RecordDecision>;
+  readonly inheritedVerdicts?: ReadonlyArray<InheritedVerdict>;
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   readonly behaviourSeamStopPresented?: boolean;
@@ -469,10 +480,33 @@ export const renderRecord = (report: SyncReport): string => {
       decidedBy: filled.decidedBy,
     });
   }
-  const decisionRows = [...decisions.values()].map(
-    (row) =>
-      `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${row.decidedBy} |`,
+  // A human verdict that survived a previous walk via `refs/fork/churn` carries forward, marked
+  // inherited. Only candidates that are still candidates and have not been answered in this record
+  // receive the carry; a fresh human or agent signature always wins.
+  const inheritedBySubject = new Map(
+    (report.inheritedVerdicts ?? []).map((row) => [row.subject, row]),
   );
+  for (const inherited of report.inheritedVerdicts ?? []) {
+    const existing = decisions.get(inherited.subject);
+    if (existing === undefined) continue;
+    if (!existing.classSummary.includes("retire-candidate")) continue;
+    if (existing.action !== "TODO") continue;
+    decisions.set(inherited.subject, {
+      ...existing,
+      classSummary: `${existing.classSummary}; inherited from ${inherited.sourceTag}`,
+      action: inherited.action,
+      decidedBy: `inherited (${inherited.sourceTag})` as DecidedBy,
+    });
+  }
+  const decisionRows = [...decisions.values()].map((row) => {
+    const inherited = inheritedBySubject.get(row.subject);
+    const decidedCell =
+      inherited !== undefined &&
+      row.decidedBy === (`inherited (${inherited.sourceTag})` as DecidedBy)
+        ? row.decidedBy
+        : row.decidedBy;
+    return `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${decidedCell} |`;
+  });
   return [
     "## Header",
     "",
@@ -557,10 +591,19 @@ const splitTableCells = (line: string): ReadonlyArray<string> | null => {
 const invalidConflictCell = (column: string, detail: string): Error =>
   new Error(`invalid conflict ${column} cell: ${detail}`);
 
+export const isInheritedDecidedBy = (cell: string): boolean =>
+  cell.startsWith("inherited (") && cell.endsWith(")");
+
+export const inheritedTarget = (decidedBy: string): string | null => {
+  if (!isInheritedDecidedBy(decidedBy)) return null;
+  return decidedBy.slice("inherited (".length, -1);
+};
+
 /** An absent column is a record written before provenance existed, so it carries none. */
 const readDecidedBy = (cell: string | undefined, invalid: (detail: string) => Error): DecidedBy => {
   if (cell === undefined || cell === "TODO") return "TODO";
   if (cell === "human" || cell === "agent") return cell;
+  if (cell !== undefined && isInheritedDecidedBy(cell)) return cell as DecidedBy;
   throw invalid(cell);
 };
 
@@ -695,7 +738,45 @@ export const filledDecisionCells = (record: string): ReadonlyArray<RecordDecisio
       invalidDecisionCell("Decided by", detail),
     );
     if (decidedBy === "TODO") continue;
-    rows.push({ subject: unescapeCell(subject[1] ?? "", "Exact subject"), action, decidedBy });
+    // Inherited verdicts never read back as live operator input; they are the carry-form.
+    if (isInheritedDecidedBy(decidedBy)) continue;
+    rows.push({
+      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
+      action,
+      // Inherited cells were already guarded above.
+      decidedBy: decidedBy as Exclude<DecidedBy, "TODO">,
+    });
+  }
+  return rows;
+};
+
+export const inheritedDecisionCells = (
+  record: string,
+): ReadonlyArray<InheritedVerdict & { readonly sourceTag: string }> => {
+  const section = recordSection(record, "## Fork commits");
+  const rows: Array<InheritedVerdict & { readonly sourceTag: string }> = [];
+  for (const line of section.split("\n")) {
+    const cells = splitTableCells(line);
+    if (cells === null || cells[0] === "Exact subject") continue;
+    if (cells.every((cell) => /^-+$/.test(cell))) continue;
+    if (cells.length !== 5 && cells.length !== 6) continue;
+    const subject = /^`([^`]*)`$/.exec(cells[0] ?? "");
+    const domain = cells[1] ?? "";
+    const action = cells[3] ?? "";
+    if (subject === null || !["keep", ...DECISION_ACTIONS, "retire", "partial"].includes(action))
+      continue;
+    const decidedBy = readDecidedBy(cells[5], (detail) =>
+      invalidDecisionCell("Decided by", detail),
+    );
+    const sourceTag = inheritedTarget(decidedBy);
+    if (sourceTag === null) continue;
+    rows.push({
+      subject: unescapeCell(subject[1] ?? "", "Exact subject"),
+      domain,
+      action,
+      decidedBy: decidedBy as Exclude<DecidedBy, "TODO">,
+      sourceTag,
+    });
   }
   return rows;
 };
