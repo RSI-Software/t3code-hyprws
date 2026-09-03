@@ -736,6 +736,28 @@ const makeWsRpcLayer = (
           });
         });
 
+      const recordZmuxSessionBindSuccess = (input: {
+        readonly threadId: ThreadId;
+        readonly worktreePath: string;
+        readonly target: string;
+        readonly outcome: ZmuxSessionBinder.ZmuxBindOutcome;
+      }) =>
+        Effect.gen(function* () {
+          const createdAt = yield* nowIso;
+          yield* appendThreadActivity({
+            threadId: input.threadId,
+            kind: "zmux-session.bound",
+            summary: `zmux session ${input.outcome}`,
+            createdAt,
+            payload: {
+              outcome: input.outcome,
+              target: input.target,
+              worktreePath: input.worktreePath,
+            },
+            tone: "info",
+          }).pipe(Effect.ignoreCause({ log: false }));
+        });
+
       const recordWorktrunkHookFailure = (input: {
         readonly threadId: ThreadId;
         readonly worktreePath: string;
@@ -1178,12 +1200,21 @@ const makeWsRpcLayer = (
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
-              const bindResult = yield* zmuxSessionBinder.bind(targetWorktreePath);
+              const bindResult = yield* zmuxSessionBinder.bind(targetWorktreePath, {
+                projectPath: bootstrap.prepareWorktree.projectCwd,
+              });
               if (bindResult.status === "failed") {
                 yield* recordZmuxSessionBindFailure({
                   threadId: command.threadId,
                   worktreePath: targetWorktreePath,
                   notice: bindResult.notice,
+                });
+              } else if (bindResult.status === "bound") {
+                yield* recordZmuxSessionBindSuccess({
+                  threadId: command.threadId,
+                  worktreePath: targetWorktreePath,
+                  target: bindResult.target,
+                  outcome: bindResult.outcome,
                 });
               }
               if (bootstrap.prepareWorktree.worktrunk) {
