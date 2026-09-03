@@ -1953,6 +1953,7 @@ it("re-reads the bot snapshot and refuses apply when its mode was restored to on
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
   setBotResponses(runner, "on");
   try {
     assert.throws(
@@ -1964,9 +1965,12 @@ it("re-reads the bot snapshot and refuses apply when its mode was restored to on
         ),
       /auto-rebase bot mode is on; pause it before continuing/,
     );
+    // The lease probe reads origin/hyprws before the bot gets the floor; when
+    // the lease is still live the bot complaint wins first. When no lease live
+    // probe is kept, staleness first would have won.
     assert.deepStrictEqual(
-      runner.calls.slice(0, 2).map(({ args }) => args),
-      [modeArgs, runListArgs],
+      runner.calls.slice(0, 3).map(({ args }) => args),
+      [["rev-parse", "origin/hyprws^{commit}"], modeArgs, runListArgs],
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -2276,6 +2280,7 @@ it("refuses apply when the pushed lane moved after the CI verdict", () => {
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
   NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
   const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
   setBotResponses(runner, "candidate");
   runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
   runner.set(
@@ -2331,7 +2336,7 @@ it("unblock-apply refuses when origin/hyprws moved", () => {
           root,
           runner,
         ),
-      /orientation no longer coheres with live refs/,
+      /staleness: origin\/hyprws moved past the report's lease/,
     );
     assert.isFalse(runner.calls.some(({ command }) => command === "vp"));
   } finally {
@@ -3721,6 +3726,159 @@ it("carries a human verdict from the churn ledger into the rendered record as in
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// RSI-Software/t3code-hyprws#388: the next session discovers it only when every
+// verb names the staleness and the restart path slotted. The green Gate 3 in
+// session N must void visibly on any movement of hyprws, with the old/new SHA
+// and the trash line for the orphaned rehearsal.
+it("names the staleness and trash when any verb runs on a voided report", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));
+  const report = (stage: "replayed" | "checked") =>
+    ({
+      schemaVersion: 1 as const,
+      stage,
+      repositoryRoot: root,
+      reportPath:
+        NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-report-")) + "/report.json",
+      recordPath:
+        NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-report-")) + "/record.md",
+      issue: { number: 352, blockingSha: A, title: "blocked" },
+      candidates: [{ tag: "v1.2.3", sha: B }],
+      bot: { mode: "candidate" as const, lastRun: null, nextFire: "2026-09-02T08:23:00.000Z" },
+      target: { tag: "v1.2.3", sha: B },
+      source: { sha: C, expectedOld: C, sharedBase: A },
+      lane: { branch, worktree },
+      conflicts: [],
+      verification: [],
+      ...(stage === "replayed"
+        ? { originalMessages: "msg", originalCount: 1 }
+        : { installedHead: B, ciHead: B, orientation: coherentOrientation }),
+    }) as unknown as SyncReport;
+  for (const stage of ["replayed", "checked"] as const) {
+    const rep = report(stage);
+    NodeFS.writeFileSync(rep.reportPath, JSON.stringify(rep));
+    NodeFS.writeFileSync(rep.recordPath, renderRecord(rep));
+    const runner = new FakeRunner();
+    runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${A}\n` });
+    setBotResponses(runner, "candidate");
+    try {
+      const verb = stage === "replayed" ? "unblock-check" : "unblock-apply";
+      const args =
+        stage === "replayed"
+          ? [verb, "--report", rep.reportPath]
+          : [verb, "--report", rep.reportPath, "--record", rep.recordPath];
+      let message = "";
+      try {
+        execute(args, root, runner);
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      assert.match(message, /staleness: origin\/hyprws moved past the report's lease/);
+      assert.match(message, /report leased at c+/);
+      assert.match(message, /origin\/hyprws is now a+/);
+      assert.match(message, /restart at vp run fork:sync unblock-list/);
+      assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
+      assert.match(message, /orphaned/);
+      // Do NOT emit an rm command.
+      assert.isFalse(runner.calls.some(({ args }) => args.join(" ").includes(" rm ")));
+      assert.isFalse(
+        runner.calls.some(({ args }) => args.join(" ").includes(" trash") && args.includes("rm")),
+      );
+    } finally {
+      NodeFS.rmSync(NodePath.dirname(rep.reportPath), { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(rep.recordPath), { recursive: true, force: true });
+    }
+  }
+  NodeFS.rmSync(worktree, { recursive: true, force: true });
+  NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
+it("does not refuse when origin/hyprws is still at the leased SHA", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  // Make every guard the apply reads stay on the report: lease is still live,
+  // orientation coheres (source C / shared A), and the lane lives where the
+  // report bound it.
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner, C, B, A);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "ls-remote",
+      "--heads",
+      "origin",
+      `refs/heads/${checked.lane!.branch}`,
+    ],
+    { stdout: `${B}\trefs/heads/${checked.lane!.branch}\n` },
+  );
+  // The record is signed (checked has no decisions), so the only refusal
+  // that remains would be the staleness one — which should be silent here.
+  const branch = checked.lane!.branch;
+  runner.set("git", ["status", "--porcelain"], { stdout: "" });
+  // Stub the gate — the full tree read is not exercise its branches here; the
+  // staleness is the _last_ guard before push, so any non-staleness refusal
+  // proves the lease was correctly read as live.
+  try {
+    let staleness = false;
+    try {
+      execute(
+        ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+        root,
+        runner,
+      );
+    } catch (e) {
+      if (/staleness: origin\/hyprws moved/.test(String(e))) staleness = true;
+    }
+    assert.isFalse(staleness, "staleness refusal must be silent when hyprws has not moved");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("renders the lease boundary and what movement voids it in the checked stop", () => {
+  const root = fixtureRoot();
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+  });
+  try {
+    const record = renderRecord(checked);
+    assert.include(
+      record,
+      `Lease: report leased at \`${C}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal`,
+    );
+    assert.include(record, "restart at `vp run fork:sync unblock-list`");
+    assert.include(
+      record,
+      "Stop. Lease boundary: any movement of `origin/hyprws` past the lease above voids this green rehearsal.",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
 });
 
