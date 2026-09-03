@@ -8,7 +8,11 @@ import { readHyprctlWorkspace, type WorkspaceRef } from "./lib/hyprland-workspac
 
 export { UsageError as WorkspaceReporterUsageError } from "./lib/fork-cli.ts";
 
-export { parseHyprlandWorkspaceResponse, readHyprctlWorkspace } from "./lib/hyprland-workspace.ts";
+export {
+  parseHyprlandWorkspaceResponse,
+  readHyprctlWorkspace,
+  selectHyprlandInstance,
+} from "./lib/hyprland-workspace.ts";
 export type { WorkspaceRef } from "./lib/hyprland-workspace.ts";
 
 const HELP = `Report the focused Hyprland workspace and the command's originating app workspace.
