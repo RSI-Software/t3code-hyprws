@@ -540,18 +540,22 @@ The replacement must use the existing file-save path and avoid loading its edito
 
 ### Rebase scan
 
-| Path                                                     | Why it matters                                           |
-| -------------------------------------------------------- | -------------------------------------------------------- |
-| `apps/web/src/components/files/FilePreviewPanel.tsx`     | Owns the Rich/Source entry point and file-save boundary. |
-| `apps/web/src/components/files/MarkdownRichEditor.tsx`   | Fork-only Milkdown lifecycle and change publisher.       |
-| `apps/web/src/components/files/markdownPipeline.ts`      | Fork-only syntax and serialization chain.                |
-| `apps/web/src/components/files/filePreviewMode.ts`       | Keeps MDX outside the rich-editing boundary.             |
-| `apps/web/src/markdown-links.ts`                         | Resolves file links from rich previews.                  |
-| `apps/web/src/markdown-links.test.ts`                    | Covers Markdown file links.                              |
-| `apps/web/package.json`, `pnpm-lock.yaml`                | Milkdown and round-trip-test dependencies.               |
-| `apps/web/src/components/ChatMarkdown.tsx`               | Upstream preview changes may replace this domain.        |
-| `apps/web/src/components/files/FilePreviewPanel.test.ts` | Covers rich-edit gating beside upstream preview edits.   |
-| `docs/README.md`                                         | Indexes the fork's Markdown editing documentation.       |
+| Path                                                                                 | Why it matters                                                                     |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`                                 | Narrow mount for the fork-owned Rich/Source boundary in the upstream preview.      |
+| `apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx`                      | Fork-owned mode gating, lazy editor mount, and existing file-save-path adapter.    |
+| `apps/web/src/components/files/RichMarkdownPreviewBoundary.fork.test.ts`             | Guards Markdown, MDX, host-file, reveal, truncation, and ordinary-file modes.      |
+| `apps/web/src/components/files/MarkdownRichEditor.tsx`                               | Fork-only Milkdown lifecycle and change publisher.                                 |
+| `apps/web/src/components/files/markdownPipeline.ts`, `markdownPipeline.test.ts`      | Fork-only syntax, serialization, and round-trip coverage.                          |
+| `apps/web/src/components/files/markdownEditorPresentation.ts`                        | Fork-only task, link, code-block, and syntax presentation.                         |
+| `apps/web/src/components/files/richMarkdownEditorLinks.ts`                           | Normalizes document-relative rich-editor links after the shared upstream resolver. |
+| `apps/web/src/components/files/richMarkdownEditorLinks.fork.test.ts`                 | Guards workspace-contained, escaping, Windows, and external rich-editor links.     |
+| `apps/web/src/components/files/markdownFrontmatter.ts`, `markdownSerializerFixes.ts` | Fork-only frontmatter and list round-trip support.                                 |
+| `apps/web/src/components/files/markdown-rich-editor.css`                             | Fork-only rich editor presentation.                                                |
+| `apps/web/package.json`                                                              | Accepted Milkdown, frontmatter, and round-trip-test manifests.                     |
+| `pnpm-lock.yaml`                                                                     | Generated from accepted manifests by the registered lockfile policy, never merged. |
+| `apps/web/src/components/ChatMarkdown.tsx`                                           | Upstream preview changes may replace this domain.                                  |
+| `docs/README.md`                                                                     | Indexes the fork's Markdown editing documentation.                                 |
 
 ## fork-meta
 
