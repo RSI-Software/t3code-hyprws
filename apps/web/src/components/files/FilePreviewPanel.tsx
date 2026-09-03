@@ -18,9 +18,9 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { Code2, Eye, FolderTree, Globe2, LoaderCircle, PenLine } from "lucide-react";
+import { Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -67,25 +67,19 @@ import { installFileEditorDismissal } from "./fileEditorDismissal";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
-import {
-  isMarkdownPreviewFile,
-  isMarkdownRichEditFile,
-  setMarkdownTaskChecked,
-  shouldShowFileExplorer,
-} from "./filePreviewMode";
+import { setMarkdownTaskChecked, shouldShowFileExplorer } from "./filePreviewMode";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
+import {
+  RichMarkdownEditIcon,
+  RichMarkdownPreviewBoundary,
+  resolveRichMarkdownPreviewMode,
+} from "./RichMarkdownPreviewBoundary";
 import {
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
-
-const MarkdownRichEditor = lazy(() =>
-  import("./MarkdownRichEditor").then(({ MarkdownRichEditor }) => ({
-    default: MarkdownRichEditor,
-  })),
-);
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -973,66 +967,9 @@ function RenderedMarkdownSurface({
   );
 }
 
-function renderedToggleLabel(
-  isMarkdown: boolean,
-  rendered: boolean,
-  isRichMarkdown = false,
-): string {
-  if (isMarkdown) {
-    if (rendered) return "Show markdown source";
-    return isRichMarkdown ? "Edit as rich markdown" : "Show rendered markdown";
-  }
+function renderedToggleLabel(isMarkdown: boolean, rendered: boolean): string {
+  if (isMarkdown) return rendered ? "Show markdown source" : "Show rendered markdown";
   return rendered ? "Show HTML source" : "Show rendered page";
-}
-
-function RichMarkdownSurface({
-  environmentId,
-  cwd,
-  relativePath,
-  contents,
-  resolvedTheme,
-  wordWrap,
-  onOpenFile,
-  onPendingChange,
-}: Omit<
-  EditableFileSurfaceProps,
-  "composerDraftTarget" | "revealLine" | "revealRequestId" | "onPostRender"
-> & {
-  readonly onOpenFile: (relativePath: string) => void;
-}) {
-  const saveCoordinator = useFileSaveCoordinator({
-    environmentId,
-    cwd,
-    relativePath,
-    onPendingChange,
-  });
-
-  return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-          <LoaderCircle className="size-5 animate-spin" />
-        </div>
-      }
-    >
-      <MarkdownRichEditor
-        value={contents}
-        cwd={cwd}
-        relativePath={relativePath}
-        onOpenFile={onOpenFile}
-        theme={resolvedTheme}
-        wordWrap={wordWrap}
-        onChange={(nextContents) => {
-          const currentContents =
-            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-            contents;
-          if (nextContents === currentContents) return;
-          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-          saveCoordinator.change(nextContents);
-        }}
-      />
-    </Suspense>
-  );
 }
 
 function initialExplorerOpen(): boolean {
@@ -1112,18 +1049,19 @@ export default function FilePreviewPanel({
     null,
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
-  const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
-  const isRichMarkdown = relativePath ? isMarkdownRichEditFile(relativePath) : false;
   // A reveal still wins over the preference: the line only exists in the source.
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown =
-    isMarkdown &&
-    file.data !== null &&
-    !file.data.truncated &&
-    renderMarkdownPreferred &&
-    revealHandled;
+  const richMarkdownPreview = resolveRichMarkdownPreviewMode({
+    relativePath,
+    fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
+    renderPreferred: renderMarkdownPreferred,
+    revealHandled,
+    readOnly: isHostFile,
+  });
+  const isMarkdown = richMarkdownPreview.isMarkdown;
+  const renderMarkdown = richMarkdownPreview.rendered;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const canToggleRendered = attachment === undefined && (isMarkdown || isHtml);
   const rendered = isMarkdown ? renderMarkdown : renderBrowserFile;
@@ -1250,7 +1188,7 @@ export default function FilePreviewPanel({
                   <Toggle
                     className="shrink-0"
                     pressed={rendered}
-                    disabled={isMarkdown && (file.data === null || file.data.truncated)}
+                    disabled={richMarkdownPreview.toggleDisabled}
                     onPressedChange={(pressed) => {
                       setRenderedPreferred(pressed);
                       setHandledReveal(
@@ -1259,14 +1197,18 @@ export default function FilePreviewPanel({
                           : null,
                       );
                     }}
-                    aria-label={renderedToggleLabel(isMarkdown, rendered, isRichMarkdown)}
+                    aria-label={
+                      isMarkdown
+                        ? richMarkdownPreview.toggleLabel
+                        : renderedToggleLabel(false, rendered)
+                    }
                     variant="ghost"
                     size="sm"
                   >
                     {rendered ? (
                       <Code2 className="size-3.5" />
-                    ) : isRichMarkdown ? (
-                      <PenLine className="size-3.5" />
+                    ) : richMarkdownPreview.isRichMarkdown ? (
+                      <RichMarkdownEditIcon className="size-3.5" />
                     ) : (
                       <Eye className="size-3.5" />
                     )}
@@ -1274,9 +1216,9 @@ export default function FilePreviewPanel({
                 }
               />
               <TooltipPopup>
-                {isMarkdown && file.data?.truncated
-                  ? "Rich editing is unavailable for truncated files"
-                  : renderedToggleLabel(isMarkdown, rendered, isRichMarkdown)}
+                {isMarkdown
+                  ? richMarkdownPreview.tooltipLabel
+                  : renderedToggleLabel(false, rendered)}
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -1376,19 +1318,18 @@ export default function FilePreviewPanel({
             </div>
           ) : relativePath && file.data ? (
             isMarkdown && renderMarkdown ? (
-              isRichMarkdown && !isHostFile ? (
-                <RichMarkdownSurface
-                  key={relativePath}
-                  environmentId={environmentId}
-                  cwd={cwd}
-                  relativePath={relativePath}
-                  contents={file.data.contents}
-                  resolvedTheme={resolvedTheme}
-                  wordWrap={wordWrap}
-                  onOpenFile={onOpenFile}
-                  onPendingChange={onPendingChange}
-                />
-              ) : (
+              <RichMarkdownPreviewBoundary
+                key={relativePath}
+                enabled={richMarkdownPreview.richEditorEnabled}
+                environmentId={environmentId}
+                cwd={cwd}
+                relativePath={relativePath}
+                contents={file.data.contents}
+                theme={resolvedTheme}
+                wordWrap={wordWrap}
+                onOpenFile={onOpenFile}
+                onPendingChange={onPendingChange}
+              >
                 <RenderedMarkdownSurface
                   environmentId={environmentId}
                   cwd={cwd}
@@ -1398,7 +1339,7 @@ export default function FilePreviewPanel({
                   readOnly={isHostFile}
                   onPendingChange={onPendingChange}
                 />
-              )
+              </RichMarkdownPreviewBoundary>
             ) : file.data.truncated || isHostFile ? (
               <DiffWorkerPoolProvider>
                 <Virtualizer
