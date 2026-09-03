@@ -399,12 +399,13 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;
+  // The document is a frozen mirror (#476). Precompute it before moving the ref so a
+  // malformed delta cannot leave a locally appended row behind after a failed command.
+  const documentPath = NodePath.join(root, DOCUMENT_PATH);
+  const renderedDocument = NodeFS.existsSync(documentPath) ? renderForRoot(root, next) : null;
   writeChurnLedger(root, next, `churn: ${tag}`);
   if (push) pushBotRef(root, CHURN_REF);
-  // The document is a frozen mirror (#476); keep it in step for as long as it exists.
-  const documentPath = NodePath.join(root, DOCUMENT_PATH);
-  if (NodeFS.existsSync(documentPath))
-    NodeFS.writeFileSync(documentPath, renderForRoot(root, next));
+  if (renderedDocument !== null) NodeFS.writeFileSync(documentPath, renderedDocument);
   process.stdout.write(
     `appended ${tag}: ${conflicts.length} conflict(s) on ${CHURN_REF}${push ? " (pushed)" : ""}\n`,
   );

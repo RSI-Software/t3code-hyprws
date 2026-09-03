@@ -9,6 +9,7 @@ import { assert, it } from "@effect/vitest";
 import {
   censusChurn,
   commentRestId,
+  DOCUMENT_PATH,
   enrichCensusSubjects,
   hotSeams,
   parseCensusFiles,
@@ -343,7 +344,7 @@ it("fails a path and logical commit seam that returns after a census gap", () =>
   );
 });
 
-it("returns only regressions present in the newest census", () => {
+it("keeps a returned seam failed until the newest census is clean", () => {
   const path = "apps/web/src/regressed.ts";
   const subject = "feat(web): keep the seam";
   const entries = [
@@ -352,6 +353,23 @@ it("returns only regressions present in the newest census", () => {
     censusEntry("v3", [censusFile(path, "3333333", subject)]),
   ];
 
+  assert.deepStrictEqual(
+    censusChurn(entries, {
+      tag: "v4",
+      fixedAt: null,
+      files: [censusFile(path, "4444444", subject)],
+    }).regressions,
+    [
+      {
+        path,
+        commit: "4444444",
+        subject,
+        domain: "fork-meta",
+        tag: "v4",
+        fixedAt: B,
+      },
+    ],
+  );
   assert.deepStrictEqual(
     censusChurn(entries, {
       tag: "v4",
@@ -618,6 +636,65 @@ it("enriches every legacy census subject on the next append", () => {
       [],
     );
     assert.strictEqual(run(["render"], root), 0);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
+    else process.env.FAKE_GH_RESPONSE = previousResponse;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("renders the frozen mirror before mutating the churn ref", () => {
+  const root = ledgerRepository([censusEntry("v1", [])]);
+  const before = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
+  const record = renderRecord(reportFixture());
+  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  NodeFS.writeFileSync(NodePath.join(root, DOCUMENT_PATH), "stale\n");
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousResponse = process.env.FAKE_GH_RESPONSE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: [
+      "## Sequential rebase census",
+      "",
+      "A throwaway rebase rehearsal to `v2` found 1 conflicting fork commit and 1 conflict-file resolution.",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/current.ts` | 1 | `3333333 fix(fork): current` | fork-meta |",
+    ].join("\n"),
+    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
+    url: "https://example.test/issues/1",
+  });
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v2",
+          "--before",
+          A,
+          "--after",
+          B,
+        ],
+        root,
+      ),
+      1,
+    );
+    assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), before);
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;

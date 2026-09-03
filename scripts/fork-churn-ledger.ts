@@ -158,7 +158,7 @@ export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
   return rows;
 };
 
-/** Silent seams as `renderRecord` writes them: `- \`path\` [behaviour|type]: summary`. */
+/** Read the target tag named by the generated sequential rebase census. */
 export const parseCensusTag = (body: string): string => {
   const tag =
     /A throwaway rebase rehearsal to `([^`]+)` found /.exec(
@@ -466,7 +466,10 @@ export const censusChurn = (
       if (presentSeams.has(key)) continue;
       presentSeams.add(key);
       const previous = seams.get(key);
-      if (previous?.present === false && previous.fixedAt !== null) {
+      // Once a fixed seam returns, it remains a regression for every census where it
+      // is still present. A later clean census clears the report because only the
+      // newest snapshot's present seams are collected.
+      if (previous?.fixedAt !== null && previous?.fixedAt !== undefined) {
         regressions.push({
           path: file.path,
           commit: file.commit,
