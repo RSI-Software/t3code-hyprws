@@ -10,13 +10,10 @@ import { getProviderModelCapabilities } from "../../providerModels";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
-  renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
-import { DraftId } from "../../composerDraftStore";
 
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -490,30 +487,6 @@ describe("provider traits render guards", () => {
       planModeEnabled: true,
     };
 
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
-  });
-
-  it("renders an agent-only descriptor in its dedicated control", () => {
-    const models = modelWith([
-      selectDescriptor("agent", [
-        { id: "default", label: "Default", isDefault: true },
-        { id: "fable", label: "fable" },
-      ]),
-    ]);
-    const args = {
-      provider: PROVIDER,
-      draftId: DraftId.make("draft-agent"),
-      model: MODEL,
-      models,
-      modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
-      planModeEnabled: false,
-    };
-
-    expect(renderProviderAgentPicker(args)).not.toBeNull();
-    expect(renderProviderAgentMenuContent(args)).not.toBeNull();
     expect(renderProviderTraitsPicker(args)).toBeNull();
     expect(renderProviderTraitsMenuContent(args)).toBeNull();
   });
