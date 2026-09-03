@@ -236,7 +236,7 @@ Previews, composer drafts, and preview IPC are namespaced per window. The preloa
 Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
-QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; Pull Requests shares its search contract through `apps/web/src/components/pullRequest/pullRequestListRoute.ts`, adds `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`, and resolves the project-window entry point in `apps/web/src/components/sidebar/SidebarChrome.tsx`.
+QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; `apps/web/src/components/pullRequest/PullRequestProjectScope.ts` adapts the upstream Pull Requests page through narrow scope and filter calls, while the project route explicitly reuses the hub route's exported page component and search validator. `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` adds the scoped route, and `apps/web/src/components/sidebar/SidebarChrome.tsx` resolves its project-window entry point.
 Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
 
 An auto-update relaunch is one of those fork-only defects.
@@ -303,7 +303,8 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/desktopProjectWindows.ts`                                               | Bridge detection, the scoped window ref, and the brand target.               |
 | `apps/web/src/windowProjectScope.ts`                                                  | Shared project-window list-scope resolver and storage key.                   |
 | `apps/web/src/components/WindowProjectScopeToggle.tsx`                                | Shared project/all-project segmented control.                                |
-| `apps/web/src/components/pullRequest/pullRequestListRoute.ts`                         | Search contract shared by the hub and project routes.                        |
+| `apps/web/src/components/pullRequest/PullRequestProjectScope.ts`                      | Fork-owned physical scope policy and project-route adapter.                  |
+| `apps/web/src/components/pullRequest/PullRequestProjectScope.fork.test.ts`            | Guards physical, all-project, remote, and search-patch scope behavior.       |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                                   | Resolves Pull Requests and brand navigation in the active window scope.      |
 | `apps/web/src/components/ChatView.tsx`                                                | Starts and navigates threads within project-window scope.                    |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                           | Project settings reached from scoped project-window chrome.                  |
@@ -331,8 +332,8 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/window/DesktopApplicationMenu.test.ts`                              | Covers the menu entries that open a project window.                          |
 | `apps/desktop/src/window/DesktopWindow.test.ts`                                       | Covers plural windows, preview namespacing, and the dev launch seam.         |
 | `apps/web/src/components/AppSidebarLayout.tsx`                                        | Carries the physical project sidebar scope.                                  |
-| `apps/web/src/components/pullRequest/PullRequestListFilters.tsx`                      | Filters honour the project-window scope.                                     |
-| `apps/web/src/components/pullRequest/PullRequestListFilters.test.tsx`                 | Covers the scoped filter behaviour.                                          |
+| `apps/web/src/components/pullRequest/PullRequestListFilters.tsx`                      | Narrow visibility flag delegates project-window scope to the fork adapter.   |
+| `apps/web/src/components/pullRequest/PullRequestListFilters.fork.test.tsx`            | Guards the scoped picker seam without extending the upstream test file.      |
 | `apps/web/src/routes/_chat.draft.$draftId.tsx`                                        | Hub draft route that must keep the project routes reachable.                 |
 | `apps/web/src/routes/_chat.pull-requests.tsx`                                         | Hub twin of the scoped Pull Requests route.                                  |
 | `packages/contracts/src/provider.ts`                                                  | Carries `projectId` on provider session start.                               |
