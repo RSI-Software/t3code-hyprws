@@ -4,12 +4,9 @@ import {
   changeRequestRepositoryUrl,
   findProjectForChangeRequest,
   findProjectOnChangeRequestHost,
-  findProjectForGitHubLink,
-  findProjectForGitHubIssue,
   gitHubPullRequestBrowserUrl,
   matchesLinkedPullRequestUrl,
   parseChangeRequestUrl,
-  parseGitHubIssueUrl,
   pullRequestCandidateUrlFromReferenceAutolink,
   shouldOpenPullRequestExternally,
 } from "./openPullRequestLink";
