@@ -263,6 +263,7 @@ A `fork-meta` chore that needs no review may commit directly to `hyprws`.
 
 `.github/workflows/hyprws-ci.yml` is the fork's required check.
 Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync](../operations/fork-sync.md).
+`ghb pr merge` refuses a stale merge ref, so rebase onto `hyprws` after a sibling lands before merging.
 
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
@@ -514,6 +515,8 @@ Route work should cover direct entry, reload recovery, invalid identities, and n
 
 Run targeted tests, lint, and typechecking for the touched packages.
 Run the relevant production build after material desktop or web changes.
+A delegated worker runs `vp i` in its own worktree first.
+Every check it reports ran in that worktree.
 
 Before declaring visible or stateful behavior complete, perform one integrated pass in the real client with permission.
 Check web and mobile when shared state or navigation changes apply to those surfaces.
