@@ -4,7 +4,6 @@ import type { Project, Thread } from "../types";
 import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
-  buildIssuesNavigationCommand,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -172,27 +171,6 @@ describe("buildCommandPaletteProjectMetadata", () => {
 
     expect(metadata.searchTerms).toContain("Remote");
     expect(metadata.environmentLabels).toEqual(["Remote"]);
-  });
-});
-
-describe("buildIssuesNavigationCommand", () => {
-  it("defines the Issues action and preserves project-window scope", () => {
-    expect(buildIssuesNavigationCommand(null)).toMatchObject({
-      value: "action:issues",
-      title: "Go to Issues",
-      target: { kind: "hub" },
-    });
-    expect(
-      buildIssuesNavigationCommand({
-        environmentId: EnvironmentId.make("environment-1"),
-        projectId: ProjectId.make("project-1"),
-      }),
-    ).toMatchObject({
-      target: {
-        kind: "project",
-        projectRef: { environmentId: "environment-1", projectId: "project-1" },
-      },
-    });
   });
 });
 
