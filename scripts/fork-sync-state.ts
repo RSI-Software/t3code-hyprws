@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - Sync records are standalone operator state.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Sync records are standalone operator state.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -8,7 +8,7 @@ import {
   requireCommandSuccess,
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
-import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
+import { FORK_REPOSITORY, isNightlyUpstreamTag } from "./lib/fork-policy.ts";
 
 export const REPOSITORY = FORK_REPOSITORY;
 export const BLOCK_LABEL = "rebase-blocked";
@@ -57,6 +57,156 @@ export type ConflictClass =
 
 /** Who signed a row. `TODO` is the absence of provenance, not a third decider. */
 export type DecidedBy = "human" | "agent" | "TODO" | `inherited (${string})`;
+
+/** Runtime identity recorded for each side of the nightly two-agent control. */
+export interface AgentProvenance {
+  readonly iface: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly session: string;
+}
+
+export const NIGHTLY_REVIEW_EVIDENCE = [
+  "generated target",
+  "blocking marker",
+  "every non-mechanical verdict",
+  "rehearsal evidence",
+  "pushed-lane CI",
+  "silent seams",
+  "live expected-old lease",
+] as const;
+
+export const NIGHTLY_WITHHOLD_RULES = [
+  "undefined fork intent",
+  "non-equivalent retire",
+  "user-visible behaviour change",
+  "fork domain or tier topology change",
+  "bypass of a gate",
+  "evidence cannot be verified",
+] as const;
+
+export interface NightlyReviewEvidence {
+  readonly target: string;
+  readonly targetSha: string;
+  readonly blockingSha: string;
+  readonly expectedOld: string;
+  readonly installedHead: string;
+  readonly ciHead: string;
+  readonly laneBranch: string;
+  readonly recordDigest: string;
+  readonly inspected: typeof NIGHTLY_REVIEW_EVIDENCE;
+}
+
+export interface NightlyReview {
+  readonly status: "signed-off" | "withheld";
+  readonly proposer: AgentProvenance;
+  readonly reviewer: AgentProvenance;
+  readonly reviewedAt: string;
+  readonly evidence?: NightlyReviewEvidence;
+  readonly reason?: string;
+}
+
+const PROVENANCE_PART = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+
+const requireNonemptyString = (value: unknown, field: string): string => {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`invalid ${field}`);
+  return value;
+};
+
+/** Parse the markdown-safe identity shape emitted by the agent runtime. */
+export const requireAgentProvenance = (value: unknown, field: string): AgentProvenance => {
+  if (typeof value !== "object" || value === null) throw new Error(`invalid ${field}`);
+  const identity = value as Record<string, unknown>;
+  const iface = requireNonemptyString(identity.iface, `${field} interface`);
+  const provider = requireNonemptyString(identity.provider, `${field} provider`);
+  const model = requireNonemptyString(identity.model, `${field} model`);
+  const session = requireNonemptyString(identity.session, `${field} session`);
+  if (![iface, provider, model, session].every((part) => PROVENANCE_PART.test(part)))
+    throw new Error(`invalid ${field}: identity contains unsupported characters`);
+  return { iface, provider, model, session };
+};
+
+/** Accept concrete Claude Opus 4+ model IDs, not legacy or descriptive aliases. */
+export const isClaudeOpusModel = (model: string): boolean => {
+  const match = /^claude-(?:(\d+(?:[-.]\d+)*)-)?opus(?:[-.](\d+(?:[-.]\d+)*))(?:-\d{8})?$/i.exec(
+    model,
+  );
+  const version = match?.[1] ?? match?.[2];
+  return version !== undefined && Number.parseInt(version.split(/[.-]/)[0] ?? "", 10) >= 4;
+};
+
+const requireFullSha = (value: unknown, field: string): string => {
+  const sha = requireNonemptyString(value, field);
+  if (!FULL_SHA.test(sha)) throw new Error(`invalid ${field}`);
+  return sha;
+};
+
+const requireReviewedAt = (value: unknown, field: string): string => {
+  const timestamp = requireNonemptyString(value, field);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(timestamp))
+    throw new Error(`invalid ${field}`);
+  const parsed = new Date(timestamp);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== timestamp)
+    throw new Error(`invalid ${field}`);
+  return timestamp;
+};
+
+/** Validate the durable nightly-review union used by reports, records, and the churn ledger. */
+export const requireNightlyReview = (value: unknown, field = "nightly review"): NightlyReview => {
+  if (typeof value !== "object" || value === null) throw new Error(`invalid ${field}`);
+  const review = value as Record<string, unknown>;
+  if (review.status !== "signed-off" && review.status !== "withheld")
+    throw new Error(`invalid ${field} status`);
+  const proposer = requireAgentProvenance(review.proposer, `${field} proposer`);
+  const reviewer = requireAgentProvenance(review.reviewer, `${field} reviewer`);
+  const reviewedAt = requireReviewedAt(review.reviewedAt, `${field} reviewedAt`);
+  if (review.status === "withheld") {
+    if (review.evidence !== undefined)
+      throw new Error(`invalid ${field}: withheld review has evidence`);
+    return {
+      status: "withheld",
+      proposer,
+      reviewer,
+      reviewedAt,
+      reason: requireNonemptyString(review.reason, `${field} withheld reason`),
+    };
+  }
+  if (review.reason !== undefined)
+    throw new Error(`invalid ${field}: signed-off review has a withheld reason`);
+  if (typeof review.evidence !== "object" || review.evidence === null)
+    throw new Error(`invalid ${field} evidence`);
+  const evidence = review.evidence as Record<string, unknown>;
+  const target = requireNonemptyString(evidence.target, `${field} evidence target`);
+  if (!isNightlyUpstreamTag(target)) throw new Error(`invalid ${field} evidence target`);
+  if (
+    !Array.isArray(evidence.inspected) ||
+    JSON.stringify(evidence.inspected) !== JSON.stringify(NIGHTLY_REVIEW_EVIDENCE)
+  )
+    throw new Error(`invalid ${field} evidence set`);
+  const recordDigest = requireNonemptyString(
+    evidence.recordDigest,
+    `${field} evidence recordDigest`,
+  );
+  if (!SHA256.test(recordDigest)) throw new Error(`invalid ${field} evidence recordDigest`);
+  return {
+    status: "signed-off",
+    proposer,
+    reviewer,
+    reviewedAt,
+    evidence: {
+      target,
+      targetSha: requireFullSha(evidence.targetSha, `${field} evidence targetSha`),
+      blockingSha: requireFullSha(evidence.blockingSha, `${field} evidence blockingSha`),
+      expectedOld: requireFullSha(evidence.expectedOld, `${field} evidence expectedOld`),
+      installedHead: requireFullSha(evidence.installedHead, `${field} evidence installedHead`),
+      ciHead: requireFullSha(evidence.ciHead, `${field} evidence ciHead`),
+      laneBranch: requireNonemptyString(evidence.laneBranch, `${field} evidence laneBranch`),
+      recordDigest,
+      inspected: NIGHTLY_REVIEW_EVIDENCE,
+    },
+  };
+};
 
 export interface ConflictRow {
   readonly commit: string;
@@ -165,6 +315,9 @@ export interface SyncReport {
   readonly touchedPaths?: ReadonlyArray<string>;
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   readonly behaviourSeamStopPresented?: boolean;
+  /** Walking agent that proposed the nightly record; never inferred from the reviewer process. */
+  readonly proposedBy?: AgentProvenance;
+  readonly nightlyReview?: NightlyReview;
   readonly verification: ReadonlyArray<{ readonly command: string; readonly result: string }>;
   readonly rebasedHead?: string;
   readonly stackSize?: number;
@@ -186,6 +339,7 @@ Unblock verbs:
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...]
+  unblock-review --report <json> (--sign-off | --withhold <reason>)
   unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
   rewrite-rehearse --from <branch-or-sha> [--issue N] [--allow-extra N] [--allow-paths <glob,...>] [--dry-run]
@@ -269,7 +423,8 @@ export const parseVerbArgs = (
       flag === "--resume" ||
       flag === "--dry-run" ||
       flag === "--all" ||
-      flag === "--bot-carried"
+      flag === "--bot-carried" ||
+      flag === "--sign-off"
     ) {
       values.set(flag, "true");
       index += 1;
@@ -382,7 +537,7 @@ const renderRewriteRecord = (report: SyncReport): string => {
   const rewriteLease = `Lease: report leased at \`${rw.originSha}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
   const rewriteGate =
     report.stage === "checked"
-      ? "Stop. Lease boundary: any movement of \`origin/hyprws\` past the lease above voids this green rehearsal."
+      ? "Stop. Lease boundary: any movement of `origin/hyprws` past the lease above voids this green rehearsal."
       : undefined;
   return [
     "## Header",
@@ -430,6 +585,38 @@ export const retireEvidenceNote = (evidence: RetireEvidence | undefined): string
   return match === undefined
     ? "; target-tree: absent"
     : `; target-tree: ${escapeCell(match.identifier)} at ${escapeCell(match.location)}`;
+};
+
+const isNightlyTarget = (report: SyncReport): boolean =>
+  report.target !== undefined && isNightlyUpstreamTag(report.target.tag);
+
+export const renderNightlyReview = (report: SyncReport): ReadonlyArray<string> => {
+  if (!isNightlyTarget(report)) return [];
+  const review = report.nightlyReview;
+  const proposer = review?.proposer ?? report.proposedBy;
+  const identity = (value: AgentProvenance | undefined): string =>
+    value === undefined
+      ? "TODO"
+      : `agent \`${escapeCell(value.iface)}/${escapeCell(value.provider)}/${escapeCell(value.model)}\`, session \`${escapeCell(value.session)}\``;
+  return [
+    "## Nightly independent review",
+    "",
+    `- Proposer: ${identity(proposer)}`,
+    `- Reviewer: ${identity(review?.reviewer)}`,
+    `- Verdict: ${review?.status ?? "TODO"}`,
+    ...(review === undefined ? [] : [`- Reviewed at: ${escapeCell(review.reviewedAt)}`]),
+    ...(review?.reason === undefined ? [] : [`- Withheld reason: ${escapeCell(review.reason)}`]),
+    ...(review?.evidence === undefined
+      ? []
+      : [
+          `- Evidence binding: target \`${review.evidence.target}@${review.evidence.targetSha}\`; blocking \`${review.evidence.blockingSha}\`; expected-old \`${review.evidence.expectedOld}\`; installed \`${review.evidence.installedHead}\`; CI \`${review.evidence.ciHead}\`; lane \`${review.evidence.laneBranch}\`; record \`${review.evidence.recordDigest}\``,
+        ]),
+    "- Review evidence set:",
+    ...NIGHTLY_REVIEW_EVIDENCE.map((item) => `  - ${item}`),
+    "- Withhold on:",
+    ...NIGHTLY_WITHHOLD_RULES.map((item) => `  - ${item}`),
+    "",
+  ];
 };
 
 export const renderRecord = (report: SyncReport): string => {
@@ -520,7 +707,7 @@ export const renderRecord = (report: SyncReport): string => {
       : `Lease: report leased at \`${source.expectedOld}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
   const leaseGate =
     report.stage === "checked" && source?.expectedOld !== undefined
-      ? "Stop. Lease boundary: any movement of \`origin/hyprws\` past the lease above voids this green rehearsal."
+      ? "Stop. Lease boundary: any movement of `origin/hyprws` past the lease above voids this green rehearsal."
       : undefined;
   return [
     "## Header",
@@ -575,6 +762,7 @@ export const renderRecord = (report: SyncReport): string => {
     "",
     ...report.verification.map((row) => `- \`${row.command}\`: ${row.result}`),
     "",
+    ...renderNightlyReview(report),
     "## Grounding",
     "",
     "None.",
@@ -801,15 +989,104 @@ export const inheritedDecisionCells = (
 export interface ParsedRecord {
   readonly conflicts: ReadonlyArray<ConflictRow>;
   readonly decisions: ReadonlyArray<OrientationDecisionRow>;
+  readonly nightlyReview?: NightlyReview;
 }
 
-/** Reads only the two tables emitted by renderRecord for a landed walk. */
+const reviewIdentity = (section: string, label: string): AgentProvenance | undefined => {
+  const line = section.split("\n").find((value) => value.startsWith(`- ${label}: `));
+  const match =
+    /^- (?:Proposer|Reviewer): agent `([^/]+)\/([^/]+)\/([^`]+)`, session `([^`]+)`$/.exec(
+      line ?? "",
+    );
+  return match === null
+    ? undefined
+    : requireAgentProvenance(
+        {
+          iface: match[1] ?? "",
+          provider: match[2] ?? "",
+          model: match[3] ?? "",
+          session: match[4] ?? "",
+        },
+        `nightly ${label.toLowerCase()}`,
+      );
+};
+
+const reviewList = (
+  section: string,
+  label: string,
+  nextLabel: string | null,
+): ReadonlyArray<string> => {
+  const start = section.indexOf(`- ${label}:\n`);
+  if (start === -1) return [];
+  const rest = section.slice(start + label.length + 4);
+  const end = nextLabel === null ? rest.length : rest.indexOf(`\n- ${nextLabel}:\n`);
+  return (end === -1 ? rest : rest.slice(0, end))
+    .split("\n")
+    .filter((line) => line.startsWith("  - "))
+    .map((line) => line.slice(4));
+};
+
+/** Parse the durable nightly reviewer provenance from a rendered record. */
+export const parseNightlyReview = (record: string): NightlyReview | undefined => {
+  const review = recordSection(record, "## Nightly independent review");
+  const status = /^- Verdict: (signed-off|withheld)$/m.exec(review)?.[1] as
+    | NightlyReview["status"]
+    | undefined;
+  if (status === undefined) return undefined;
+  if (
+    JSON.stringify(reviewList(review, "Review evidence set", "Withhold on")) !==
+      JSON.stringify(NIGHTLY_REVIEW_EVIDENCE) ||
+    JSON.stringify(reviewList(review, "Withhold on", null)) !==
+      JSON.stringify(NIGHTLY_WITHHOLD_RULES)
+  )
+    throw new Error("nightly review declarations are incomplete");
+  const proposer = reviewIdentity(review, "Proposer");
+  const reviewer = reviewIdentity(review, "Reviewer");
+  if (proposer === undefined || reviewer === undefined)
+    throw new Error("nightly review provenance is incomplete");
+  const binding =
+    /^- Evidence binding: target `([^@`]+)@([^`]+)`; blocking `([^`]+)`; expected-old `([^`]+)`; installed `([^`]+)`; CI `([^`]+)`; lane `([^`]+)`; record `([^`]+)`$/m.exec(
+      review,
+    );
+  const reviewedAt = /^- Reviewed at: (.+)$/m.exec(review)?.[1];
+  if (reviewedAt === undefined) throw new Error("nightly review timestamp is missing");
+  const reason = /^- Withheld reason: (.+)$/m.exec(review)?.[1];
+  return requireNightlyReview({
+    status,
+    proposer,
+    reviewer,
+    reviewedAt,
+    ...(binding === null
+      ? {}
+      : {
+          evidence: {
+            target: binding[1] ?? "",
+            targetSha: binding[2] ?? "",
+            blockingSha: binding[3] ?? "",
+            expectedOld: binding[4] ?? "",
+            installedHead: binding[5] ?? "",
+            ciHead: binding[6] ?? "",
+            laneBranch: binding[7] ?? "",
+            recordDigest: binding[8] ?? "",
+            inspected: NIGHTLY_REVIEW_EVIDENCE,
+          },
+        }),
+    ...(reason === undefined ? {} : { reason }),
+  });
+};
+
+/** Reads the decision tables and independent-review provenance for a landed walk. */
 export const parseRecord = (record: string): ParsedRecord => {
   const conflicts = parseConflictRows(record);
   const incomplete = conflicts.find((row) => row.class === "TODO");
   if (incomplete !== undefined)
     throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
-  return { conflicts, decisions: parseDecisionRows(record) };
+  const nightlyReview = parseNightlyReview(record);
+  return {
+    conflicts,
+    decisions: parseDecisionRows(record),
+    ...(nightlyReview === undefined ? {} : { nightlyReview }),
+  };
 };
 
 export const orientationReviewSection = (orientation: string): string => {
