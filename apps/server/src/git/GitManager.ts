@@ -2448,7 +2448,9 @@ export const make = Effect.gen(function* () {
         refName: localPullRequestBranch,
         path: null,
       });
-      const bindResult = yield* zmuxSessionBinder.bind(worktree.worktree.path);
+      const bindResult = yield* zmuxSessionBinder.bind(worktree.worktree.path, {
+        projectPath: input.cwd,
+      });
       if (bindResult.status === "failed") {
         yield* Effect.logWarning("pull request worktree could not bind a zmux session", {
           threadId: input.threadId,
