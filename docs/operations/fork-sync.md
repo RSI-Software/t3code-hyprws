@@ -467,8 +467,13 @@ multi-command block carries gate state:
 2. `vp run fork:sync stable-prepare --report <report> --issue <selected-issue>` rereads the exact
    selected issue, fetches its bot-owned snapshot and tags, binds the remote commit, and creates the
    collision-refusing `cut/vX.Y.Z-hyprws` Worktrunk lane. It installs with the lockfile frozen, then
-   runs `fork:delta --check`, `vp check`, `vp run typecheck`, and `vp run test` through that lane's
-   Vite+ binary and project environment. It derives the next stable tag through the release helper,
+   runs `fork:delta --check` through that lane's Vite+ binary and project environment. The `check`,
+   typecheck, and test verdict comes from `hyprws CI`: the snapshot head is already pushed as
+   `release/vX.Y.Z-hyprws`, so the prepare reverifies that remote head and waits up to 45 minutes for
+   the run on that exact SHA, recording `hyprws CI <run-url>` in its verification list. A failed job
+   or a timeout fails the prepare with the run URL and the failed-log tail before any UAT draft is
+   rendered. The full battery never runs on the operator machine.
+   It derives the next stable tag through the release helper,
    refuses a local or remote tag collision, and revalidates
    the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
    for the exact snapshot and writes the draft beside the external report. A preparation failure
