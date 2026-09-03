@@ -707,7 +707,59 @@ export const rehearsalConflictStop = (
   ].join("\n");
 };
 
-const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
+const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
+  const subjects = new Set<string>();
+  for (const row of report.recordDecisions ?? []) {
+    if (row.action === "retire") subjects.add(row.subject);
+  }
+  for (const row of report.orientationDecisions ?? []) {
+    if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
+  }
+  if (report.recordPath !== undefined && NodeFS.existsSync(report.recordPath)) {
+    let text: string;
+    try {
+      text = NodeFS.readFileSync(report.recordPath, "utf8");
+    } catch (error) {
+      throw new Error(
+        `failed to read retire decisions from ${report.recordPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    for (const row of filledDecisionCells(text)) {
+      if (row.action === "retire") subjects.add(row.subject);
+    }
+    for (const row of parseDecisionRows(text)) {
+      if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
+    }
+  }
+  return subjects;
+};
+
+const filterRetiredMessages = (messages: string, retired: ReadonlySet<string>): string => {
+  if (retired.size === 0) return messages;
+  const parts = messages.split("\x1e");
+  const filtered: Array<string> = [];
+  for (const part of parts) {
+    if (part.length === 0) continue;
+    const subject = part.split("\n")[0]?.trim() ?? "";
+    if (retired.has(subject)) continue;
+    filtered.push(part);
+  }
+  if (filtered.length === 0) return "";
+  return filtered.join("\x1e") + "\x1e";
+};
+
+const matchedRetiredCount = (messages: string, retired: ReadonlySet<string>): number => {
+  if (retired.size === 0) return 0;
+  let count = 0;
+  for (const part of messages.split("\x1e")) {
+    if (part.length === 0) continue;
+    const subject = part.split("\n")[0]?.trim() ?? "";
+    if (retired.has(subject)) count += 1;
+  }
+  return count;
+};
+
+export const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
     report.originalMessages === undefined ||
@@ -715,14 +767,26 @@ const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
     report.lane === undefined
   )
     throw new Error("replay binding is incomplete");
+  const retired = retiredSubjectsForReport(report);
+  const matched = matchedRetiredCount(report.originalMessages ?? "", retired);
+  const expectedCount = (report.originalCount ?? 0) - matched;
   const count = Number(
     git(runner, report.lane.worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true),
   );
-  if (count !== report.originalCount)
-    throw new Error(`replay commit count changed: ${report.originalCount} -> ${count}`);
+  if (count !== expectedCount) {
+    if (matched === 0)
+      throw new Error(`replay commit count changed: ${report.originalCount} -> ${count}`);
+    throw new Error(
+      `replay commit count changed: ${report.originalCount} -> ${count} (expected ${expectedCount} after ${matched} retired)`,
+    );
+  }
   const messages = replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`);
-  if (messages !== report.originalMessages) throw new Error("replay commit messages changed");
+  const expectedMessages = filterRetiredMessages(report.originalMessages ?? "", retired);
+  if (messages !== expectedMessages) throw new Error("replay commit messages changed");
 };
+
+export const retiredSubjectsForTest = retiredSubjectsForReport;
+export const filterRetiredMessagesForTest = filterRetiredMessages;
 
 const unblockRehearse = (
   values: ReadonlyMap<string, string>,
@@ -845,15 +909,33 @@ const unblockRehearse = (
         );
       }),
     };
-    const continued = runner.run(
-      "git",
-      rehearsalRebaseArgs(["rebase", "--continue"]),
-      lane.worktree,
-      undefined,
-      { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
-    );
-    if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
-      throw new Error(`git rebase --continue failed without conflicts: ${continued.stderr.trim()}`);
+    const retiredForRehearse = retiredSubjectsForReport(report);
+    const pendingRetired = pending.some((row) => retiredForRehearse.has(row.subject));
+    let continued: CommandResult;
+    if (pendingRetired) {
+      // The rebase drops the emptied commit knowingly via --skip, not by accident
+      continued = runner.run(
+        "git",
+        rehearsalRebaseArgs(["rebase", "--skip"]),
+        lane.worktree,
+        undefined,
+        { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+      );
+      if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
+        throw new Error(`git rebase --skip failed without conflicts: ${continued.stderr.trim()}`);
+    } else {
+      continued = runner.run(
+        "git",
+        rehearsalRebaseArgs(["rebase", "--continue"]),
+        lane.worktree,
+        undefined,
+        { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+      );
+      if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
+        throw new Error(
+          `git rebase --continue failed without conflicts: ${continued.stderr.trim()}`,
+        );
+    }
   } else
     throw new Error(`unblock-rehearse requires oriented or conflicts state, got ${report.stage}`);
 
@@ -1046,9 +1128,11 @@ const unblockCheck = (
   } else {
     if (report.lane === undefined || report.target === undefined)
       throw new Error("replay binding is incomplete");
+    report = preserveRecordDecisions(report);
     verifyReplay(report, runner);
   }
-  const worktree = report.lane.worktree;
+  const lane = report.lane!;
+  const worktree = lane.worktree;
   const verificationEnv = laneEnv(worktree);
   const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
   requireSuccess(
@@ -1116,12 +1200,12 @@ const unblockCheck = (
   git(
     runner,
     worktree,
-    ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${report.lane.branch}`],
+    ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${lane.branch}`],
     true,
   );
-  if (remoteLaneHead(runner, worktree, report.lane.branch, true) !== installedHead)
+  if (remoteLaneHead(runner, worktree, lane.branch, true) !== installedHead)
     throw new Error("pushed rehearsal head does not match the installed tree");
-  const ciRun = waitForCiVerdict(runner, worktree, report.lane.branch, installedHead);
+  const ciRun = waitForCiVerdict(runner, worktree, lane.branch, installedHead);
   verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
   report = preserveRecordDecisions({
     ...report,
