@@ -267,6 +267,19 @@ interface ZmuxLaunchResolution {
   readonly notice: string | null;
 }
 
+type ZmuxSessionMatch = "worktree" | "workspace-main";
+
+const mismatchedZmuxSessionNotice = (
+  targetDir: string,
+  actualMatch: ZmuxSessionMatch,
+  expectedMatch: ZmuxSessionMatch,
+): string | null => {
+  if (actualMatch === expectedMatch) return null;
+  return expectedMatch === "worktree"
+    ? `zmux: ${targetDir} resolves the workspace main session, not a worktree — plain shell`
+    : `zmux: ${targetDir} resolves a worktree session, not the workspace main session — plain shell`;
+};
+
 interface ManagedSessionIdentity {
   readonly target: string;
   readonly candidate: ShellCandidate;
@@ -1295,6 +1308,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   const resolveZmuxSession = Effect.fn("terminal.resolveZmuxSession")(function* (
     targetDir: string,
+    expectedMatch: ZmuxSessionMatch,
     env: NodeJS.ProcessEnv,
   ) {
     const result = yield* Effect.result(
@@ -1332,11 +1346,16 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         notice: `zmux: no managed session for ${targetDir} — plain shell`,
       } satisfies ZmuxLaunchResolution;
     }
-    if (decoded.success.match !== "worktree") {
+    const mismatchNotice = mismatchedZmuxSessionNotice(
+      targetDir,
+      decoded.success.match,
+      expectedMatch,
+    );
+    if (mismatchNotice) {
       return {
         candidate: null,
         target: null,
-        notice: `zmux: ${targetDir} resolves the workspace main session, not a worktree — plain shell`,
+        notice: mismatchNotice,
       } satisfies ZmuxLaunchResolution;
     }
 
@@ -2111,8 +2130,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
             if (resumeIdentity) {
               const targetDir = session.worktreePath ?? session.cwd;
+              const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const resolved = yield* resolveZmuxSession(targetDir, spawnEnv);
+              const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
               managedTarget = resolved.target;
               zmuxCandidate = resolved.candidate;
               if (resolved.candidate) {
@@ -2126,8 +2146,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               }
             } else if (mode === "zmux") {
               const targetDir = session.worktreePath ?? session.cwd;
+              const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const resolved = yield* resolveZmuxSession(targetDir, spawnEnv);
+              const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
               managedTarget = resolved.target;
               zmuxCandidate = resolved.candidate;
               if (resolved.candidate) {
