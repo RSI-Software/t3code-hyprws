@@ -476,7 +476,9 @@ multi-command block carries gate state:
    It derives the next stable tag through the release helper,
    refuses a local or remote tag collision, and revalidates
    the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
-   for the exact snapshot and writes the draft beside the external report. A preparation failure
+   for the exact snapshot and writes the draft beside the external report. Tooling comes from trunk
+   and product comes from the snapshot, so the canonical checkout renders that draft against the
+   snapshot ref while every content check above still runs through the lane. A preparation failure
    synchronously removes the cut lane, including lockfile drift, before requiring a fresh
    `stable-list`; if Worktrunk cannot remove it, the refusal prints the exact forced recovery
    command.

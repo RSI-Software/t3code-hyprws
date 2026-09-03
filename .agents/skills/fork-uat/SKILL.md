@@ -38,8 +38,11 @@ move, edit, create, or push a ref. `hyprws` is the default ref; a related issue 
 4. After that go, post the reviewed file as-is:
 
    ```bash
-   vp run fork:uat --create --body <path>
+   vp run fork:uat --create --body <path> --human-approved
    ```
+
+   `--human-approved` records that the human approved the exact title and body, and creation is
+   refused without it.
 
    Creation refuses a remaining `## Excluded`. On refused or ambiguous creation, follow only the
    printed resume instruction and never file a replacement. Hand the URL to the human to tick rows,

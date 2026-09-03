@@ -1,7 +1,13 @@
+// @effect-diagnostics nodeBuiltinImport:off - The create path reads a reviewed draft from disk.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import { assert, it } from "@effect/vitest";
 
 import {
   differenceRows,
+  execute,
   firstParagraph,
   parseArgs,
   partitionUatRows,
@@ -228,6 +234,7 @@ it("requires creation from a reviewed body and refuses the reviewer-only section
     output: null,
     body: "draft.md",
     create: true,
+    humanApproved: false,
   });
   const metadata = `## Snapshot\n\n- Target: \`v1.4.0-hyprws\`\n- Ref: \`hyprws\`\n- Commit: \`${"a".repeat(40)}\``;
   assert.throws(
@@ -258,4 +265,83 @@ it("requires creation from a reviewed body and refuses the reviewer-only section
       relatesTo: 321,
     },
   );
+});
+
+class RecordingRunner implements CommandRunner {
+  readonly calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+  private readonly responses = new Map<
+    string,
+    { status: number; stdout: string; stderr: string }
+  >();
+
+  set(key: string, result: Partial<{ status: number; stdout: string; stderr: string }>): void {
+    this.responses.set(key, { status: 0, stdout: "", stderr: "", ...result });
+  }
+
+  run(command: string, args: ReadonlyArray<string>) {
+    this.calls.push({ command, args });
+    return (
+      this.responses.get(`${command} ${args.join(" ")}`) ?? { status: 0, stdout: "", stderr: "" }
+    );
+  }
+}
+
+it("carries a Source on every filing and earns Human approval from the operator flag", () => {
+  assert.isTrue(parseArgs(["--create", "--body", "draft.md", "--human-approved"]).humanApproved);
+  assert.throws(() => parseArgs(["--human-approved"]), /--human-approved requires --create/);
+  assert.throws(
+    () =>
+      execute(
+        {
+          ref: "hyprws",
+          version: null,
+          since: null,
+          relatesTo: null,
+          output: null,
+          body: "draft.md",
+          create: true,
+          humanApproved: false,
+        },
+        new RecordingRunner(),
+      ),
+    /--create requires --human-approved: filing as Human needs explicit human approval of the exact title and body/,
+  );
+
+  const sha = "a".repeat(40);
+  const draft = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-uat-create-")),
+    "uat.md",
+  );
+  NodeFS.writeFileSync(
+    draft,
+    `Related issue: \`RSI-Software/t3code-hyprws#321\`.\n\n## Snapshot\n\n- Target: \`v1.4.0-hyprws\`\n- Ref: \`origin/release/v1.4.0-hyprws\`\n- Commit: \`${sha}\`\n\n## UAT\n\n### Project windows\n\n- [ ] Projects open in separate windows\n`,
+  );
+  const runner = new RecordingRunner();
+  runner.set("git rev-parse origin/release/v1.4.0-hyprws^{commit}", { stdout: `${sha}\n` });
+
+  execute(
+    {
+      ref: "hyprws",
+      version: null,
+      since: null,
+      relatesTo: null,
+      output: null,
+      body: draft,
+      create: true,
+      humanApproved: true,
+    },
+    runner,
+  );
+
+  const filing = runner.calls.find(({ command }) => command === "ghb");
+  assert.isDefined(filing);
+  assert.isFalse(filing?.args.includes("--dry-run"));
+  const args = filing?.args ?? [];
+  assert.deepStrictEqual(args.slice(args.indexOf("--filed-by"), args.indexOf("--label")), [
+    "--filed-by",
+    "Human",
+    "--human-approved",
+    "--source",
+    "fork-sync stable-prepare",
+  ]);
 });
