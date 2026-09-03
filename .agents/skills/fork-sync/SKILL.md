@@ -164,6 +164,9 @@ edit them, move a bot-owned ref, replace a tag, or infer a candidate.
    run on the already-pushed snapshot head, never from a local full-suite run. A failed job or a
    45-minute timeout stops the prepare with the run URL before the UAT draft is rendered.
 
+   Tooling comes from trunk and product comes from the snapshot, so the canonical checkout renders
+   the draft against the snapshot ref.
+
    Review the emitted UAT draft under the [`fork-uat`](../fork-uat/SKILL.md) judgement boundary:
    write observable rows, remove reviewer-only sections, show the exact draft to the human, and
    create it only after their explicit UAT-draft go. Hand the created issue to the human to run and
