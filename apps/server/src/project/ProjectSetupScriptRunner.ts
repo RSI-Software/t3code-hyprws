@@ -78,6 +78,53 @@ export interface ProjectSetupScriptRunnerInput {
   };
 }
 
+const LEGACY_GENERATED_SETUP_COMMANDS = new Map([
+  [
+    "Setup Worktree",
+    "vp i && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
+      "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
+      "node apps/web/scripts/warm-dep-cache.ts",
+  ],
+  [
+    "Setup Worktree (Windows)",
+    'vp i && New-Item -ItemType SymbolicLink -Path .env -Target "$env:T3CODE_PROJECT_ROOT\\.env" -Force && ' +
+      'New-Item -ItemType SymbolicLink -Path "infra\\relay\\.env" -Target "$env:T3CODE_PROJECT_ROOT\\infra\\relay\\.env" -Force && ' +
+      "node apps\\web\\scripts\\warm-dep-cache.ts",
+  ],
+]);
+
+/** Refresh only the exact generated setup commands that predate the fork's frozen install. */
+export function refreshPersistedSetupScript(script: ProjectScript): ProjectScript {
+  const legacyCommand = LEGACY_GENERATED_SETUP_COMMANDS.get(script.name);
+  if (
+    legacyCommand === undefined ||
+    script.command !== legacyCommand ||
+    script.icon !== "configure" ||
+    !script.runOnWorktreeCreate ||
+    script.previewUrl !== undefined ||
+    script.autoOpenPreview !== undefined
+  ) {
+    return script;
+  }
+
+  return {
+    ...script,
+    command: legacyCommand.replace(/^vp i(?= &&)/, "vp i --frozen-lockfile"),
+  };
+}
+
+export function refreshPersistedSetupScripts(
+  scripts: ReadonlyArray<ProjectScript>,
+): ReadonlyArray<ProjectScript> {
+  let changed = false;
+  const refreshed = scripts.map((script) => {
+    const next = refreshPersistedSetupScript(script);
+    changed ||= next !== script;
+    return next;
+  });
+  return changed ? refreshed : scripts;
+}
+
 export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
   "ProjectSetupScriptOperationError",
   {
@@ -367,13 +414,15 @@ export const make = Effect.gen(function* () {
     );
     const trigger = input.trigger ?? "setup";
     const scripts = resolveProjectScripts(settings, project);
-    const script =
-      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts);
-    if (!script) {
+    const persistedScript =
+      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts); // fork-hook: upstream-fixes/refresh-persisted-setup-script
+    if (!persistedScript) {
       return {
         status: "no-script",
       } as const;
     }
+
+    const script = refreshPersistedSetupScript(persistedScript);
 
     // A thread settles again after it is resumed, and an earlier settle shell
     // may still be busy; typing into it would feed its foreground program.
