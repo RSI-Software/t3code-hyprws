@@ -10,7 +10,6 @@ import * as Scope from "effect/Scope";
 
 import type * as ElectronWindow from "../electron/ElectronWindow.ts";
 import type * as DesktopIpc from "../ipc/DesktopIpc.ts";
-import type { PreviewIpcSenderNotAuthorizedError } from "../ipc/methods/preview.ts";
 import {
   HUB_WINDOW_IDENTITY,
   type WindowIdentity,
@@ -54,7 +53,6 @@ type OwnedRecordingFrameListener = (
 export interface OwnedPreviewOperations extends PreviewWindowManager {
   readonly hasTab: (tabId: string) => Effect.Effect<boolean>;
   readonly setMainWindow: (window: BrowserWindow) => Effect.Effect<void, PreviewManagerError>;
-  readonly destroy: () => Effect.Effect<void>;
   readonly subscribeStateChanges: (
     listener: StateListener,
   ) => Effect.Effect<void, never, Scope.Scope>;
@@ -244,19 +242,26 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   ) {
     return scopedManager(yield* getEntry(identity));
   });
-  const disposeWindow = Effect.fn("PreviewWindowPolicy.disposeWindow")(function* (
+  const disposeEntry = Effect.fn("PreviewWindowPolicy.disposeWindow")(function* (
     identity: WindowIdentity,
+    expected?: { readonly entry: WindowOperationsEntry; readonly window: BrowserWindow },
   ) {
     yield* entriesSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const key = windowIdentityKey(identity);
         const entry = entries.get(key);
-        if (!entry) return;
+        if (
+          !entry ||
+          (expected !== undefined && (entry !== expected.entry || entry.window !== expected.window))
+        ) {
+          return;
+        }
         yield* Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
         if (entries.get(key) === entry) entries.delete(key);
       }),
     );
   });
+  const disposeWindow = (identity: WindowIdentity) => disposeEntry(identity);
   const setWindow = Effect.fn("PreviewWindowPolicy.setWindow")(function* (
     identity: WindowIdentity,
     window: BrowserWindow,
@@ -265,7 +270,7 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
     entry.window = window;
     yield* entry.operations.setMainWindow(window);
     window.once("closed", () => {
-      if (entry.window === window) runFork(disposeWindow(identity));
+      runFork(disposeEntry(identity, { entry, window }));
     });
   });
 
@@ -302,13 +307,11 @@ export const makeWindowOwnership = Effect.fn("PreviewWindowPolicy.makeWindowOwne
   };
 });
 
-export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSender")(function* (
+export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSender")(function* <E>(
   event: DesktopIpc.DesktopIpcInvokeEvent | undefined,
   electronWindow: ElectronWindow.ElectronWindow["Service"],
   previewManager: PreviewManager["Service"],
-  authorizationError: (
-    reason: "missing-sender" | "unregistered-window",
-  ) => PreviewIpcSenderNotAuthorizedError,
+  authorizationError: (reason: "missing-sender" | "unregistered-window") => Effect.Effect<never, E>,
 ) {
   if (!event?.sender) {
     return yield* authorizationError("missing-sender");

@@ -2,15 +2,17 @@ import { it as effectIt } from "@effect/vitest";
 import { EnvironmentId, ProjectId, type DesktopBridge } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { projectWindowIdentity } from "../window/WindowIdentity.ts";
 import { PROJECT_WINDOW_PRELOAD_ARGUMENT } from "../window/projectWindowArgument.ts";
-import type { PreviewTabState } from "./Manager.ts";
+import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import { exposePreviewCapability } from "./WindowPolicy.preload.ts";
 import * as WindowPolicy from "./WindowPolicy.ts";
 
@@ -37,24 +39,22 @@ const idleState = (tabId: string): PreviewTabState => ({
   updatedAt: "2026-09-03T00:00:00.000Z",
 });
 
-class TestOwnershipError extends Data.TaggedError("PreviewTabOwnershipError")<{
-  readonly tabId: string;
-  readonly requestingWindow: string;
-}> {}
-
 class TestAuthorizationError extends Data.TaggedError("PreviewIpcSenderNotAuthorizedError")<{
   readonly reason: "missing-sender" | "unregistered-window";
 }> {}
 
 const ownershipError = (tabId: string, requestingWindow: string) =>
-  new TestOwnershipError({ tabId, requestingWindow }) as never;
+  new PreviewTabOwnershipError({ tabId, requestingWindow });
 
 const authorizationError = (reason: "missing-sender" | "unregistered-window") =>
-  new TestAuthorizationError({ reason }) as never;
+  new TestAuthorizationError({ reason });
 
-const makeOperationsFactory = () => {
+const makeOperationsFactory = (
+  setMainWindow: (window: Electron.BrowserWindow) => Effect.Effect<void> = () => Effect.void,
+) => {
   const tabSets: Set<string>[] = [];
   const stateListeners: Array<(tabId: string, state: PreviewTabState) => Effect.Effect<void>> = [];
+  let stateListenerRemovals = 0;
 
   const create = (scope: Scope.Closeable) =>
     Effect.gen(function* () {
@@ -76,18 +76,41 @@ const makeOperationsFactory = () => {
             return state;
           }),
         closeTab: (tabId: string) => Effect.sync(() => void tabs.delete(tabId)),
-        setMainWindow: () => Effect.void,
-        destroy: () => Effect.void,
+        setMainWindow,
         subscribeStateChanges: (listener: typeof stateListener) =>
-          Effect.sync(() => {
-            stateListener = listener;
-          }),
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              stateListener = listener;
+            }),
+            () =>
+              Effect.sync(() => {
+                stateListener = () => Effect.void;
+                stateListenerRemovals += 1;
+              }),
+          ).pipe(Effect.asVoid),
         subscribePointerEvents: () => Effect.void,
         subscribeRecordingFrames: () => Effect.void,
       } as unknown as WindowPolicy.OwnedPreviewOperations;
     });
 
-  return { create, stateListeners, tabSets };
+  return {
+    create,
+    stateListeners,
+    tabSets,
+    get stateListenerRemovals() {
+      return stateListenerRemovals;
+    },
+  };
+};
+
+const makeWindow = () => {
+  let closed: (() => void) | undefined;
+  const window = {
+    once: vi.fn((event: string, listener: () => void) => {
+      if (event === "closed") closed = listener;
+    }),
+  } as unknown as Electron.BrowserWindow;
+  return { window, close: () => closed?.() };
 };
 
 describe("desktop preview window policy", () => {
@@ -155,13 +178,60 @@ describe("desktop preview window policy", () => {
 
     return Effect.gen(function* () {
       const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
+      const deliveries: string[] = [];
+      yield* policy.subscribeOwnedStateChanges((_identity, tabId) =>
+        Effect.sync(() => deliveries.push(tabId)),
+      );
       yield* (yield* policy.forWindow(identity)).createTab("old-tab");
       yield* policy.disposeWindow(identity);
+      const staleListener = operations.stateListeners[1];
+      if (staleListener === undefined) return yield* Effect.die("missing project listener");
+      yield* staleListener("stale-tab", idleState("stale-tab"));
       yield* (yield* policy.forWindow(identity)).createTab("new-tab");
 
       expect(operations.tabSets).toHaveLength(3);
       expect(operations.tabSets[1]?.has("old-tab")).toBe(false);
       expect(operations.tabSets[2]?.has("new-tab")).toBe(true);
+      expect(operations.stateListenerRemovals).toBe(1);
+      expect(deliveries).toEqual(["old-tab", "new-tab"]);
+    }).pipe(Effect.scoped);
+  });
+
+  effectIt.effect("keeps a replacement window registered when the old close races it", () => {
+    const first = makeWindow();
+    const replacement = makeWindow();
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+
+    return Effect.gen(function* () {
+      const replacementStarted = yield* Deferred.make<void>();
+      const replacementReleased = yield* Deferred.make<void>();
+      const operations = makeOperationsFactory((window) =>
+        window === replacement.window
+          ? Deferred.succeed(replacementStarted, undefined).pipe(
+              Effect.andThen(Deferred.await(replacementReleased)),
+            )
+          : Effect.void,
+      );
+      const policy = yield* WindowPolicy.makeWindowOwnership(operations.create, ownershipError);
+      yield* policy.setWindow(identity, first.window);
+      const replacing = yield* policy
+        .setWindow(identity, replacement.window)
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Deferred.await(replacementStarted);
+
+      first.close();
+      yield* Effect.yieldNow;
+      yield* Deferred.succeed(replacementReleased, undefined);
+      yield* Fiber.join(replacing);
+      yield* Effect.yieldNow;
+      yield* (yield* policy.forWindow(identity)).createTab("replacement-tab");
+
+      expect(operations.tabSets).toHaveLength(2); // eager hub plus the retained project window
+      expect(operations.tabSets[1]?.has("replacement-tab")).toBe(true);
+      expect(operations.stateListenerRemovals).toBe(0);
     }).pipe(Effect.scoped);
   });
 
