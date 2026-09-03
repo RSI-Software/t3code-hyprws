@@ -29,6 +29,7 @@ import {
   orientationTouchedPaths,
   parseConflictRows,
   parseSilentSeam,
+  preserveRecordDecisions,
   reconcileAfterApply,
   rehearsalConflictRows,
   rehearsalConflictStop,
@@ -1422,7 +1423,10 @@ it("takes canonical walker decisions to the independent nightly review boundary"
     orientationDecisions: [
       { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
     ],
-    recordDecisions: [{ subject, action: "keep", decidedBy: "agent" }],
+    recordDecisions: [
+      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
+      { subject, action: "keep", decidedBy: "agent" },
+    ],
     verification: [{ command: "hyprws CI https://example.test/runs/42", result: "passed" }],
   });
   NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
@@ -3188,6 +3192,34 @@ const signRecord = (recordPath: string, action: string, decidedBy: string): void
   NodeFS.writeFileSync(recordPath, signed);
 };
 
+it("preserves a report-only retire when refreshing rendered decision cells", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    orientationDecisions: [
+      {
+        subject: SUBJECT,
+        domain: "workspace-files",
+        verdict: "candidate",
+        action: "keep (mechanical seam)",
+        decidedBy: "agent",
+      },
+    ],
+    recordDecisions: [
+      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
+    ],
+  });
+  NodeFS.writeFileSync(state.recordPath, renderRecord(state));
+  try {
+    assert.deepStrictEqual(preserveRecordDecisions(state).recordDecisions, [
+      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
+      { subject: SUBJECT, action: "keep (mechanical seam)", decidedBy: "agent" },
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("carries a decision cell filled in the record through the regeneration a check performs", () => {
   const state = undecidedRun();
   const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
@@ -3605,6 +3637,90 @@ it("rewrite-rehearse happy path writes a kind rewrite report", () => {
     process.stdout.write = orig;
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(wtDir, { recursive: true, force: true });
+  }
+});
+
+it("carries a human verdict from the churn ledger into the rendered record as inherited", () => {
+  const root = fixtureRoot();
+  const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-carry-"));
+  const recordPath = NodePath.join(directory, "record.md");
+  const reportPath = NodePath.join(directory, "report.json");
+  const previousTag = "v0.0.38-nightly.20260901.1245";
+  const subject = "feat(web): inherit this verdict";
+  const domain = "project-windows";
+  // Direct render test without reading the live ledger: verify the rendering contract.
+  try {
+    const fakeReport = {
+      schemaVersion: 1 as const,
+      stage: "oriented" as const,
+      repositoryRoot: root,
+      reportPath,
+      recordPath,
+      issue: { number: 389, blockingSha: "a".repeat(40), title: "blocked" },
+      candidates: [{ tag: "v0.0.39", sha: "b".repeat(40) }],
+      target: { tag: "v0.0.39", sha: "b".repeat(40) },
+      source: { sha: "c".repeat(40), expectedOld: "c".repeat(40), sharedBase: "a".repeat(40) },
+      conflicts: [],
+      verification: [],
+      orientationDecisions: [
+        { subject, domain, verdict: "candidate", decidedBy: "TODO" },
+      ] as unknown as ReadonlyArray<import("./fork-sync-state.ts").OrientationDecisionRow>,
+      inheritedVerdicts: [
+        { subject, domain, action: "retire", decidedBy: "human", sourceTag: previousTag },
+      ],
+      retireEvidence: [],
+    } as unknown as import("./fork-sync-state.ts").SyncReport;
+    const rendered = renderRecord(fakeReport);
+    // Must be inherited and visibly distinct.
+    assert.include(rendered, `| \`${subject}\` |`);
+    assert.include(rendered, "inherited from v0.0.38-nightly.20260901.1245");
+    assert.include(rendered, "inherited (v0.0.38-nightly.20260901.1245)");
+    assert.include(rendered, "| retire |");
+    // Must not render as TODO for the carried subject
+    const line = rendered.split("\n").find((l) => l.includes(subject)) ?? "";
+    assert.notInclude(line, "| TODO |");
+    // Fresh candidate without inherited verdict remains TODO
+    const freshSubject = "feat(web): fresh candidate";
+    const freshReport = {
+      ...fakeReport,
+      orientationDecisions: [
+        { subject: freshSubject, domain, verdict: "candidate", decidedBy: "TODO" },
+      ] as unknown as ReadonlyArray<import("./fork-sync-state.ts").OrientationDecisionRow>,
+      inheritedVerdicts: [],
+    } as unknown as import("./fork-sync-state.ts").SyncReport;
+    const freshRendered = renderRecord(freshReport);
+    const freshLine = freshRendered.split("\n").find((l) => l.includes(freshSubject)) ?? "";
+    assert.include(freshLine, "| TODO |");
+    // Ledger contract: only human decisions are carried
+    const { humanVerdictsBySubject } =
+      require("./fork-churn-ledger.ts") as typeof import("./fork-churn-ledger.ts");
+    const onlyHuman = humanVerdictsBySubject([
+      {
+        tag: previousTag,
+        before: "a".repeat(40),
+        after: "b".repeat(40),
+        recordUrl: "https://example.test/record",
+        conflicts: [],
+        decisions: [
+          { subject, domain, verdict: "retire", decidedBy: "human" },
+          { subject: "feat(web): agent decided", domain, verdict: "keep", decidedBy: "agent" },
+        ],
+        censusFiles: [{ path: "apps/web/a.ts", hunks: 1, commit: "abc1234", domain }],
+      },
+    ]);
+    assert.isTrue(onlyHuman.has(subject));
+    assert.isFalse(onlyHuman.has("feat(web): agent decided"));
+    // Inherited decider is distinguishable from human: parse keeps the string.
+    const { parseDecisionRows } =
+      require("./fork-sync-state.ts") as typeof import("./fork-sync-state.ts");
+    const parsed = parseDecisionRows(rendered);
+    assert.strictEqual(
+      parsed.find((r) => r.subject === subject)?.decidedBy,
+      "inherited (v0.0.38-nightly.20260901.1245)",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(directory, { recursive: true, force: true });
   }
 });
 
