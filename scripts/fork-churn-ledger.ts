@@ -14,6 +14,7 @@ import type {
   OrientationDecisionRow,
   SilentSeam,
 } from "./fork-sync-state.ts";
+import { isInheritedDecidedBy } from "./fork-sync-state.ts";
 
 export const CONFLICT_CLASSES = [
   "generated",
@@ -150,7 +151,52 @@ const requireString = (value: unknown, field: string): string => {
 const requireDecidedBy = (value: unknown, field: string): DecidedBy => {
   if (value === undefined || value === "TODO") return "TODO";
   if (value === "human" || value === "agent") return value;
+  if (typeof value === "string" && isInheritedDecidedBy(value)) return value as DecidedBy;
   throw new Error(`invalid ${field}`);
+};
+
+/**
+ * Human verdicts for retire-candidate subjects that a walk recorded, keyed on the stable
+ * commit subject plus domain. Carries forward from `refs/fork/churn`; prefer that
+ * bot-owned surface over a new store (`refs/fork/churn` precedent). A verdict is
+ * re-asked only when the target-tree evidence for that subject changes.
+ */
+export const humanVerdictsBySubject = (
+  entries: ReadonlyArray<ChurnEntry>,
+): ReadonlyMap<
+  string,
+  {
+    readonly subject: string;
+    readonly domain: string;
+    readonly verdict: string;
+    readonly sourceTag: string;
+  }
+> => {
+  const bySubject = new Map<
+    string,
+    {
+      readonly subject: string;
+      readonly domain: string;
+      readonly verdict: string;
+      readonly sourceTag: string;
+    }
+  >();
+  for (const entry of entries) {
+    for (const row of entry.decisions) {
+      if (row.decidedBy !== "human") continue;
+      // Inherited cells are a render form, not a provenance to propagate.
+      if (isInheritedDecidedBy(String(row.decidedBy))) continue;
+      if (!["keep", "retire", "partial"].includes(row.verdict)) continue;
+      // Last writer wins so the most recent walk's human answer is the carry.
+      bySubject.set(row.subject, {
+        subject: row.subject,
+        domain: row.domain,
+        verdict: row.verdict,
+        sourceTag: entry.tag,
+      });
+    }
+  }
+  return bySubject;
 };
 
 export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
