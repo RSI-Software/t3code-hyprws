@@ -13,6 +13,7 @@ import {
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
 import {
+  originHasStableRelease,
   parseUpstreamReleaseTag,
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
@@ -58,11 +59,6 @@ export const lines = (value: string): ReadonlyArray<string> =>
     .filter(Boolean);
 
 export const selectNewestTag = selectNewestReleaseTag;
-
-const originHasStableRelease = (git: Pick<FeasibilityGit, "run">, tag: string): boolean =>
-  git
-    .run(["ls-remote", "origin", `refs/heads/release/${tag}-hyprws`, `refs/tags/${tag}-hyprws.*`])
-    .trim().length > 0;
 
 export const buildAutoRebasePlan = (
   git: FeasibilityGit,
@@ -175,6 +171,29 @@ export const selectVerificationDependencySetup = (
     requireSuccess("inspect dependency manifest changes", dependencyDiff);
   }
   return dependencyDiff.status === 1 ? "fresh-install" : "shared-install";
+};
+
+/**
+ * Prove the replay kept the fork series intact and stop there. A caller whose
+ * consumer re-runs the full verification later pays for the checks once, not twice.
+ */
+export const verifyReplayShape = (
+  root: string,
+  worktree: string,
+  oldSha: string,
+  baseSha: string,
+  targetSha: string,
+  newSha: string,
+): VerificationDependencySetup => {
+  const original = new SystemGit(root);
+  const rebased = new SystemGit(worktree);
+  verifyReplayMetadata(
+    Number(original.run(["rev-list", "--count", `${baseSha}..${oldSha}`]).trim()),
+    Number(rebased.run(["rev-list", "--count", `${targetSha}..${newSha}`]).trim()),
+    forkReplay(original, baseSha, oldSha),
+    forkReplay(rebased, targetSha, newSha),
+  );
+  return selectVerificationDependencySetup(original, baseSha, targetSha);
 };
 
 export const verifyReplay = (
