@@ -79,6 +79,17 @@ export const pushBotRef = (root: string, ref: string): void => {
   gitText(root, ["push", "--quiet", "origin", `${ref}:${ref}`]);
 };
 
+/** Publish a rewritten bot-owned ref only if origin still has the commit the caller read. */
+export const pushBotRefWithLease = (root: string, ref: string, expectedOld: string): void => {
+  gitText(root, [
+    "push",
+    "--quiet",
+    `--force-with-lease=${ref}:${expectedOld}`,
+    "origin",
+    `${ref}:${ref}`,
+  ]);
+};
+
 const temporaryIndex = <T>(effect: (indexFile: string) => T): T => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-bot-ref-"));
   try {
