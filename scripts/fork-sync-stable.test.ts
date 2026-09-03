@@ -80,6 +80,20 @@ const reportFixture = (root: string, overrides: Partial<StableReport> = {}): Sta
   };
 };
 
+const CI_RUN_URL = "https://example.test/runs/42";
+const CI_RUN_LIST_ARGS = [
+  "run",
+  "list",
+  "--workflow",
+  "hyprws-ci.yml",
+  "--branch",
+  "release/v1.2.3-hyprws",
+  "--json",
+  "databaseId,headSha,status,conclusion,url",
+  "-R",
+  REPOSITORY,
+];
+
 const prepareRunner = (lane: string): FakeRunner => {
   const runner = new FakeRunner();
   runner.set(
@@ -117,6 +131,20 @@ const prepareRunner = (lane: string): FakeRunner => {
   });
   runner.set("git", ["ls-remote", "--exit-code", "--tags", "origin", "refs/tags/v1.2.3-hyprws.4"], {
     status: 2,
+  });
+  runner.set("git", ["ls-remote", "--heads", "origin", "refs/heads/release/v1.2.3-hyprws"], {
+    stdout: `${SHA}\trefs/heads/release/v1.2.3-hyprws\n`,
+  });
+  runner.set("gh", CI_RUN_LIST_ARGS, {
+    stdout: JSON.stringify([
+      {
+        databaseId: 42,
+        headSha: SHA,
+        status: "completed",
+        conclusion: "success",
+        url: CI_RUN_URL,
+      },
+    ]),
   });
   return runner;
 };
@@ -163,7 +191,7 @@ it("stable-list reads every candidate into an external report without accepting 
   );
 });
 
-it("stable-prepare binds the selected snapshot, runs the release checks, and renders UAT", () => {
+it("stable-prepare binds the selected snapshot, takes the CI verdict, and renders UAT", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
   const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
   const listed = reportFixture(root);
@@ -188,23 +216,28 @@ it("stable-prepare binds the selected snapshot, runs the release checks, and ren
     ),
   );
   const laneVp = vpForLane(lane);
-  for (const args of [
-    ["run", "fork:delta", "--check"],
-    ["check"],
-    ["run", "typecheck"],
-    ["run", "test"],
-  ]) {
-    assert.isTrue(
+  assert.isTrue(
+    runner.calls.some(
+      (call) =>
+        call.command === laneVp &&
+        call.args.join(" ") === "run fork:delta --check" &&
+        call.env?.VP_CLI_BIN === laneVp &&
+        call.env?.INIT_CWD === lane &&
+        call.env.PATH?.startsWith(`${NodePath.dirname(laneVp)}${NodePath.delimiter}`) === true,
+    ),
+  );
+  for (const args of [["check"], ["run", "typecheck"], ["run", "test"]]) {
+    assert.isFalse(
       runner.calls.some(
-        (call) =>
-          call.command === laneVp &&
-          call.args.join(" ") === args.join(" ") &&
-          call.env?.VP_CLI_BIN === laneVp &&
-          call.env?.INIT_CWD === lane &&
-          call.env.PATH?.startsWith(`${NodePath.dirname(laneVp)}${NodePath.delimiter}`) === true,
+        (call) => call.command === laneVp && call.args.join(" ") === args.join(" "),
       ),
+      `stable-prepare must not run vp ${args.join(" ")} on the operator machine`,
     );
   }
+  assert.deepInclude(prepared.verification, {
+    command: `hyprws CI ${CI_RUN_URL}`,
+    result: "passed",
+  });
   assert.isTrue(
     runner.calls.some(
       (call) =>
@@ -221,9 +254,9 @@ it("stable-prepare removes its cut lane when a release check fails", () => {
   const listed = reportFixture(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = prepareRunner(lane);
-  runner.set(vpForLane(lane), ["run", "test"], {
+  runner.set(vpForLane(lane), ["run", "fork:delta", "--check"], {
     status: 1,
-    stderr: "transient test failure",
+    stderr: "delta drift",
   });
 
   assert.throws(
@@ -233,7 +266,7 @@ it("stable-prepare removes its cut lane when a release check fails", () => {
         root,
         runner,
       ),
-    /vp run test failed: transient test failure[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws[\s\S]*Restart with: vp run fork:sync stable-list/,
+    /vp run fork:delta --check failed: delta drift[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws[\s\S]*Restart with: vp run fork:sync stable-list/,
   );
   assert.isTrue(
     runner.calls.some(
@@ -255,9 +288,9 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
   const listed = reportFixture(root);
   NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
   const runner = prepareRunner(lane);
-  runner.set(vpForLane(lane), ["run", "test"], {
+  runner.set(vpForLane(lane), ["run", "fork:delta", "--check"], {
     status: 1,
-    stderr: "transient test failure",
+    stderr: "delta drift",
   });
   runner.set(
     "wt",
@@ -276,6 +309,83 @@ it("stable-prepare emits exact recovery when cut lane cleanup fails", () => {
         runner,
       ),
     /failed to clean stable cut lane cut\/v1\.2\.3-hyprws: worktree is busy[\s\S]*Recover with: wt remove --foreground --force --force-delete --yes cut\/v1\.2\.3-hyprws[\s\S]*Then restart with: vp run fork:sync stable-list/,
+  );
+});
+
+it("stable-prepare stops on a failed CI verdict before the UAT draft renders", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
+  const listed = reportFixture(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = prepareRunner(lane);
+  runner.set("gh", CI_RUN_LIST_ARGS, {
+    stdout: JSON.stringify([
+      {
+        databaseId: 43,
+        headSha: SHA,
+        status: "completed",
+        conclusion: "failure",
+        url: "https://example.test/runs/43",
+      },
+    ]),
+  });
+  runner.set("gh", ["run", "view", "43", "--json", "jobs", "-R", REPOSITORY], {
+    stdout: JSON.stringify({
+      jobs: [
+        { name: "Test", conclusion: "failure" },
+        { name: "Check", conclusion: "success" },
+      ],
+    }),
+  });
+  runner.set("gh", ["run", "view", "43", "--log-failed", "-R", REPOSITORY], {
+    stdout: "Test\tstep\tprovider registry timed out\n",
+  });
+
+  assert.throws(
+    () =>
+      executeStable(
+        ["stable-prepare", "--report", listed.reportPath, "--issue", "355"],
+        root,
+        runner,
+      ),
+    /hyprws CI failed: https:\/\/example\.test\/runs\/43[\s\S]*Failing job: Test[\s\S]*provider registry timed out[\s\S]*cleaned: stable cut lane cut\/v1\.2\.3-hyprws/,
+  );
+  assert.isFalse(
+    runner.calls.some((call) => call.command === vpForLane(lane) && call.args[1] === "fork:uat"),
+  );
+  assert.strictEqual(
+    validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
+    "stable-listed",
+  );
+});
+
+it("stable-prepare stops when the CI verdict never arrives", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-root-"));
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "stable-prepare-lane-"));
+  const listed = reportFixture(root);
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = prepareRunner(lane);
+  runner.set("gh", CI_RUN_LIST_ARGS, { stdout: "[]" });
+
+  assert.throws(
+    () =>
+      executeStable(
+        ["stable-prepare", "--report", listed.reportPath, "--issue", "355"],
+        root,
+        runner,
+      ),
+    /hyprws CI timed out after 45 minutes waiting for/,
+  );
+  assert.lengthOf(
+    runner.calls.filter(({ command, args }) => command === "sleep" && args.join(" ") === "30"),
+    90,
+  );
+  assert.isFalse(
+    runner.calls.some((call) => call.command === vpForLane(lane) && call.args[1] === "fork:uat"),
+  );
+  assert.strictEqual(
+    validateStableReport(JSON.parse(NodeFS.readFileSync(listed.reportPath, "utf8"))).stage,
+    "stable-listed",
   );
 });
 

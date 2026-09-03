@@ -36,6 +36,7 @@ import {
   type RebaseGitHubClient,
 } from "./fork-rebase-notify.ts";
 import { snapshotCrossedStableTags } from "./fork-stable-crossing.ts";
+import { remoteLaneHead, waitForCiVerdict } from "./fork-sync-ci.ts";
 import { executeStable } from "./fork-sync-stable.ts";
 import { humanVerdictsBySubject, readChurnLedger } from "./fork-churn-ledger.ts";
 import {
@@ -917,100 +918,6 @@ export const gateVerificationEnv = (
 
 const laneEnv = (worktree: string): NodeJS.ProcessEnv => gateVerificationEnv(process.env, worktree);
 
-interface CiRun {
-  readonly databaseId: number;
-  readonly headSha: string;
-  readonly status: string;
-  readonly conclusion: string | null;
-  readonly url: string;
-}
-
-interface CiJob {
-  readonly name: string;
-  readonly conclusion: string | null;
-}
-
-const CI_POLL_SECONDS = 30;
-const CI_POLL_LIMIT = 91;
-
-const remoteLaneHead = (runner: CommandRunner, worktree: string, branch: string): string =>
-  git(runner, worktree, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], true).split(
-    /\s+/,
-    1,
-  )[0] ?? "";
-
-const failedCiEvidence = (runner: CommandRunner, worktree: string, run: CiRun): string => {
-  const jobs = JSON.parse(
-    requireSuccess(
-      runner,
-      "gh",
-      ["run", "view", String(run.databaseId), "--json", "jobs", "-R", REPOSITORY],
-      worktree,
-    ),
-  ) as { readonly jobs: ReadonlyArray<CiJob> };
-  const failedJobs = jobs.jobs.filter(
-    ({ conclusion }) =>
-      conclusion !== null && !["success", "skipped", "neutral"].includes(conclusion),
-  );
-  const log = requireSuccess(
-    runner,
-    "gh",
-    ["run", "view", String(run.databaseId), "--log-failed", "-R", REPOSITORY],
-    worktree,
-  );
-  return [
-    `hyprws CI failed: ${run.url}`,
-    ...failedJobs.map(({ name }) => {
-      const jobLog = log.split("\n").filter((line) => line.startsWith(`${name}\t`));
-      return [`Failing job: ${name}`, ...jobLog.slice(-40)].join("\n");
-    }),
-  ].join("\n");
-};
-
-const waitForCiVerdict = (
-  runner: CommandRunner,
-  worktree: string,
-  branch: string,
-  head: string,
-): CiRun => {
-  let printedUrl = false;
-  for (let poll = 0; poll < CI_POLL_LIMIT; poll += 1) {
-    const runs = JSON.parse(
-      requireSuccess(
-        runner,
-        "gh",
-        [
-          "run",
-          "list",
-          "--workflow",
-          "hyprws-ci.yml",
-          "--branch",
-          branch,
-          "--json",
-          "databaseId,headSha,status,conclusion,url",
-          "-R",
-          REPOSITORY,
-        ],
-        worktree,
-      ),
-    ) as ReadonlyArray<CiRun>;
-    const run = runs.find(({ headSha }) => headSha === head);
-    if (run !== undefined) {
-      if (!printedUrl) {
-        process.stdout.write(`${run.url}\n`);
-        printedUrl = true;
-      }
-      if (run.status === "completed") {
-        if (run.conclusion !== "success") throw new Error(failedCiEvidence(runner, worktree, run));
-        return run;
-      }
-    }
-    if (poll + 1 < CI_POLL_LIMIT)
-      requireSuccess(runner, "sleep", [String(CI_POLL_SECONDS)], worktree);
-  }
-  throw new Error(`hyprws CI timed out after 45 minutes waiting for ${head} on ${branch}`);
-};
-
 export const parseSilentSeam = (value: string): SilentSeam => {
   const separator = value.indexOf("=");
   const kindSeparator = value.lastIndexOf(":");
@@ -1153,7 +1060,7 @@ const unblockCheck = (
     ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${report.lane.branch}`],
     true,
   );
-  if (remoteLaneHead(runner, worktree, report.lane.branch) !== installedHead)
+  if (remoteLaneHead(runner, worktree, report.lane.branch, true) !== installedHead)
     throw new Error("pushed rehearsal head does not match the installed tree");
   const ciRun = waitForCiVerdict(runner, worktree, report.lane.branch, installedHead);
   verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
@@ -1337,7 +1244,7 @@ const unblockApply = (
     throw new Error("checked rehearsal head moved; rerun unblock-check");
   if (report.ciHead === undefined || report.ciHead !== report.installedHead)
     throw new Error("checked report has no CI verdict for the installed head");
-  if (remoteLaneHead(runner, worktree, lane.branch) !== report.ciHead)
+  if (remoteLaneHead(runner, worktree, lane.branch, true) !== report.ciHead)
     throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
   // A rewrite is bound to its own proofs, not to a tag walk's orientation.
   if (!isRewrite && !orientationCoheres(report, runner))
