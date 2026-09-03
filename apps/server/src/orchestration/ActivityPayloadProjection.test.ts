@@ -1,18 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  CommandId,
-  CorrelationId,
-  EventId,
-  ThreadId,
-  type OrchestrationEvent,
-  type OrchestrationThreadActivity,
-  type OrchestrationThreadDetailSnapshot,
-} from "@t3tools/contracts";
-import {
-  projectActivityEvent,
-  projectActivityPayload,
-  projectThreadDetailSnapshot,
-} from "./ActivityPayloadProjection.ts";
+import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import { projectActivityPayload } from "./ActivityPayloadProjection.ts";
 
 function activity(payload: Record<string, unknown>): OrchestrationThreadActivity {
   return {
