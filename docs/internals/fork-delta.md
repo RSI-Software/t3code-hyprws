@@ -599,6 +599,7 @@ Retired with the fork.
 | `.github/workflows/hyprws-upstream-sync.yml`                                                                                                 | Owns bot mode, runner setup, and fork-local issue upserts.                                                                                                |
 | `.github/pull_request_template.md`                                                                                                           | Carries the fork trailer block every squash body needs.                                                                                                   |
 | `packages/contracts/src/settings.test.ts`, `apps/web/src/components/ChatView.logic.test.ts`, `apps/web/src/components/Sidebar.logic.test.ts` | Fork cases live in `*.fork.test.ts` siblings, so these files keep only upstream cases and take upstream edits cleanly.                                    |
+| `apps/server/src/serverRuntimeStartup.ts`                                                                                                    | Reconciles the fork's legacy generated worktree setup commands before accepting commands.                                                                 |
 | `pnpm-lock.yaml`                                                                                                                             | Upstream regenerates it constantly. Domain commits here only undo accidental install drift; a real dependency change belongs to the domain that needs it. |
 
 ## distribution
