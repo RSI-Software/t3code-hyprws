@@ -67,7 +67,12 @@ const candidateFromIssue = (issue: {
   readonly title: string;
   readonly body: string;
 }): StableCandidate | null => {
-  const titleMatch = /^Stable candidate (v\d+\.\d+\.\d+-hyprws)$/.exec(issue.title);
+  // A trailing ghb homing marker ([📥], [📍], or [<emoji>#N]) is machine-owned:
+  // accept it, never strip or hand-write it. The body marker stays the identity.
+  const titleMatch =
+    /^Stable candidate (v\d+\.\d+\.\d+-hyprws)(?: \[(?:📥|📍|[^\s\[\]]+#\d+)\])?$/.exec(
+      issue.title,
+    );
   if (titleMatch === null) return null;
   const name = titleMatch[1] ?? "";
   if (parseStableForkTag(`${name}.1`) === null) return null;
