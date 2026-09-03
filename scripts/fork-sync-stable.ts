@@ -12,6 +12,7 @@ import {
 } from "./lib/fork-command.ts";
 import { parseStableForkTag } from "./lib/fork-policy.ts";
 import { resolveNextForkStableTag } from "./fork-release-version.ts";
+import { remoteLaneHead, waitForCiVerdict } from "./fork-sync-ci.ts";
 import {
   commandText,
   externalPath,
@@ -362,16 +363,20 @@ const stablePrepare = (
         "vp",
         args,
       );
-    const checks: ReadonlyArray<ReadonlyArray<string>> = [
-      ["run", "fork:delta", "--check"],
-      ["check"],
-      ["run", "typecheck"],
-      ["run", "test"],
-    ];
-    for (const args of checks) {
-      runLaneVp(args);
-      verification.push({ command: commandText("vp", args), result: "passed" });
+    // The delta check is fork-local bookkeeping and cheap. `check`, `typecheck`, and `test` are the
+    // full battery, and running it here has killed the operator's panes under memory pressure, so
+    // the verdict comes from `hyprws CI` on the snapshot head the release lane already carries.
+    const deltaArgs = ["run", "fork:delta", "--check"];
+    runLaneVp(deltaArgs);
+    verification.push({ command: commandText("vp", deltaArgs), result: "passed" });
+
+    if (remoteLaneHead(runner, lane.worktree, selected.branch) !== snapshotSha) {
+      throw new Error(
+        `origin/${selected.branch} no longer points at ${snapshotSha}; start again with vp run fork:sync stable-list`,
+      );
     }
+    const ciRun = waitForCiVerdict(runner, lane.worktree, selected.branch, snapshotSha);
+    verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
 
     const allTags = lines(git(runner, lane.worktree, ["tag", "--list", "v*-hyprws.*"]));
     const upstreamVersion = selected.name.slice(1, -"-hyprws".length);
