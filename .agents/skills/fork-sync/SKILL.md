@@ -13,10 +13,41 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 
 Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. It selects the
 open walk target (or the newest offered tag), accepts a coherent orientation, replays rerere and
-generated conflicts, takes the pushed-lane CI verdict, records clear keep decisions, applies with
-the existing lease, dispatches reconciliation, identifies its run URL, and does not wait for completion. It stops only for an incoherent
-orientation, a non-rerere source conflict, a retirement or behaviour seam, or another real
-judgement. Resolve that surface with the existing verbs, then continue the same external report with
+generated conflicts, takes the pushed-lane CI verdict, and records the walking host's clear keep
+decisions. On a nightly target it stops at the risky boundary for one independent Claude Opus
+review. After that distinct session signs the bound evidence, resume applies with the existing lease,
+dispatches reconciliation, identifies its run URL, and does not wait for completion.
+
+Hand the emitted report and record paths to the independent reviewer. The Opus session must inspect:
+
+- the generated target and live blocking marker;
+- every non-mechanical verdict and the complete rehearsal evidence;
+- pushed-lane CI on the exact installed head;
+- every silent seam; and
+- the live `expected_old` lease.
+
+After inspection, that session records exactly one result. The command reads the active runtime's
+interface, provider, model, and session from `ghb attest handoff`; never copy a handoff between
+sessions or edit those fields into the report.
+
+```bash
+vp run fork:sync unblock-review --report <report> --sign-off
+vp run fork:sync unblock-review --report <report> --withhold '<reason>'
+```
+
+Withhold for undefined fork intent, a non-equivalent retire, user-visible behaviour change, a fork
+domain or tier topology change, any bypass, or evidence that cannot be verified. Never call this
+reviewer human and never run the review command from the walking agent's session. Continue with
+`vp run fork:sync unblock-auto --resume --report <report>`. The **nightly independent-review guard**
+refuses missing, stale, self-approved, non-Opus, or withheld review.
+
+A bot-carried objective walk remains exempt because it has no agent judgement verdict. Any
+conflict or judgement stops that workflow before apply; restart it as a host-owned proposal, where
+the independent-review guard applies.
+
+Automation still pauses for an incoherent orientation, a non-rerere source conflict, any withhold
+condition above, or another real judgement. Resolve a judgement surface through the existing verbs
+without weakening a gate, then continue the same external report with
 `vp run fork:sync unblock-auto --resume --report <path>`.
 
 ### Walk mode
@@ -28,7 +59,8 @@ or bypass a refusal or `fork:sync-gate`.
 
 ### Stop shape
 
-At every stop in steps 1–4, first reproduce the emitted decision surface verbatim and unchanged. Then
+This is the human judgement path, not the objective nightly Opus boundary above. At every stop in
+steps 1–4, first reproduce the emitted decision surface verbatim and unchanged. Then
 write one triage line per decision in exactly one of these forms:
 
 - `clear — <recommendation>: <one-line reason>` for a mechanical or unambiguous choice;
@@ -108,8 +140,12 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    `--silent-seam '<path>=<summary>:behaviour'`; auto mode carries type-only evidence and stops once
    on behaviour evidence. Never substitute repo-wide local checks.
 
-   **Stop.** Apply the stop shape and the retire-candidate test to the emitted Gate 4 decision
-   surface, silent seams, and grounding evidence. The surface names every stop the walk found, so
+   **Stop.** On an objective nightly lane, first run
+   `vp run fork:sync unblock-auto --resume --report <report>` so the walking host identity is bound
+   and the independent-review stop is emitted. Then give that Gate 4 surface, report, and record to
+   the independent Opus reviewer using the evidence set and withhold rules above. On a judgement lane,
+   apply the stop shape and the retire-candidate test to the emitted Gate 4 decision surface, silent
+   seams, and grounding evidence. The surface names every stop the walk found, so
    answer the whole set rather than the first line. A behaviour seam stops the walk once: presenting
    it records that the human saw it, and the resume fills the record it was blocking. On a failed gate, present the failing job names and
    last 40 failed-log lines verbatim before any interpretation. Continue only when the human gives
@@ -121,13 +157,17 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    cells already filled and refuses when a filled cell disagrees with the decision the report
    carries.
 
-5. Apply the reviewed record:
+5. Apply the reviewed record. The normal nightly operator flow resumes auto mode after Opus signs;
+   walk mode can invoke the underlying verb directly:
 
    ```bash
+   vp run fork:sync unblock-auto --resume --report <report>
    vp run fork:sync unblock-apply --report <report> --record <record>
    ```
 
-   This refuses a rehearsal lane moved since the CI verdict, calls `fork:sync-gate`, posts the
+   For a nightly target both paths require the nightly independent-review guard. It binds distinct
+   proposer/reviewer identities to the record, target, blocking SHA, installed/CI head, lane, and
+   lease. The apply also refuses a rehearsal lane moved since the CI verdict, calls `fork:sync-gate`, posts the
    record, uses only its expected-old lease, and deletes the remote lane after apply. Rejection voids
    the report: retain its external files and restart at step 1. Never commit them.
 
