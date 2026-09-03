@@ -8,7 +8,6 @@ import {
   buildThreadRouteParams,
   isThreadRouteSnapshotAuthoritative,
   resolveActiveThreadRouteRef,
-  resolveThreadRouteFamily,
   resolveThreadRouteRenderState,
   resolveThreadRouteRef,
   resolveThreadRouteTarget,

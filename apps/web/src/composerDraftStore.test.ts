@@ -74,7 +74,6 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   type ComposerFileAttachment,
-  resolveComposerDraftStorageKey,
   type ComposerImageAttachment,
   composerFileNeedsReattach,
   partializeComposerDraftStoreState,
