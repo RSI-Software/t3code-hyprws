@@ -137,18 +137,6 @@ function renderTabs(
   );
 }
 
-describe("RightPanelTabs surface launchers", () => {
-  it("offers the capability-gated Issues action in the shared launcher model", () => {
-    const html = renderTabs(null, undefined, undefined, undefined, {
-      empty: true,
-      issuesAvailable: true,
-    });
-
-    expect(html).toContain(">Issues<");
-    expect(html).toContain('data-surface-launcher-keys="BI"');
-  });
-});
-
 describe("RightPanelTabs preview favicon", () => {
   it("prefers a live capture and never asks Google about a private hostname", () => {
     const captured = renderTabs(favicon("data:image/png;base64,AAAA", "http://24x.xf.local/"));

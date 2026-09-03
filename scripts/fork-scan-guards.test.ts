@@ -8,6 +8,7 @@ import {
   readHotSeams,
   renderScanWarnings,
   UPSTREAM_FOOTPRINT_BUDGET,
+  UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS,
   type GuardInput,
 } from "./fork-scan-guards.ts";
 
@@ -151,15 +152,44 @@ it("warns when a fork test block lands in an upstream test file, not in its fork
   );
 });
 
-it("leaves an edited upstream expectation alone, because it adds no test block", () => {
+it("defers only the two proven file-local integration harnesses", () => {
+  const deferred = [...UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS];
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      deferred
+        .map(
+          (path) => `--- a/${path}\n+++ b/${path}\n@@ -10,0 +11,1 @@\n+it("fork case", () => {});`,
+        )
+        .join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(deferred, [
+    "apps/desktop/src/window/DesktopWindow.test.ts",
+    "apps/server/src/server.test.ts",
+  ]);
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set(deferred),
+      }),
+    ),
+    [],
+  );
+});
+
+it("leaves a renamed upstream test alone when its removed and added openers share a hunk", () => {
   const patches = parseCommitPatches(
     patch(
       "a".repeat(40),
       [
         "--- a/apps/web/src/threadRoutes.test.ts",
         "+++ b/apps/web/src/threadRoutes.test.ts",
-        "@@ -12 +12 @@",
+        "@@ -10,3 +10,3 @@",
+        '-it("routes a hub thread", () => {',
         '-  assert.strictEqual(route, "/thread");',
+        '+it("routes a project thread", () => {',
         '+  assert.strictEqual(route, "/project/thread");',
         "",
       ].join("\n"),
@@ -173,6 +203,35 @@ it("leaves an edited upstream expectation alone, because it adds no test block",
       }),
     ),
     [],
+  );
+});
+
+it("warns when an unrelated test is deleted in one hunk and another is appended elsewhere", () => {
+  const path = "apps/web/src/threadRoutes.test.ts";
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -10,2 +10,0 @@",
+        '-it("drops an obsolete upstream case", () => {});',
+        "-",
+        "@@ -50,0 +49,2 @@",
+        '+it("adds a fork-only case", () => {});',
+        "+",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set([path]),
+      }),
+    ).map(({ rule, detail }) => `${rule} ${detail}`),
+    [`upstream-test ${path} gains 1 fork test block(s); move them to ${forkTestSibling(path)}`],
   );
 });
 

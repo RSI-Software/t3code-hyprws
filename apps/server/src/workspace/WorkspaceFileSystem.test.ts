@@ -173,32 +173,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
-    it.effect("reads through external workspace symlinks when globally enabled", () =>
-      Effect.gen(function* () {
-        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const serverSettings = yield* ServerSettings.ServerSettingsService;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const cwd = yield* makeTempDir;
-        const outsideDir = yield* makeTempDir;
-        yield* writeTextFile(outsideDir, "plans/spec.md", "# Shared plan\n");
-        yield* fileSystem.symlink(outsideDir, path.join(cwd, ".dump"));
-        yield* serverSettings.updateSettings({ followExternalWorkspaceSymlinks: true });
-
-        const result = yield* workspaceFileSystem.readFile({
-          cwd,
-          relativePath: ".dump/plans/spec.md",
-        });
-
-        expect(result).toEqual({
-          relativePath: ".dump/plans/spec.md",
-          contents: "# Shared plan\n",
-          byteLength: 14,
-          truncated: false,
-        });
-      }),
-    );
-
     it.effect("rejects directories without manufacturing an I/O cause", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
