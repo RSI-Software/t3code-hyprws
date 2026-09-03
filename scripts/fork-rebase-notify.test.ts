@@ -2,6 +2,7 @@
 
 import { assert, it } from "@effect/vitest";
 
+import { stableCrossingCandidate } from "./fork-stable-crossing.ts";
 import {
   findIssueTypeId,
   hasPlainSingleSelectOption,
@@ -371,6 +372,33 @@ it("leaves a release issue that is not a stable candidate alone", () => {
 
   assert.deepStrictEqual(client.closed, []);
   assert.deepStrictEqual(client.releaseTagChecks, []);
+});
+
+it("reconciles a crossing-route candidate behind a marker-suffixed title", () => {
+  // Both routes key on the body marker: stableCrossingCandidate mints it and
+  // reconcileStableCandidates matches on it, so a ghb homing suffix on the title
+  // must not cause a duplicate.
+  const candidate = stableCrossingCandidate("v1.2.0", SHA_A, "on", "unblock-apply");
+  const client = new FakeGitHub(
+    [],
+    [
+      {
+        number: 7,
+        nodeId: "issue-7",
+        state: "open",
+        title: `${candidate.title} [📥]`,
+        body: candidate.body,
+        issueType: null,
+      },
+    ],
+  );
+
+  reconcileStableCandidates(client, [candidate]);
+
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [7]);
+  assert.strictEqual(client.releaseListCalls, 1);
 });
 
 it("looks up the enabled native Notification type by repository issue-type name", () => {

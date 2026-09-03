@@ -464,6 +464,9 @@ multi-command block carries gate state:
 1. `vp run fork:sync stable-list` runs fork preflight, reads every open stable candidate, validates
    each candidate title/body/marker, and writes an external selection report. It accepts no issue
    number. The human selects one of the reported issues; recency is not permission to infer it.
+   The `<!-- hyprws-stable-candidate: <name> -->` body marker is the candidate's identity; a
+   trailing `ghb`-owned homing marker on the title (`[📥]`, `[📍]`, or `[<emoji>#N]`) is accepted
+   and never stripped or hand-written.
 2. `vp run fork:sync stable-prepare --report <report> --issue <selected-issue>` rereads the exact
    selected issue, fetches its bot-owned snapshot and tags, binds the remote commit, and creates the
    collision-refusing `cut/vX.Y.Z-hyprws` Worktrunk lane. It installs with the lockfile frozen, then
