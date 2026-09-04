@@ -289,12 +289,12 @@ describe("worktree setup", () => {
 
     assert.equal(await runSetupWorktree(["--help"], dependencies), 0);
     assert.equal(await runSetupWorktree(["-h"], dependencies), 0);
-    assert.match(output.stdout, /Usage: vp run setup:worktree/u);
+    assert.match(output.stdout, /Usage: node scripts\/setup-worktree\.ts/u);
     assert.deepStrictEqual(output.commands, []);
 
     assert.equal(await runSetupWorktree(["--unknown"], dependencies), 2);
     assert.match(output.stderr, /unknown argument: --unknown/u);
-    assert.match(output.stderr, /Usage: vp run setup:worktree/u);
+    assert.match(output.stderr, /Usage: node scripts\/setup-worktree\.ts/u);
     assert.deepStrictEqual(output.commands, []);
   });
 });
