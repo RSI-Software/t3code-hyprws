@@ -15,7 +15,7 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "node --watch-path=src --watch-path=../../packages src/bin.ts",
+    "dev": "node --watch-path=src --watch-path=../../packages/contracts/src --watch-path=../../packages/effect-acp/src --watch-path=../../packages/effect-codex-app-server/src --watch-path=../../packages/shared/src --watch-path=../../packages/tailscale/src src/bin.ts",
     "build:bundle": "vp pack && vp pack src/service-launcher.ts --out-dir dist --no-clean",
     "start": "node dist/bin.mjs",
     "typecheck": "tsgo --noEmit",
