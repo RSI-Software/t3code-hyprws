@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 
 const HELP = `Set up dependencies and canonical environment links for a Git worktree.
 
-Usage: vp run setup:worktree
+Usage: node scripts/setup-worktree.ts
 
 Options:
   -h, --help  Show this help before making changes.
@@ -259,7 +259,7 @@ export async function runSetupWorktree(
     arguments_ = parseSetupWorktreeArguments(argv);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    dependencies.writeStderr(`error: ${message}\nUsage: vp run setup:worktree\n`);
+    dependencies.writeStderr(`error: ${message}\nUsage: node scripts/setup-worktree.ts\n`);
     return 2;
   }
 
