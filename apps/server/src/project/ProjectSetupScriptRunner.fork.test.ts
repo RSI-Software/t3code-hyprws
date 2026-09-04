@@ -53,6 +53,18 @@ describe("persisted fork setup script refresh", () => {
     }
   });
 
+  it("refreshes the generated package-script wrapper used before dependencies exist", () => {
+    expect(
+      refreshPersistedSetupScript({
+        ...legacyGeneratedScript,
+        command: "vp run setup:worktree",
+      }),
+    ).toEqual({
+      ...legacyGeneratedScript,
+      command: GENERATED_SETUP_COMMAND,
+    });
+  });
+
   it("collapses the two exact generated platform entries into one", () => {
     const scripts: ProjectScript[] = generatedSetupScripts.map((script) => ({
       ...script,
