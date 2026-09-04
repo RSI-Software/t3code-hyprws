@@ -52,6 +52,8 @@ it.effect("persists only an unmodified imported fork setup command", () => {
     } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]),
     Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
       readEvents: () => Stream.empty,
+      readThreadEvents: () => Stream.empty,
+      getThreadReplayStats: () => Effect.die("unused thread replay stats"),
       dispatch: (command) =>
         Effect.sync(() => dispatched.push(command)).pipe(
           Effect.as({ sequence: dispatched.length }),
@@ -73,10 +75,7 @@ it.effect("persists only an unmodified imported fork setup command", () => {
         assert.deepStrictEqual(command.scripts, [
           {
             ...stale.scripts[0]!,
-            command:
-              "vp i --frozen-lockfile && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
-              "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
-              "node apps/web/scripts/warm-dep-cache.ts",
+            command: "node scripts/setup-worktree.ts",
           },
         ]);
       }),
