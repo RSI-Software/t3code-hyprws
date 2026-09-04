@@ -30,8 +30,9 @@ authenticated.
 - `vp run dev --browser`: Auto-opens a browser. Off by default. The dev runner writes
   `T3CODE_NO_BROWSER` itself from this flag, so setting `T3CODE_NO_BROWSER=0` in your environment has
   no effect; use `--browser`.
-- `vp run dev:server`: Starts just the server. It runs on Node (`node --watch src/bin.ts`), so
-  without Bun present it selects `NodePtyAdapter` and `NodeHttpServer`.
+- `vp run dev:server`: Starts just the server. It runs on Node and watches server plus shared-package
+  source while ignoring dependency-install churn, so without Bun present it selects
+  `NodePtyAdapter` and `NodeHttpServer`.
 - `vp run dev:web`: Starts just the Vite dev server for the web app.
 - `vp run dev:desktop`: Starts the Electron shell against the dev server.
 - `vp run dev:desktop:agent`: Starts or restarts this worktree's desktop dev stack, disables detached DevTools, allocates a stable free CDP port from base 9223, and records the live endpoint under `XDG_STATE_HOME`. It uses normal compositor placement by default. Set `T3CODE_DESKTOP_AGENT_WORKSPACE=-1` in the repo's gitignored `.env` to map without focus one numbered workspace before the invoking app, or set a positive workspace ID for fixed placement. `--workspace <selector>` overrides the repo setting for one run; `none` explicitly restores default placement.
