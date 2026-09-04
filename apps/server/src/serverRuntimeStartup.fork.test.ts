@@ -73,7 +73,7 @@ it.effect("persists only an unmodified imported fork setup command", () => {
         assert.deepStrictEqual(command.scripts, [
           {
             ...stale.scripts[0]!,
-            command: "vp run setup:worktree",
+            command: "node scripts/setup-worktree.ts",
           },
         ]);
       }),
