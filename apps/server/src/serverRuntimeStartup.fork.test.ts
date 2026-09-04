@@ -73,10 +73,7 @@ it.effect("persists only an unmodified imported fork setup command", () => {
         assert.deepStrictEqual(command.scripts, [
           {
             ...stale.scripts[0]!,
-            command:
-              "vp i --frozen-lockfile && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
-              "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
-              "node apps/web/scripts/warm-dep-cache.ts",
+            command: "vp run setup:worktree",
           },
         ]);
       }),
