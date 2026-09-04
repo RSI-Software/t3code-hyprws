@@ -33,7 +33,7 @@ export interface ProjectSetupScriptRunnerInput {
   readonly preferredTerminalId?: string;
 }
 
-export const GENERATED_SETUP_COMMAND = "vp run setup:worktree";
+export const GENERATED_SETUP_COMMAND = "node scripts/setup-worktree.ts";
 
 const LEGACY_GENERATED_SETUP_COMMANDS = new Map<string, ReadonlySet<string>>([
   [
@@ -45,6 +45,7 @@ const LEGACY_GENERATED_SETUP_COMMANDS = new Map<string, ReadonlySet<string>>([
       "vp i --frozen-lockfile && ln -sf $T3CODE_PROJECT_ROOT/.env .env && " +
         "ln -sf $T3CODE_PROJECT_ROOT/infra/relay/.env infra/relay/.env && " +
         "node apps/web/scripts/warm-dep-cache.ts",
+      "vp run setup:worktree",
       GENERATED_SETUP_COMMAND,
     ]),
   ],
