@@ -666,6 +666,13 @@ const currentCommit = (
 const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<string> =>
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
+export const conflictResolutionIsReady = (
+  path: string,
+  _staged: ReadonlySet<string>,
+  unmerged: ReadonlySet<string>,
+  unstaged: ReadonlySet<string>,
+): boolean => !unmerged.has(path) && !unstaged.has(path);
+
 export const rehearsalRebaseArgs = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-c",
   "core.commentChar=auto",
@@ -949,8 +956,13 @@ const unblockRehearse = (
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
     );
-    for (const row of pending.filter(({ path }) => !isGeneratedPath(path)))
-      if (!staged.has(row.path)) throw new Error(`resolved conflict is not staged: ${row.path}`);
+    const unmerged = new Set(pendingConflicts(runner, lane.worktree));
+    const unstaged = new Set(lines(git(runner, lane.worktree, ["diff", "--name-only"], true)));
+    for (const row of pending.filter(({ path }) => !isGeneratedPath(path))) {
+      if (conflictResolutionIsReady(row.path, staged, unmerged, unstaged)) continue;
+      if (unmerged.has(row.path)) throw new Error(`conflict remains unmerged: ${row.path}`);
+      throw new Error(`resolved conflict is not staged or restored to HEAD: ${row.path}`);
+    }
     if (pending.some(({ path }) => isGeneratedPath(path))) {
       git(
         runner,
