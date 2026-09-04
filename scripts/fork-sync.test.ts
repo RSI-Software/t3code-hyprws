@@ -15,6 +15,7 @@ import {
   autoResolveConflicts,
   collectRetireEvidence,
   completeGeneratedConflictRegeneration,
+  conflictResolutionIsReady,
   decisionSurface,
   execute,
   filledDecisionCells,
@@ -873,6 +874,21 @@ it("keeps the resolve-and-record stop when a generated path conflicts alongside 
     "Resolve and stage non-generated files, complete every TODO row in /tmp/record.md, then rerun unblock-rehearse.",
   );
   assert.include(stop, "  - pnpm-lock.yaml\n");
+});
+
+it("accepts an intentionally no-diff conflict resolution once the path is clean", () => {
+  const path = "apps/desktop/src/preload.ts";
+
+  assert.isTrue(conflictResolutionIsReady(path, new Set(), new Set(), new Set()));
+  assert.isTrue(conflictResolutionIsReady(path, new Set([path]), new Set(), new Set()));
+  assert.isFalse(conflictResolutionIsReady(path, new Set(), new Set([path]), new Set([path])));
+  assert.isFalse(conflictResolutionIsReady(path, new Set(), new Set(), new Set([path])));
+});
+
+it("rejects a staged conflict path that still has unstaged edits", () => {
+  const path = "apps/desktop/src/preload.ts";
+
+  assert.isFalse(conflictResolutionIsReady(path, new Set([path]), new Set(), new Set([path])));
 });
 
 it("enables rerere without staging its reused resolutions", () => {
