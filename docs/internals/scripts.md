@@ -21,6 +21,11 @@ authenticated.
 
 ## Dev
 
+- `vp run setup:worktree`: Runs the automatic new-worktree setup: installs the frozen lockfile,
+  derives the canonical checkout from Git's absolute common directory, creates absolute `.env` and
+  `infra/relay/.env` symlinks, and warms the web dependency cache. It is safe to rerun, replaces only
+  stale symlinks, and refuses to overwrite regular destination files. Missing canonical environment
+  files produce intentional dangling links so they become available if the files are created later.
 - `vp run dev`: Starts contracts, server, and web in watch mode.
 - `vp run dev --share`: Also publishes the web port over HTTPS on this machine's tailnet. The
   startup pairing URL is built against the shared origin, and the mapping is removed on exit.
