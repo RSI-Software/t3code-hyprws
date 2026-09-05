@@ -437,15 +437,21 @@ stack, verifies its commit messages and fork trailers, and publishes according t
 `HYPRWS_AUTO_REBASE`. A conflict is a block only when it makes that newest tagged horizon
 unreachable; conflicts in untagged commits beyond the horizon are ignored.
 
-The bot owns three supporting refs:
+The bot owns four supporting ref families:
 
 - `hyprws-previous`, the trunk head before an automatic rewrite;
-- `hyprws-next`, the verified stack produced in candidate mode; and
-- `release/vX.Y.Z-hyprws`, a create-only snapshot when the stack crosses stable upstream `vX.Y.Z`.
+- `hyprws-next`, the verified stack produced in candidate mode;
+- `release/vX.Y.Z-hyprws`, a create-only snapshot when the stack crosses stable upstream `vX.Y.Z`;
+  and
+- `archive/hyprws-pre-rewrite-<expected-old>`, the create-only old trunk retained before a reviewed
+  same-base historical rewrite.
 
 No person or feature lane moves those refs. The repository starts in candidate mode, so the bot
 publishes `hyprws-next` without rewriting trunk. In on mode it saves `hyprws-previous` and updates
 `hyprws` with an explicit expected-old lease. Off mode reports without publishing a candidate.
+Historical rewrite apply creates and verifies its uniquely named archive before the leased trunk
+push. A rejected trunk lease retains that archive as failed-attempt evidence; it never moves
+`hyprws-previous`.
 [Fork sync](../operations/fork-sync.md) is the runbook for modes, setup, run interpretation, stable
 cuts, and feature-lane recovery.
 
