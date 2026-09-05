@@ -74,6 +74,34 @@ const authoringCases = [
     rule: "thread-route-navigation",
     domain: "project-windows",
   },
+  {
+    name: "pull-request route scope",
+    sourcePath: "apps/web/src/routes/_chat.pull-requests.tsx",
+    inlineImplementation: "const forcedProjectScope = listScope.projectRef;",
+    forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
+    integrationCall: "const scope = usePullRequestProjectScope(input);",
+    rule: "pull-request-project-scope",
+    domain: "project-windows",
+  },
+  {
+    name: "pull-request picker scope",
+    sourcePath: "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+    inlineImplementation: "const options = projects === null ? [] : projects.map(toOption);",
+    forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
+    integrationCall: "const showProjectFilter = input.showProjectFilter;",
+    rule: "pull-request-project-scope",
+    domain: "project-windows",
+  },
+  {
+    name: "project-window bootstrap",
+    sourcePath: "apps/web/src/state/shell.ts",
+    inlineImplementation:
+      "export const environmentShellBootstrappedAtom = Atom.family(readScoped);",
+    forkPath: "apps/web/src/state/windowProjectBootstrap.fork.ts",
+    integrationCall: "const allReady = allEnvironmentShellsBootstrappedAtom;",
+    rule: "pull-request-project-scope",
+    domain: "project-windows",
+  },
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
