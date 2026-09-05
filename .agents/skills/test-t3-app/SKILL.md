@@ -24,7 +24,11 @@ output; do not infer a port or open an earlier URL. Never run against
 Keep one backend per checkout home. Stop the owned launcher before changing
 surface, then start the new selection against the same retained home. T3's
 **Dev Web** project action spells `--preview`, and `--desktop` accepts
-`--workspace <+1|-1|id|none>` when explicit placement is required. `t3.json`
+`--workspace <+1|-1|id|none>` when explicit placement is required. **Dev Web**
+launches on the checkout's machine and needs the primary local environment;
+secondary desktop backends, remote, relay and SSH environments are out of
+scope, and it gives a cold build ten minutes to emit its ready URL before
+timing out. `t3.json`
 actions are imported into T3 once and stored as project-owned copies, so update
 the imported copy after changing a checked-in action.
 
@@ -37,8 +41,10 @@ inspecting or seeding SQLite. Stop the test server before direct fixture writes.
 Call `preview_status`, then `preview_open` if the Browser panel is
 closed. Navigate to the complete startup pairing URL once with
 `preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
-If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
-from the same checkout root for a fresh one. Keep using the same tab.
+If the token was consumed or expired, run
+`node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` from the same checkout
+root for a fresh one; the explicit home stops it selecting the installed app's
+home. Keep using the same tab.
 
 ## Verify and retain
 
