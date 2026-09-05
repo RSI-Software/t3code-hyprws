@@ -34,6 +34,7 @@ describe("terminalUiStateStore actions", () => {
       activeTerminalId: "",
       terminalGroups: [],
       activeTerminalGroupId: "",
+      checkoutModeByTerminalId: {},
     });
   });
 
@@ -94,6 +95,7 @@ describe("terminalUiStateStore actions", () => {
         },
       ],
       activeTerminalGroupId: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
+      checkoutModeByTerminalId: {},
     });
   });
 
