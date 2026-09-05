@@ -134,6 +134,53 @@ it("keeps spawn target selection out of the timeline without guarding upstream p
   }
 });
 
+it("keeps editor loading, surfaces and link normalization behind the rich Markdown boundaries", () => {
+  const preview = "apps/web/src/components/files/FilePreviewPanel.tsx";
+  const links = "apps/web/src/markdown-links.ts";
+  const boundary = "apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx";
+  const editorLinks = "apps/web/src/components/files/richMarkdownEditorLinks.ts";
+  const sha = "a".repeat(40);
+  for (const [path, addition, expected] of [
+    [preview, '+const editor = lazy(() => import("./MarkdownRichEditor"));', true],
+    [preview, '+import { MarkdownRichEditor as Editor } from "./MarkdownRichEditor";', true],
+    [preview, '+import { Editor } from "@milkdown/kit/core";', true],
+    [preview, '+import {\n+  Editor,\n+} from "@milkdown/kit/core";', true],
+    [preview, "+function RichMarkdownSurface(props) {", true],
+    [preview, "+const RichMarkdownEditorSurface = (props) => {", true],
+    [preview, "+return <RichMarkdownSurface {...props} />;", true],
+    [links, "+function normalizeDotSegments(path: string): string {", true],
+    [links, "+const normalizeDotSegments = (path) => path;", true],
+    [
+      preview,
+      '+import { RichMarkdownPreviewBoundary } from "./RichMarkdownPreviewBoundary";',
+      false,
+    ],
+    [preview, "+return <RichMarkdownPreviewBoundary {...props} />;", false],
+    [preview, "+const mode = resolveRichMarkdownPreviewMode(input);", false],
+    [preview, '+import { FileSaveCoordinator } from "./fileSaveCoordinator";', false],
+    [links, "+const position = splitFilePathPosition(href);", false],
+    [boundary, '+const editor = lazy(() => import("./MarkdownRichEditor"));', false],
+    [boundary, "+function RichMarkdownEditorSurface(props) {", false],
+    [editorLinks, "+function normalizeDotSegments(path) {", false],
+    [links, "-function normalizeDotSegments(path) {", false],
+    [preview, '+// import { Editor } from "@milkdown/kit/core";', false],
+    [links, "+/* function normalizeDotSegments(path) {} */", false],
+  ] as const) {
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(sha, `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${addition}`),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "rich-markdown-boundary"),
+      expected,
+      `${path}: ${addition}`,
+    );
+  }
+});
+
 it("guards provider agent implementations while allowing provider-specific siblings and calls", () => {
   const sha = "a".repeat(40);
   const cases = [

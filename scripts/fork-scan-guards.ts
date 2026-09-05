@@ -28,6 +28,7 @@ export type ScanWarningRule =
   | "replaced-export"
   | "provider-agent-boundary"
   | "agent-spawn-navigation"
+  | "rich-markdown-boundary"
   | "lockfile"
   | "sidebar-physical-scope"
   | "pull-request-project-scope"
@@ -49,6 +50,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "github-issue-settings-search",
   "mobile-ignored-file-listing",
   "agent-spawn-navigation",
+  "rich-markdown-boundary",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -56,6 +58,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "upstream-test",
   "footprint",
   "replaced-export",
+  "rich-markdown-boundary",
   "provider-agent-boundary",
   "sidebar-physical-scope",
   "agent-spawn-navigation",
@@ -105,6 +108,7 @@ export interface CommitPatch {
   readonly githubIssueSettingsSearchAdded?: boolean;
   readonly mobileIgnoredFilePolicyAdded?: boolean;
   readonly agentSpawnNavigationAdded?: boolean;
+  readonly richMarkdownImplementationAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -200,6 +204,23 @@ const AGENT_SPAWN_TIMELINE = "apps/web/src/components/chat/MessagesTimeline.tsx"
 const AGENT_SPAWN_SELECTION =
   /\bresolveAgentSpawnOpenTarget\b|\bopenTarget\s*\.\s*(?:selectedAgentId|rosterFocusAgentId)\b/;
 
+// The preview owns the narrow boundary mount; editor loading and document-link
+// normalization stay in their fork modules. Calls to the shared resolver remain valid.
+const isRichMarkdownImplementation = (path: string, content: string): boolean => {
+  if (/^\s*(?:\/\/|\/\*|\*)/.test(content)) return false;
+  if (path === "apps/web/src/markdown-links.ts") {
+    return /\b(?:function|const|let|var)\s+normalizeDotSegments\b/.test(content);
+  }
+  if (path !== "apps/web/src/components/files/FilePreviewPanel.tsx") return false;
+  return (
+    /["'](?:@milkdown\/[^"']+|(?:\.\/|~\/components\/files\/)MarkdownRichEditor(?:\.tsx)?)["']/.test(
+      content,
+    ) ||
+    /\b(?:function|const|let|var)\s+RichMarkdown(?:Editor)?Surface\b/.test(content) ||
+    /<RichMarkdown(?:Editor)?Surface\b/.test(content)
+  );
+};
+
 const diffPath = (value: string): string | null => {
   const target = value.trim();
   return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
@@ -222,6 +243,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let githubIssueSettingsSearchAdded = false;
     let mobileIgnoredFilePolicyAdded = false;
     let agentSpawnNavigationAdded = false;
+    let richMarkdownImplementationAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -272,6 +294,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ) {
         agentSpawnNavigationAdded = true;
       }
+      if (added && isRichMarkdownImplementation(path, content))
+        richMarkdownImplementationAdded = true;
       if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
         terminalAttachmentStateAdded = true;
       if (added && PROVIDER_AGENT_SOURCE.test(path) && PROVIDER_AGENT_DECLARATION.test(content)) {
@@ -336,6 +360,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(githubIssueSettingsSearchAdded ? { githubIssueSettingsSearchAdded: true } : {}),
       ...(mobileIgnoredFilePolicyAdded ? { mobileIgnoredFilePolicyAdded: true } : {}),
       ...(agentSpawnNavigationAdded ? { agentSpawnNavigationAdded: true } : {}),
+      ...(richMarkdownImplementationAdded ? { richMarkdownImplementationAdded: true } : {}),
     });
   }
   return patches;
@@ -421,6 +446,12 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "thread-route-navigation",
         "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts gains direct route-family policy; use lib/threadRouteNavigation and retain execution-time parameter reads at navigation sites",
+      );
+    }
+    if (patch.richMarkdownImplementationAdded) {
+      warn(
+        "rich-markdown-boundary",
+        "keep rich editor imports and surface implementation in RichMarkdownPreviewBoundary.tsx, and normalizeDotSegments in richMarkdownEditorLinks.ts; preserve upstream preview and shared link behavior",
       );
     }
 
