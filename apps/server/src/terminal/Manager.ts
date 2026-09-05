@@ -62,6 +62,7 @@ import {
 } from "../observability/Metrics.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import {
   INITIAL_MANAGED_ATTACHMENT_LIFECYCLE,
   transitionManagedAttachment,
@@ -1288,6 +1289,7 @@ interface TerminalManagerOptions {
     readonly terminalId: string;
   }) => Effect.Effect<void>;
   terminalSessionMode?: Effect.Effect<TerminalSessionMode>;
+  ensureZmuxSession?: ZmuxSessionBinder.ZmuxSessionBinder["Service"]["ensure"];
 }
 
 export const make = Effect.fn("TerminalManager.make")(function* () {
@@ -1295,6 +1297,7 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
   const portDiscovery = yield* PortScanner.PortDiscovery;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const zmuxSessionBinder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
     ptyAdapter,
@@ -1304,6 +1307,7 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
       Effect.map((settings) => settings.terminalSessionMode),
       Effect.orElseSucceed(() => "shell" as const),
     ),
+    ensureZmuxSession: zmuxSessionBinder.ensure,
   });
 });
 
@@ -1426,6 +1430,38 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cwd: targetDir,
       },
       target: decoded.success.target,
+      notice: null,
+    } satisfies ZmuxLaunchResolution;
+  });
+
+  const ensureZmuxSession = Effect.fn("terminal.ensureZmuxSession")(function* (
+    targetDir: string,
+    expectedMatch: ZmuxSessionMatch,
+  ) {
+    if (!options.ensureZmuxSession) {
+      return yield* resolveZmuxSession(targetDir, expectedMatch, baseEnv);
+    }
+    const result = yield* options.ensureZmuxSession(targetDir);
+    if (result.status !== "ensured") {
+      const detail =
+        result.status === "failed"
+          ? `${result.notice.summary}: ${result.notice.detail}`
+          : result.status === "unavailable"
+            ? "zmux command is unavailable"
+            : "managed zmux sessions are disabled";
+      return {
+        candidate: null,
+        target: null,
+        notice: `zmux: ${detail}`,
+      } satisfies ZmuxLaunchResolution;
+    }
+    return {
+      candidate: {
+        shell: "zmux",
+        args: ["open", result.workspace, result.session],
+        cwd: targetDir,
+      },
+      target: result.target,
       notice: null,
     } satisfies ZmuxLaunchResolution;
   });
@@ -2174,6 +2210,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
     let ptyProcess: PtyAdapter.PtyProcess | null = null;
     let startedShell: string | null = null;
+    let attemptedManagedTarget: string | null = null;
 
     const startResult = yield* Effect.result(
       increment(terminalSessionsTotal, { lifecycle: eventType }).pipe(
@@ -2191,8 +2228,21 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               const targetDir = session.worktreePath ?? session.cwd;
               const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+              const ensured = options.ensureZmuxSession
+                ? yield* ensureZmuxSession(targetDir, expectedMatch)
+                : yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+              const resolved =
+                options.ensureZmuxSession &&
+                ensured.target &&
+                ensured.target !== resumeIdentity.target
+                  ? {
+                      candidate: null,
+                      target: null,
+                      notice: `zmux: retained session ${resumeIdentity.target} now resolves as ${ensured.target}; reconcile the checkout binding before retrying`,
+                    }
+                  : ensured;
               managedTarget = resolved.target;
+              attemptedManagedTarget = resolved.target;
               zmuxCandidate = resolved.candidate;
               if (resolved.candidate) {
                 // A resolved retained identity stays retryable if attaching to
@@ -2207,11 +2257,16 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               const targetDir = session.worktreePath ?? session.cwd;
               const expectedMatch = session.worktreePath === null ? "workspace-main" : "worktree";
               spawnEnv = stripInheritedTmuxEnv(terminalEnv);
-              const resolved = yield* resolveZmuxSession(targetDir, expectedMatch, spawnEnv);
+              const resolved = yield* ensureZmuxSession(targetDir, expectedMatch);
               managedTarget = resolved.target;
+              attemptedManagedTarget = resolved.target;
               zmuxCandidate = resolved.candidate;
               if (resolved.candidate) {
-                shellCandidates = [resolved.candidate, ...plainShellCandidates];
+                shellCandidates = options.ensureZmuxSession
+                  ? [resolved.candidate]
+                  : [resolved.candidate, ...plainShellCandidates];
+              } else if (options.ensureZmuxSession) {
+                shellCandidates = [];
               }
               if (resolved.notice) {
                 yield* appendSessionNotice(session, resolved.notice);
@@ -2289,6 +2344,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
     {
       const error = startResult.failure;
+      if (attemptedManagedTarget && !ptyProcess) {
+        yield* appendSessionNotice(
+          session,
+          `zmux: attach failed for ${attemptedManagedTarget}: ${error.message}`,
+        );
+      }
       if (ptyProcess) {
         yield* startKillEscalation(ptyProcess, session.threadId, session.terminalId);
       }
