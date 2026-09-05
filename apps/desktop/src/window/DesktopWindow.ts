@@ -943,8 +943,10 @@ export const make = Effect.gen(function* () {
             }
             yield* dismissConnectingSplash;
             yield* hyprlandPlacement.claim(key, placement.title);
-            yield* hyprlandPlacement.moveToWorkspace(key, workspace);
             if (!window.isDestroyed()) window.setTitle(normalWindowTitle);
+            // Restoring the title can re-evaluate broader dynamic rules. Keep
+            // the address-scoped correction last so an explicit target wins.
+            yield* hyprlandPlacement.moveToWorkspace(key, workspace);
           }).pipe(
             Effect.ensuring(hyprlandPlacement.clearWorkspaceRule(placement.title)),
             Effect.ensuring(Ref.set(pendingDevAgentPlacementRef, Option.none())),
