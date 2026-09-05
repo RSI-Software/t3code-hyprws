@@ -87,7 +87,6 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { truncateActivityDetail } from "../../activityDetail.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
@@ -119,7 +118,12 @@ import {
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { extractChildItemResultText, makeChildItemRenderDetail } from "../childItemRenderDetail.ts";
+import { claudeChildItemRenderDetail } from "./ClaudeChildItemDetail.fork.ts"; // fork-hook: custom-agents/claude-child-detail-import
+import {
+  makeEmitChildAssistantSnapshot,
+  type PendingClaudeAssistantSnapshot,
+} from "./ClaudeChildSnapshot.fork.ts"; // fork-hook: custom-agents/claude-child-snapshot-import
+import { withClaudeAgentLaunchArgs } from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-launch-args-import
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const encodeHistoryArgs = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -382,11 +386,6 @@ interface ClaudeTaskAgentState {
   effort: string | undefined;
 }
 
-interface PendingClaudeAssistantSnapshot {
-  readonly itemId: string;
-  readonly detail: string;
-}
-
 /**
  * How many entries each task_started lookup map buffers per session. An entry
  * whose task_started never arrives would otherwise pin it for the session's
@@ -407,20 +406,6 @@ function rememberPendingTaskEntry(
   value: string,
 ): void {
   pending.set(toolUseId, value);
-  if (pending.size > PENDING_TASK_ENTRY_CAP) {
-    const oldest = pending.keys().next();
-    if (!oldest.done) {
-      pending.delete(oldest.value);
-    }
-  }
-}
-
-function rememberPendingAssistantSnapshot(
-  pending: Map<string, PendingClaudeAssistantSnapshot>,
-  parentToolUseId: string,
-  snapshot: PendingClaudeAssistantSnapshot,
-): void {
-  pending.set(parentToolUseId, snapshot);
   if (pending.size > PENDING_TASK_ENTRY_CAP) {
     const oldest = pending.keys().next();
     if (!oldest.done) {
@@ -1109,55 +1094,6 @@ function classifyToolItemType(
     return "image_view";
   }
   return "dynamic_tool_call";
-}
-
-function stringField(input: Record<string, unknown>, ...keys: ReadonlyArray<string>) {
-  for (const key of keys) {
-    if (typeof input[key] === "string") {
-      return input[key];
-    }
-  }
-  return undefined;
-}
-
-function claudeChildItemRenderDetail(
-  tool: ToolInFlight,
-  workspaceRoot: string | undefined,
-  resultSource?: unknown,
-  structuredResultSource?: unknown,
-) {
-  const path = stringField(tool.input, "file_path", "notebook_path", "path");
-  const command =
-    tool.itemType === "command_execution" ? stringField(tool.input, "command", "cmd") : undefined;
-  const diff = stringField(tool.input, "diff", "patch");
-  const before = stringField(tool.input, "old_string", "oldText");
-  const after = stringField(tool.input, "new_string", "newText", "new_source");
-  const primaryResult = extractChildItemResultText(resultSource);
-  const structuredResult = extractChildItemResultText(structuredResultSource);
-  const result =
-    structuredResult.value &&
-    (!primaryResult.value || structuredResult.value.length > primaryResult.value.length)
-      ? structuredResult
-      : primaryResult;
-  const changedFiles =
-    tool.itemType === "file_change" && path
-      ? [
-          {
-            path,
-            kind: stringField(tool.input, "kind", "operation") ?? "modified",
-            ...(diff ? { diff } : {}),
-            ...(before !== undefined ? { before } : {}),
-            ...(after !== undefined ? { after } : {}),
-          },
-        ]
-      : undefined;
-  return makeChildItemRenderDetail({
-    ...(workspaceRoot ? { workspaceRoot } : {}),
-    ...(command ? { command } : {}),
-    ...(result.value ? { result: result.value } : {}),
-    ...(changedFiles ? { changedFiles } : {}),
-    truncated: result.truncated,
-  });
 }
 
 function isReadOnlyToolName(toolName: string): boolean {
@@ -3111,7 +3047,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         const renderDetail = nextTool.agentId
           ? claudeChildItemRenderDetail(nextTool, context.session.cwd)
-          : undefined;
+          : undefined; // fork-hook: custom-agents/claude-child-detail-updated
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
           type: "item.updated",
@@ -3226,7 +3162,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const renderDetail = tool.agentId
         ? claudeChildItemRenderDetail(tool, context.session.cwd)
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-started
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.started",
@@ -3310,7 +3246,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             toolResult.block.content,
             toolUseResult,
           )
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-completed
 
       const updatedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -3381,7 +3317,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           status: itemStatus,
           title: tool.title,
           ...(tool.detail ? { detail: tool.detail } : {}),
-          ...(renderDetail ? { renderDetail } : {}),
+          ...(renderDetail ? { renderDetail } : {}), // fork-hook: custom-agents/claude-child-detail-denied
           ...(tool.agentId ? { agentId: tool.agentId, timelineBypass: true } : {}),
           ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
           data: toolData,
@@ -3448,46 +3384,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
   });
 
-  const emitChildAssistantSnapshot = Effect.fn("emitChildAssistantSnapshot")(function* (
-    context: ClaudeSessionContext,
-    input: {
-      readonly taskId: string;
-      readonly parentToolUseId: string;
-      readonly snapshot: PendingClaudeAssistantSnapshot;
-    },
-  ) {
-    const stamp = yield* makeEventStamp();
-    yield* offerRuntimeEvent({
-      type: "item.completed",
-      eventId: stamp.eventId,
-      provider: PROVIDER,
-      createdAt: stamp.createdAt,
-      threadId: context.session.threadId,
-      ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-      itemId: asRuntimeItemId(input.snapshot.itemId),
-      payload: {
-        itemType: "assistant_message",
-        status: "completed",
-        title: "Agent message",
-        detail: input.snapshot.detail,
-        agentId: input.taskId,
-        parentToolUseId: input.parentToolUseId,
-        timelineBypass: true,
-      },
-      providerRefs: nativeProviderRefs(context, {
-        providerItemId: input.snapshot.itemId,
-      }),
-      raw: {
-        source: "claude.sdk.message",
-        method: "claude/assistant/child",
-        payload: {
-          taskId: input.taskId,
-          parentToolUseId: input.parentToolUseId,
-          itemId: input.snapshot.itemId,
-        },
-      },
-    });
-  });
+  const childSnapshot = makeEmitChildAssistantSnapshot({
+    provider: PROVIDER,
+    makeEventStamp,
+    offerRuntimeEvent,
+    asCanonicalTurnId,
+    asRuntimeItemId,
+    nativeProviderRefs,
+    extractAssistantTextBlocks,
+    sdkNativeItemId,
+    pendingCap: PENDING_TASK_ENTRY_CAP,
+  }); // fork-hook: custom-agents/claude-child-snapshot-emit
 
   const handleAssistantMessage = Effect.fn("handleAssistantMessage")(function* (
     context: ClaudeSessionContext,
@@ -3509,13 +3416,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const owningTaskId = agentIdForParentToolUse(context.taskAgents, assistantParentToolUseId);
       const snapshotModel = trimmedString(message.message.model);
       const owningAgent = owningTaskId ? context.taskAgents.get(owningTaskId) : undefined;
-      const assistantText = extractAssistantTextBlocks(message).join("\n\n").trim();
-      const snapshot = assistantText
-        ? {
-            itemId: sdkNativeItemId(message) ?? message.uuid,
-            detail: truncateActivityDetail(assistantText),
-          }
-        : undefined;
       const snapshotContent = Array.isArray(message.message.content) ? message.message.content : [];
       for (const block of snapshotContent) {
         if (block.type === "tool_use") {
@@ -3556,21 +3456,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           snapshotModel,
         );
       }
-      if (snapshot) {
-        if (owningTaskId) {
-          yield* emitChildAssistantSnapshot(context, {
-            taskId: owningTaskId,
-            parentToolUseId: assistantParentToolUseId,
-            snapshot,
-          });
-        } else {
-          rememberPendingAssistantSnapshot(
-            context.pendingAssistantSnapshots,
-            assistantParentToolUseId,
-            snapshot,
-          );
-        }
-      }
+      yield* childSnapshot.onAssistantMessage(context, {
+        message,
+        owningTaskId,
+        parentToolUseId: assistantParentToolUseId,
+      }); // fork-hook: custom-agents/claude-child-snapshot-assistant
       context.lastAssistantUuid = message.uuid;
       yield* updateResumeCursor(context);
       return;
@@ -4003,19 +3893,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.workflow_name ? { workflowName: message.workflow_name } : {}),
           },
         });
-        const pendingAssistantSnapshot = toolUseId
-          ? context.pendingAssistantSnapshots.get(toolUseId)
-          : undefined;
-        if (toolUseId) {
-          context.pendingAssistantSnapshots.delete(toolUseId);
-        }
-        if (toolUseId && pendingAssistantSnapshot) {
-          yield* emitChildAssistantSnapshot(context, {
-            taskId: message.task_id,
-            parentToolUseId: toolUseId,
-            snapshot: pendingAssistantSnapshot,
-          });
-        }
+        yield* childSnapshot.onTaskStarted(context, { taskId: message.task_id, toolUseId }); // fork-hook: custom-agents/claude-child-snapshot-task-started
         return;
       }
       case "task_progress": {
@@ -5072,13 +4950,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ) => runPromise(handleResumeDialog(request, callbackOptions));
 
       const claudeBinaryPath = claudeSdkExecutablePath;
-      const configuredExtraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
       const {
         "permission-mode": launchArgPermissionMode,
         "dangerously-skip-permissions": launchArgSkipPermissions,
-        ...extraArgsWithHonoredRemoved
-      } = configuredExtraArgs;
-      const { agent: _configuredAgent, ...extraArgsWithoutAgent } = extraArgsWithHonoredRemoved;
+        ...extraArgs
+      } = parseCliArgs(claudeSettings.launchArgs).flags;
       const selectedModel =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
       const modelSelection = selectedModel
@@ -5088,12 +4964,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }
         : undefined;
       const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
-      const extraArgs =
-        selectedAgent === undefined
-          ? extraArgsWithHonoredRemoved
-          : selectedAgent === "default"
-            ? extraArgsWithoutAgent
-            : { ...extraArgsWithoutAgent, agent: selectedAgent };
+      const agentAwareExtraArgs = withClaudeAgentLaunchArgs(extraArgs, selectedAgent); // fork-hook: custom-agents/claude-launch-args
       const caps = getClaudeCatalogModelCapabilities(modelCatalog, modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection
@@ -5202,7 +5073,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           input,
         ),
         additionalDirectories,
-        ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
+        ...(Object.keys(agentAwareExtraArgs).length > 0 ? { extraArgs: agentAwareExtraArgs } : {}),
         ...(mcpSession
           ? {
               mcpServers: {
@@ -5240,7 +5111,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.additional_directories": additionalDirectories,
         "claude.query.setting_sources": [...CLAUDE_SETTING_SOURCES],
         "claude.query.settings_json": encodeJsonStringForDiagnostics(settings) ?? "",
-        "claude.query.extra_args_json": encodeJsonStringForDiagnostics(extraArgs) ?? "",
+        "claude.query.extra_args_json": encodeJsonStringForDiagnostics(agentAwareExtraArgs) ?? "",
         "claude.query.path_to_executable": claudeBinaryPath,
       });
 
