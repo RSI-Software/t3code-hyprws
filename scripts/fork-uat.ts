@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// Fork UAT history rules:
-// Stable tags are not ancestry boundaries because the fork stack is rebased.
-// Choose the highest vX.Y.Z-hyprws.N at or below the ref's upstream X.Y.Z version.
-// When the ref itself carries a stable tag, choose the next lower eligible stable tag instead.
-// Inventory both snapshots against upstream/main; match subjects, then stable patch IDs.
-
 // @effect-diagnostics nodeBuiltinImport:off - This standalone operator script runs before an Effect runtime exists.
 
 import * as NodeFS from "node:fs";
@@ -13,7 +7,6 @@ import * as NodePath from "node:path";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   SystemInputCommandRunner as SystemRunner,
-  type CommandResult,
   type InputCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
 
@@ -33,24 +26,35 @@ import {
   partitionUatRows,
   relationshipArguments,
   renderUatBody,
+  reviewedUatTasks,
   selectPreviousStable,
   targetVersionFromUpstreamTag,
-  uatTitle,
   upstreamParts,
   type DifferenceRow,
-  type ExcludedRow,
-  type ForkCommit,
   type ForkLedger,
-  type UatBodyInput,
+  type UatTask,
   type Version,
 } from "./fork-uat-policy.ts";
+import { readPreviousUat } from "./fork-uat-history.ts";
+import {
+  ensureCreated,
+  preparePublication,
+  publicationFilePath,
+  publicationPath,
+  readPublication,
+  sealPublication,
+} from "./fork-uat-publication.ts";
 
 export {
   differenceRows,
   exclusionReason,
   partitionUatRows,
+  legacyUatTasks,
+  parentUatBody,
   relationshipArguments,
   renderUatBody,
+  renderUatTaskBody,
+  reviewedUatTasks,
   selectPreviousStable,
   targetVersionFromUpstreamTag,
   uatTitle,
@@ -59,9 +63,13 @@ export {
   type ExclusionReason,
   type ForkCommit,
   type UatBodyInput,
+  type PreviousUat,
+  type PriorUatStatus,
+  type UatTask,
 } from "./fork-uat-policy.ts";
 
 export { UsageError } from "./lib/fork-cli.ts";
+export { readPreviousUat } from "./fork-uat-history.ts";
 
 export interface Options {
   readonly ref: string;
@@ -70,14 +78,17 @@ export interface Options {
   readonly relatesTo: number | null;
   readonly output: string | null;
   readonly body: string | null;
+  readonly bundle: string | null;
+  readonly prepare: boolean;
   readonly create: boolean;
   readonly humanApproved: boolean;
 }
 
 const HELP = `Usage: vp run fork:uat [--ref <ref>] [--version <version>] [--since <stable-tag>] [--relates-to <issue>] [--output <path>] [--dry-run]
-       vp run fork:uat --create --body <reviewed-path> --human-approved
+       vp run fork:uat --prepare --body <reviewed-path> [--bundle <directory>]
+       vp run fork:uat --create --bundle <directory> --human-approved
 
-Render and preflight a human UAT issue for the fork changes at one Git ref.
+Render, preflight, and create a human UAT tracker with acceptance-task sub-issues.
 
 Options:
   --ref <ref>           Ref to evaluate (default hyprws).
@@ -85,11 +96,19 @@ Options:
   --since <stable-tag>  Override the previous stable tag used for comparison.
   --relates-to <issue>  Relate the UAT issue to repository issue N.
   --output <path>       Draft path (default .dump/fork-uat/uat-<version>.md).
-  --dry-run             Run ghb's publishing preflight only (default).
-  --create              Create from an edited, reviewed draft; requires --body.
-  --body <path>         Reviewed draft to post as-is with --create.
-  --human-approved      Record that the human approved the exact draft; required by --create.
+  --dry-run             Render the review draft only (default).
+  --prepare             Build and preflight an immutable publication bundle.
+  --body <path>         Reviewed draft to prepare.
+  --bundle <directory>  Prepared bundle path; defaults to <reviewed-path>.bundle.
+  --create              Create the tracker and children from a prepared bundle.
+  --human-approved      Record approval of the exact bundle; required by --create.
   -h, --help            Show this help.
+
+Writes:
+  Render writes one review draft. Prepare writes a new bundle. Create files GitHub issues and
+  resumable receipts inside that bundle.
+
+Exit status: 0 success/help, 1 refusal or runtime failure, 2 usage error.
 `;
 
 const positiveIssue = (value: string | undefined, flag: string): number => {
@@ -106,9 +125,11 @@ export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
   let relatesTo: number | null = null;
   let output: string | null = null;
   let body: string | null = null;
+  let bundle: string | null = null;
+  let prepare = false;
   let create = false;
   let humanApproved = false;
-  let mode: "dry-run" | "create" | null = null;
+  let mode: "dry-run" | "prepare" | "create" | null = null;
   let hasRenderOptions = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -138,26 +159,44 @@ export const parseUatArgs = (argv: ReadonlyArray<string>): Options => {
     } else if (argument === "--body") {
       body = argv[++index] ?? null;
       if (body === null || body.length === 0) throw new UsageError("--body requires a path");
+    } else if (argument === "--bundle") {
+      bundle = argv[++index] ?? null;
+      if (bundle === null || bundle.length === 0) throw new UsageError("--bundle requires a path");
     } else if (argument === "--human-approved") {
       humanApproved = true;
-    } else if (argument === "--create" || argument === "--dry-run") {
-      const requested = argument.slice(2) as "dry-run" | "create";
+    } else if (argument === "--create" || argument === "--prepare" || argument === "--dry-run") {
+      const requested = argument.slice(2) as "dry-run" | "prepare" | "create";
       if (mode !== null && mode !== requested) {
-        throw new UsageError("choose only one of --dry-run or --create");
+        throw new UsageError("choose only one of --dry-run, --prepare, or --create");
       }
       mode = requested;
+      prepare = requested === "prepare";
       create = requested === "create";
     } else {
       throw new UsageError(`unknown argument ${argument ?? ""}`);
     }
   }
-  if (create && body === null) throw new UsageError("--create requires --body <path>");
+  if (prepare && body === null) throw new UsageError("--prepare requires --body <path>");
+  if (create && bundle === null) throw new UsageError("--create requires --bundle <directory>");
   if (!create && humanApproved) throw new UsageError("--human-approved requires --create");
-  if (!create && body !== null) throw new UsageError("--body requires --create");
-  if (create && hasRenderOptions) {
-    throw new UsageError("--create --body uses draft metadata; omit render options");
+  if (!prepare && body !== null) throw new UsageError("--body requires --prepare");
+  if (!prepare && !create && bundle !== null)
+    throw new UsageError("--bundle requires --prepare or --create");
+  if ((prepare || create) && hasRenderOptions) {
+    throw new UsageError("--prepare and --create use reviewed metadata; omit render options");
   }
-  return { ref, version, since, relatesTo, output, body, create, humanApproved };
+  return {
+    ref,
+    version,
+    since,
+    relatesTo,
+    output,
+    body,
+    bundle,
+    prepare,
+    create,
+    humanApproved,
+  };
 };
 
 const commandText = (command: string, args: ReadonlyArray<string>): string =>
@@ -182,7 +221,7 @@ const requireSuccess = (
 };
 
 const parseJsonOutput = <T>(output: string, source: string): T => {
-  const start = output.search(/^\{/m);
+  const start = output.search(/^[{[]/m);
   if (start === -1) throw new Error(`${source} did not print JSON`);
   return JSON.parse(output.slice(start)) as T;
 };
@@ -316,6 +355,7 @@ interface ReviewedDraft {
   readonly sha: string;
   readonly targetVersion: string;
   readonly relatesTo: number | null;
+  readonly tasks: ReadonlyArray<UatTask>;
 }
 
 const oneDraftValue = (body: string, pattern: RegExp, name: string): string => {
@@ -328,24 +368,21 @@ const oneDraftValue = (body: string, pattern: RegExp, name: string): string => {
 
 export const reviewedDraft = (body: string): ReviewedDraft => {
   if (/^## Sources\s*$/m.test(body)) {
-    throw new Error("reviewed draft still contains ## Sources; remove it before --create");
+    throw new Error("reviewed draft still contains ## Sources; remove it before --prepare");
   }
   if (/^## Excluded\s*$/m.test(body)) {
-    throw new Error("reviewed draft still contains ## Excluded; remove it before --create");
+    throw new Error("reviewed draft still contains ## Excluded; remove it before --prepare");
   }
-  const uatHeading = /^## UAT\s*$/m.exec(body);
-  const afterHeading =
-    uatHeading === null ? "" : body.slice(uatHeading.index + uatHeading[0].length);
-  const nextHeading = /^## /m.exec(afterHeading);
-  const uat = nextHeading === null ? afterHeading : afterHeading.slice(0, nextHeading.index);
-  if (!/^- \[ \] .+$/m.test(uat)) throw new Error("reviewed draft has no unchecked UAT rows");
-  if (!/^### .+$/m.test(uat)) throw new Error("reviewed draft UAT rows have no feature heading");
-  const targetVersion = oneDraftValue(body, /^\- Target: `([^`]+)`$/gm, "Snapshot Target");
+  if (!body.includes("<!-- fork-uat:task-drafts:v1 -->")) {
+    throw new Error("reviewed draft has no fork-uat task-drafts marker");
+  }
+  const tasks = reviewedUatTasks(body);
+  const targetVersion = oneDraftValue(body, /^- Target: `([^`]+)`$/gm, "Snapshot Target");
   if (!TARGET_VERSION.test(targetVersion)) {
     throw new Error("reviewed draft Target must match vX.Y.Z-hyprws");
   }
-  const ref = oneDraftValue(body, /^\- Ref: `([^`]+)`$/gm, "Snapshot Ref");
-  const sha = oneDraftValue(body, /^\- Commit: `([0-9a-f]{40,64})`$/gm, "Snapshot Commit");
+  const ref = oneDraftValue(body, /^- Ref: `([^`]+)`$/gm, "Snapshot Ref");
+  const sha = oneDraftValue(body, /^- Commit: `([0-9a-f]{40,64})`$/gm, "Snapshot Commit");
   const relations = [
     ...body.matchAll(/^Related issue: `RSI-Software\/t3code-hyprws#([1-9][0-9]*)`\.$/gm),
   ];
@@ -355,6 +392,7 @@ export const reviewedDraft = (body: string): ReviewedDraft => {
     sha,
     targetVersion,
     relatesTo: relations[0]?.[1] === undefined ? null : Number(relations[0][1]),
+    tasks,
   };
 };
 
@@ -364,25 +402,26 @@ export const reviewedDraft = (body: string): ReviewedDraft => {
 const ISSUE_SOURCE = "fork-sync stable-prepare";
 
 const HUMAN_APPROVAL_REQUIRED =
-  "--create requires --human-approved: filing as Human needs explicit human approval of the exact title and body";
+  "--create requires --human-approved: filing as Human needs explicit approval of the exact publication bundle";
 
-const issueCreateArguments = (
-  dryRun: boolean,
-  title: string,
-  body: string,
-  relatesTo: number | null,
-): ReadonlyArray<string> => [
-  ...(dryRun ? ["--dry-run"] : []),
+const issueCreateArguments = (input: {
+  readonly dryRun: boolean;
+  readonly title: string;
+  readonly body: string;
+  readonly type: "Tracker 📡" | "Task 🔨";
+  readonly relationship: ReadonlyArray<string>;
+}): ReadonlyArray<string> => [
+  ...(input.dryRun ? ["--dry-run"] : []),
   "issue",
   "create",
   "--repo",
   REPOSITORY,
   "--title",
-  title,
+  input.title,
   "--body-file",
-  body,
+  input.body,
   "--type",
-  "Task 🔨",
+  input.type,
   "--priority",
   "Medium",
   "--filed-by",
@@ -393,11 +432,13 @@ const issueCreateArguments = (
   "--label",
   "release",
   "--no-project",
-  ...relationshipArguments(relatesTo),
+  ...input.relationship,
 ];
 
-const executeReviewedCreate = (bodyPath: string, runner: CommandRunner): string => {
-  const metadata = reviewedDraft(NodeFS.readFileSync(bodyPath, "utf8"));
+const assertReviewedRef = (
+  metadata: Pick<ReviewedDraft, "ref" | "sha">,
+  runner: CommandRunner,
+): void => {
   if (checkedOutRefIsDirty(runner, metadata.ref)) {
     throw new Error(`ref ${metadata.ref} is the dirty checked-out HEAD`);
   }
@@ -405,23 +446,108 @@ const executeReviewedCreate = (bodyPath: string, runner: CommandRunner): string 
   if (resolved !== metadata.sha) {
     throw new Error(`reviewed ref ${metadata.ref} no longer resolves to ${metadata.sha}`);
   }
-  const createArgs = issueCreateArguments(
-    false,
-    uatTitle(metadata.targetVersion),
-    bodyPath,
-    metadata.relatesTo,
+};
+
+const prepareReviewedDraft = (
+  bodyPath: string,
+  bundlePath: string | null,
+  runner: CommandRunner,
+): string => {
+  const reviewBody = NodeFS.readFileSync(bodyPath, "utf8");
+  const metadata = reviewedDraft(reviewBody);
+  assertReviewedRef(metadata, runner);
+  const output = bundlePath ?? publicationPath(bodyPath);
+  const publication = preparePublication({
+    bundlePath: output,
+    reviewPath: bodyPath,
+    reviewBody,
+    ...metadata,
+  });
+  const parentPath = publicationFilePath(output, publication.parent);
+  requireSuccess(
+    runner,
+    "ghb",
+    issueCreateArguments({
+      dryRun: true,
+      title: publication.parent.title,
+      body: parentPath,
+      type: "Tracker 📡",
+      relationship: relationshipArguments(publication.relatesTo),
+    }),
   );
-  const exactCommand = commandText("ghb", createArgs);
-  process.stdout.write(`${bodyPath}\n${exactCommand}\n`);
-  requireSuccess(runner, "ghb", createArgs);
-  return exactCommand;
+  for (const task of publication.tasks) {
+    requireSuccess(
+      runner,
+      "ghb",
+      issueCreateArguments({
+        dryRun: true,
+        title: task.title,
+        body: publicationFilePath(output, task),
+        type: "Task 🔨",
+        relationship: ["--no-relationship"],
+      }),
+    );
+  }
+  sealPublication(output);
+  process.stdout.write(
+    `${output}\n${publication.parent.title}\n${publication.tasks.map((task) => task.title).join("\n")}\nStop. Show this exact bundle to the human before --create.\n`,
+  );
+  return output;
+};
+
+const createPublication = (bundlePath: string, runner: CommandRunner): string => {
+  const publication = readPublication(bundlePath);
+  assertReviewedRef(publication, runner);
+  const receipts = NodePath.join(bundlePath, "receipts");
+  NodeFS.mkdirSync(receipts, { recursive: true });
+  const parent = ensureCreated(
+    runner,
+    NodePath.join(receipts, "parent.json"),
+    issueCreateArguments({
+      dryRun: false,
+      title: publication.parent.title,
+      body: publicationFilePath(bundlePath, publication.parent),
+      type: "Tracker 📡",
+      relationship: relationshipArguments(publication.relatesTo),
+    }),
+    requireSuccess,
+  );
+  const children = [];
+  let previous: number | null = null;
+  for (const [index, task] of publication.tasks.entries()) {
+    const child = ensureCreated(
+      runner,
+      NodePath.join(receipts, `task-${String(index + 1).padStart(2, "0")}.json`),
+      issueCreateArguments({
+        dryRun: false,
+        title: task.title,
+        body: publicationFilePath(bundlePath, task),
+        type: "Task 🔨",
+        relationship: [
+          "--no-relationship",
+          "--parent",
+          `${REPOSITORY}#${parent.number}`,
+          ...(previous === null ? ["--first"] : ["--after", `${REPOSITORY}#${previous}`]),
+        ],
+      }),
+      requireSuccess,
+    );
+    children.push(child);
+    previous = child.number;
+  }
+  process.stdout.write(`${parent.url}\n${children.map((child) => child.url).join("\n")}\n`);
+  return parent.url;
 };
 
 export const execute = (options: Options, runner: CommandRunner): string => {
   if (options.create) {
-    if (options.body === null) throw new Error("--create requires --body <path>");
+    if (options.bundle === null) throw new Error("--create requires --bundle <directory>");
     if (!options.humanApproved) throw new Error(HUMAN_APPROVAL_REQUIRED);
-    return executeReviewedCreate(options.body, runner);
+    return createPublication(options.bundle, runner);
+  }
+  if (options.prepare) {
+    if (options.body === null) throw new Error("--prepare requires --body <path>");
+    return prepareReviewedDraft(options.body, options.bundle, runner);
   }
   if (checkedOutRefIsDirty(runner, options.ref)) {
     throw new Error(`ref ${options.ref} is the dirty checked-out HEAD`);
@@ -468,7 +594,10 @@ export const execute = (options: Options, runner: CommandRunner): string => {
       ),
   );
   const classified = partitionUatRows(difference, (row) => isUpstreamCommit(runner, row.sha));
-  if (classified.rows.length === 0) throw new Error("ref difference has no user-facing UAT rows");
+  const previousUat = readPreviousUat(runner, previousStable.tag);
+  if (classified.rows.length === 0 && previousUat === null) {
+    throw new Error("ref difference and previous UAT have no user-facing acceptance conditions");
+  }
 
   const output = options.output ?? `.dump/fork-uat/uat-${targetVersion}.md`;
   NodeFS.mkdirSync(NodePath.dirname(output), { recursive: true });
@@ -483,16 +612,16 @@ export const execute = (options: Options, runner: CommandRunner): string => {
       previousStable: previousStable.tag,
       previousStableOverridden: previousStable.overridden,
       relatesTo: options.relatesTo,
+      previousUat,
       sources: classified.rows.map((row) => sourceContext(runner, row)),
       excluded: classified.excluded,
     }),
   );
 
-  const createArgs = issueCreateArguments(true, uatTitle(targetVersion), output, options.relatesTo);
-  const exactCommand = commandText("ghb", createArgs);
-  process.stdout.write(`${output}\n${exactCommand}\n`);
-  requireSuccess(runner, "ghb", createArgs);
-  return exactCommand;
+  process.stdout.write(
+    `${output}\n${previousUat === null ? "no previous UAT" : `carried ${previousUat.tasks.length} conditions from #${previousUat.issue}`}\nStop. Review the sources and carried conditions before --prepare.\n`,
+  );
+  return output;
 };
 
 export const run = (
