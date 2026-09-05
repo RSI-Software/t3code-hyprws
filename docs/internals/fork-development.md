@@ -61,7 +61,15 @@ zmux owns long-running terminal sessions, while editors and browsers remain sepa
 - Do not remove the hub, remote environments, the web client, or mobile project navigation.
 - Do not rewrite unrelated upstream systems to make the fork feel internally unique.
 
-`dev:desktop:agent` is the narrow development-tooling exception to the compositor-policy rule. It relays the operator's explicit “invoking numbered workspace minus one” request into a disposable dev process; shipped application launches still leave placement to Hyprland.
+`dev:desktop:agent` is the narrow development-tooling exception to the compositor-policy rule. It relays an explicit relative or absolute numbered-workspace request into a disposable dev process; shipped application launches still leave placement to Hyprland.
+
+## Testing a fork checkout
+
+Use `vp run dev:app` as the shared launcher. The CLI defaults to `--external`; the checked-in **Dev Web** T3 action uses `--preview` explicitly so a native agent can call `preview_open` with the actual ready URL printed after startup. When integrated preview is unavailable, that action uses the external browser instead. `--desktop` uses the same checkout-local home and fixture project while adding an isolated `.t3/electron` profile, Electron CDP, and optional `--workspace <+1|-1|id|none>` placement. The profile scopes Electron and Clerk state plus the single-instance lock without changing provider credential discovery. Relative placement captures the invoking app's numbered workspace once, absolute ids target that workspace directly, `none` requests normal compositor placement, and an action override outranks the saved `T3CODE_DESKTOP_AGENT_WORKSPACE` value. Targeted windows map without taking focus.
+
+Launch from the base checkout for exploration, the implementation worktree for feature work, or a checkout pinned to the exact candidate SHA for UAT. One backend owns one checkout-local `.t3` home at a time; stop it before switching checkout or surface. Relaunches retain `.t3/test-project`, its edits, registered project, threads, and authentication. Never reset that fixture or copy the stable installation's state into it.
+
+T3 imports checked-in `t3.json` scripts once and stores project-owned copies. Update those imported copies when a checked-in command changes. **Setup Worktree** only prepares a checkout; it does not launch the app or recreate fixtures.
 
 ## Architectural direction
 

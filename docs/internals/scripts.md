@@ -27,7 +27,14 @@ authenticated.
   symlinks, and warms the web dependency cache. It is safe to rerun, replaces only stale symlinks, and
   refuses to overwrite regular destination files. Missing canonical environment files produce
   intentional dangling links so they become available if the files are created later. After
-  dependencies are installed, `vp run setup:worktree` is the equivalent package alias.
+  dependencies are installed, `vp run setup:worktree` is the equivalent package alias. Setup does
+  not start a development app or reset its fixture state.
+- `vp run dev:app [--external|--preview|--desktop]`: Creates or reuses `.t3/test-project` and starts
+  the selected surface against this checkout's isolated `.t3` home. The CLI defaults to the external
+  browser. Native agents use `--preview`, wait for the printed ready URL, then pass that exact URL to
+  `preview_open`; clients without integrated preview use the external browser. `--desktop` keeps DevTools off, scopes the Electron profile and single-instance lock to `.t3/electron` without moving provider credentials, records CDP, and accepts
+  `--workspace <+1|-1|id|none>`. Stop the owned run before switching surfaces; subsequent launches
+  preserve fixture edits, project registration, threads, and authentication.
 - `vp run dev`: Starts contracts, server, and web in watch mode.
 - `vp run dev --share`: Also publishes the web port over HTTPS on this machine's tailnet. The
   startup pairing URL is built against the shared origin, and the mapping is removed on exit.
@@ -47,7 +54,7 @@ authenticated.
   `NodePtyAdapter` and `NodeHttpServer`.
 - `vp run dev:web`: Starts just the Vite dev server for the web app.
 - `vp run dev:desktop`: Starts the Electron shell against the dev server.
-- `vp run dev:desktop:agent`: Starts or restarts this worktree's desktop dev stack, disables detached DevTools, allocates a stable free CDP port from base 9223, and records the live endpoint under `XDG_STATE_HOME`. It uses normal compositor placement by default. Set `T3CODE_DESKTOP_AGENT_WORKSPACE=-1` in the repo's gitignored `.env` to map without focus one numbered workspace before the invoking app, or set a positive workspace ID for fixed placement. `--workspace <selector>` overrides the repo setting for one run; `none` explicitly restores default placement.
+- `vp run dev:desktop:agent`: Starts or restarts this worktree's desktop dev stack, disables detached DevTools, allocates a stable free CDP port from base 9223, and records the live endpoint under `XDG_STATE_HOME`. It uses normal compositor placement by default. Set `T3CODE_DESKTOP_AGENT_WORKSPACE` in the repo's gitignored `.env` to `-1` or `+1` for placement beside the invoking numbered workspace, or to a positive ID for fixed placement. `--workspace <selector>` overrides the repo setting for one run; `none` restores default placement. Relative selectors are resolved once before launch, and targeted windows map without taking focus across watcher relaunches.
 - `vp run dev:desktop:agent:url`: Prints the live worktree instance's recorded CDP origin.
 - `vp run hypr:workspace [-t <seconds>]`: Captures the active app's Hyprland workspace, optionally waits so the user can switch workspaces, then reports both the newly focused workspace and the app's original workspace.
 - `vp run dev:marketing`: Starts the Astro marketing site.
