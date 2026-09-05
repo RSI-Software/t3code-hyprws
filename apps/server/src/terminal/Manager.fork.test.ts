@@ -5,16 +5,19 @@ import {
   type TerminalAttachStreamEvent,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  type TerminalSessionSnapshot,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
+import { vi } from "vite-plus/test";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   createManager,
@@ -23,6 +26,34 @@ import {
   processResult,
   resolvedZmuxProcessRunner,
 } from "./Manager.fork-test-harness.ts";
+
+const managedReadyEvent = (
+  input: { readonly args?: ReadonlyArray<string> },
+  output = "",
+  overrides: Readonly<Record<string, unknown>> = {},
+) => {
+  const tokenIndex = input.args?.indexOf("--ready-token") ?? -1;
+  const nonce = tokenIndex >= 0 ? input.args?.[tokenIndex + 1] : undefined;
+  if (!nonce) throw new Error("managed attach omitted --ready-token");
+  return {
+    type: "data" as const,
+    data: `${output}\u001b]777;zmux-attach-ready;${nonce};${JSON.stringify({
+      v: 1,
+      nonce,
+      logicalTarget: "zmux/main",
+      requestedSessionId: "$22",
+      requestedTmuxName: "zws_zmux__main",
+      requestedServerId: "123:456",
+      requestedCreatedAt: 1700000000,
+      sessionId: "$23",
+      tmuxName: "zws_zmux__main-b",
+      serverId: "123:456",
+      createdAt: 1700000001,
+      clientPid: 9100,
+      ...overrides,
+    })}\u001b\\`,
+  };
+};
 it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
   { excludeTestServices: true },
@@ -42,13 +73,202 @@ it.layer(
       });
     }),
   );
+  it.effect("uses fresh activity when deciding whether an unmanaged terminal can retarget", () =>
+    Effect.gen(function* () {
+      let running = false;
+      let inspectionCount = 0;
+      const firstInspection = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join, getEvents } = yield* createManager(50, {
+        terminalSessionMode: "shell",
+        subprocessPollIntervalMs: 1_000,
+        subprocessInspector: () =>
+          Effect.gen(function* () {
+            inspectionCount += 1;
+            if (inspectionCount === 1) yield* Deferred.succeed(firstInspection, undefined);
+            return {
+              hasRunningSubprocess: running,
+              childCommand: running ? "vite" : null,
+              processIds: running ? [9000, 9001] : [],
+            };
+          }),
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const source = join(baseDir, "source");
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(source, { recursive: true });
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const input = openInput({
+        attachmentId: "viewer-a",
+        cwd: source,
+        worktreePath: source,
+        env: { T3CODE_WORKTREE_PATH: source },
+      });
+      const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      const release = yield* manager.attachStream(input, (event) =>
+        Ref.update(attachEvents, (events) => [...events, event]),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(release));
+      const sourceProcess = ptyAdapter.processes[0];
+      expect(sourceProcess).toBeDefined();
+      if (!sourceProcess) return;
+      sourceProcess.emitData("source history\r\n");
+      yield* Deferred.await(firstInspection);
+      expect((yield* getEvents).some((event) => event.type === "activity")).toBe(false);
+
+      running = true;
+      const preserved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+        env: { T3CODE_WORKTREE_PATH: destination },
+        cols: 132,
+        rows: 40,
+      });
+
+      expect(sourceProcess.killSignals).toEqual([]);
+      expect(sourceProcess.resizeCalls).toEqual([{ cols: 132, rows: 40 }]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(preserved).toMatchObject({
+        attachmentId: "viewer-a",
+        cwd: source,
+        worktreePath: source,
+        pid: sourceProcess.pid,
+        status: "running",
+      });
+      expect(preserved.history).toContain("source history");
+      expect(preserved.history).toContain(
+        "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow to retry.",
+      );
+      expect(
+        (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
+      ).toBe(true);
+      expect(yield* Ref.get(attachEvents)).toContainEqual(
+        expect.objectContaining({
+          type: "output",
+          data: expect.stringContaining("Checkout follow paused"),
+        }),
+      );
+
+      running = false;
+      const moved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+        env: { T3CODE_WORKTREE_PATH: destination },
+      });
+      expect(sourceProcess.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      expect(moved).toMatchObject({ cwd: destination, worktreePath: destination });
+      expect(inspectionCount).toBeGreaterThanOrEqual(3);
+    }),
+  );
+  it.effect("preserves an unmanaged terminal when fresh activity inspection fails", () =>
+    Effect.gen(function* () {
+      let failInspection = false;
+      let inspectionCount = 0;
+      const firstInspection = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "shell",
+        subprocessPollIntervalMs: 1_000,
+        subprocessInspector: () => {
+          inspectionCount += 1;
+          if (failInspection) {
+            return Effect.fail(new Error("inspection failed") as never);
+          }
+          return Deferred.succeed(firstInspection, undefined).pipe(
+            Effect.as({
+              hasRunningSubprocess: false,
+              childCommand: null,
+              processIds: [],
+            }),
+          );
+        },
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const source = join(baseDir, "source");
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(source, { recursive: true });
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const input = openInput({ cwd: source, worktreePath: source });
+      yield* manager.open(input);
+      yield* Deferred.await(firstInspection);
+      const sourceProcess = ptyAdapter.processes[0];
+      expect(sourceProcess).toBeDefined();
+      if (!sourceProcess) return;
+
+      failInspection = true;
+      const preserved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+      });
+
+      expect(inspectionCount).toBeGreaterThanOrEqual(2);
+      expect(sourceProcess.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(preserved).toMatchObject({
+        cwd: source,
+        worktreePath: source,
+        pid: sourceProcess.pid,
+      });
+      expect(preserved.history).toContain(
+        "Checkout follow paused because T3 Code could not confirm that this terminal is idle.",
+      );
+      expect(preserved.history).toContain("To retry, toggle Pin then Follow.");
+    }),
+  );
+  it.effect("isolates viewer attachments that share a logical terminal", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const firstInput = openInput({ attachmentId: "device-a" });
+      const secondInput = openInput({ attachmentId: "device-b" });
+      yield* manager.open(firstInput);
+      yield* manager.open(secondInput);
+      const first = ptyAdapter.processes[0];
+      const second = ptyAdapter.processes[1];
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      if (!first || !second) return;
+      yield* manager.write({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+        data: "first\n",
+      });
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-b",
+        cols: 132,
+        rows: 40,
+      });
+      first.emitData("first-history\n");
+      second.emitData("second-history\n");
+      expect(first.writes).toEqual(["first\n"]);
+      expect(second.resizeCalls).toEqual([{ cols: 132, rows: 40 }]);
+      yield* manager.close({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+      });
+      yield* manager.write({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-b",
+        data: "still-open\n",
+      });
+      expect(second.writes).toEqual(["still-open\n"]);
+      expect((yield* manager.open(firstInput)).history).toBe("first-history\n");
+      expect((yield* manager.open(secondInput)).history).toBe("second-history\n");
+    }),
+  );
   it.effect("resolves and attaches zmux mode without inherited tmux context", () =>
     Effect.gen(function* () {
       const processRunner = new FakeProcessRunner(
         Effect.succeed(
           processResult({
             stdout:
-              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}',
           }),
         ),
       );
@@ -81,6 +301,525 @@ it.layer(
       });
       expect(snapshot.label).toBe("zmux/main");
       expect(snapshot.history).toBe("");
+    }),
+  );
+  it.effect("preserves the current managed viewer when the requested worktree is absent", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      sourceProcess?.emitData("source history\r\n");
+      yield* Effect.yieldNow;
+
+      const missingWorktree = `${baseDir}/missing-worktree`;
+      const error = yield* manager
+        .open(openInput({ cwd: process.cwd(), worktreePath: missingWorktree }))
+        .pipe(Effect.flip);
+      expect(error._tag).toBe("TerminalCwdNotFoundError");
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+        status: "running",
+      });
+      expect(preserved.history).toContain("source history");
+    }),
+  );
+  it.effect("preserves the current managed viewer when destination attachment fails", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "destination");
+      const nestedCwd = join(destination, "packages", "app");
+      yield* fileSystem.makeDirectory(nestedCwd, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      sourceProcess?.emitData("preserved scrollback\r\n");
+      yield* Effect.yieldNow;
+      ptyAdapter.spawnInitialEvents.push({
+        type: "exit",
+        event: { exitCode: 1, signal: null },
+      });
+
+      const error = yield* manager
+        .open(openInput({ cwd: nestedCwd, worktreePath: destination }))
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "attach-failed",
+        target: "zmux/main",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+        status: "running",
+      });
+      expect(preserved.history).toContain("preserved scrollback");
+    }),
+  );
+  it.effect("preserves an exited managed viewer when its replacement attachment fails", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const exited = yield* Deferred.make<TerminalEvent>();
+      const unsubscribeEvents = yield* manager.subscribe((event) =>
+        event.type === "exited" ? Deferred.succeed(exited, event).pipe(Effect.asVoid) : Effect.void,
+      );
+      ptyAdapter.processes[0]?.emitData("exited scrollback\r\n");
+      ptyAdapter.processes[0]?.emitExit({ exitCode: 0, signal: null });
+      yield* Deferred.await(exited);
+      unsubscribeEvents();
+      ptyAdapter.spawnInitialEvents.push({
+        type: "exit",
+        event: { exitCode: 1, signal: null },
+      });
+
+      const error = yield* manager
+        .open(openInput({ cwd: destination, worktreePath: destination }))
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "attach-failed",
+      });
+
+      const attachedSnapshot = yield* Ref.make<TerminalSessionSnapshot | null>(null);
+      const release = yield* manager.attachStream(
+        { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID },
+        (event) =>
+          event.type === "snapshot" ? Ref.set(attachedSnapshot, event.snapshot) : Effect.void,
+      );
+      const preserved = yield* Ref.get(attachedSnapshot);
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: null,
+        status: "exited",
+      });
+      expect(preserved?.history).toContain("exited scrollback");
+      release();
+    }),
+  );
+  it.effect("rejects a receipt for a different resolved root without replacing the viewer", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) =>
+        managedReadyEvent(input, "untrusted output\r\n", { requestedSessionId: "$99" }),
+      );
+
+      const error = yield* manager
+        .open(openInput({ cwd: destination, worktreePath: destination }))
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "invalid-protocol",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+      });
+      expect(preserved.history).not.toContain("untrusted output");
+    }),
+  );
+  it.effect("commits a valid managed retarget after attaching its subdirectory destination", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "destination");
+      const nestedCwd = join(destination, "packages", "app");
+      yield* fileSystem.makeDirectory(nestedCwd, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) =>
+        managedReadyEvent(input, "destination ready\r\n"),
+      );
+
+      const moved = yield* manager.open(
+        openInput({ cwd: nestedCwd, worktreePath: destination, cols: 132, rows: 41 }),
+      );
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(moved).toMatchObject({
+        cwd: nestedCwd,
+        worktreePath: destination,
+        status: "running",
+        label: "zmux/main",
+      });
+      expect(moved.pid).not.toBe(sourceProcess?.pid);
+      expect(moved.history).toContain("destination ready");
+      expect(ptyAdapter.spawnInputs[1]).toMatchObject({
+        cwd: destination,
+        cols: 132,
+        rows: 41,
+      });
+    }),
+  );
+  it.effect("accepts a high-expansion wide redraw before the readiness receipt", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "wide-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      const redraw = "x".repeat(400_000);
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input, redraw));
+
+      const moved = yield* manager.open(
+        openInput({ cwd: destination, worktreePath: destination, cols: 434, rows: 15 }),
+      );
+
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs[1]).toMatchObject({ cols: 434, rows: 15 });
+      expect(moved.history).toBe(redraw);
+    }),
+  );
+  it.effect("times out a silent managed retarget without replacing the viewer", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const deadline = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetReadyDeadline: Deferred.await(deadline),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "silent-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      const move = yield* Effect.forkChild(
+        Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
+        { startImmediately: true },
+      );
+      while (ptyAdapter.processes.length < 2) yield* Effect.yieldNow;
+      while (
+        !ptyAdapter.processes[1]?.hasDataListener() ||
+        !ptyAdapter.processes[1]?.hasExitListener()
+      )
+        yield* Effect.yieldNow;
+      yield* Deferred.succeed(deadline, undefined);
+      const error = yield* Fiber.join(move);
+
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "attach-timeout",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+      });
+    }),
+  );
+  it.effect("preserves the viewer when a ready destination exits before commit", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "exited-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      const move = yield* Effect.forkChild(
+        Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
+        { startImmediately: true },
+      );
+      while (ptyAdapter.processes.length < 2) yield* Effect.yieldNow;
+      const candidate = ptyAdapter.processes[1];
+      const spawnInput = ptyAdapter.spawnInputs[1];
+      expect(candidate).toBeDefined();
+      expect(spawnInput).toBeDefined();
+      if (!candidate || !spawnInput) return;
+      while (!candidate.hasDataListener() || !candidate.hasExitListener()) yield* Effect.yieldNow;
+      candidate.emitData(managedReadyEvent(spawnInput).data);
+      candidate.emitExit({ exitCode: 1, signal: 0 });
+      const error = yield* Fiber.join(move);
+
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "attach-failed",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+      });
+    }),
+  );
+  it.effect("rejects excessive pre-receipt output without replacing the viewer", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "noisy-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push({
+        type: "data",
+        data: "x".repeat(4 * 1024 * 1024 + 1),
+      });
+
+      const error = yield* manager
+        .open(
+          openInput({
+            cwd: destination,
+            worktreePath: destination,
+            cols: 1_000,
+            rows: 500,
+          }),
+        )
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "readiness-overflow",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved.pid).toBe(original.pid);
+      expect(preserved.history).toBe(original.history);
+    }),
+  );
+  it.effect("disposes a prepared destination when retarget is interrupted before commit", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetCommitBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Effect.never),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "interrupted-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        manager.open(openInput({ cwd: destination, worktreePath: destination })),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      yield* Fiber.interrupt(move);
+
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+      });
+    }),
+  );
+  it.effect("rejects post-receipt overflow before reservation and preserves the viewer", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetCommitBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "post-receipt-overflow-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      ptyAdapter.processes[1]?.emitData("x".repeat(512 * 1024 + 1));
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      const error = yield* Fiber.join(move);
+
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "readiness-overflow",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+        history: original.history,
+      });
+    }),
+  );
+  it.effect("rejects a destination that exits at the precommit barrier", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetCommitBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "precommit-exit-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      ptyAdapter.processes[1]?.emitExit({ exitCode: 1, signal: 0 });
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      const error = yield* Fiber.join(move);
+
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "attach-failed",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+        history: original.history,
+      });
+    }),
+  );
+  it.effect("finishes destination adoption when interrupted after source stop", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetAdoptionBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "adoption-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        manager.open(openInput({ cwd: destination, worktreePath: destination })),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      move.interruptUnsafe();
+      expect(move.pollUnsafe()).toBeUndefined();
+
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      yield* Fiber.await(move);
+      const adopted = yield* manager.open(
+        openInput({ cwd: destination, worktreePath: destination }),
+      );
+      expect(adopted).toMatchObject({
+        cwd: destination,
+        worktreePath: destination,
+        pid: ptyAdapter.processes[1]?.pid,
+        status: "running",
+      });
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+    }),
+  );
+  it.effect("replays post-receipt overflow losslessly after reservation", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetAdoptionBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "reserved-overflow-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        manager.open(openInput({ cwd: destination, worktreePath: destination })),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      const adoptionOutput = "x".repeat(512 * 1024 + 1);
+      ptyAdapter.processes[1]?.emitData(adoptionOutput);
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      const moved = yield* Fiber.join(move);
+
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      expect(moved).toMatchObject({
+        cwd: destination,
+        worktreePath: destination,
+        pid: ptyAdapter.processes[1]?.pid,
+        history: adoptionOutput,
+      });
     }),
   );
   it.effect("suspends an abandoned managed open at its first-attach deadline", () =>
@@ -188,8 +927,8 @@ it.layer(
           const renamed = resolveCount === 3;
           return processResult({
             stdout: renamed
-              ? '{"workspace":"zmux","session":"renamed","target":"zmux/renamed","tmuxName":"zws_zmux__renamed","nativeId":"$22","state":"live","match":"worktree"}'
-              : '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+              ? '{"workspace":"zmux","session":"renamed","target":"zmux/renamed","tmuxName":"zws_zmux__renamed","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}'
+              : '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}',
           });
         }),
       );
@@ -279,6 +1018,13 @@ it.layer(
           }),
       }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
       yield* Effect.addFinalizer(() => manager.close({ threadId: "thread-1" }).pipe(Effect.ignore));
+      const suspended = yield* Deferred.make<TerminalEvent>();
+      const unsubscribeEvents = yield* manager.subscribe((event) =>
+        event.type === "activity" && event.attachmentStatus === "suspended"
+          ? Deferred.succeed(suspended, event).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribeEvents));
       const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
       const release = yield* manager.attachStream(
         openInput({ worktreePath: process.cwd() }),
@@ -292,14 +1038,8 @@ it.layer(
         (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
       ).toBe(true);
       release();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      const suspendedEvent = (yield* getEvents).findLast(
-        (event) => event.type === "activity" && event.attachmentStatus === "suspended",
-      );
+      const suspendedEvent = yield* Deferred.await(suspended);
       expect(suspendedEvent).toMatchObject({
         type: "activity",
         hasRunningSubprocess: true,
@@ -345,7 +1085,7 @@ it.layer(
           return resolveCount === 1
             ? processResult({
                 stdout:
-                  '{"workspace":"zmux","session":"old","target":"zmux/old","tmuxName":"zws_zmux__old","nativeId":"$22","state":"live","match":"worktree"}',
+                  '{"workspace":"zmux","session":"old","target":"zmux/old","tmuxName":"zws_zmux__old","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}',
               })
             : processResult({
                 code: ChildProcessSpawner.ExitCode(1),
@@ -464,7 +1204,7 @@ it.layer(
         Effect.succeed(
           processResult({
             stdout:
-              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"workspace-main"}',
           }),
         ),
       );
@@ -482,13 +1222,66 @@ it.layer(
       expect(snapshot.history).toBe("");
     }),
   );
+  it.effect("ensures and attaches an unbound worktree on first terminal open", () =>
+    Effect.gen(function* () {
+      const ensureZmuxSession = vi.fn(() =>
+        Effect.succeed({
+          status: "ensured",
+          target: "t3code-hyprws/t3code/audit-zmux-project-terminals",
+          workspace: "t3code-hyprws",
+          session: "t3code/audit-zmux-project-terminals",
+        } as const),
+      );
+      const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        ensureZmuxSession,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+
+      expect(ensureZmuxSession).toHaveBeenCalledWith(process.cwd());
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "zmux",
+        args: ["open", "t3code-hyprws", "t3code/audit-zmux-project-terminals"],
+      });
+      expect(snapshot.label).toBe("t3code-hyprws/t3code/audit-zmux-project-terminals");
+    }),
+  );
+  it.effect("surfaces ensure failure without opening a plain shell", () =>
+    Effect.gen(function* () {
+      const ensureZmuxSession = vi.fn(() =>
+        Effect.succeed({
+          status: "failed",
+          notice: {
+            summary: "zmux workspace root needs attention",
+            detail: "conflicting checkout registration; inspect workspace project",
+          },
+        } as const),
+      );
+      const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        ensureZmuxSession,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs).toEqual([]);
+      expect(snapshot.status).toBe("error");
+      expect(snapshot.history).toContain("zmux workspace root needs attention");
+      expect(snapshot.history).not.toContain("plain shell");
+    }),
+  );
   it.effect("falls back visibly when a linked worktree resolves the workspace main session", () =>
     Effect.gen(function* () {
       const processRunner = new FakeProcessRunner(
         Effect.succeed(
           processResult({
             stdout:
-              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"workspace-main"}',
+              '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"workspace-main"}',
           }),
         ),
       );
@@ -526,7 +1319,7 @@ it.layer(
       }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
       const snapshot = yield* manager.open(openInput());
       expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/bin/bash");
-      expect(snapshot.history).toContain(`zmux: no managed session for ${process.cwd()}`);
+      expect(snapshot.history).toContain(`zmux: invalid session response for ${process.cwd()}`);
       expect(snapshot.history).toContain("plain shell");
     }),
   );

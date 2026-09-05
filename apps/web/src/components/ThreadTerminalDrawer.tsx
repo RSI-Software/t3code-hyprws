@@ -12,6 +12,7 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import {
   Plus,
+  Pin,
   Square,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -87,6 +88,8 @@ import { previewEnvironment } from "../state/preview";
 import { readEnvironmentScope } from "../state/session";
 import { terminalEnvironment } from "../state/terminal";
 import { useEnvironmentScope } from "../state/session";
+import { terminalAttachmentId } from "../terminalAttachmentIdentity";
+import { terminalCheckoutLaunchIdentity } from "../terminalCheckoutLaunch.fork";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
@@ -206,6 +209,16 @@ export function synchronizeTerminalOutput(
   return update.cursor;
 }
 
+export function terminalOutputCursorForLifecycle(
+  cursor: TerminalOutputCursor,
+  previousLifecycleVersion: number,
+  currentLifecycleVersion: number,
+): TerminalOutputCursor {
+  return previousLifecycleVersion === currentLifecycleVersion
+    ? cursor
+    : INITIAL_TERMINAL_OUTPUT_CURSOR;
+}
+
 function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor {
   if (typeof document === "undefined") return fallback;
 
@@ -226,15 +239,6 @@ function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor
     g: green ?? fallback.g,
     b: blue ?? fallback.b,
   };
-}
-
-function runtimeEnvSignature(runtimeEnv: Record<string, string> | undefined): string {
-  if (!runtimeEnv) return "";
-  return JSON.stringify(
-    Object.entries(runtimeEnv)
-      .filter(([key, value]) => key.length > 0 && typeof value === "string")
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
-  );
 }
 
 function normalizeComputedColor(value: string | null | undefined, fallback: string): string {
@@ -490,6 +494,7 @@ export function TerminalViewport({
     (text: string) =>
       isTerminalUrl(text) || readEnvironmentScope(environmentId, AuthOrchestrationOperateScope),
   );
+  const attachmentId = useMemo(() => terminalAttachmentId(terminalId), [terminalId]);
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
@@ -505,6 +510,20 @@ export function TerminalViewport({
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
+  const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
+    reportFailure: false,
+  });
+  const launchIdentity = useMemo(
+    () =>
+      terminalCheckoutLaunchIdentity({
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { runtimeEnv } : {}),
+      }),
+    [attachmentId, cwd, worktreePath, runtimeEnv],
+  );
+  const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
@@ -518,7 +537,19 @@ export function TerminalViewport({
   // cannot be mistaken for the active flow.
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
-  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const retargetTerminal = useEffectEvent(() =>
+    runTerminalOpen({
+      environmentId,
+      input: {
+        threadId,
+        terminalId,
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      },
+    }),
+  );
   const handleSessionExited = useEffectEvent(() => {
     if (hasTerminalWriteAccess()) onSessionExited();
   });
@@ -526,7 +557,17 @@ export function TerminalViewport({
     onAddTerminalContext?.(selection);
   });
   const canAddSelectionToChat = useEffectEvent(() => onAddTerminalContext !== undefined);
-  const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const resolveTerminalPath = useEffectEvent((target: string) =>
+    resolvePathLinkTarget(target, cwd),
+  );
+  const openTerminalPreview = useEffectEvent(
+    (url: string, fallbackToBrowser: () => void, forceBrowser: boolean) =>
+      openTerminalLinkInPreview({ url, threadRef, openPreview, fallbackToBrowser, forceBrowser }),
+  );
+  const readTerminalContextIdentity = useEffectEvent(() => ({
+    terminalId,
+    terminalLabel,
+  }));
   const terminalFontFamily = useClientSettings((settings) =>
     resolveTerminalFontPreference({
       advanced: advancedTypography,
@@ -547,6 +588,7 @@ export function TerminalViewport({
     terminal: {
       threadId,
       terminalId,
+      attachmentId,
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
@@ -557,17 +599,22 @@ export function TerminalViewport({
   const canResizeTerminal =
     canOperateTerminal && terminalSession.version > 0 && terminalSession.status === "running";
   const resizeSessionGeneration = canResizeTerminal ? terminalSession.output.generation : null;
+  useEffect(() => {
+    if (launchIdentityRef.current === launchIdentity || !attached) return;
+    launchIdentityRef.current = launchIdentity;
+    void retargetTerminal();
+  }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { threadId, terminalId, attachmentId, data },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
     if (!canResizeTerminal || !hasTerminalWriteAccess()) return;
     return runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { threadId, terminalId, attachmentId, cols, rows },
     });
   });
   const terminalOutput = terminalSession.output;
@@ -595,11 +642,13 @@ export function TerminalViewport({
     },
   );
   const terminalVersion = terminalSession.version;
+  const terminalLifecycleVersion = terminalSession.lifecycleVersion;
   const previousSessionRef = useRef({
     output: terminalOutput,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   });
   const latestSessionRef = useRef(previousSessionRef.current);
   latestSessionRef.current = {
@@ -607,6 +656,7 @@ export function TerminalViewport({
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   };
 
   useEffect(() => {
@@ -641,6 +691,8 @@ export function TerminalViewport({
     void terminalRef.current?.setFont(terminalFontOptions(terminalFontFamily, terminalFontSize));
   }, [terminalFontFamily, terminalFontSize]);
 
+  // Checkout retargets replace the PTY launch context, not the viewer. Keep the
+  // WASM surface alive and read changing callback data through Effect Events.
   useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
@@ -748,6 +800,7 @@ export function TerminalViewport({
           return null;
         }
         const selectionText = activeTerminal.getSelection();
+        const terminalContextIdentity = readTerminalContextIdentity();
         const selectionPosition = activeTerminal.getSelectionPosition();
         const normalizedText = selectionText.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
         if (!selectionPosition || normalizedText.length === 0) {
@@ -765,8 +818,8 @@ export function TerminalViewport({
           position,
           clipboardText: selectionText,
           selection: {
-            terminalId,
-            terminalLabel: readTerminalLabel(),
+            terminalId: terminalContextIdentity.terminalId,
+            terminalLabel: terminalContextIdentity.terminalLabel,
             lineStart,
             lineEnd,
             text: normalizedText,
@@ -997,7 +1050,7 @@ export function TerminalViewport({
           });
           return;
         }
-        const target = resolvePathLinkTarget(text, cwd);
+        const target = resolveTerminalPath(text);
         void (async () => {
           const result = await openTerminalPath(target);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
@@ -1106,7 +1159,7 @@ export function TerminalViewport({
         mount.focus({ preventScroll: true });
       }
     };
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, []);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1115,6 +1168,7 @@ export function TerminalViewport({
       error: terminalError,
       status: terminalStatus,
       version: terminalVersion,
+      lifecycleVersion: terminalLifecycleVersion,
     };
     if (!terminal) {
       previousSessionRef.current = current;
@@ -1123,7 +1177,11 @@ export function TerminalViewport({
 
     const previous = previousSessionRef.current;
     synchronizeTerminalStatus(terminal, current.status, current.version);
-    if (current.version === previous.version && current.output === previous.output) {
+    if (
+      current.lifecycleVersion === previous.lifecycleVersion &&
+      current.version === previous.version &&
+      current.output === previous.output
+    ) {
       return;
     }
 
@@ -1134,7 +1192,7 @@ export function TerminalViewport({
     }
 
     previousSessionRef.current = current;
-  }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
+  }, [terminalOutput, terminalError, terminalStatus, terminalVersion, terminalLifecycleVersion]);
 
   useEffect(() => {
     const wasAttached = wasAttachedRef.current;
@@ -1261,14 +1319,17 @@ interface ThreadTerminalDrawerProps {
   terminalLabelsById?: ReadonlyMap<string, string>;
   /** Prefer per-session launch locations when the server already knows a terminal. */
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
+  checkoutModeByTerminalId?: Readonly<Record<string, "follow" | "pin">>;
+  checkoutModeChangeDisabled?: boolean;
+  onCheckoutModeChange?: (terminalId: string, mode: "follow" | "pin") => void;
 }
 
 interface TerminalActionButtonProps {
   label: string;
   className: string;
   onClick: () => void;
+  disabled?: boolean | undefined;
   children: ReactNode;
-  disabled?: boolean;
 }
 
 function TerminalActionButton({
@@ -1307,6 +1368,44 @@ function TerminalActionButton({
   );
 }
 
+interface TerminalCheckoutModeButtonProps {
+  layout: "floating" | "sidebar";
+  terminalId: string;
+  mode: "follow" | "pin";
+  disabled?: boolean | undefined;
+  onModeChange?: ((terminalId: string, mode: "follow" | "pin") => void) | undefined;
+}
+
+export function TerminalCheckoutModeButton({
+  layout,
+  terminalId,
+  mode,
+  disabled,
+  onModeChange,
+}: TerminalCheckoutModeButtonProps) {
+  return (
+    <TerminalActionButton
+      className={cn(
+        layout === "sidebar"
+          ? "inline-flex h-full items-center border-l border-border/70 px-1 transition-colors hover:bg-accent/70"
+          : "p-1 transition-colors hover:bg-accent",
+        mode === "pin" ? "text-warning" : "text-foreground/90", // fork-hook: zmux-estate/terminal-pin-tone
+      )}
+      onClick={() => onModeChange?.(terminalId, mode === "pin" ? "follow" : "pin")}
+      disabled={disabled}
+      label={
+        disabled
+          ? "Checkout mode is locked while the thread is moving"
+          : mode === "pin"
+            ? "Follow thread checkout"
+            : "Pin terminal checkout"
+      }
+    >
+      <Pin className="size-3.25" />
+    </TerminalActionButton>
+  );
+}
+
 export default function ThreadTerminalDrawer({
   mode = "drawer",
   threadRef,
@@ -1335,6 +1434,9 @@ export default function ThreadTerminalDrawer({
   keybindings,
   terminalLabelsById,
   terminalLaunchLocationsById,
+  checkoutModeByTerminalId,
+  checkoutModeChangeDisabled,
+  onCheckoutModeChange,
 }: ThreadTerminalDrawerProps) {
   const canOperateTerminal = useEnvironmentScope(threadRef.environmentId, AuthTerminalOperateScope);
   const isPanel = mode === "panel";
@@ -1768,6 +1870,14 @@ export default function ThreadTerminalDrawer({
               <SquareSplitVertical className="size-3.25" />
             </TerminalActionButton>
             <div className="h-4 w-px bg-border/80" />
+            <TerminalCheckoutModeButton
+              layout="floating"
+              terminalId={resolvedActiveTerminalId}
+              mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
+              disabled={checkoutModeChangeDisabled}
+              onModeChange={onCheckoutModeChange}
+            />
+            <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
@@ -1921,6 +2031,13 @@ export default function ThreadTerminalDrawer({
                   >
                     <SquareSplitVertical className="size-3.25" />
                   </TerminalActionButton>
+                  <TerminalCheckoutModeButton
+                    layout="sidebar"
+                    terminalId={resolvedActiveTerminalId}
+                    mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
+                    disabled={checkoutModeChangeDisabled}
+                    onModeChange={onCheckoutModeChange}
+                  />
                   <TerminalActionButton
                     disabled={!canOperateTerminal}
                     className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
