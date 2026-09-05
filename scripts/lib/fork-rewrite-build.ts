@@ -32,6 +32,10 @@ interface RewriteSlot {
   readonly readSet: ReadonlyArray<ReadEntry>;
   readonly changes: ReadonlyArray<RewriteChange>;
 }
+const sameEntry = (left: RewriteEntry | null, right: RewriteEntry | null): boolean =>
+  left === null || right === null
+    ? left === right
+    : left.mode === right.mode && left.type === right.type && left.oid === right.oid;
 export interface RewriteManifest {
   readonly schema: typeof REWRITE_MANIFEST_SCHEMA;
   readonly source: string;
@@ -39,7 +43,16 @@ export interface RewriteManifest {
   readonly base: string;
   readonly baseTag: string;
   /** Reviewed proof artifacts, not checks executed by this constructor. */
-  readonly proofs: ReadonlyArray<{ readonly name: string; readonly sha256: string }>;
+  readonly proofs: ReadonlyArray<{
+    readonly name: string;
+    readonly artifact: string;
+    readonly sha256: string;
+  }>;
+  readonly expected: {
+    readonly changedSlots: number;
+    readonly unchangedSlots: number;
+    readonly removedSignatures: number;
+  };
   readonly unresolved: ReadonlyArray<string>;
   readonly slots: ReadonlyArray<RewriteSlot>;
 }
@@ -55,6 +68,7 @@ export interface RewriteBuildReceipt {
     readonly original: string;
     readonly rebuilt: string;
     readonly tree: string;
+    readonly treeChanged: boolean;
     readonly changedPaths: ReadonlyArray<string>;
     readonly removedSignatureSha256: string | null;
   }>;
@@ -92,6 +106,11 @@ const array = (value: unknown): ReadonlyArray<unknown> => {
   if (!Array.isArray(value)) throw new UsageError("expected rewrite manifest array");
   return value;
 };
+const count = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+    throw new UsageError("rewrite expectation requires a nonnegative integer");
+  return value;
+};
 const path = (value: unknown): string => {
   const result = text(value);
   if (
@@ -124,6 +143,7 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     "base",
     "baseTag",
     "proofs",
+    "expected",
     "unresolved",
     "slots",
   ]);
@@ -134,16 +154,18 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
   const unresolved = array(value.unresolved).map(text);
   if (unresolved.length > 0) fail(`unresolved rewrite proof gates: ${unresolved.join(", ")}`);
   const proofs = array(value.proofs).map((input) => {
-    const proof = object(input, ["name", "sha256"]);
+    const proof = object(input, ["name", "artifact", "sha256"]);
     const digest = text(proof.sha256);
     if (!DIGEST.test(digest)) throw new UsageError("proof requires SHA-256 artifact digest");
-    return { name: text(proof.name), sha256: digest };
+    return { name: text(proof.name), artifact: path(proof.artifact), sha256: digest };
   });
   for (const name of ["snapshot-tests", "composition", "test-ownership", "compatibility"])
     if (proofs.filter((proof) => proof.name === name).length !== 1)
       fail(`exactly one reviewed ${name} proof is required`);
   if (new Set(proofs.map((proof) => proof.name)).size !== proofs.length)
     throw new UsageError("duplicate rewrite proof name");
+  if (new Set(proofs.map((proof) => proof.artifact)).size !== proofs.length)
+    throw new UsageError("duplicate rewrite proof artifact");
   const slots = array(value.slots).map((input): RewriteSlot => {
     const slot = object(input, ["commit", "tree", "resultTree", "readSet", "changes"]);
     const readSet = array(slot.readSet).map((input) => {
@@ -152,12 +174,15 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     });
     const changes = array(slot.changes).map((input) => {
       const change = object(input, ["path", "before", "after", "reason"]);
-      return {
+      const parsed = {
         path: path(change.path),
         before: entry(change.before),
         after: entry(change.after),
         reason: text(change.reason),
       };
+      if (sameEntry(parsed.before, parsed.after))
+        throw new UsageError(`rewrite change must alter its entry: ${parsed.path}`);
+      return parsed;
     });
     for (const rows of [readSet, changes])
       if (new Set(rows.map((row) => row.path)).size !== rows.length)
@@ -171,6 +196,18 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     };
   });
   if (slots.length === 0) throw new UsageError("rewrite manifest has no commit slots");
+  const expectedValue = object(value.expected, [
+    "changedSlots",
+    "unchangedSlots",
+    "removedSignatures",
+  ]);
+  const expected = {
+    changedSlots: count(expectedValue.changedSlots),
+    unchangedSlots: count(expectedValue.unchangedSlots),
+    removedSignatures: count(expectedValue.removedSignatures),
+  };
+  if (expected.changedSlots + expected.unchangedSlots !== slots.length)
+    fail("rewrite slot expectations must account for every manifest slot");
   const baseTag = text(value.baseTag);
   if (!/^v\d+\.\d+\.\d+(?:-nightly\.[A-Za-z0-9.]+)?$/.test(baseTag))
     throw new UsageError("rewrite base must name an upstream release tag");
@@ -181,6 +218,7 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     base: sha(value.base),
     baseTag,
     proofs,
+    expected,
     unresolved,
     slots,
   };
@@ -283,11 +321,6 @@ export class RewriteObjects {
     );
   }
 }
-const sameEntry = (left: RewriteEntry | null, right: RewriteEntry | null): boolean =>
-  left === null || right === null
-    ? left === right
-    : left.mode === right.mode && left.type === right.type && left.oid === right.oid;
-
 /** Tree ordering compares directories with their trailing slash, as Git does. */
 const buildTree = (
   objects: RewriteObjects,
@@ -442,12 +475,37 @@ export const buildRewrite = (
     fail(
       "final full tree must equal frozen source; test/harness differences also require reconciliation",
     );
-  // No object writes until every snapshot and final-tree precondition passed.
+  // Preview every rewritten object so census/signature expectations fail before object writes.
+  let previewParent = manifest.base;
+  const preview = prepared.map(({ slot, entries, raw }) => {
+    const tree = buildTree(objects, entries, false);
+    const rewritten = rebuildCommit(raw, tree, previewParent);
+    previewParent = objects.hash("commit", rewritten.bytes, false);
+    return { slot, tree, rebuilt: previewParent, rewritten };
+  });
+  for (const { slot, tree } of preview)
+    if ((tree !== slot.tree) !== slot.changes.length > 0)
+      fail(`rewrite change declarations disagree with tree result at ${slot.commit}`);
+  const changedSlots = preview.filter(({ slot }) => slot.resultTree !== slot.tree).length;
+  const removedSignatures = preview.filter(
+    ({ rewritten }) => rewritten.removedSignatureSha256 !== null,
+  ).length;
+  if (
+    changedSlots !== manifest.expected.changedSlots ||
+    preview.length - changedSlots !== manifest.expected.unchangedSlots ||
+    removedSignatures !== manifest.expected.removedSignatures
+  )
+    fail(
+      `rewrite census mismatch: expected ${manifest.expected.changedSlots} changed, ${manifest.expected.unchangedSlots} unchanged and ${manifest.expected.removedSignatures} removed signatures; got ${changedSlots}, ${preview.length - changedSlots} and ${removedSignatures}`,
+    );
+  // No object writes until every snapshot, final-tree and census precondition passed.
   let parent = manifest.base;
-  const slots = prepared.map(({ slot, entries, raw }) => {
+  const slots = prepared.map(({ slot, entries, raw }, index) => {
     const tree = buildTree(objects, entries, writeObjects);
     const rewritten = rebuildCommit(raw, tree, parent);
     const rebuilt = objects.hash("commit", rewritten.bytes, writeObjects);
+    if (rebuilt !== preview[index]!.rebuilt)
+      fail("written rewrite object differs from preflight construction");
     if (!objects.git(["cat-file", "commit", rebuilt]).equals(rewritten.bytes))
       fail("commit readback changed bytes");
     parent = rebuilt;
@@ -455,6 +513,7 @@ export const buildRewrite = (
       original: slot.commit,
       rebuilt,
       tree,
+      treeChanged: tree !== slot.tree,
       changedPaths: slot.changes.map((row) => row.path),
       removedSignatureSha256: rewritten.removedSignatureSha256,
     };
@@ -504,6 +563,54 @@ const requireRewriteArtifacts = (
   return { manifestPath, receiptPath };
 };
 
+const requireProofArtifacts = (
+  root: string,
+  manifestPath: string,
+  manifest: RewriteManifest,
+): void => {
+  const directory = NodePath.dirname(manifestPath);
+  for (const proof of manifest.proofs) {
+    const file = NodePath.resolve(directory, proof.artifact);
+    try {
+      externalPath(root, file);
+      externalPath(
+        root,
+        NodePath.join(NodeFS.realpathSync(NodePath.dirname(file)), NodePath.basename(file)),
+      );
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    let stat: NodeFS.Stats;
+    try {
+      stat = NodeFS.lstatSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        fail(`missing rewrite proof artifact: ${proof.name}`);
+      throw error;
+    }
+    if (!stat.isFile()) fail(`rewrite proof artifact must be a regular file: ${proof.name}`);
+    const bytes = NodeFS.readFileSync(file);
+    const digest = NodeCrypto.createHash("sha256").update(bytes).digest("hex");
+    if (digest !== proof.sha256) fail(`rewrite proof artifact digest mismatch: ${proof.name}`);
+    let value: unknown;
+    try {
+      value = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      fail(`invalid rewrite proof artifact: ${proof.name}`);
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      fail(`invalid rewrite proof artifact: ${proof.name}`);
+    const record = value as Record<string, unknown>;
+    if (
+      record.schema !== "fork.rewrite-proof.v1" ||
+      record.name !== proof.name ||
+      record.source !== manifest.source ||
+      record.verdict !== "pass"
+    )
+      fail(`rewrite proof artifact did not attest this source: ${proof.name}`);
+  }
+};
+
 /** Revalidate external artifacts before reading Git, then recompute their complete receipt. */
 export const verifyRewriteBuild = (
   root: string,
@@ -511,7 +618,18 @@ export const verifyRewriteBuild = (
   receiptPath: string,
 ): RewriteBuildReceipt => {
   const paths = requireRewriteArtifacts(root, manifestPath, receiptPath, true);
-  const expected = buildRewrite(root, NodeFS.readFileSync(paths.manifestPath), false);
+  const rawManifest = NodeFS.readFileSync(paths.manifestPath);
+  requireProofArtifacts(
+    root,
+    paths.manifestPath,
+    parseRewriteManifest(JSON.parse(rawManifest.toString("utf8"))),
+  );
+  const expected = buildRewrite(root, rawManifest, false);
+  requireProofArtifacts(
+    root,
+    paths.manifestPath,
+    parseRewriteManifest(JSON.parse(rawManifest.toString("utf8"))),
+  );
   const actual: unknown = JSON.parse(NodeFS.readFileSync(paths.receiptPath, "utf8"));
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     fail("rewrite receipt does not match verified manifest/objects");
@@ -548,7 +666,15 @@ export const runRewriteBuild = (argv: ReadonlyArray<string>, resolveRoot: () => 
     );
     manifestPath = paths.manifestPath;
     const receiptPath = paths.receiptPath;
-    const receipt = buildRewrite(root, NodeFS.readFileSync(manifestPath));
+    const rawManifest = NodeFS.readFileSync(manifestPath);
+    requireProofArtifacts(
+      root,
+      manifestPath,
+      parseRewriteManifest(JSON.parse(rawManifest.toString("utf8"))),
+    );
+    const manifest = parseRewriteManifest(JSON.parse(rawManifest.toString("utf8")));
+    const receipt = buildRewrite(root, rawManifest);
+    requireProofArtifacts(root, manifestPath, manifest);
     const bytes = JSON.stringify(receipt, null, 2) + "\n";
     if (NodeFS.existsSync(receiptPath)) {
       if (
