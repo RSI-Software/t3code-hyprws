@@ -102,6 +102,15 @@ const authoringCases = [
     rule: "pull-request-project-scope",
     domain: "project-windows",
   },
+  {
+    name: "issue handoff search registration",
+    sourcePath: "apps/web/src/components/settings/settingsSearch.ts",
+    inlineImplementation: 'const item = { id: "github-issue-handoff-prompt" };',
+    forkPath: "apps/web/src/components/settings/githubIssueSettingsSearch.ts",
+    integrationCall: "const items = filterAvailableSettingsSearchItems(availability);",
+    rule: "github-issue-settings-search",
+    domain: "github-issues",
+  },
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
