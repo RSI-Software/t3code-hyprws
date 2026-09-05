@@ -84,6 +84,12 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
       listener(data);
     }
   }
+  hasDataListener(): boolean {
+    return this.dataListeners.size > 0;
+  }
+  hasExitListener(): boolean {
+    return this.exitListeners.size > 0;
+  }
   emitExit(event: PtyAdapter.PtyExitEvent): void {
     for (const listener of this.exitListeners) {
       listener(event);
@@ -212,6 +218,9 @@ export interface CreateManagerOptions {
   processKillGraceMs?: number;
   managedAttachmentSuspendGraceMs?: number;
   managedAttachmentFirstAttachDeadlineMs?: number;
+  managedRetargetReadyDeadline?: Effect.Effect<void>;
+  managedRetargetCommitBarrier?: Effect.Effect<void>;
+  managedRetargetAdoptionBarrier?: Effect.Effect<void>;
   maxRetainedInactiveSessions?: number;
   ptyAdapter?: FakePtyAdapter;
   terminalSessionMode?: "shell" | "zmux";
@@ -260,6 +269,15 @@ export const createManager = (
               managedAttachmentFirstAttachDeadlineMs:
                 options.managedAttachmentFirstAttachDeadlineMs,
             }
+          : {}),
+        ...(options.managedRetargetReadyDeadline !== undefined
+          ? { managedRetargetReadyDeadline: options.managedRetargetReadyDeadline }
+          : {}),
+        ...(options.managedRetargetCommitBarrier !== undefined
+          ? { managedRetargetCommitBarrier: options.managedRetargetCommitBarrier }
+          : {}),
+        ...(options.managedRetargetAdoptionBarrier !== undefined
+          ? { managedRetargetAdoptionBarrier: options.managedRetargetAdoptionBarrier }
           : {}),
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }

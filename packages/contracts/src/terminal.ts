@@ -291,6 +291,7 @@ export class TerminalManagedRetargetError extends Schema.TaggedErrorClass<Termin
       "missing-session",
       "binding-conflict",
       "attach-failed",
+      "attach-timeout",
     ]),
     target: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),

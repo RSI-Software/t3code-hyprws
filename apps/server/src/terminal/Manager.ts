@@ -103,6 +103,8 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const MAX_TERMINAL_LABEL_LENGTH = 128;
 const ZMUX_RESOLVE_TIMEOUT = "2 seconds";
 const ZMUX_RESOLVE_MAX_OUTPUT_BYTES = 64 * 1024;
+const DEFAULT_ZMUX_ATTACH_READY_TIMEOUT_MS = 5_000;
+const ZMUX_ATTACH_READY_MAX_BUFFER_BYTES = 64 * 1024;
 const ZMUX_ATTACH_READY_PREFIX = "\u001b]777;zmux-attach-ready;";
 const ZMUX_ATTACH_READY_SUFFIX = "\u001b\\";
 
@@ -318,6 +320,8 @@ interface PreparedManagedRetarget {
   readonly unsubscribeData: () => void;
   readonly unsubscribeExit: () => void;
   readonly dispose: () => void;
+  readonly assertLive: Effect.Effect<void, TerminalManagedRetargetError>;
+  readonly reserve: () => void;
   readonly commit: () => void;
 }
 
@@ -1331,6 +1335,9 @@ interface TerminalManagerOptions {
   processKillGraceMs?: number;
   managedAttachmentSuspendGraceMs?: number;
   managedAttachmentFirstAttachDeadlineMs?: number;
+  managedRetargetReadyDeadline?: Effect.Effect<void>;
+  managedRetargetCommitBarrier?: Effect.Effect<void>;
+  managedRetargetAdoptionBarrier?: Effect.Effect<void>;
   maxRetainedInactiveSessions?: number;
   registerTerminalProcesses?: (input: {
     readonly threadId: string;
@@ -1415,6 +1422,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     options.managedAttachmentFirstAttachDeadlineMs ??
       DEFAULT_MANAGED_ATTACHMENT_FIRST_ATTACH_DEADLINE_MS,
   );
+  const managedRetargetReadyDeadline =
+    options.managedRetargetReadyDeadline ?? Effect.sleep(DEFAULT_ZMUX_ATTACH_READY_TIMEOUT_MS);
+  const managedRetargetCommitBarrier = options.managedRetargetCommitBarrier ?? Effect.void;
+  const managedRetargetAdoptionBarrier = options.managedRetargetAdoptionBarrier ?? Effect.void;
   const maxRetainedInactiveSessions = Math.max(
     0,
     options.maxRetainedInactiveSessions ?? DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS,
@@ -1554,7 +1565,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return {
         candidate: null,
         target: null,
+        nativeId: null,
+        tmuxName: null,
+        serverId: null,
+        createdAt: null,
         notice: `zmux: ${detail}`,
+        failureReason: result.status === "unavailable" ? "command-unavailable" : "missing-session",
       } satisfies ZmuxLaunchResolution;
     }
     return {
@@ -1564,7 +1580,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cwd: targetDir,
       },
       target: result.target,
+      nativeId: null,
+      tmuxName: null,
+      serverId: null,
+      createdAt: null,
       notice: null,
+      failureReason: null,
     } satisfies ZmuxLaunchResolution;
   });
 
@@ -2342,17 +2363,62 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const bufferedEvents: Array<PendingProcessEvent> = [];
     const framePrefix = `${ZMUX_ATTACH_READY_PREFIX}${nonce};`;
     let pendingData = "";
+    let bufferedOutputBytes = 0;
     let receiptFound = false;
+    let readinessFailed = false;
+    let exited: PtyAdapter.PtyExitEvent | null = null;
+    let reserved = false;
     let committed = false;
     const bufferOutput = (data: string) => {
-      if (data.length > 0) bufferedEvents.push({ type: "output", data });
+      if (data.length === 0) return;
+      bufferedOutputBytes += Buffer.byteLength(data);
+      if (bufferedOutputBytes > ZMUX_ATTACH_READY_MAX_BUFFER_BYTES) {
+        readinessFailed = true;
+        bufferedEvents.length = 0;
+        runFork(
+          Deferred.fail(
+            readiness,
+            new TerminalManagedRetargetError({
+              cwd: input.cwd,
+              worktreePath,
+              reason: "invalid-protocol",
+              target: resolved.target ?? undefined,
+              cause: new Error("managed attachment exceeded the readiness output limit"),
+            }),
+          ).pipe(Effect.asVoid),
+        );
+        return;
+      }
+      bufferedEvents.push({ type: "output", data });
     };
     let dataSink = (data: string) => {
+      if (readinessFailed) return;
       if (receiptFound) {
         bufferOutput(data);
         return;
       }
       pendingData += data;
+      if (
+        bufferedOutputBytes + Buffer.byteLength(pendingData) >
+        ZMUX_ATTACH_READY_MAX_BUFFER_BYTES
+      ) {
+        readinessFailed = true;
+        pendingData = "";
+        bufferedEvents.length = 0;
+        runFork(
+          Deferred.fail(
+            readiness,
+            new TerminalManagedRetargetError({
+              cwd: input.cwd,
+              worktreePath,
+              reason: "invalid-protocol",
+              target: resolved.target ?? undefined,
+              cause: new Error("managed attachment exceeded the readiness output limit"),
+            }),
+          ).pipe(Effect.asVoid),
+        );
+        return;
+      }
       const frameStart = pendingData.indexOf(framePrefix);
       if (frameStart < 0) {
         const retainedLength = Math.min(pendingData.length, framePrefix.length - 1);
@@ -2398,6 +2464,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
                   cause,
                 }),
           ),
+          Effect.andThen(Effect.yieldNow),
           Effect.flatMap(() => Deferred.succeed(readiness, undefined)),
           Effect.catch((error) => Deferred.fail(readiness, error)),
           Effect.asVoid,
@@ -2405,6 +2472,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       );
     };
     let exitSink = (event: PtyAdapter.PtyExitEvent) => {
+      exited = event;
       bufferOutput(pendingData);
       pendingData = "";
       bufferedEvents.push({ type: "exit", event });
@@ -2426,6 +2494,20 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const unsubscribeData = spawned.process.onData((data) => dataSink(data));
     const unsubscribeExit = spawned.process.onExit((event) => exitSink(event));
     yield* Deferred.await(readiness).pipe(
+      Effect.raceFirst(
+        managedRetargetReadyDeadline.pipe(
+          Effect.andThen(
+            Effect.fail(
+              new TerminalManagedRetargetError({
+                cwd: input.cwd,
+                worktreePath,
+                reason: "attach-timeout",
+                target: resolved.target ?? undefined,
+              }),
+            ),
+          ),
+        ),
+      ),
       Effect.onExit((exit) =>
         Exit.isFailure(exit)
           ? Effect.sync(() => {
@@ -2443,6 +2525,36 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       spawnEnv,
       unsubscribeData,
       unsubscribeExit,
+      assertLive: Effect.suspend(() =>
+        reserved
+          ? Effect.void
+          : readinessFailed
+            ? Effect.fail(
+                new TerminalManagedRetargetError({
+                  cwd: input.cwd,
+                  worktreePath,
+                  reason: "invalid-protocol",
+                  target: resolved.target ?? undefined,
+                  cause: new Error("managed attachment exceeded the readiness output limit"),
+                }),
+              )
+            : exited
+              ? Effect.fail(
+                  new TerminalManagedRetargetError({
+                    cwd: input.cwd,
+                    worktreePath,
+                    reason: "attach-failed",
+                    target: resolved.target ?? undefined,
+                    cause: new Error(
+                      `managed attachment exited before commit (code ${exited.exitCode}, signal ${exited.signal ?? "none"})`,
+                    ),
+                  }),
+                )
+              : Effect.void,
+      ),
+      reserve: () => {
+        reserved = true;
+      },
       activate: (onData, onExit) => {
         dataSink = onData;
         exitSink = onExit;
@@ -2472,6 +2584,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const resumeIdentity = eventType === "resumed" ? session.managedSessionIdentity : null;
     yield* cancelManagedSuspendFiber(session);
     yield* stopProcess(session);
+    if (preparedRetarget) {
+      yield* managedRetargetAdoptionBarrier;
+      session.history.clear();
+      session.pendingHistoryControlSequence = "";
+      session.pendingProcessEvents = [];
+      session.pendingProcessEventIndex = 0;
+      session.processEventDrainRunning = false;
+      yield* persistHistory(session.threadId, session.terminalId, session.history);
+    }
     yield* Effect.annotateCurrentSpan({
       "terminal.thread_id": session.threadId,
       "terminal.id": session.terminalId,
@@ -2486,6 +2607,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session.worktreePath = input.worktreePath ?? null;
       session.cols = input.cols;
       session.rows = input.rows;
+      if (preparedRetarget) session.runtimeEnv = normalizedRuntimeEnv(input.env);
       session.exitCode = null;
       session.exitSignal = null;
       if (eventType !== "resumed") {
@@ -2625,6 +2747,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               return [undefined, state] as const;
             });
             preparedRetarget?.activate(onData, onExit);
+            preparedRetarget?.commit();
 
             yield* updateManagedAttachment(
               session,
@@ -2642,7 +2765,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               sequence: eventStamp.sequence,
               snapshot: snapshot(session),
             });
-            preparedRetarget?.commit();
           }),
         ),
       ),
@@ -3259,21 +3381,33 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         prepareManagedRetarget(liveSession, nextStartInput),
         (preparedRetarget) =>
           Effect.gen(function* () {
-            yield* stopProcess(liveSession);
-            liveSession.cwd = input.cwd;
-            liveSession.worktreePath = nextWorktreePath;
-            liveSession.runtimeEnv = nextRuntimeEnv;
-            liveSession.history.clear();
-            liveSession.pendingHistoryControlSequence = "";
-            liveSession.pendingProcessEvents = [];
-            liveSession.pendingProcessEventIndex = 0;
-            liveSession.processEventDrainRunning = false;
-            yield* persistHistory(
-              liveSession.threadId,
-              liveSession.terminalId,
-              liveSession.history,
-            );
-            yield* startSession(liveSession, nextStartInput, "started", preparedRetarget);
+            if (!preparedRetarget) {
+              liveSession.cwd = input.cwd;
+              liveSession.worktreePath = nextWorktreePath;
+              liveSession.runtimeEnv = nextRuntimeEnv;
+              liveSession.history.clear();
+              liveSession.pendingHistoryControlSequence = "";
+              liveSession.pendingProcessEvents = [];
+              liveSession.pendingProcessEventIndex = 0;
+              liveSession.processEventDrainRunning = false;
+              yield* persistHistory(
+                liveSession.threadId,
+                liveSession.terminalId,
+                liveSession.history,
+              );
+            }
+            if (preparedRetarget) {
+              yield* managedRetargetCommitBarrier;
+              yield* Effect.uninterruptible(
+                Effect.gen(function* () {
+                  yield* preparedRetarget.assertLive;
+                  preparedRetarget.reserve();
+                  yield* startSession(liveSession, nextStartInput, "started", preparedRetarget);
+                }),
+              );
+            } else {
+              yield* startSession(liveSession, nextStartInput, "started", preparedRetarget);
+            }
           }),
         (preparedRetarget) =>
           preparedRetarget ? Effect.sync(preparedRetarget.dispose) : Effect.void,
