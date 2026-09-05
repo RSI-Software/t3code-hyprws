@@ -1,12 +1,25 @@
+// @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
+
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
 
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
   buildLedger,
+  buildSquashLedger,
+  collectWireShapeFindings,
+  collectWireShapeFindingsBetween,
   collectFindings,
   forkLogArguments,
   parseForkLog,
   parseSquashBody,
+  readForkLog,
   renderMarkdown,
   renderShas,
   selectDomain,
@@ -15,6 +28,55 @@ import {
 
 const RS = "";
 const FS = "";
+
+const wireFinding = {
+  schema: "ThreadEnvMode",
+  change: "literal added: worktrunk",
+  hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+};
+
+const renamedSchemaFinding = {
+  schema: "ThreadEnvMode",
+  change: "schema removed or renamed",
+  hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+};
+
+const ipcFinding = {
+  schema: "ipc.ts",
+  change: "desktop IPC shape changed",
+  hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+};
+
+const forkDeltaScript = NodePath.join(import.meta.dirname, "fork-delta.ts");
+
+const git = (root: string, args: ReadonlyArray<string>): string =>
+  NodeChildProcess.execFileSync(
+    "git",
+    ["-c", "user.name=Fork Delta Test", "-c", "user.email=fork-delta@example.com", ...args],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: NodePath.join(root, ".isolated-global-gitconfig"),
+        GIT_CONFIG_NOSYSTEM: "1",
+      },
+    },
+  ).trim();
+
+const createGitFixture = () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-delta-squash-"));
+  const contracts = NodePath.join(root, "packages/contracts/src");
+  NodeFS.mkdirSync(contracts, { recursive: true });
+  git(root, ["init", "-b", "fixture"]);
+  return { root, contracts };
+};
+
+const commitAll = (root: string, subject: string, body?: string): string => {
+  git(root, ["add", "."]);
+  git(root, ["commit", "-m", subject, ...(body === undefined ? [] : ["-m", body])]);
+  return git(root, ["rev-parse", "HEAD"]);
+};
 
 const record = (short: string, subject: string, trailers: string) =>
   `${short.padEnd(40, "0")}${FS}${short}${FS}${subject}${FS}${trailers}${RS}\n`;
@@ -297,6 +359,252 @@ it("reads the trailer block a squash commit inherits from a pull-request body", 
   assert.deepStrictEqual(collectFindings([commit]), []);
   assert.strictEqual(commit.domain, "zmux-estate");
   assert.strictEqual(commit.tier, "core");
+});
+
+it("requires a reviewed wire trailer in the squash body when the prospective squash changes wire shape", () => {
+  const missing = buildSquashLedger("base", "head", squashBody, [wireFinding]);
+  assert.deepStrictEqual(
+    missing.findings.map((finding) => finding.problem),
+    [`${wireFinding.schema}: ${wireFinding.change}; ${wireFinding.hint}`],
+  );
+
+  const reasonless = buildSquashLedger(
+    "base",
+    "head",
+    squashBody.replace("Fork-Tier: core", "Fork-Tier: core\nFork-Wire: reviewed"),
+    [wireFinding],
+  );
+  assert.deepStrictEqual(reasonless.findings, missing.findings);
+
+  const reviewed = buildSquashLedger(
+    "base",
+    "head",
+    squashBody.replace(
+      "Fork-Tier: core",
+      "Fork-Tier: core\nFork-Wire: reviewed released clients accept the new mode",
+    ),
+    [wireFinding],
+  );
+  assert.deepStrictEqual(reviewed.findings, []);
+  assert.deepStrictEqual(buildSquashLedger("base", "head", squashBody, []).findings, []);
+});
+
+it("checks the complete multi-commit squash instead of accepting an intermediate wire review", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain"]);\n',
+    );
+    const base = commitAll(root, "fixture: base");
+
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain", "worktrunk"]);\n',
+    );
+    commitAll(
+      root,
+      "feat(contracts): add worktrunk mode",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Wire: reviewed fixture intermediate commit",
+    );
+    NodeFS.writeFileSync(NodePath.join(root, "server.ts"), "export const wired = true;\n");
+    const head = commitAll(
+      root,
+      "feat(server): consume worktrunk mode",
+      "Fork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const evidence = await Effect.gen(function* () {
+      const commits = yield* readForkLog(base, head, root);
+      const perCommitFindings = yield* collectWireShapeFindings(commits, root);
+      const squashFindings = yield* collectWireShapeFindingsBetween(base, head, root);
+      return { commits, perCommitFindings, squashFindings };
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise);
+    assert.deepStrictEqual(
+      buildLedger(base, head, evidence.commits, undefined, evidence.perCommitFindings).findings,
+      [],
+    );
+    assert.deepStrictEqual(evidence.squashFindings, [wireFinding]);
+    assert.deepStrictEqual(
+      buildSquashLedger(base, head, squashBody, evidence.squashFindings).findings.map(
+        (finding) => finding.problem,
+      ),
+      [`${wireFinding.schema}: ${wireFinding.change}; ${wireFinding.hint}`],
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("requires squash-body review when a schema rename hides a new literal", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain"]);\n',
+    );
+    const base = commitAll(root, "fixture: base");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ForkThreadEnvMode = Schema.Literals(["plain", "worktrunk"]);\n',
+    );
+    const head = commitAll(root, "feat(contracts): rename mode and add worktrunk");
+
+    const findings = await collectWireShapeFindingsBetween(base, head, root).pipe(
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+      Effect.runPromise,
+    );
+    assert.deepStrictEqual(findings, [renamedSchemaFinding]);
+    assert.deepStrictEqual(
+      buildSquashLedger(base, head, squashBody, findings).findings.map(
+        (finding) => finding.problem,
+      ),
+      [
+        `${renamedSchemaFinding.schema}: ${renamedSchemaFinding.change}; ${renamedSchemaFinding.hint}`,
+      ],
+    );
+    assert.deepStrictEqual(
+      buildSquashLedger(
+        base,
+        head,
+        squashBody.replace(
+          "Fork-Tier: core",
+          "Fork-Tier: core\nFork-Wire: reviewed fixture schema rename",
+        ),
+        findings,
+      ).findings,
+      [],
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("excludes changes unique to a diverged live base", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      [
+        'import * as Schema from "effect/Schema";',
+        'export const ThreadEnvMode = Schema.Literals(["plain"]);',
+        "export const CheckoutMove = Schema.Struct({ id: Schema.String });",
+        "",
+      ].join("\n"),
+    );
+    const common = commitAll(root, "fixture: common ancestor");
+    git(root, ["switch", "-c", "pull-request"]);
+    NodeFS.writeFileSync(
+      schemaPath,
+      [
+        'import * as Schema from "effect/Schema";',
+        'export const ThreadEnvMode = Schema.Literals(["plain", "worktrunk"]);',
+        "export const CheckoutMove = Schema.Struct({ id: Schema.String });",
+        "",
+      ].join("\n"),
+    );
+    const head = commitAll(root, "feat(contracts): change pull request wire");
+
+    git(root, ["switch", "-c", "live-base", common]);
+    NodeFS.writeFileSync(
+      schemaPath,
+      [
+        'import * as Schema from "effect/Schema";',
+        'export const ThreadEnvMode = Schema.Literals(["plain"]);',
+        "export const CheckoutMove = Schema.Struct({ id: Schema.String, baseOnly: Schema.String });",
+        "",
+      ].join("\n"),
+    );
+    const liveBase = commitAll(root, "feat(contracts): change live base wire");
+
+    const findings = await collectWireShapeFindingsBetween(liveBase, head, root).pipe(
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+      Effect.runPromise,
+    );
+    assert.deepStrictEqual(findings, [wireFinding]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("reads added and deleted contract files from the compared revisions", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "README.md"), "fixture\n");
+    const base = commitAll(root, "fixture: base");
+    const ipcPath = NodePath.join(contracts, "ipc.ts");
+    NodeFS.writeFileSync(
+      ipcPath,
+      'import * as Schema from "effect/Schema";\nexport const DesktopRequest = Schema.Struct({ name: Schema.String });\n',
+    );
+    const added = commitAll(root, "feat(contracts): add IPC file");
+    NodeFS.rmSync(ipcPath);
+    const deleted = commitAll(root, "feat(contracts): delete IPC file");
+
+    const [addedFindings, deletedFindings] = await Effect.all(
+      [
+        collectWireShapeFindingsBetween(base, added, root),
+        collectWireShapeFindingsBetween(added, deleted, root),
+      ],
+      { concurrency: "unbounded" },
+    ).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise);
+    assert.deepStrictEqual(addedFindings, [ipcFinding]);
+    assert.deepStrictEqual(deletedFindings, [ipcFinding]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("requires explicit squash refs with a usage exit and stderr diagnostic", () => {
+  const { root } = createGitFixture();
+  try {
+    const bodyPath = NodePath.join(root, "body.md");
+    NodeFS.writeFileSync(bodyPath, squashBody);
+    const missingBoth = NodeChildProcess.spawnSync(
+      process.execPath,
+      [forkDeltaScript, "--check", "--squash-body", bodyPath],
+      { cwd: root, encoding: "utf8" },
+    );
+    assert.strictEqual(missingBoth.status, 2);
+    assert.strictEqual(missingBoth.stdout, "");
+    assert.strictEqual(
+      missingBoth.stderr.trimEnd(),
+      "failed: --squash-body requires explicit --base and --head",
+    );
+
+    const missingHead = NodeChildProcess.spawnSync(
+      process.execPath,
+      [forkDeltaScript, "--check", "--base", "HEAD", "--squash-body", bodyPath],
+      { cwd: root, encoding: "utf8" },
+    );
+    assert.strictEqual(missingHead.status, 2);
+    assert.strictEqual(missingHead.stdout, "");
+    assert.strictEqual(
+      missingHead.stderr.trimEnd(),
+      "failed: --squash-body requires explicit --head",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("passes the live base ref and exact pull-request head to squash-body validation", () => {
+  const workflow = NodeFS.readFileSync(
+    NodePath.join(import.meta.dirname, "../.github/workflows/hyprws-body.yml"),
+    "utf8",
+  );
+  assert.include(workflow, "BASE_REF: origin/hyprws");
+  assert.include(workflow, "HEAD_SHA: ${{ github.event.pull_request.head.sha }}");
+  assert.notInclude(workflow, "github.event.pull_request.base.sha");
+  assert.include(
+    workflow,
+    'fork:delta --check --base "$BASE_REF" --head "$HEAD_SHA" --squash-body',
+  );
 });
 
 it("fails a pull-request body whose last paragraph is prose, not trailers", () => {
