@@ -169,9 +169,13 @@ check origin before and after reading immutable objects. A moving remote never r
 Fetching a missing object does not move a local bot ref, ordinary branch or `FETCH_HEAD`.
 `--offline` performs no fetch or remote query and explicitly reports retained local evidence.
 The live `fork:churn report` uses the same immutable-current reader once for both walks and seam
-records, and includes its SHA/freshness in the published section. Local append/record writers and
-the intentionally frozen tracked mirror retain their local-ref behavior; a guidance read does not
-overwrite unpushed local evidence.
+records, and includes its SHA/freshness in the published section. A guidance read does not
+overwrite unpushed local evidence, and the intentionally frozen tracked mirror keeps its local-ref
+behavior. A `--push` ledger write instead leases the ref origin advertises: it refreshes a local
+ref that is only behind, keeps a local ref that already carries unpushed evidence, and publishes
+against that exact advertised commit. An absent, unreachable, moving or diverged published ledger
+refuses with the local, remote and expected SHAs and overwrites neither ref. A write without
+`--push` performs no remote query and keeps its local-ref behavior.
 Only a verified current source can establish a report policy pass. A report published from
 stale, offline or unavailable retained evidence records publication success separately from
 policy failure and exits nonzero; its limitation remains visible in the published section.
@@ -217,8 +221,9 @@ vp run fork:churn record --input reviewed-seams.json --push
 
 `record` validates and stores a maintainer-attested bundle. It does not run the guard command
 named by a verification record. Its one-line receipt reports added records and the resulting
-ref; replaying an identical bundle adds nothing. `--push` publishes with the captured old lease.
-Malformed input leaves the ref untouched.
+ref; replaying an identical bundle adds nothing. `--push` starts from the ledger origin
+advertises and publishes with that exact old lease, so a checkout another writer overtook
+records on a normal rerun. Malformed input leaves the ref untouched.
 
 A bundle is `{ "version": 1, "records": [...] }`. Each record's `id` is the SHA-256 of
 its canonical payload; the exported `seamRecord(payload)` helper in
@@ -271,8 +276,10 @@ invocation ID, while readback reuses the retained snapshot evidence. Set
 `FORK_OUTCOME_EXECUTOR=agent` or `human` before an operator's sync invocation; otherwise
 that executor remains unknown. `FORK_OUTCOME_EXPORT` saves an importable bundle before
 ledger publication. Workflow artifacts retain raw reports and outcome bundles for 90 days.
-On a stale ledger lease, publication refuses and restores its previous local ref; fetch the
-current `refs/fork/churn` and re-import the retained bundle. Never replace the ledger with an
+A `--push` import starts from the published `refs/fork/churn`, so an existing checkout appends
+to a ledger another writer already advanced without a manual fetch. When origin moves between
+that lease and the push, publication refuses with the local, remote and expected SHAs, restores
+its previous local ref, and a normal rerun succeeds. Never replace the ledger with an
 older artifact. Duplicate deliveries add nothing; conflicting evidence refuses with exit 1.
 Seeding the ledger and every outcome write group targets by upstream commit ancestry from oldest to newest while
 preserving declaration order inside each target. A reviewed historical import therefore migrates

@@ -7,8 +7,11 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import {
+  acquireBotRefLease,
   CHURN_LEDGER_FILE,
   CHURN_REF,
+  publishBotRefLease,
+  pushBotRef,
   RERERE_REF,
   publishRerereSnapshot,
   readBotRefFile,
@@ -208,5 +211,162 @@ it("round-trips the rerere cache through its bot-owned ref", () => {
       "resolved\n",
     );
     assert.notStrictEqual(resolveBotRef(root, RERERE_REF), null);
+  });
+});
+
+// Every mutating ledger write leases the ref origin advertises, so an existing checkout
+// appends to an advanced ledger instead of failing the same lease forever (#631).
+
+const headOf = (root: string, ref = CHURN_REF): string =>
+  runCommandText("git", ["rev-parse", ref], { cwd: root }).trim();
+
+const seedPublishedLedger = (publisher: string, contents = "[]\n"): string => {
+  const commit = writeBotRefFile(publisher, CHURN_REF, CHURN_LEDGER_FILE, contents, "churn: seed");
+  pushBotRef(publisher, CHURN_REF);
+  return commit;
+};
+
+it("leases the published ledger from a checkout holding a stale local ref", () => {
+  withPublishers((publisher, consumer, remote) => {
+    const seeded = seedPublishedLedger(publisher);
+    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
+    const advanced = writeBotRefFile(
+      publisher,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["v1"]\n',
+      "churn: v1",
+    );
+    pushBotRef(publisher, CHURN_REF);
+
+    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
+    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: advanced, base: advanced });
+    // The write now reads the concurrent walk rather than the head the checkout cached.
+    assert.strictEqual(readBotRefFile(consumer, CHURN_REF, CHURN_LEDGER_FILE), '["v1"]\n');
+    const appended = writeBotRefFile(
+      consumer,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["v1","v2"]\n',
+      "churn: v2",
+    );
+    publishBotRefLease(consumer, lease!, appended);
+    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["v1","v2"]\n');
+  });
+});
+
+it("creates the local ref from origin when the checkout has never seen the ledger", () => {
+  withPublishers((publisher, consumer) => {
+    const seeded = seedPublishedLedger(publisher, '["v1"]\n');
+    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
+    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: seeded, base: seeded });
+    assert.strictEqual(headOf(consumer), seeded);
+  });
+});
+
+it("retains an unpushed local append and leases it against the published head", () => {
+  withPublishers((publisher, consumer, remote) => {
+    const seeded = seedPublishedLedger(publisher);
+    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
+    const pending = writeBotRefFile(
+      consumer,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["pending"]\n',
+      "churn: pending",
+    );
+
+    const lease = acquireBotRefLease(consumer, CHURN_REF, true);
+    assert.deepStrictEqual(lease, { ref: CHURN_REF, expectedOld: seeded, base: pending });
+    publishBotRefLease(consumer, lease!, pending);
+    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["pending"]\n');
+  });
+});
+
+it("fails closed when origin moves between the lease and the push, then succeeds on a rerun", () => {
+  withPublishers((publisher, consumer, remote) => {
+    const seeded = seedPublishedLedger(publisher);
+    assert.strictEqual(resolveBotRef(consumer, CHURN_REF), seeded);
+    const lease = acquireBotRefLease(consumer, CHURN_REF, true)!;
+    const local = writeBotRefFile(
+      consumer,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["consumer"]\n',
+      "churn: consumer",
+    );
+    const rival = writeBotRefFile(
+      publisher,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["rival"]\n',
+      "churn: rival",
+    );
+    pushBotRef(publisher, CHURN_REF);
+
+    assert.throws(
+      () => publishBotRefLease(consumer, lease, local),
+      new RegExp(`local=${local}, remote=${rival}, expected=${seeded}`),
+    );
+    assert.strictEqual(headOf(consumer), seeded);
+    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["rival"]\n');
+
+    const retry = acquireBotRefLease(consumer, CHURN_REF, true)!;
+    assert.strictEqual(retry.expectedOld, rival);
+    const merged = writeBotRefFile(
+      consumer,
+      CHURN_REF,
+      CHURN_LEDGER_FILE,
+      '["rival","consumer"]\n',
+      "churn: consumer",
+    );
+    publishBotRefLease(consumer, retry, merged);
+    assert.strictEqual(
+      readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE),
+      '["rival","consumer"]\n',
+    );
+  });
+});
+
+it("fails closed on an absent, unreachable or diverged published ledger", () => {
+  withPublishers((publisher, consumer, remote) => {
+    // Never seeded anywhere: the caller reports its own seeding instruction.
+    assert.strictEqual(acquireBotRefLease(consumer, CHURN_REF, true), null);
+
+    const local = writeBotRefFile(consumer, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: local");
+    assert.throws(
+      () => acquireBotRefLease(consumer, CHURN_REF, true),
+      new RegExp(`absent on origin.*local=${local}, remote=unknown, expected=none`),
+    );
+    assert.strictEqual(headOf(consumer), local);
+
+    const published = seedPublishedLedger(publisher, '["published"]\n');
+    assert.throws(
+      () => acquireBotRefLease(consumer, CHURN_REF, true),
+      new RegExp(`diverged.*local=${local}, remote=${published}, expected=${published}`),
+    );
+    assert.strictEqual(headOf(consumer), local);
+    assert.strictEqual(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE), '["published"]\n');
+
+    runCommandText("git", ["remote", "set-url", "origin", NodePath.join(consumer, "gone.git")], {
+      cwd: consumer,
+    });
+    assert.throws(
+      () => acquireBotRefLease(consumer, CHURN_REF, true),
+      /could not be read from origin/,
+    );
+    assert.strictEqual(headOf(consumer), local);
+  });
+});
+
+it("keeps the local-writer contract when the write is not published", () => {
+  withRepository((root) => {
+    assert.strictEqual(acquireBotRefLease(root, CHURN_REF, false), null);
+    const local = writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: local");
+    assert.deepStrictEqual(acquireBotRefLease(root, CHURN_REF, false), {
+      ref: CHURN_REF,
+      expectedOld: local,
+      base: local,
+    });
   });
 });

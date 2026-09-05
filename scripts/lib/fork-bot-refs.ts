@@ -100,6 +100,167 @@ export const pushBotRefWithLease = (root: string, ref: string, expectedOld: stri
   ]);
 };
 
+/** One publishing write's hold on a bot-owned ref (RSI-Software/t3code-hyprws#631). */
+export interface BotRefLease {
+  readonly ref: string;
+  /** The published commit the write is leased against; the exact expected-old value. */
+  readonly expectedOld: string;
+  /** The local commit the write builds on, and the commit a refused publication restores. */
+  readonly base: string;
+}
+
+/** Every fail-closed lease report names all three SHAs so the operator can compare them. */
+const leaseFailure = (
+  ref: string,
+  reason: string,
+  local: string | null,
+  remote: string | null,
+  expected: string | null,
+): string =>
+  `${ref} ${reason}; local=${local ?? "none"}, remote=${remote ?? "unknown"}, expected=${expected ?? "none"}; neither ref was overwritten`;
+
+const localBotRef = (root: string, ref: string): string | null =>
+  refExists(root, ref) ? gitText(root, ["rev-parse", `${ref}^{commit}`]).trim() : null;
+
+type AdvertisedBotRef =
+  | { readonly kind: "published"; readonly sha: string }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unreachable"; readonly detail: string };
+
+/** Ask origin what it publishes. An unchecked remote is never treated as an absent one. */
+const advertisedBotRef = (root: string, ref: string): AdvertisedBotRef => {
+  const result = runCommand("git", ["ls-remote", "--exit-code", "origin", ref], {
+    cwd: root,
+    timeout: 15_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  if (result.error !== undefined) return { kind: "unreachable", detail: result.error.message };
+  if (result.status === 2) return { kind: "absent" };
+  if (result.status !== 0)
+    return {
+      kind: "unreachable",
+      detail: result.stderr.trim() || `git ls-remote exit ${result.status}`,
+    };
+  const sha = result.stdout
+    .trim()
+    .split("\n")
+    .find((line) => line.split("\t")[1] === ref)
+    ?.split("\t")[0];
+  if (sha === undefined || !/^[a-f0-9]{40,64}$/.test(sha))
+    return { kind: "unreachable", detail: "origin advertised no usable commit for the ref" };
+  return { kind: "published", sha };
+};
+
+const objectExists = (root: string, sha: string): boolean =>
+  gitResult(root, ["cat-file", "-e", `${sha}^{commit}`]).status === 0;
+
+const isAncestor = (root: string, ancestor: string, descendant: string): boolean => {
+  const result = gitResult(root, ["merge-base", "--is-ancestor", ancestor, descendant]);
+  if (result.error !== undefined || (result.status !== 0 && result.status !== 1))
+    throw new Error(`could not compare ${ancestor} with ${descendant}: ${result.stderr.trim()}`);
+  return result.status === 0;
+};
+
+/**
+ * Start a mutating write from the ref origin advertises rather than from whatever the
+ * checkout last saw, so an existing checkout appends to an advanced ledger instead of
+ * failing its lease forever (RSI-Software/t3code-hyprws#631). `publish` false keeps the
+ * documented local-writer behaviour: no remote query, and the local ref is the base.
+ * Returns null when the ref has never been seeded, which callers report themselves.
+ */
+export const acquireBotRefLease = (
+  root: string,
+  ref: string,
+  publish: boolean,
+): BotRefLease | null => {
+  requireBotRef(ref);
+  if (!publish) {
+    const local = resolveBotRef(root, ref);
+    return local === null ? null : { ref, expectedOld: local, base: local };
+  }
+  const local = localBotRef(root, ref);
+  const advertised = advertisedBotRef(root, ref);
+  if (advertised.kind === "absent") {
+    if (local === null) return null;
+    throw new Error(
+      leaseFailure(
+        ref,
+        "is absent on origin; a published ledger cannot be leased",
+        local,
+        null,
+        null,
+      ),
+    );
+  }
+  if (advertised.kind === "unreachable")
+    throw new Error(
+      leaseFailure(ref, `could not be read from origin (${advertised.detail})`, local, null, null),
+    );
+  const expectedOld = advertised.sha;
+  if (!objectExists(root, expectedOld)) {
+    // Fetch objects only. A pending local append must survive the refresh below.
+    gitResult(root, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", ref]);
+    if (!objectExists(root, expectedOld))
+      throw new Error(
+        leaseFailure(
+          ref,
+          "moved on origin while its published commit was fetched",
+          local,
+          expectedOld,
+          expectedOld,
+        ),
+      );
+  }
+  if (local === null) {
+    gitText(root, ["update-ref", ref, expectedOld, ""]);
+    return { ref, expectedOld, base: expectedOld };
+  }
+  if (local === expectedOld) return { ref, expectedOld, base: local };
+  if (isAncestor(root, local, expectedOld)) {
+    // Stale checkout: fast-forward onto the published ledger so the write appends to it.
+    gitText(root, ["update-ref", ref, expectedOld, local]);
+    return { ref, expectedOld, base: expectedOld };
+  }
+  // Unpushed local evidence already descends from the published head; keep it and lease
+  // against origin so the publication stays a fast-forward.
+  if (isAncestor(root, expectedOld, local)) return { ref, expectedOld, base: local };
+  throw new Error(
+    leaseFailure(ref, "has diverged from the published ledger", local, expectedOld, expectedOld),
+  );
+};
+
+/**
+ * Publish a leased write. A remote that moved after the lease was taken fails closed with
+ * all three SHAs and restores the local ref, so a normal rerun refreshes and succeeds.
+ */
+export const publishBotRefLease = (root: string, lease: BotRefLease, commit: string): void => {
+  try {
+    pushBotRefWithLease(root, lease.ref, lease.expectedOld);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (commit !== lease.base)
+      try {
+        gitText(root, ["update-ref", lease.ref, lease.base, commit]);
+      } catch (restoreError) {
+        throw new Error(
+          `${message}\nfailed to restore ${lease.ref} to ${lease.base}: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+          { cause: restoreError },
+        );
+      }
+    const observed = advertisedBotRef(root, lease.ref);
+    throw new Error(
+      `${message}\n${leaseFailure(
+        lease.ref,
+        "publication refused",
+        commit,
+        observed.kind === "published" ? observed.sha : null,
+        lease.expectedOld,
+      )}`,
+      { cause: error },
+    );
+  }
+};
+
 const temporaryIndex = <T>(effect: (indexFile: string) => T): T => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-bot-ref-"));
   try {

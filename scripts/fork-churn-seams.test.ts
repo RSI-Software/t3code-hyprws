@@ -439,7 +439,7 @@ it("preserves records while seeding v2 and migrating legacy subjects", () => {
   }
 });
 
-it("publishes record bundles with a lease and restores the local ref after a stale-lease refusal", () => {
+it("publishes record bundles with a lease taken against the advertised ledger head", () => {
   const root = repository();
   try {
     const remote = NodePath.join(root, "remote.git");
@@ -463,14 +463,23 @@ it("publishes record bundles with a lease and restores the local ref after a sta
     runCommandText("git", ["push", "--quiet", "origin", `${rival}:${CHURN_REF}`], { cwd: root });
     const fresh = seamRecord(freezeObservation(snapshot(D, [file("new.ts")])));
     NodeFS.writeFileSync(input, JSON.stringify({ version: 1, records: [fresh] }));
-    assert.strictEqual(run(["record", "--input", input, "--push"], root), 1);
+    // The rival advanced origin; a normal rerun refreshes onto it instead of refusing.
+    assert.strictEqual(run(["record", "--input", input, "--push"], root), 0);
+    const published = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
     assert.strictEqual(
-      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
-      expectedOld,
+      runCommandText("git", ["rev-parse", `${CHURN_REF}~1`], { cwd: root }).trim(),
+      rival,
     );
     assert.strictEqual(
       runCommandText("git", ["ls-remote", "origin", CHURN_REF], { cwd: root }).split("\t")[0],
-      rival,
+      published,
+    );
+    assert.deepStrictEqual(readChurnState(root).seamRecords, [...records, fresh]);
+    // Replaying the same bundle adds nothing and leaves both refs where they are.
+    assert.strictEqual(run(["record", "--input", input, "--push"], root), 0);
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      published,
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });

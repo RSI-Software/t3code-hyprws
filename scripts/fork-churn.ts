@@ -6,7 +6,13 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { CHURN_REF, pushBotRef, pushBotRefWithLease, resolveBotRef } from "./lib/fork-bot-refs.ts";
+import {
+  acquireBotRefLease,
+  CHURN_REF,
+  publishBotRefLease,
+  pushBotRef,
+  resolveBotRef,
+} from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
   censusChurn,
@@ -391,6 +397,9 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     throw new Error("--issue must be a positive integer");
   if (!SHA.test(before) || !SHA.test(after))
     throw new Error("--before and --after must be Git SHAs");
+  // Start from what origin publishes so a checkout that has not seen the newest walk
+  // appends to it instead of rebuilding a stale ledger (#631).
+  const lease = acquireBotRefLease(root, CHURN_REF, push);
   const entries = readDurableLedger(root);
   if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
 
@@ -442,8 +451,9 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
   // malformed delta cannot leave a locally appended row behind after a failed command.
   const documentPath = NodePath.join(root, DOCUMENT_PATH);
   const renderedDocument = NodeFS.existsSync(documentPath) ? renderForRoot(root, next) : null;
-  writeChurnLedger(root, next, `churn: ${tag}`);
-  if (push) pushBotRef(root, CHURN_REF);
+  const commit = writeChurnLedger(root, next, `churn: ${tag}`);
+  // A null lease only happens on a never-seeded ref, which readDurableLedger already refused.
+  if (push && lease !== null) publishBotRefLease(root, lease, commit);
   if (renderedDocument !== null) NodeFS.writeFileSync(documentPath, renderedDocument);
   process.stdout.write(
     `appended ${tag}: ${conflicts.length} conflict(s) on ${CHURN_REF}${push ? " (pushed)" : ""}\n`,
@@ -616,24 +626,16 @@ const recordSeams = (args: ReadonlyArray<string>, root: string): number => {
     Object.keys(input).some((key) => key !== "version" && key !== "records")
   )
     throw new Error("expected seam bundle {version:1, records:[...]}");
-  const expectedOld = resolveBotRef(root, CHURN_REF);
-  if (expectedOld === null) throw new Error("seed the churn ledger before recording seam evidence");
+  const lease = acquireBotRefLease(root, CHURN_REF, push);
+  if (lease === null) throw new Error("seed the churn ledger before recording seam evidence");
   const state = readChurnState(root);
   const seamRecords = requireSeamRecords([...state.seamRecords, ...input.records]);
   const added = seamRecords.length - state.seamRecords.length;
   const commit =
     added === 0
-      ? expectedOld
+      ? lease.base
       : writeChurnState(root, { ...state, seamRecords }, "churn: record seam evidence");
-  if (push) {
-    try {
-      pushBotRefWithLease(root, CHURN_REF, expectedOld);
-    } catch (error) {
-      if (commit !== expectedOld)
-        runCommandText("git", ["update-ref", CHURN_REF, expectedOld, commit], { cwd: root });
-      throw error;
-    }
-  }
+  if (push) publishBotRefLease(root, lease, commit);
   process.stdout.write(
     `recorded ${added} seam record(s) on ${CHURN_REF} at ${commit}${push ? " (pushed with expected-old lease)" : ""}; guard results are maintainer attestations\n`,
   );
@@ -675,8 +677,8 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
   if (args.length > 1 || (args.length === 1 && args[0] !== "--push"))
     throw new UsageError("usage: fork-churn migrate-subjects [--push]");
   const push = args[0] === "--push";
-  const expectedOld = resolveBotRef(root, CHURN_REF);
-  if (expectedOld === null)
+  const lease = acquireBotRefLease(root, CHURN_REF, push);
+  if (lease === null)
     throw new Error(
       `${CHURN_REF} does not carry a ledger; seed it before migrating census subjects`,
     );
@@ -689,21 +691,7 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
 
   const migrated = enrichLedgerForRoot(root, entries);
   const commit = writeChurnLedger(root, migrated, "churn: migrate census subjects");
-  if (push) {
-    try {
-      pushBotRefWithLease(root, CHURN_REF, expectedOld);
-    } catch (pushError) {
-      try {
-        runCommandText("git", ["update-ref", CHURN_REF, expectedOld, commit], { cwd: root });
-      } catch (restoreError) {
-        throw new Error(
-          `${pushError instanceof Error ? pushError.message : String(pushError)}\nfailed to restore ${CHURN_REF} to ${expectedOld}: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
-          { cause: restoreError },
-        );
-      }
-      throw pushError;
-    }
-  }
+  if (push) publishBotRefLease(root, lease, commit);
   process.stdout.write(
     `migrated ${missing.length} census commit(s) on ${CHURN_REF} at ${commit}${push ? " (pushed with expected-old lease)" : ""}\n`,
   );
