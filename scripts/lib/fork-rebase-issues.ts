@@ -17,6 +17,8 @@ export interface StableCandidate {
 
 export interface RebaseStopCensus {
   readonly targetTag: string;
+  /** Absent on legacy count-only censuses; their feasibility table is not stop evidence. */
+  readonly evidence?: SequentialCensusEvidence;
   readonly conflictingForkCommitCount: number;
   readonly conflictingFileCount: number;
   readonly truncated: boolean;
@@ -24,6 +26,100 @@ export interface RebaseStopCensus {
   readonly stopLimit: number;
   readonly timeLimitSeconds: number;
 }
+
+export interface SequentialCensusEvidence {
+  readonly version: 1;
+  readonly method: "sequential-rebase-stage3-provisional";
+  readonly sourceSha: string;
+  readonly baseSha: string;
+  readonly targetSha: string;
+  readonly targetTag: string;
+  readonly complete: boolean;
+  readonly rows: ReadonlyArray<{
+    /** One-based stop ordinal, shared by all unmerged paths observed at that stop. */
+    readonly stop: number;
+    readonly commit: string;
+    readonly subject: string;
+    readonly domain: string | null;
+    readonly path: string;
+    readonly kind: "add/add" | "modify/delete" | "content" | "other-unmerged";
+  }>;
+}
+
+export const censusTotals = (rows: SequentialCensusEvidence["rows"]) => ({
+  conflictingForkCommitCount: new Set(rows.map((row) => row.commit)).size,
+  conflictingFileCount: rows.length,
+});
+
+/** The marker retains exact paths and provenance independently of Markdown escaping. */
+export const parseSequentialCensusEvidence = (body: string): SequentialCensusEvidence | null => {
+  const marker = /<!-- sequential-census-v1:(.*?) -->/.exec(body)?.[1];
+  if (marker === undefined) return null;
+  return requireSequentialCensusEvidence(JSON.parse(marker));
+};
+
+export const requireSequentialCensusEvidence = (value: unknown): SequentialCensusEvidence => {
+  if (typeof value !== "object" || value === null) throw new Error("invalid census evidence");
+  const evidence = value as Record<string, unknown>;
+  const sha = (value: unknown): value is string =>
+    typeof value === "string" && /^[0-9a-f]{40,64}$/.test(value);
+  if (
+    evidence.version !== 1 ||
+    evidence.method !== "sequential-rebase-stage3-provisional" ||
+    !sha(evidence.sourceSha) ||
+    !sha(evidence.baseSha) ||
+    !sha(evidence.targetSha) ||
+    typeof evidence.targetTag !== "string" ||
+    typeof evidence.complete !== "boolean" ||
+    !Array.isArray(evidence.rows)
+  )
+    throw new Error("invalid census provenance");
+  const stops = new Map<number, string>();
+  const pathsAtStops = new Set<string>();
+  const rows = evidence.rows.map((item: unknown): SequentialCensusEvidence["rows"][number] => {
+    if (typeof item !== "object" || item === null) throw new Error("invalid census stop row");
+    const row = item as Record<string, unknown>;
+    if (
+      typeof row.stop !== "number" ||
+      !Number.isSafeInteger(row.stop) ||
+      row.stop < 1 ||
+      !sha(row.commit) ||
+      typeof row.subject !== "string" ||
+      typeof row.path !== "string" ||
+      (row.domain !== null && typeof row.domain !== "string") ||
+      (row.kind !== "add/add" &&
+        row.kind !== "modify/delete" &&
+        row.kind !== "content" &&
+        row.kind !== "other-unmerged")
+    )
+      throw new Error("invalid census stop row");
+    const priorCommit = stops.get(row.stop);
+    const identity = `${row.stop}\u0000${row.path}`;
+    if ((priorCommit !== undefined && priorCommit !== row.commit) || pathsAtStops.has(identity)) {
+      throw new Error("inconsistent census stop identity");
+    }
+    stops.set(row.stop, row.commit);
+    pathsAtStops.add(identity);
+    return {
+      stop: row.stop,
+      commit: row.commit,
+      subject: row.subject,
+      domain: row.domain,
+      path: row.path,
+      kind: row.kind,
+    };
+  });
+  return {
+    version: 1,
+    method: evidence.method,
+    sourceSha: evidence.sourceSha,
+    baseSha: evidence.baseSha,
+    targetSha: evidence.targetSha,
+    targetTag: evidence.targetTag,
+    complete: evidence.complete,
+    rows,
+  };
+};
 
 export interface BlockedIssue {
   readonly title: string;
@@ -117,6 +213,9 @@ Every step stops for a human decision, and \`stable-prepare\` renders the UAT dr
 <!-- hyprws-stable-candidate: ${tag}-hyprws -->`;
 
 interface BlockedPlan {
+  readonly oldSha?: string;
+  readonly baseSha?: string;
+  readonly horizon?: { readonly sha: string } | null;
   readonly target: { readonly tag: string } | null;
   readonly newestTagBeyondWindow: { readonly tag: string } | null;
   readonly feasibility: ForkRebaseFeasibility;
@@ -127,6 +226,9 @@ export const buildBlockedIssue = (
   stopCensus: RebaseStopCensus | null = null,
   stopCensusUnavailableReason: string | null = null,
 ): BlockedIssue | null => {
+  if (stopCensus?.evidence !== undefined) {
+    stopCensus = { ...stopCensus, ...censusTotals(stopCensus.evidence.rows) };
+  }
   const first = plan.feasibility.ffBoundary.firstConflict;
   const horizon = plan.newestTagBeyondWindow;
   if (first === null || horizon === null) return null;
@@ -140,6 +242,9 @@ export const buildBlockedIssue = (
   }));
   const remaining =
     plan.feasibility.ffBoundary.upstreamCommitCount - plan.feasibility.ffBoundary.cleanCommitCount;
+  const evidence = stopCensus?.evidence;
+  const totals = stopCensus;
+  const cell = (value: string) => inlineCode(value.replaceAll("\\", "\\\\").replaceAll("|", "\\|"));
   const body = [
     plan.target === null
       ? "The fork stack has no newer clean upstream tag to advance to."
@@ -151,11 +256,27 @@ export const buildBlockedIssue = (
     "",
     "## Sequential rebase census",
     "",
-    stopCensusUnavailableReason !== null
+    stopCensusUnavailableReason !== null && stopCensus === null
       ? `The sequential rebase census was unavailable: ${inlineCode(stopCensusUnavailableReason)}.`
       : stopCensus === null
         ? "No upstream release tag exists beyond this block, so there is no tagged rebase target to rehearse."
-        : `A throwaway rebase rehearsal to ${inlineCode(stopCensus.targetTag)} found ${stopCensus.conflictingForkCommitCount} conflicting fork ${stopCensus.conflictingForkCommitCount === 1 ? "commit" : "commits"} and ${stopCensus.conflictingFileCount} conflict-file ${stopCensus.conflictingFileCount === 1 ? "resolution" : "resolutions"}. Repeated paths count at each stop.`,
+        : `A throwaway rebase rehearsal to ${inlineCode(stopCensus.targetTag)} found ${totals!.conflictingForkCommitCount} conflicting fork ${totals!.conflictingForkCommitCount === 1 ? "commit" : "commits"} and ${totals!.conflictingFileCount} conflict-file ${totals!.conflictingFileCount === 1 ? "observation" : "observations"}. Repeated paths count at each stop.`,
+    ...(evidence === undefined
+      ? [
+          "Legacy count-only sequential measurement: stop rows and replay SHAs were not retained. Feasibility overlap below is a different measurement, not evidence for these totals.",
+        ]
+      : [
+          `Method: ${inlineCode(evidence.method)}. Source: ${inlineCode(evidence.sourceSha)}; base: ${inlineCode(evidence.baseSha)}; target: ${inlineCode(evidence.targetSha)}. ${evidence.complete ? "Complete" : "Partial"} observation set.`,
+          "Continuation provisionally takes fork-side index stage 3 (or its deletion) with rerere disabled. These observations record no human or agent resolution verdict.",
+          "",
+          "| Stop | File | Conflict kind | Replayed fork commit | Domain |",
+          "| ---: | --- | --- | --- | --- |",
+          ...evidence.rows.map(
+            (row) =>
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
+          ),
+          `<!-- sequential-census-v1:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
+        ]),
     ...(stopCensus?.truncatedBy === "stop-limit"
       ? [
           `The census stopped at its conflict-stop limit of ${stopCensus.stopLimit}, so these are lower-bound counts.`,
@@ -165,6 +286,11 @@ export const buildBlockedIssue = (
             `The census stopped at its wall-clock limit of ${stopCensus.timeLimitSeconds} seconds, so these are lower-bound counts.`,
           ]
         : []),
+    "",
+    "## Feasibility overlap",
+    "",
+    `Pairwise merge-tree analysis: ${new Set(conflicts.map((conflict) => conflict.forkCommit)).size} introducing fork commits and ${conflicts.length} file rows. Complete overlap table, independent of sequential stop counts.`,
+    `Source: ${inlineCode(plan.oldSha ?? "unknown (legacy report)")}; base: ${inlineCode(plan.baseSha ?? "unknown (legacy report)")}; upstream: ${inlineCode(plan.horizon?.sha ?? "unknown (legacy report)")}. Attribution names the introducing fork commit, not a sequential replay stop.`,
     "",
     "Follow [Unblocking a rebase-blocked issue](https://github.com/RSI-Software/t3code-hyprws/blob/hyprws/docs/operations/fork-sync.md#unblocking-a-rebase-blocked-issue).",
     "",

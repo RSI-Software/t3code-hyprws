@@ -8,7 +8,12 @@ import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
-import { buildBlockedIssue } from "./lib/fork-rebase-issues.ts";
+import {
+  buildBlockedIssue,
+  parseSequentialCensusEvidence,
+  type SequentialCensusEvidence,
+} from "./lib/fork-rebase-issues.ts";
+import { parseCensusFiles, parseLedger, censusChurn } from "./fork-churn-ledger.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import {
   buildAutoRebasePlan,
@@ -473,7 +478,7 @@ it("advances to the newest clean tag, reports the block, and enumerates stable s
     });
     assert.include(
       result.blocked?.body ?? "",
-      "## Sequential rebase census\n\nA throwaway rebase rehearsal to `v1.1.0-nightly.20260828.1209` found 2 conflicting fork commits and 3 conflict-file resolutions.",
+      "## Sequential rebase census\n\nA throwaway rebase rehearsal to `v1.1.0-nightly.20260828.1209` found 2 conflicting fork commits and 3 conflict-file observations.",
     );
     assert.strictEqual(
       result.blocked?.title,
@@ -545,7 +550,8 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       position: 3,
       stable: false,
     });
-    assert.deepStrictEqual(census, {
+    const { evidence, ...counts } = census;
+    assert.deepStrictEqual(counts, {
       targetTag: "v1.1.0-nightly.20260828.1209",
       conflictingForkCommitCount: 1,
       conflictingFileCount: 1,
@@ -553,6 +559,25 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       truncatedBy: null,
       stopLimit: 128,
       timeLimitSeconds: 360,
+    });
+    assert.deepStrictEqual(evidence, {
+      version: 1,
+      method: "sequential-rebase-stage3-provisional",
+      sourceSha: fixture.fork,
+      baseSha: fixture.base,
+      targetSha: fixture.conflict,
+      targetTag: census.targetTag,
+      complete: true,
+      rows: [
+        {
+          stop: 1,
+          commit: fixture.fork,
+          subject: "feat(test): fork stack change",
+          domain: "fork-meta",
+          path: "shared.txt",
+          kind: "content",
+        },
+      ],
     });
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
     assert.deepStrictEqual(
@@ -570,6 +595,7 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       ),
       {
         targetTag: "v1.1.0-nightly.20260828.1209",
+        evidence: { ...evidence!, complete: false, rows: [] },
         conflictingForkCommitCount: 0,
         conflictingFileCount: 0,
         truncated: true,
@@ -590,6 +616,153 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       /census rebase failed/,
     );
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("keeps sequential totals and overlap totals bound to their own rows", () => {
+  const fixture = fixtureRepository();
+  try {
+    const original = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const conflict = original.feasibility.conflicts[0]!;
+    const plan = {
+      ...original,
+      feasibility: {
+        ...original.feasibility,
+        conflicts: Array.from({ length: 37 }, (_, index) => ({
+          ...conflict,
+          path: `overlap-${index}.ts`,
+          introducingForkCommit: {
+            ...conflict.introducingForkCommit,
+            sha: ((index % 26) + 1).toString(16).padStart(40, "0"),
+          },
+        })),
+      },
+    };
+    const evidence: SequentialCensusEvidence = {
+      version: 1,
+      method: "sequential-rebase-stage3-provisional",
+      sourceSha: fixture.fork,
+      baseSha: fixture.base,
+      targetSha: fixture.conflict,
+      targetTag: "v1.1.0-nightly.20260828.1209",
+      complete: true,
+      rows: Array.from({ length: 41 }, (_, index): SequentialCensusEvidence["rows"][number] => ({
+        stop: index < 29 ? index + 1 : index - 28,
+        commit: ((index < 29 ? index : index - 29) + 1).toString(16).padStart(40, "0"),
+        subject: "fork patch",
+        domain: "fork-meta",
+        path: index < 29 ? "repeated.ts" : `other-${index}.ts`,
+        kind: index === 0 ? "add/add" : index === 1 ? "modify/delete" : "content",
+      })).toSorted((a, b) => a.stop - b.stop),
+    };
+    for (const complete of [true, false]) {
+      const census = {
+        targetTag: evidence.targetTag,
+        evidence: { ...evidence, complete },
+        conflictingForkCommitCount: 999,
+        conflictingFileCount: 999,
+        truncated: !complete,
+        truncatedBy: complete ? null : ("stop-limit" as const),
+        stopLimit: 29,
+        timeLimitSeconds: 360,
+      };
+      const body = buildBlockedIssue(plan, census)!.body;
+      assert.include(body, "29 conflicting fork commits and 41 conflict-file observations");
+      assert.include(body, "26 introducing fork commits and 37 file rows");
+      assert.notInclude(body, "999");
+      assert.include(body, `${complete ? "Complete" : "Partial"} observation set`);
+      if (!complete) assert.include(body, "lower-bound counts");
+      assert.deepStrictEqual(parseSequentialCensusEvidence(body), census.evidence);
+      const files = parseCensusFiles(body);
+      assert.strictEqual(files.length, 41);
+      assert.strictEqual(files.filter((file) => file.path === "repeated.ts").length, 29);
+      assert.isTrue(files.every((file) => file.hunks === null));
+      const entry = {
+        tag: evidence.targetTag,
+        before: fixture.fork,
+        after: fixture.conflict,
+        recordUrl: "https://example.test/record",
+        conflicts: [],
+        decisions: [],
+        censusFiles: files,
+        censusEvidence: census.evidence,
+      };
+      assert.deepStrictEqual(parseLedger(JSON.stringify([entry])), [entry]);
+      // Legacy overlap cannot manufacture a recurrence or an extra consecutive sequential tag.
+      const { censusEvidence: _evidence, ...legacyEntry } = entry;
+      const legacy = { ...legacyEntry, tag: "legacy" };
+      const churn = censusChurn([legacy, entry]);
+      assert.deepStrictEqual(churn.regressions, []);
+      assert.isTrue(churn.hotPaths.every((path) => path.consecutiveTags === 1));
+      if (!complete) assert.deepStrictEqual(churn.hotPaths, []);
+    }
+    const legacyBody = buildBlockedIssue(plan, {
+      targetTag: evidence.targetTag,
+      conflictingForkCommitCount: 29,
+      conflictingFileCount: 41,
+      truncated: false,
+      truncatedBy: null,
+      stopLimit: 128,
+      timeLimitSeconds: 360,
+    })!.body;
+    assert.include(legacyBody, "Legacy count-only sequential measurement");
+    assert.isNull(parseSequentialCensusEvidence(legacyBody));
+    assert.strictEqual(parseCensusFiles(legacyBody).length, 37);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("retains add/add and modify/delete observations before provisional continuation", () => {
+  const fixture = fixtureRepository();
+  try {
+    git(fixture.root, ["switch", "upstream-lane"]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "added.txt"), "upstream add\n");
+    git(fixture.root, ["rm", "shared.txt"]);
+    const target = commit(fixture.root, "upstream adds and deletes");
+    git(fixture.root, ["switch", "fork-stack"]);
+    NodeFS.writeFileSync(NodePath.join(fixture.root, "added.txt"), "fork add\n");
+    const head = commit(fixture.root, "fork add");
+    const census = rehearseStopCensus(fixture.root, head, fixture.base, {
+      tag: "v2.0.0",
+      sha: target,
+      position: 4,
+      stable: true,
+    });
+    assert.deepStrictEqual(
+      census.evidence?.rows.map(({ stop, path, kind, commit }) => ({ stop, path, kind, commit })),
+      [
+        { stop: 1, path: "shared.txt", kind: "modify/delete", commit: fixture.fork },
+        { stop: 2, path: "added.txt", kind: "add/add", commit: head },
+      ],
+    );
+    assert.strictEqual(census.conflictingForkCommitCount, 2);
+    assert.strictEqual(census.conflictingFileCount, 2);
+    const partial = rehearseStopCensus(
+      fixture.root,
+      head,
+      fixture.base,
+      { tag: "v2.0.0", sha: target, position: 4, stable: true },
+      { stopLimit: 1, timeLimitMs: 60_000, now: () => 0 },
+    );
+    assert.deepStrictEqual(partial.evidence?.rows, census.evidence?.rows.slice(0, 1));
+    assert.isFalse(partial.evidence!.complete);
+    assert.strictEqual(partial.truncatedBy, "stop-limit");
+    assert.strictEqual(partial.conflictingFileCount, 1);
+    const plan = buildAutoRebasePlan(new SystemGit(fixture.root), fixture.fork, null);
+    const partialDecision = executeAutoRebase(
+      fixture.root,
+      { ...dryRunOptions, mode: "off" },
+      plan,
+      () => "shared-install",
+      { rehearseStopCensus: () => partial },
+    );
+    assert.deepStrictEqual(partialDecision.decision.census, partial);
+    assert.deepStrictEqual(partialDecision.blocked?.stopCensus, partial);
+    assert.include(partialDecision.blocked!.body, "Partial observation set");
+    assert.include(renderSummary(partialDecision), "pairwise (census unavailable:");
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

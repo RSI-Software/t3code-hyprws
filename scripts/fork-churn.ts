@@ -27,6 +27,7 @@ import {
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
+import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 
 export {
   censusChurn,
@@ -415,6 +416,11 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       conflicts,
       decisions: parsed.decisions,
       censusFiles: parseCensusFiles(issueView.body),
+      ...(parseSequentialCensusEvidence(issueView.body) === null
+        ? {}
+        : {
+            censusEvidence: parseSequentialCensusEvidence(issueView.body)!,
+          }),
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
       ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
     },
@@ -505,6 +511,11 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     tag: parseCensusTag(view.body),
     fixedAt: null,
     files: parseCensusFiles(view.body),
+    ...(parseSequentialCensusEvidence(view.body) === null
+      ? {}
+      : {
+          censusEvidence: parseSequentialCensusEvidence(view.body)!,
+        }),
   } as const;
   const churn = censusChurn(entries, currentCensus);
   const body = renderChurnSection(entries, existing?.body ?? null, currentCensus);

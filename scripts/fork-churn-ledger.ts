@@ -16,6 +16,11 @@ import type {
   SilentSeam,
 } from "./fork-sync-state.ts";
 import { isInheritedDecidedBy, requireNightlyReview } from "./fork-sync-state.ts";
+import {
+  parseSequentialCensusEvidence,
+  requireSequentialCensusEvidence,
+  type SequentialCensusEvidence,
+} from "./lib/fork-rebase-issues.ts";
 
 export const CONFLICT_CLASSES = [
   "generated",
@@ -38,7 +43,7 @@ export interface ChurnConflict {
 
 export interface CensusFile {
   readonly path: string;
-  readonly hunks: number;
+  readonly hunks: number | null;
   readonly commit: string;
   readonly subject?: string;
   readonly domain: string;
@@ -48,6 +53,7 @@ export interface CensusSnapshot {
   readonly tag: string;
   readonly fixedAt: string | null;
   readonly files: ReadonlyArray<CensusFile>;
+  readonly censusEvidence?: SequentialCensusEvidence;
 }
 
 export interface CensusHotPath {
@@ -79,6 +85,8 @@ export interface ChurnEntry {
   readonly conflicts: ReadonlyArray<ChurnConflict>;
   readonly decisions: ReadonlyArray<OrientationDecisionRow>;
   readonly censusFiles: ReadonlyArray<CensusFile>;
+  /** Missing means legacy pairwise feasibility overlap, not sequential stop rows. */
+  readonly censusEvidence?: SequentialCensusEvidence;
   /** Seams the walk repaired without a conflict; absent on entries written before #476. */
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
   /** Distinct proposer/reviewer provenance for a humanless nightly apply (#531). */
@@ -134,8 +142,19 @@ const section = (markdown: string, heading: string): string =>
   markdown.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
 
 export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
+  const evidence = parseSequentialCensusEvidence(body);
+  if (evidence !== null)
+    return evidence.rows.map((row) => ({
+      path: row.path,
+      hunks: null,
+      commit: row.commit,
+      subject: row.subject,
+      domain: row.domain ?? "?",
+    }));
   const rows: Array<CensusFile> = [];
-  for (const line of section(body, "## Sequential rebase census").split("\n")) {
+  const overlap =
+    section(body, "## Feasibility overlap") || section(body, "## Sequential rebase census");
+  for (const line of overlap.split("\n")) {
     const cells = splitTableCells(line);
     if (cells === null || cells[0] === "File") continue;
     if (cells.every((cell) => /^-+:?$/.test(cell))) continue;
@@ -163,6 +182,8 @@ export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
 
 /** Read the target tag named by the generated sequential rebase census. */
 export const parseCensusTag = (body: string): string => {
+  const evidence = parseSequentialCensusEvidence(body);
+  if (evidence !== null) return evidence.targetTag;
   const tag =
     /A throwaway rebase rehearsal to `([^`]+)` found /.exec(
       section(body, "## Sequential rebase census"),
@@ -286,11 +307,11 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
       if (typeof item !== "object" || item === null)
         throw new Error(`invalid census file ${censusIndex} in entry ${entryIndex}`);
       const row = item as Record<string, unknown>;
-      if (!Number.isSafeInteger(row.hunks) || Number(row.hunks) < 0)
+      if (row.hunks !== null && (!Number.isSafeInteger(row.hunks) || Number(row.hunks) < 0))
         throw new Error(`invalid census hunks in entry ${entryIndex}`);
       return {
         path: requireString(row.path, "census path"),
-        hunks: Number(row.hunks),
+        hunks: row.hunks === null ? null : Number(row.hunks),
         commit: requireString(row.commit, "census commit"),
         ...(row.subject === undefined
           ? {}
@@ -327,6 +348,11 @@ export const parseLedger = (raw: string): ReadonlyArray<ChurnEntry> => {
       conflicts,
       decisions,
       censusFiles,
+      ...(entry.censusEvidence === undefined
+        ? {}
+        : {
+            censusEvidence: requireSequentialCensusEvidence(entry.censusEvidence),
+          }),
       ...(silentSeams === undefined ? {} : { silentSeams }),
       ...(nightlyReview === undefined ? {} : { nightlyReview }),
     } satisfies ChurnEntry;
@@ -434,6 +460,7 @@ const censusSnapshots = (
     tag: entry.tag,
     fixedAt: entry.after,
     files: entry.censusFiles,
+    ...(entry.censusEvidence === undefined ? {} : { censusEvidence: entry.censusEvidence }),
   }));
   if (current === null) return snapshots;
   if (snapshots.some((snapshot) => snapshot.tag === current.tag)) return snapshots;
@@ -468,9 +495,18 @@ export const censusChurn = (
     }
   >();
   const regressions: Array<RegressedSeam> = [];
+  let previousMethod: string | null = null;
 
   for (const snapshot of snapshots) {
     regressions.length = 0;
+    const method = snapshot.censusEvidence?.method ?? "legacy-pairwise-feasibility";
+    // A method change or partial observation says nothing about a seam disappearing.
+    if (method !== previousMethod || snapshot.censusEvidence?.complete === false) {
+      pathRuns.clear();
+      seams.clear();
+    }
+    previousMethod = method;
+    if (snapshot.censusEvidence?.complete === false) continue;
     const paths = new Set(snapshot.files.map((file) => file.path));
     for (const path of paths) {
       const previous = pathRuns.get(path);
