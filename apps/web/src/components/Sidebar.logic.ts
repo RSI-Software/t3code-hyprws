@@ -1,6 +1,6 @@
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
-import type { ContextMenuItem, ScopedProjectRef } from "@t3tools/contracts";
+import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import {
   activeThreadAnchorTimestampMs,
@@ -651,16 +651,7 @@ export function shouldCreateNewThreadInCurrentProject(
   return shiftKey || projectGroupCount <= 1;
 }
 
-export function isProjectInSidebarScope(
-  projectRef: ScopedProjectRef,
-  forcedProjectRef: ScopedProjectRef | null,
-): boolean {
-  return (
-    forcedProjectRef === null ||
-    (projectRef.environmentId === forcedProjectRef.environmentId &&
-      projectRef.projectId === forcedProjectRef.projectId)
-  );
-}
+export { isProjectInSidebarScope } from "./sidebar/SidebarPhysicalScope";
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];

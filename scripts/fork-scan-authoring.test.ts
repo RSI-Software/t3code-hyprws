@@ -37,6 +37,15 @@ const authoringCases = [
     rule: "provider-agent-boundary",
     domain: "custom-agents",
   },
+  {
+    name: "physical sidebar scope",
+    sourcePath: "apps/web/src/components/Sidebar.tsx",
+    inlineImplementation: "const forcedProjectGroup = projectGroups.find(matchesPhysicalProject);",
+    forkPath: "apps/web/src/components/sidebar/SidebarPhysicalScope.ts",
+    integrationCall: "const scope = resolveSidebarPhysicalScope(input);",
+    rule: "sidebar-physical-scope",
+    domain: "project-windows",
+  },
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {

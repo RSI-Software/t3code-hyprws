@@ -236,6 +236,16 @@ Previews, composer drafts, and preview IPC are namespaced per window. The preloa
 Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
 
+Physical sidebar policy lives in `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`.
+Both sidebar renderers delegate exact environment/project filtering to it; the modern sidebar
+passes its existing project groups and logical selection into the same adapter for effective
+scope and physical keys. Missing project metadata keeps the physical key instead of opening
+the all-project scope. The caller owns selection storage and its setter, so a tagged replay
+can retain upstream persistence and readiness handling without a fork replacement. Grouping,
+search, menus, manual order and navigation remain in their existing derivation points.
+The `sidebar-physical-scope` authoring guard rejects direct physical matching added back to
+either upstream renderer while permitting the adapter calls.
+
 QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; `apps/web/src/components/pullRequest/PullRequestProjectScope.ts` adapts the upstream Pull Requests page through narrow scope and filter calls, while the project route explicitly reuses the hub route's exported page component and search validator. `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` adds the scoped route, and `apps/web/src/components/sidebar/SidebarChrome.tsx` resolves its project-window entry point.
 Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
 The eager Lucide development-load guard tracks pending `pingdotgg/t3code#9943` at head `307b29ec`; retire the fork patch when the first upstream tag contains equivalent optimizer configuration and regression coverage.
@@ -313,8 +323,10 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                                                                         | Project settings reached from scoped project-window chrome.                     |
 | `apps/web/src/components/settings/KeybindingsSettings.tsx`                                                                          | Gates project-window keybinding visibility.                                     |
 | `apps/web/src/hooks/useThreadActions.ts`                                                                                            | Thread actions must retain the active project-window scope.                     |
-| `apps/web/src/components/Sidebar.logic.ts`                                                                                          | `isProjectInSidebarScope`; upstream reworks this comparator.                    |
-| `apps/web/src/components/Sidebar.logic.test.ts`                                                                                     | Fork scope cases sit beside upstream's ordering cases.                          |
+| `apps/web/src/components/Sidebar.logic.ts`                                                                                          | Compatibility export delegates physical scope to the fork policy adapter.       |
+| `apps/web/src/components/Sidebar.logic.test.ts`                                                                                     | Existing fixture exports stay available for the fork-owned tests.               |
+| `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`                                                                           | Fork-owned exact physical scope adapter; accepts caller-owned logical state.    |
+| `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                                 | Scope, missing metadata, search, grouping, hub setter and ordering proofs.      |
 | `apps/web/src/components/Sidebar.tsx`                                                                                               | Applies the active project-window scope to the shared sidebar.                  |
 | `apps/web/src/components/LegacySidebar.tsx`                                                                                         | Keeps project scope in the legacy sidebar.                                      |
 | `apps/web/src/composerDraftStore.ts`                                                                                                | Persists drafts within project-window thread scope.                             |
