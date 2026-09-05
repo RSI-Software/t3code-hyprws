@@ -12,6 +12,7 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import {
   Plus,
+  Pin,
   Square,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -79,6 +80,7 @@ import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
+import { terminalAttachmentId } from "../terminalAttachmentIdentity";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
@@ -427,6 +429,7 @@ export function TerminalViewport({
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
   const visibleRef = useRef(visible);
   const environmentId = threadRef.environmentId;
+  const attachmentId = useMemo(() => terminalAttachmentId(terminalId), [terminalId]);
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
@@ -442,6 +445,10 @@ export function TerminalViewport({
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
+  const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
+    reportFailure: false,
+  });
+  const launchIdentityRef = useRef(`${cwd}\0${worktreePath ?? ""}`);
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
@@ -483,22 +490,49 @@ export function TerminalViewport({
     terminal: {
       threadId,
       terminalId,
+      attachmentId,
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
     },
     enabled: attached,
   });
+  useEffect(() => {
+    const nextIdentity = `${cwd}\0${worktreePath ?? ""}`;
+    if (launchIdentityRef.current === nextIdentity || !attached) return;
+    launchIdentityRef.current = nextIdentity;
+    void runTerminalOpen({
+      environmentId,
+      input: {
+        threadId,
+        terminalId,
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      },
+    });
+  }, [
+    attached,
+    attachmentId,
+    cwd,
+    environmentId,
+    runTerminalOpen,
+    runtimeEnvKey,
+    terminalId,
+    threadId,
+    worktreePath,
+  ]);
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { threadId, terminalId, attachmentId, data },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
     runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { threadId, terminalId, attachmentId, cols, rows },
     }),
   );
   const terminalOutput = terminalSession.output;
@@ -1133,21 +1167,39 @@ interface ThreadTerminalDrawerProps {
   terminalLabelsById?: ReadonlyMap<string, string>;
   /** Prefer per-session launch locations when the server already knows a terminal. */
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
+  checkoutModeByTerminalId?: Readonly<Record<string, "follow" | "pin">>;
+  checkoutModeChangeDisabled?: boolean;
+  onCheckoutModeChange?: (terminalId: string, mode: "follow" | "pin") => void;
 }
 
 interface TerminalActionButtonProps {
   label: string;
   className: string;
   onClick: () => void;
+  disabled?: boolean | undefined;
   children: ReactNode;
 }
 
-function TerminalActionButton({ label, className, onClick, children }: TerminalActionButtonProps) {
+function TerminalActionButton({
+  label,
+  className,
+  onClick,
+  disabled,
+  children,
+}: TerminalActionButtonProps) {
   return (
     <Popover>
       <PopoverTrigger
         openOnHover
-        render={<button type="button" className={className} onClick={onClick} aria-label={label} />}
+        render={
+          <button
+            type="button"
+            className={className}
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={label}
+          />
+        }
       >
         {children}
       </PopoverTrigger>
@@ -1192,6 +1244,9 @@ export default function ThreadTerminalDrawer({
   keybindings,
   terminalLabelsById,
   terminalLaunchLocationsById,
+  checkoutModeByTerminalId,
+  checkoutModeChangeDisabled,
+  onCheckoutModeChange,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
   const windowDemanded = useWindowDemand();
@@ -1588,6 +1643,31 @@ export default function ThreadTerminalDrawer({
               label={splitTerminalVerticalActionLabel}
             >
               <SquareSplitVertical className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
+              className={cn(
+                "p-1 transition-colors hover:bg-accent",
+                checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
+                  ? "text-amber-500"
+                  : "text-foreground/90",
+              )}
+              onClick={() =>
+                onCheckoutModeChange?.(
+                  resolvedActiveTerminalId,
+                  checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin" ? "follow" : "pin",
+                )
+              }
+              disabled={checkoutModeChangeDisabled}
+              label={
+                checkoutModeChangeDisabled
+                  ? "Checkout mode is locked while the thread is moving"
+                  : checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
+                    ? "Follow thread checkout"
+                    : "Pin terminal checkout"
+              }
+            >
+              <Pin className="size-3.25" />
             </TerminalActionButton>
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
