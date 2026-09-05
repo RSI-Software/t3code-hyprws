@@ -549,9 +549,11 @@ it("stable-publish requires the exact go, revalidates create-only refs, and clos
         call.args.join(" ") === "remove --foreground --force-delete --yes cut/v1.2.3-hyprws",
     ),
   );
-  assert.isTrue(
-    runner.calls.some(
-      (call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "close",
-    ),
+  const closed = runner.calls.filter(
+    (call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "close",
+  );
+  assert.deepStrictEqual(
+    closed.map((call) => call.args[2]),
+    ["355"],
   );
 });

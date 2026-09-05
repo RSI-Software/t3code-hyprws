@@ -70,9 +70,7 @@ const candidateFromIssue = (issue: {
   // A trailing ghb homing marker ([📥], [📍], or [<emoji>#N]) is machine-owned:
   // accept it, never strip or hand-write it. The body marker stays the identity.
   const titleMatch =
-    /^Stable candidate (v\d+\.\d+\.\d+-hyprws)(?: \[(?:📥|📍|[^\s\[\]]+#\d+)\])?$/.exec(
-      issue.title,
-    );
+    /^Stable candidate (v\d+\.\d+\.\d+-hyprws)(?: \[(?:📥|📍|[^\s[\]]+#\d+)\])?$/.exec(issue.title);
   if (titleMatch === null) return null;
   const name = titleMatch[1] ?? "";
   if (parseStableForkTag(`${name}.1`) === null) return null;
@@ -459,7 +457,7 @@ const stablePrepare = (
     };
     writeStableReport(next);
     process.stdout.write(
-      `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\n${uatDraftPath}\nStop. Review and create the UAT under the fork-uat judgement boundary, obtain human sign-off, then obtain an explicit go for ${selected.name}.\n`,
+      `${next.reportPath}\n${selected.name} #${selected.issue}\n${selected.branch}@${snapshotSha}\n${releaseTag}\n${priorTags.join("\n") || "no prior matching tags"}\n${uatDraftPath}\nStop. Review and create the UAT under the fork-uat judgement boundary, then obtain an explicit go for ${selected.name}.\n`,
     );
     return next;
   } catch (error) {
@@ -540,10 +538,10 @@ const stablePublish = (
   if (
     git(runner, lane.worktree, ["rev-parse", `origin/${snapshot.branch}^{commit}`]) !== snapshot.sha
   ) {
-    throw new Error("stable snapshot moved after sign-off; start again");
+    throw new Error("stable snapshot moved after preparation; start again");
   }
   if (git(runner, lane.worktree, ["rev-parse", "HEAD"]) !== snapshot.sha) {
-    throw new Error("prepared stable cut lane HEAD moved after sign-off");
+    throw new Error("prepared stable cut lane HEAD moved after preparation");
   }
   if (git(runner, lane.worktree, ["status", "--porcelain"]).length !== 0) {
     throw new Error("prepared stable cut lane is dirty");
@@ -646,7 +644,6 @@ const stablePublish = (
     ],
     root,
   );
-
   const next: StableReport = {
     ...report,
     stage: "stable-published",
