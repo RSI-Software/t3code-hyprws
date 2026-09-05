@@ -507,6 +507,10 @@ word for every decision and stops; its recommendation is never recorded as the h
 Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
 variable carries gate state. The script also renders and validates the Markdown record schema. Its
 focused tests are the schema definition, so there is no separate prose template to drift from it.
+Repeated checks retain the first silent-seam observation for each exact path, summary and behaviour
+flag. Distinct evidence at one path remains separate; refreshing still invalidates the prior CI and
+review evidence. Existing duplicate observations normalize on the next successful check without
+rewriting historical ledger rows.
 The report and record stay outside the repository and new rehearsals never add to
 `docs/operations/fork-sync-records/`.
 
