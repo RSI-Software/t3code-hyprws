@@ -26,6 +26,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import { makeTestProviderAdapterHarness } from "../../integration/TestProviderAdapter.integration.ts";
 import { ServerConfig } from "../config.ts";
+import * as CheckoutMutationCoordinator from "../git/CheckoutMutationCoordinator.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
@@ -56,6 +57,7 @@ import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistr
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import { TextGeneration } from "../textGeneration/TextGeneration.ts";
+import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import { importRecentAgentThreads } from "./AgentSessionImporter.ts";
@@ -932,6 +934,8 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
           Layer.provide(Layer.mock(VcsStatusBroadcaster)({})),
           Layer.provide(Layer.mock(TextGeneration)({})),
           Layer.provide(ServerSettingsService.layerTest()),
+          Layer.provide(Layer.mock(VcsDriverRegistry)({})),
+          Layer.provide(CheckoutMutationCoordinator.layer),
         );
 
         yield* engine.dispatch({
