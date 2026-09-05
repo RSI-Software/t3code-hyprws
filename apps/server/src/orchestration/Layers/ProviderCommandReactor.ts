@@ -7,6 +7,7 @@ import {
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
+  type ThreadCheckoutMove,
   ThreadId,
   type ProviderSession,
   type RuntimeMode,
@@ -57,6 +58,11 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import { CheckoutMutationCoordinator } from "../../git/CheckoutMutationCoordinator.ts";
+import {
+  CheckoutMoveValidationError,
+  resolveCheckoutPhysicalIdentity,
+} from "../CheckoutMoveCoordinator.ts";
+import { threadHasQueuedTurnStart } from "../ThreadSettlementPolicy.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
@@ -72,9 +78,17 @@ type ProviderIntentEvent = Extract<
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
       | "thread.session-stop-requested"
+      | "thread.session-set"
+      | "thread.checkout-move-updated"
       | "thread.settled";
   }
 >;
+
+interface CheckoutMoveJob {
+  readonly threadId: ThreadId;
+  readonly move: ThreadCheckoutMove;
+  readonly createdAt: string;
+}
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -574,6 +588,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly pendingTurnStart?: boolean;
+      readonly cwdOverride?: string;
     },
   ) {
     const thread = yield* resolveThread(threadId);
@@ -702,10 +717,12 @@ const make = Effect.gen(function* () {
       }
     }
     const project = yield* resolveProject(thread.projectId);
-    const effectiveCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: project ? [project] : [],
-    });
+    const effectiveCwd =
+      options?.cwdOverride ??
+      resolveThreadWorkspaceCwd({
+        thread,
+        projects: project ? [project] : [],
+      });
     const refreshWorkspaceSnapshot = effectiveCwd
       ? providerRegistry
           .refreshWorkspaceSnapshot({ instanceId: desiredInstanceId, cwd: effectiveCwd })
@@ -1738,6 +1755,210 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const completeCheckoutMove = Effect.fn("completeCheckoutMove")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly move: ThreadCheckoutMove;
+    readonly status: "committed" | "partial" | "failed";
+    readonly completedSteps: ReadonlyArray<"provider" | "metadata">;
+    readonly effectiveProvider: ThreadCheckoutMove["effectiveProvider"];
+    readonly providerAvailable: boolean;
+    readonly detail?: string;
+    readonly createdAt: string;
+  }) {
+    if (input.move.destination === null) return;
+    yield* orchestrationEngine.dispatch({
+      type: "thread.checkout-move.complete",
+      commandId: yield* serverCommandId(`checkout-move-${input.status}`),
+      threadId: input.threadId,
+      requestId: input.move.requestId,
+      source: input.move.source,
+      destination: input.move.destination,
+      status: input.status,
+      completedSteps: [...input.completedSteps],
+      effectiveProvider: input.effectiveProvider,
+      providerAvailable: input.providerAvailable,
+      ...(input.detail ? { detail: input.detail } : {}),
+      createdAt: input.createdAt,
+    });
+  });
+
+  const processCheckoutMove = Effect.fn("processCheckoutMove")(function* (
+    threadId: ThreadId,
+    move: ThreadCheckoutMove,
+    createdAt: string,
+  ) {
+    if (move.status !== "preparing" && move.status !== "queued") return;
+    if (move.destination === null) return;
+    const destinationIdentity = move.destination;
+    const current = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+    if (
+      Option.isNone(current) ||
+      current.value.checkoutMove?.requestId !== move.requestId ||
+      (current.value.checkoutMove.status !== "preparing" &&
+        current.value.checkoutMove.status !== "queued")
+    )
+      return;
+    if (
+      move.status === "queued" &&
+      (current.value.session?.activeTurnId != null ||
+        threadHasQueuedTurnStart(current.value, createdAt))
+    )
+      return;
+    if (move.status === "queued") {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.checkout-move.prepare",
+        commandId: yield* serverCommandId("checkout-move-resume"),
+        threadId,
+        requestId: move.requestId,
+        source: move.source,
+        ...(move.sourceThreadBranch !== undefined
+          ? { sourceThreadBranch: move.sourceThreadBranch }
+          : {}),
+        ...(move.sourceThreadWorktreePath !== undefined
+          ? { sourceThreadWorktreePath: move.sourceThreadWorktreePath }
+          : {}),
+        destination: move.destination,
+        queued: false,
+        createdAt,
+      });
+      return;
+    }
+
+    const completedSteps: Array<"provider" | "metadata"> = [];
+    let effectiveProvider: ThreadCheckoutMove["effectiveProvider"] = null;
+    const checkoutRoots = [
+      ...new Set([move.source.checkoutRoot, destinationIdentity.checkoutRoot]),
+    ].sort();
+    const withCheckoutLeases = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      checkoutRoots.reduceRight(
+        (leased, root) => checkoutMutationCoordinator.withLease(root, leased),
+        effect,
+      );
+    const transition = Effect.scoped(
+      withCheckoutLeases(
+        Effect.gen(function* () {
+          const owned = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+          if (Option.isNone(owned) || owned.value.checkoutMove?.requestId !== move.requestId) {
+            return yield* new CheckoutMoveValidationError({
+              reason: "checkout move ownership changed before transition",
+            });
+          }
+          if (
+            owned.value.session?.activeTurnId != null ||
+            threadHasQueuedTurnStart(owned.value, createdAt)
+          ) {
+            // A turn can become pending after prepare but before this worker
+            // obtains both checkout leases. Return the durable request to queued;
+            // the session-set/settled event retries it after the turn clears.
+            yield* orchestrationEngine.dispatch({
+              type: "thread.checkout-move.prepare",
+              commandId: yield* serverCommandId("checkout-move-requeue"),
+              threadId,
+              requestId: move.requestId,
+              source: move.source,
+              ...(move.sourceThreadBranch !== undefined
+                ? { sourceThreadBranch: move.sourceThreadBranch }
+                : {}),
+              ...(move.sourceThreadWorktreePath !== undefined
+                ? { sourceThreadWorktreePath: move.sourceThreadWorktreePath }
+                : {}),
+              destination: destinationIdentity,
+              queued: true,
+              createdAt,
+            });
+            return;
+          }
+          const [source, destination] = yield* Effect.all([
+            resolveCheckoutPhysicalIdentity(move.source.checkoutRoot),
+            resolveCheckoutPhysicalIdentity(destinationIdentity.checkoutRoot),
+          ]);
+          if (
+            !Equal.equals(source, move.source) ||
+            !Equal.equals(destination, destinationIdentity)
+          ) {
+            return yield* new CheckoutMoveValidationError({
+              reason: "checkout identity changed before transition",
+            });
+          }
+          const runtimeSession = (yield* providerService.listSessions()).find(
+            (session) => session.threadId === threadId,
+          );
+          if (runtimeSession !== undefined) {
+            yield* ensureSessionForThread(threadId, createdAt, {
+              cwdOverride: destination.checkoutRoot,
+            });
+            completedSteps.push("provider");
+            effectiveProvider = destination;
+          }
+          const afterProvider = yield* projectionSnapshotQuery.getThreadShellById(threadId);
+          if (
+            Option.isNone(afterProvider) ||
+            afterProvider.value.checkoutMove?.requestId !== move.requestId
+          ) {
+            return yield* new CheckoutMoveValidationError({
+              reason: "checkout move ownership changed during transition",
+            });
+          }
+          yield* completeCheckoutMove({
+            threadId,
+            move,
+            status: "committed",
+            completedSteps: [...completedSteps, "metadata"],
+            effectiveProvider,
+            providerAvailable: runtimeSession !== undefined,
+            createdAt,
+          });
+        }),
+      ),
+    );
+    yield* transition.pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+        return Effect.gen(function* () {
+          const detail = formatFailureDetail(cause);
+          // Some adapters can replace their runtime before reporting a failed
+          // continuation. Observe the captured thread's actual session instead
+          // of claiming the provider stayed at source or issuing a generic
+          // rollback that could replace a newer generation.
+          const runtimeSession = (yield* providerService.listSessions()).find(
+            (session) => session.threadId === threadId,
+          );
+          const runtimeCwd = runtimeSession?.cwd;
+          if (runtimeCwd === destinationIdentity.checkoutRoot) {
+            effectiveProvider = destinationIdentity;
+            if (!completedSteps.includes("provider")) completedSteps.push("provider");
+          } else if (runtimeCwd === move.source.checkoutRoot) {
+            effectiveProvider = move.source;
+          }
+          yield* completeCheckoutMove({
+            threadId,
+            move,
+            status: completedSteps.length > 0 ? "partial" : "failed",
+            completedSteps,
+            effectiveProvider,
+            providerAvailable: runtimeSession !== undefined,
+            detail,
+            createdAt,
+          });
+        });
+      }),
+    );
+  });
+
+  const processCheckoutMoveSafely = (job: CheckoutMoveJob) =>
+    processCheckoutMove(job.threadId, job.move, job.createdAt).pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+        return Effect.logWarning("provider command reactor failed to process checkout move", {
+          threadId: job.threadId,
+          requestId: job.move.requestId,
+          cause: Cause.pretty(cause),
+        });
+      }),
+    );
+
+  const checkoutMoveWorker = yield* makeDrainableWorker(processCheckoutMoveSafely);
+
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (
     event: ProviderIntentEvent,
   ) {
@@ -1781,8 +2002,37 @@ const make = Effect.gen(function* () {
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
+      case "thread.session-set": {
+        if (event.payload.session.activeTurnId != null) return;
+        const thread = yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId);
+        if (Option.isSome(thread) && thread.value.checkoutMove?.status === "queued") {
+          yield* checkoutMoveWorker.enqueue({
+            threadId: event.payload.threadId,
+            move: thread.value.checkoutMove,
+            createdAt: event.occurredAt,
+          });
+        }
+        return;
+      }
+      case "thread.checkout-move-updated":
+        if (event.payload.move.status === "preparing") {
+          yield* checkoutMoveWorker.enqueue({
+            threadId: event.payload.threadId,
+            move: event.payload.move,
+            createdAt: event.occurredAt,
+          });
+        }
+        return;
       case "thread.settled": {
         const thread = yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId);
+        if (Option.isSome(thread) && thread.value.checkoutMove?.status === "queued") {
+          yield* checkoutMoveWorker.enqueue({
+            threadId: event.payload.threadId,
+            move: thread.value.checkoutMove,
+            createdAt: event.occurredAt,
+          });
+          return;
+        }
         if (
           Option.isNone(thread) ||
           thread.value.session == null ||
@@ -1838,6 +2088,8 @@ const make = Effect.gen(function* () {
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested" ||
+        event.type === "thread.session-set" ||
+        event.type === "thread.checkout-move-updated" ||
         event.type === "thread.settled"
       ) {
         return yield* worker.enqueue(event);
@@ -1872,11 +2124,33 @@ const make = Effect.gen(function* () {
     } else {
       yield* forkParked(clearInterrupted);
     }
+
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("checkout move recovery snapshot failed", {
+          cause: Cause.pretty(cause),
+        }).pipe(Effect.as({ projects: [], threads: [], snapshotSequence: 0 })),
+      ),
+    );
+    yield* Effect.forEach(
+      snapshot.threads,
+      (thread) =>
+        thread.checkoutMove?.status === "preparing" || thread.checkoutMove?.status === "queued"
+          ? checkoutMoveWorker.enqueue({
+              threadId: thread.id,
+              move: thread.checkoutMove,
+              createdAt: thread.checkoutMove.updatedAt,
+            })
+          : Effect.void,
+      { discard: true },
+    );
   });
 
   return {
     start,
     drain: Effect.gen(function* () {
+      yield* worker.drain;
+      yield* checkoutMoveWorker.drain;
       yield* worker.drain;
       yield* threadTitleRegenerationWorker.drain;
     }),
