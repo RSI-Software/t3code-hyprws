@@ -386,6 +386,11 @@ Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` o
 series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
 Changes to an existing upstream expectation stay in the upstream test file.
 
+Test ownership follows the selected upstream target tree, including files independently added
+at the same path by both sides. The guard recognizes `it`, `test`, `describe` and the repository's
+`effectIt` alias, including Effect variants such as `effectIt.effect`. New fork test blocks in a
+`fork:scan --since` authoring range fail without `--strict`; historical inventory remains advisory.
+
 Two exact file-local integration harnesses are deferred from this convention:
 
 - `apps/desktop/src/window/DesktopWindow.test.ts`
