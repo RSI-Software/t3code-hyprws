@@ -22,6 +22,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
 import { environmentSession, sessionHasScope, useEnvironmentScope } from "./session";
+import { selectTerminalSummary } from "./terminalSummarySelection.fork";
 
 const EMPTY_KNOWN_TERMINAL_SESSIONS = Object.freeze<ReadonlyArray<KnownTerminalSession>>([]);
 
@@ -57,6 +58,7 @@ function knownSession(
       environmentId,
       threadId: ThreadId.make(summary.threadId),
       terminalId: summary.terminalId,
+      ...(summary.attachmentId ? { attachmentId: summary.attachmentId } : {}),
     },
     state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),
   };
@@ -164,12 +166,12 @@ const attachedTerminalSessionFamily = Atom.family((key: string) => {
           () => null,
         )
       : null;
-    const summary =
-      (metadata === null
+    const summary = selectTerminalSummary(
+      metadata === null
         ? null
-        : terminalMetadataIndex(metadata)
-            .byThreadId.get(terminal.threadId)
-            ?.find((candidate) => candidate.terminalId === terminal.terminalId)) ?? null;
+        : (terminalMetadataIndex(metadata).byThreadId.get(terminal.threadId) ?? null),
+      terminal,
+    ); // fork-hook: zmux-estate/attached-session-summary
     const buffer =
       attach === null
         ? EMPTY_TERMINAL_BUFFER_STATE
