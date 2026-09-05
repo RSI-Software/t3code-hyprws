@@ -181,6 +181,8 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
+import { checkoutMoveTestsFork } from "./server.checkoutMoves.fork.suite.ts"; // fork-hook: zmux-estate/checkout-move-tests-import
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -407,6 +409,15 @@ const makeDefaultOrchestrationThreadShell = (
     ...overrides,
   };
 };
+
+export type CheckoutMoveHarnessFork = {
+  buildAppUnderTest: typeof buildAppUnderTest;
+  getWsServerUrl: typeof getWsServerUrl;
+  withWsRpcClient: typeof withWsRpcClient;
+  makeDefaultOrchestrationThreadShell: typeof makeDefaultOrchestrationThreadShell;
+  defaultProjectId: typeof defaultProjectId;
+  defaultModelSelection: typeof defaultModelSelection;
+}; // fork-hook: zmux-estate/checkout-move-harness
 
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
@@ -728,21 +739,12 @@ const buildAppUnderTest = (options?: {
       Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
     );
-    const serverSettingsLayer = Layer.mock(ServerSettings.ServerSettingsService)({
-      start: Effect.void,
-      ready: Effect.void,
-      getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-      updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-      streamChanges: Stream.empty,
-      ...options?.layers?.serverSettings,
-    });
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
       WorkspacePaths.layer,
       workspaceEntriesLayer,
       WorkspaceFileSystem.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
         Layer.provide(workspaceEntriesLayer),
-        Layer.provide(serverSettingsLayer),
       ),
       ProjectFaviconResolver.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
@@ -753,6 +755,8 @@ const buildAppUnderTest = (options?: {
     const zmuxSessionBinderLayer = Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
       bind: () => Effect.succeed({ status: "disabled" as const }),
       resolve: () => Effect.succeed({ status: "disabled" as const }),
+      reconcileExisting: () => Effect.succeed({ status: "disabled" as const }),
+      prepareUnbind: () => Effect.succeed({ status: "disabled" as const }),
       unbind: () => Effect.succeed({ status: "disabled" as const }),
       ...options?.layers?.zmuxSessionBinder,
     });
@@ -889,7 +893,16 @@ const buildAppUnderTest = (options?: {
           }),
         ),
       ),
-      Layer.provide(serverSettingsLayer),
+      Layer.provide(
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          start: Effect.void,
+          ready: Effect.void,
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          streamChanges: Stream.empty,
+          ...options?.layers?.serverSettings,
+        }),
+      ),
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(ExternalLauncher.ExternalLauncher)({
@@ -1225,6 +1238,7 @@ const buildAppUnderTest = (options?: {
             requestCatchUp: () => Effect.void,
             ...options?.layers?.agentAwarenessRelay,
           }),
+          CheckoutMutationCoordinator.layer, // fork-hook: zmux-estate/checkout-mutation-coordinator
         ),
       ),
       Layer.provide(
@@ -11242,6 +11256,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  checkoutMoveTestsFork(it, {
+    buildAppUnderTest,
+    getWsServerUrl,
+    withWsRpcClient,
+    makeDefaultOrchestrationThreadShell,
+    defaultProjectId,
+    defaultModelSelection,
+  }); // fork-hook: zmux-estate/checkout-move-tests
+
   it.effect("stops the provider session and closes thread terminals after archive", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("thread-archive");
@@ -12413,7 +12436,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
+          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
+          // repository whose base resolves; stand both gates in so the fork's
+          // zmux bind at the created worktree stays under test.
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
           gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {
@@ -12479,11 +12507,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       ]);
       assert.deepStrictEqual(
         dispatchedCommands.map((command) => command.type),
-        ["thread.create", "thread.activity.append", "thread.meta.update", "thread.turn.start"],
+        [
+          "thread.create",
+          "thread.message.user.append",
+          "thread.activity.append",
+          "thread.session.set",
+          "thread.activity.append",
+          "thread.meta.update",
+          "thread.turn.start",
+          "thread.activity.append",
+        ],
       );
+      // Target's bootstrap projects its own setup activities around the fork's
+      // zmux bind record; pick the bind failure by kind, not by position.
       const bindFailureActivity = dispatchedCommands.find(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind === "zmux-session.failed",
       );
       assert.equal(bindFailureActivity?.activity.kind, "zmux-session.failed");
       assert.deepStrictEqual(bindFailureActivity?.activity.payload, {
@@ -12506,7 +12546,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
+          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
+          // repository whose base resolves; stand both gates in so the fork's
+          // zmux bind at the created worktree stays under test.
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
           gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {
@@ -12567,9 +12612,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/tmp/bootstrap-worktree");
+      // Target's bootstrap projects its own setup activities around the fork's
+      // zmux bind record; pick the bind outcome by kind, not by position.
       const bindActivity = dispatchedCommands.find(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind === "zmux-session.bound",
       );
       assert.equal(bindActivity?.activity.kind, "zmux-session.bound");
       assert.equal(bindActivity?.activity.summary, "zmux session reused");

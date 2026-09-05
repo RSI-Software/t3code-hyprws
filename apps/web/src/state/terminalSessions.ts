@@ -17,6 +17,7 @@ import { useMemo } from "react";
 import { useEnvironmentQuery } from "./query";
 import { terminalEnvironment } from "./terminal";
 import { useRetainedTerminalAttachment } from "./terminalAttachmentRetention.fork";
+import { selectTerminalSummary } from "./terminalSummarySelection.fork";
 
 const EMPTY_KNOWN_TERMINAL_SESSIONS = Object.freeze<ReadonlyArray<KnownTerminalSession>>([]);
 
@@ -53,6 +54,7 @@ function knownSession(
       environmentId,
       threadId: ThreadId.make(summary.threadId),
       terminalId: summary.terminalId,
+      ...(summary.attachmentId ? { attachmentId: summary.attachmentId } : {}),
     },
     state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),
   };
@@ -151,12 +153,12 @@ export function useAttachedTerminalSession(input: {
     if (input.environmentId === null || input.terminal === null) {
       return EMPTY_TERMINAL_SESSION_STATE;
     }
-    const summary =
-      (metadata.data === null
+    const summary = selectTerminalSummary(
+      metadata.data === null
         ? null
-        : terminalMetadataIndex(metadata.data)
-            .byThreadId.get(input.terminal.threadId)
-            ?.find((terminal) => terminal.terminalId === input.terminal?.terminalId)) ?? null;
+        : (terminalMetadataIndex(metadata.data).byThreadId.get(input.terminal.threadId) ?? null),
+      input.terminal,
+    );
     const state = combineTerminalSessionState(summary, retainedAttachment.value);
     return retainedAttachment.error !== null
       ? { ...state, error: retainedAttachment.error, status: "error" }

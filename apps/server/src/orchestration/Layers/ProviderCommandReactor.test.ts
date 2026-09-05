@@ -69,12 +69,15 @@ import {
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { forkLastRenamedBranchStatus } from "../../git/RenamedBranchStatus.fork-test-harness.ts"; // fork-hook: zmux-estate/provider-reactor-renamed-branch-import
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerActivation } from "../../serverActivation.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "../../git/CheckoutMutationCoordinator.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -471,6 +474,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           renameBranch,
+          localStatus: forkLastRenamedBranchStatus(renameBranch), // fork-hook: zmux-estate/provider-reactor-renamed-branch-status
           pruneWorktrees,
           createWorktree,
         } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),
@@ -487,6 +491,25 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
       Layer.provideMerge(
+        Layer.mock(VcsDriverRegistry)({
+          resolve: ({ cwd }) =>
+            Effect.succeed({
+              kind: "git",
+              repository: {
+                kind: "git",
+                rootPath: cwd,
+                metadataPath: null,
+                freshness: {
+                  source: "live-local",
+                  observedAt: "2026-09-05T00:00:00.000Z",
+                  expiresAt: Option.none(),
+                } as never,
+              },
+              driver: {} as never,
+            }),
+        }),
+      ),
+      Layer.provideMerge(
         Layer.mock(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
@@ -497,6 +520,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(CheckoutMutationCoordinator.layer),
     );
     runtime = ManagedRuntime.make(layer);
 
