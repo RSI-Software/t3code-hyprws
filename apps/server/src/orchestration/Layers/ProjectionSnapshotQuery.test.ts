@@ -312,6 +312,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          checkoutMove: null,
           linkedPullRequest: {
             projectId: asProjectId("project-1"),
             repository: "pingdotgg/t3code",
@@ -440,6 +441,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          checkoutMove: null,
           linkedPullRequest: {
             projectId: asProjectId("project-1"),
             repository: "pingdotgg/t3code",
