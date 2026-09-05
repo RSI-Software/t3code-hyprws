@@ -5,6 +5,22 @@ interface TerminalLaunchLocation {
   readonly worktreePath: string | null;
 }
 
+export function terminalCheckoutLaunchIdentity(input: {
+  readonly attachmentId: string;
+  readonly cwd: string;
+  readonly worktreePath?: string | null;
+  readonly runtimeEnv?: Readonly<Record<string, string>>;
+}): string {
+  const runtimeEnvKey = input.runtimeEnv
+    ? JSON.stringify(
+        Object.entries(input.runtimeEnv)
+          .filter(([key, value]) => key.length > 0 && typeof value === "string")
+          .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+      )
+    : "";
+  return `${input.attachmentId}\0${input.cwd}\0${input.worktreePath ?? ""}\0${runtimeEnvKey}`;
+}
+
 export function resolveTerminalCheckoutLaunch(input: {
   readonly mode: "follow" | "pin";
   readonly projectCwd: string;

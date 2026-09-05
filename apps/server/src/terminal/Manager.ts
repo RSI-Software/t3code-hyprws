@@ -3503,8 +3503,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
           liveSession.updatedAt = yield* nowIso;
         }
         const notice = Option.isNone(freshSubprocessActivity)
-          ? "Checkout follow paused because T3 Code could not confirm that this terminal is idle. Pin this terminal to keep its current checkout. To retry, toggle Pin then Follow, or move the thread again."
-          : "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow, or move the thread again to retry.";
+          ? "Checkout follow paused because T3 Code could not confirm that this terminal is idle. Pin this terminal to keep its current checkout. To retry, toggle Pin then Follow."
+          : "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow to retry.";
         yield* publishSessionNotice(liveSession, notice);
         return snapshot(liveSession);
       }
