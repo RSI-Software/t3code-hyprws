@@ -5,6 +5,7 @@ import {
   allocateDesktopAgentPort,
   captureDesktopAgentWorkspace,
   desktopAgentDevRunnerArgs,
+  desktopAgentHyprlandInstanceSignature,
   desktopAgentInstanceHash,
   desktopAgentPortCandidate,
   desktopAgentUserDataDirectory,
@@ -358,6 +359,30 @@ describe("desktop agent launcher", () => {
     );
     assert.equal(desktopAgentUserDataDirectory("/worktree", ".state"), "/worktree/.state/electron");
     assert.isUndefined(desktopAgentUserDataDirectory("/worktree", undefined));
+  });
+
+  it("replaces a stale Hyprland signature only for targeted placement", () => {
+    let reads = 0;
+    const environment = {
+      HYPRLAND_INSTANCE_SIGNATURE: "stale-instance",
+      WAYLAND_DISPLAY: "wayland-1",
+    };
+    const readInstances = () => {
+      reads += 1;
+      return JSON.stringify([
+        { instance: "other-instance", wl_socket: "wayland-2" },
+        { instance: "live-instance", wl_socket: "wayland-1" },
+      ]);
+    };
+
+    assert.equal(
+      desktopAgentHyprlandInstanceSignature({ id: 4, name: "4" }, environment, readInstances),
+      "live-instance",
+    );
+    assert.equal(reads, 1);
+    assert.equal(environment.HYPRLAND_INSTANCE_SIGNATURE, "stale-instance");
+    assert.isUndefined(desktopAgentHyprlandInstanceSignature(null, environment, readInstances));
+    assert.equal(reads, 1);
   });
 
   it("derives stable instance hashes and port candidates", () => {

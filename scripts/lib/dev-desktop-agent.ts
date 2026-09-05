@@ -319,6 +319,16 @@ export function desktopAgentUserDataDirectory(
     : NodePath.join(NodePath.resolve(repo, homeDir), "electron");
 }
 
+export function desktopAgentHyprlandInstanceSignature(
+  target: WorkspaceRef | null,
+  environment: Readonly<Record<string, string | undefined>>,
+  readInstances: () => string = () => runCommandText("hyprctl", ["instances", "-j"]),
+): string | undefined {
+  return target === null
+    ? undefined
+    : selectHyprlandInstance(readInstances(), environment["WAYLAND_DISPLAY"]);
+}
+
 export function desktopAgentInstanceHash(repo: string): string {
   return NodeCrypto.createHash("sha256").update(repo).digest("hex").slice(0, 12);
 }
@@ -574,6 +584,7 @@ async function runAgentDesktop(
   });
   const { origin, target } =
     capturedPlacement ?? captureDesktopAgentWorkspace(workspaceOverride, repoEnv);
+  const hyprlandInstanceSignature = desktopAgentHyprlandInstanceSignature(target, repoEnv);
   const directory = stateDirectory();
   const path = recordPath(hash);
   const releaseLock = await acquireAllocationLock(lockPath());
@@ -637,6 +648,10 @@ async function runAgentDesktop(
   delete childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"];
   delete childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"];
   if (target !== null && placementTitle !== null) {
+    if (hyprlandInstanceSignature === undefined) {
+      throw new Error("targeted desktop placement did not resolve a live Hyprland instance");
+    }
+    childEnv["HYPRLAND_INSTANCE_SIGNATURE"] = hyprlandInstanceSignature;
     childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"] = target.name;
     childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"] = placementTitle;
   }
