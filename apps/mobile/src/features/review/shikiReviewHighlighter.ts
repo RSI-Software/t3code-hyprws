@@ -549,6 +549,7 @@ async function highlightLines(
         lang: language,
         theme,
         grammarState,
+        tokenizeTimeLimit: 0, // fork-hook: upstream-fixes/bounded-diff-deterministic-tokenization
       });
       grammarState = highlighter.getLastGrammarState(tokenLines);
       highlightedLines.push(...normalizeHighlightedLines(tokenLines));
