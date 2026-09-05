@@ -45,8 +45,8 @@ import {
   makePendingCodexProvider,
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
-  withCodexAgentOptions,
 } from "../Layers/CodexProvider.ts";
+import { withCodexAgentOptions } from "../Layers/CodexAgentOptions.fork.ts";
 import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
