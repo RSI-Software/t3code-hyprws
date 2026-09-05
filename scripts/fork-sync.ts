@@ -34,6 +34,7 @@ import {
 } from "./lib/fork-policy.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { parseForkTrailers } from "./lib/fork-trailers.ts";
+import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
 
 import {
   reconcileStableCandidates,
@@ -1738,6 +1739,10 @@ const unblockApply = (
     throw new Error("apply binding is incomplete");
   if (isRewrite ? report.rewrite === undefined : report.target === undefined)
     throw new Error("apply binding is incomplete");
+  if (isRewrite && report.rewrite?.archive === undefined)
+    throw new Error(
+      "rewrite apply has no pre-rewrite archive binding; restart with rewrite-rehearse",
+    );
   const lane = report.lane;
   const source = report.source;
   const worktree = lane.worktree;
@@ -1795,12 +1800,41 @@ const unblockApply = (
   // Freeze the reusable resolutions before publication. Recovery must not depend
   // on a mutable rr-cache which a later walk may have already changed.
   const rerereSnapshot = saveRerereCache(worktree, `rerere: applied ${report.installedHead}`);
-  const recordCommentUrl = requireSuccess(
-    runner,
-    "gh",
-    ["issue", "comment", String(report.issue.number), "-R", REPOSITORY, "--body-file", recordPath],
-    worktree,
-  ).trim();
+  if (isRewrite) {
+    if (rewrite?.archive === undefined)
+      throw new Error("rewrite apply lost its pre-rewrite archive binding");
+    const archive = rewrite.archive;
+    report = {
+      ...report,
+      rewrite: {
+        ...rewrite,
+        archive: { ...archive, verification: retainRewriteArchive(runner, worktree, archive) },
+      },
+    };
+    // Persist the verified archive before any later publication can fail. The reviewed record
+    // renders only the immutable ref/SHA binding, so this readback does not change its digest.
+    writeReport(report);
+  }
+  const recordCommentUrl =
+    report.recordCommentUrl ??
+    requireSuccess(
+      runner,
+      "gh",
+      [
+        "issue",
+        "comment",
+        String(report.issue.number),
+        "-R",
+        REPOSITORY,
+        "--body-file",
+        recordPath,
+      ],
+      worktree,
+    ).trim();
+  if (isRewrite && report.recordCommentUrl === undefined) {
+    report = { ...report, recordCommentUrl };
+    writeReport(report);
+  }
   // A stable upstream tag is snapshotted and announced by whichever lane moves the
   // fork base past it. The bot only ever sees the tags inside its own walk window, so
   // the ones this apply crosses are the lane's to publish
@@ -1828,12 +1862,48 @@ const unblockApply = (
     undefined,
     { ...process.env, ...COMMENT_CONFIG },
   );
-  if (push.status !== 0)
-    throw new Error(`leased apply refused; this report cannot be refreshed: ${push.stderr.trim()}`);
+  if (push.status !== 0 || push.error !== undefined) {
+    const pushFailure = push.error?.message ?? (push.stderr.trim() || push.stdout.trim());
+    if (isRewrite && report.rewrite?.archive?.verification !== undefined) {
+      const archive = report.rewrite.archive;
+      const verification = archive.verification;
+      if (verification === undefined)
+        throw new Error("rewrite archive lost its verified remote readback");
+      report = {
+        ...report,
+        rewrite: {
+          ...report.rewrite,
+          archive: {
+            ...archive,
+            verification: { ...verification, trunkOutcome: "failed" },
+          },
+        },
+      };
+      writeReport(report);
+      throw new Error(
+        `leased apply refused; rewrite archive ${archive.ref}@${archive.sha} retained as failed-attempt evidence; this report cannot be refreshed: ${pushFailure}`,
+      );
+    }
+    throw new Error(`leased apply refused; this report cannot be refreshed: ${pushFailure}`);
+  }
+  const appliedRewrite =
+    isRewrite && report.rewrite?.archive?.verification !== undefined
+      ? {
+          ...report.rewrite,
+          archive: {
+            ...report.rewrite.archive,
+            verification: {
+              ...report.rewrite.archive.verification,
+              trunkOutcome: "applied" as const,
+            },
+          },
+        }
+      : report.rewrite;
   report = {
     ...report,
     stage: "applied",
     recordCommentUrl,
+    ...(appliedRewrite === undefined ? {} : { rewrite: appliedRewrite }),
     rererePublication: {
       state: "pending",
       snapshot: rerereSnapshot,
@@ -3100,6 +3170,7 @@ const rewriteRehearse = (
             },
             ...(outcomeTarget === undefined ? {} : { outcomeTarget }),
           }),
+      archive: rewriteArchiveBinding(expectedOld),
       from: fromArg,
       fromSha,
       fromShort,

@@ -2610,6 +2610,11 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
           command === "git" && args.join(" ").endsWith(`push origin --delete ${branch}`),
       ),
     );
+    assert.isFalse(
+      runner.calls.some(({ args }) =>
+        args.some((arg) => arg.includes("archive/hyprws-pre-rewrite")),
+      ),
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
@@ -2809,6 +2814,10 @@ it("binds a rewrite lane to its own from/origin naming", () => {
     fromFirstNDigest: "d".repeat(64),
     diffEmpty: true,
     proofs: [],
+    archive: {
+      ref: `refs/heads/archive/hyprws-pre-rewrite-${C.slice(0, 12)}`,
+      sha: C,
+    },
   };
   const bound = report(root, {
     kind: "rewrite",
@@ -2841,6 +2850,10 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
     originShort: C.slice(0, 12),
     base: A,
     baseTag: "v0.0.38-nightly.20260831.1236",
+    archive: {
+      ref: `refs/heads/archive/hyprws-pre-rewrite-${C.slice(0, 12)}`,
+      sha: C,
+    },
     baseToOriginCount: 204,
     baseToFromCount: 205,
     allowExtra: 1,
@@ -2853,6 +2866,7 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
   const checked = report(root, {
     stage: "checked",
     kind: "rewrite",
+    source: { sha: C, expectedOld: C, sharedBase: A },
     rewrite,
     lane: { branch: `rehearse/rewrite-${B.slice(0, 12)}-from-${C.slice(0, 12)}`, worktree: root },
     rebasedHead: B,
@@ -2866,13 +2880,36 @@ it("renders a rewrite record the tag-pinned gate accepts", () => {
     stackSize: "205",
   };
   try {
-    assert.deepStrictEqual(inspectRecord(renderRecord(checked), observed), []);
+    const record = renderRecord(checked);
+    assert.deepStrictEqual(inspectRecord(record, observed), []);
+    assert.include(record, `- Ref: \`refs/heads/archive/hyprws-pre-rewrite-${C.slice(0, 12)}\``);
+    assert.include(record, `- SHA: \`${C}\``);
+    assert.include(record, "this archive remains as failed-attempt evidence");
+    const verified = report(root, {
+      ...checked,
+      rewrite: {
+        ...rewrite,
+        archive: {
+          ...rewrite.archive,
+          verification: { observedSha: C, trunkOutcome: "failed" },
+        },
+      },
+    });
+    assert.strictEqual(
+      nightlyProposalDigest(renderRecord(verified)),
+      nightlyProposalDigest(record),
+    );
+    assert.strictEqual(
+      validateReport(JSON.parse(JSON.stringify(verified))).rewrite?.archive?.sha,
+      C,
+    );
     const { baseTag: _baseTag, ...untagged } = rewrite;
     const withoutTag = report(root, { ...checked, rewrite: untagged });
     assert.deepStrictEqual(inspectRecord(renderRecord(withoutTag), observed), [
       `Target mismatch: record absent@${A}, checkout v0.0.38-nightly.20260831.1236@${A}`,
     ]);
     NodeFS.rmSync(NodePath.dirname(withoutTag.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(verified.reportPath), { recursive: true, force: true });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
