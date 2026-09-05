@@ -80,6 +80,60 @@ const guardInput = (overrides: Partial<GuardInput> = {}): GuardInput => ({
   ...overrides,
 });
 
+it("keeps spawn target selection out of the timeline without guarding upstream presentation", () => {
+  const sha = "a".repeat(40);
+  const cases = [
+    [
+      "MessagesTimeline.tsx",
+      '+import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";',
+      true,
+    ],
+    ["MessagesTimeline.tsx", "+  resolveAgentSpawnOpenTarget,", true],
+    ["MessagesTimeline.tsx", "+const openTarget = resolveAgentSpawnOpenTarget(input);", true],
+    [
+      "MessagesTimeline.tsx",
+      "+onClick={() => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId)}",
+      true,
+    ],
+    [
+      "MessagesTimeline.tsx",
+      '+import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation";',
+      false,
+    ],
+    ["MessagesTimeline.tsx", "+const onOpenAgents = createAgentSpawnOpenHandler(input);", false],
+    [
+      "MessagesTimeline.tsx",
+      "+onOpenAgents?: (agentId?: string | null, rosterFocusAgentId?: string | null) => void;",
+      false,
+    ],
+    ["MessagesTimeline.tsx", '+<button type="button" onClick={onOpenAgents}>', false],
+    [
+      "MessagesTimeline.tsx",
+      "+const status = live && livePhase ? livePhase.title : summary.status;",
+      false,
+    ],
+    ["MessagesTimeline.tsx", "+// resolveAgentSpawnOpenTarget stays in the adapter.", false],
+    ["MessagesTimeline.tsx", "-const openTarget = resolveAgentSpawnOpenTarget(input);", false],
+    ["AgentSpawnNavigation.ts", "+const target = resolveAgentSpawnOpenTarget(input);", false],
+    ["AgentSpawnCta.logic.ts", "+export function resolveAgentSpawnOpenTarget(input) {", false],
+  ] as const;
+  for (const [file, line, expected] of cases) {
+    const path = `apps/web/src/components/chat/${file}`;
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(sha, `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${line}`),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "agent-spawn-navigation"),
+      expected,
+      `${file}: ${line}`,
+    );
+  }
+});
+
 it("guards provider agent implementations while allowing provider-specific siblings and calls", () => {
   const sha = "a".repeat(40);
   const cases = [

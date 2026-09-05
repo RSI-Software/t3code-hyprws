@@ -521,7 +521,9 @@ a child opens a read-only detail surface backed by authenticated, paginated acti
 the existing live thread stream. Provider-owned child identity remains server-side; unsupported
 providers report that detail is unavailable instead of presenting an inert row. Timeline spawn CTAs
 retain upstream markup and presentation while `AgentSpawnNavigation.ts` owns the fork's direct-child
-versus fleet-roster selection.
+versus fleet-roster selection. The adopted `agent-spawn-navigation` authoring guard rejects
+direct target-resolution imports/calls and the old inline target-selection closure in
+`MessagesTimeline.tsx`, while allowing the handler, widened callback arguments, and upstream CTA markup.
 
 ### Retirement condition
 
