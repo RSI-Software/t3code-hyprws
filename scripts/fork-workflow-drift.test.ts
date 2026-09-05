@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Git blob fixtures have no Effect runtime.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import { assert, it } from "@effect/vitest";
 
 import {
@@ -11,6 +12,7 @@ import {
 import {
   parseWorkflowReviews,
   readWorkflowDrift,
+  releaseOutcomeExportProblem,
   WORKFLOW_COPIES,
   WORKFLOW_REVIEWS_PATH,
 } from "./lib/fork-workflow-drift.ts";
@@ -38,6 +40,11 @@ const after = before.replace(
 const forkBefore = before.replace("blacksmith-4vcpu-ubuntu-2404", "ubuntu-latest");
 const forkAfter = after.replace("blacksmith-4vcpu-ubuntu-2404", "ubuntu-latest");
 const upstreamCommit = "a".repeat(40);
+
+const releaseWorkflow = NodeFS.readFileSync(
+  new URL("../.github/workflows/hyprws-release.yml", import.meta.url),
+  "utf8",
+);
 
 const fixture = (
   options: {
@@ -186,4 +193,33 @@ it("refuses provenance that names a different upstream blob", () => {
         : git.run(args),
   };
   assert.include(scanFailures(scan(wrong))[0]!, "provenance does not match");
+});
+
+it("keeps the release outcome export scoped to its collector and upload path", () => {
+  assert.isUndefined(releaseOutcomeExportProblem(releaseWorkflow));
+
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:"),
+    )!,
+    /declared once/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
+        "      FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
+      ),
+    )!,
+    /Retain release outcome env/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n",
+        "            ${{ runner.temp }}/other-release-outcome.json\n",
+      ),
+    )!,
+    /must use the FORK_OUTCOME_EXPORT path/,
+  );
 });

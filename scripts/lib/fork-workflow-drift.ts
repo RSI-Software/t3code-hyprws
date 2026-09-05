@@ -7,6 +7,56 @@ export const WORKFLOW_COPIES = [
   { upstream: ".github/workflows/release.yml", fork: ".github/workflows/hyprws-release.yml" },
 ] as const;
 
+const RELEASE_OUTCOME_FILE = "FORK_RELEASE_OUTCOME_FILE";
+const RELEASE_OUTCOME_PATH = `\${{ runner.temp }}/\${{ env.${RELEASE_OUTCOME_FILE} }}`;
+
+const workflowJob = (workflow: string, name: string): string | undefined => {
+  const marker = `  ${name}:\n`;
+  const start = workflow.indexOf(marker);
+  if (start === -1) return undefined;
+  const following = workflow.slice(start + marker.length);
+  const end = following.search(/^  [a-zA-Z0-9_-]+:\n/m);
+  return end === -1 ? following : following.slice(0, end);
+};
+
+const workflowStep = (workflow: string, name: string): string | undefined => {
+  const marker = `      - name: ${name}\n`;
+  const start = workflow.indexOf(marker);
+  if (start === -1) return undefined;
+  const following = workflow.slice(start + marker.length);
+  const end = following.search(/^      - name: /m);
+  return end === -1 ? following : following.slice(0, end);
+};
+
+export const releaseOutcomeExportProblem = (workflow: string): string | undefined => {
+  const outcome = workflowJob(workflow, "outcome");
+  const fileDeclarations = outcome?.match(
+    new RegExp(`^      ${RELEASE_OUTCOME_FILE}: [^\\s]+$`, "gm"),
+  );
+  if (fileDeclarations?.length !== 1)
+    return `${RELEASE_OUTCOME_FILE} must be declared once in the outcome job env`;
+
+  const exportDeclarations = workflow.match(/^\s+FORK_OUTCOME_EXPORT: .*$/gm);
+  if (exportDeclarations?.length !== 1)
+    return "FORK_OUTCOME_EXPORT must be declared once in the release workflow";
+
+  const retain = workflowStep(workflow, "Retain release outcome");
+  if (
+    retain === undefined ||
+    !retain.includes(`        env:\n          FORK_OUTCOME_EXPORT: ${RELEASE_OUTCOME_PATH}`)
+  )
+    return "FORK_OUTCOME_EXPORT must use the shared path in Retain release outcome env";
+
+  const upload = workflowStep(workflow, "Upload distribution evidence");
+  if (
+    upload === undefined ||
+    !upload.split("\n").some((line) => line.trim() === RELEASE_OUTCOME_PATH)
+  )
+    return "Upload distribution evidence must use the FORK_OUTCOME_EXPORT path";
+
+  return undefined;
+};
+
 interface WorkflowReview {
   readonly upstream: string;
   readonly fork: string;

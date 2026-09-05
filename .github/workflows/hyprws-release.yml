@@ -414,6 +414,7 @@ jobs:
     timeout-minutes: 10
     env:
       FORK_RELEASE_NEEDS: ${{ toJSON(needs) }}
+      FORK_RELEASE_OUTCOME_FILE: fork-release-outcome-receipts.json
     steps:
       - name: Checkout receipt collector
         uses: actions/checkout@v6
@@ -429,7 +430,7 @@ jobs:
 
       - name: Retain release outcome
         env:
-          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-release-outcome-receipts.json
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
           GH_TOKEN: ${{ github.token }}
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
@@ -450,7 +451,7 @@ jobs:
         with:
           name: release-outcomes-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/fork-release-outcome-receipts.json
+            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
             ${{ runner.temp }}/fork-release-needs.json
           if-no-files-found: warn
           retention-days: 90
