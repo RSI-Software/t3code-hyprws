@@ -90,7 +90,18 @@ it("renders assessed repair states instead of presenting a guard name as verific
           targetSha: C,
           targetTag: "v1",
           complete: true,
-          rows: present ? [{ stop: 1, ...file, kind: "content" }] : [],
+          rows: present
+            ? [
+                {
+                  stop: 1,
+                  path: file.path,
+                  commit: file.commit,
+                  subject: file.subject,
+                  domain: file.domain,
+                  kind: "content",
+                },
+              ]
+            : [],
         },
       }),
     );
@@ -117,13 +128,36 @@ it("renders assessed repair states instead of presenting a guard name as verific
     },
     attestation,
   } as const);
-  for (const [records, status] of [
+  for (const [records, status, completed] of [
     [[before, repair], "repair-unverified"],
     [[before, clear], "not-observed"],
     [[before, clear, repair, verified], "verified-repaired"],
     [[before, clear, repair, verified, returned], "regressed"],
+    [[before, clear, repair, verified], "verified-repaired", clear],
+    [[before, clear, repair, verified], "regressed", returned],
   ] as const) {
-    const evidence = { walks: [], seamRecords: records };
+    const evidence = readLessonEvidence(
+      encodeSync({
+        version: 3,
+        seamRecords: records,
+        outcomes: [],
+        walks:
+          completed === undefined
+            ? []
+            : [
+                {
+                  tag: completed.tag,
+                  before: A,
+                  after: completed.evidence!.sourceSha,
+                  recordUrl: "https://example.test/completed-walk",
+                  conflicts: [],
+                  decisions: [],
+                  censusFiles: completed.files,
+                  censusEvidence: completed.evidence,
+                },
+              ],
+      }),
+    );
     const output = renderLessonGuidance(
       { ref: CHURN_REF, sha: A, remoteSha: A, freshness: "current", detail: "fixture", raw: null },
       evidence,
@@ -131,6 +165,16 @@ it("renders assessed repair states instead of presenting a guard name as verific
     assert.include(output, `evidence: ${status}`);
     assert.notInclude(output, "(owner ");
     assert.include(output, "policy reference #535; issue status is not inferred");
+    if (completed !== undefined) {
+      const assessment = lessonInventory(evidence).find((row) => row.path === file.path)
+        ?.assessments[0];
+      assert.strictEqual(assessment?.status, status);
+      assert.strictEqual(assessment?.blocking, completed.id === returned.id);
+      assert.deepStrictEqual(
+        [...lessonObservations(evidence).keys()],
+        completed.id === returned.id ? [before.id, clear.id, returned.id] : [before.id, clear.id],
+      );
+    }
   }
 });
 

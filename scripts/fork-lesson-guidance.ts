@@ -350,15 +350,11 @@ const walkSnapshot = (walk: ChurnEntry): CensusSnapshot => ({
   ...(walk.censusEvidence === undefined ? {} : { censusEvidence: walk.censusEvidence }),
 });
 
-/** Frozen copies of an existing walk are the same observation, not another recurrence. */
+/** Frozen history establishes order; a completed walk not yet frozen extends it. */
 export const lessonObservations = (
   evidence: LessonEvidence,
 ): ReadonlyMap<string, CensusSnapshot> => {
   const observations = new Map<string, CensusSnapshot>();
-  for (const walk of evidence.walks) {
-    const snapshot = walkSnapshot(walk);
-    observations.set(seamRecord(freezeObservation(snapshot)).id, snapshot);
-  }
   for (const record of evidence.seamRecords)
     if (record.kind === "observation") {
       observations.set(record.id, {
@@ -368,6 +364,12 @@ export const lessonObservations = (
         ...(record.evidence === null ? {} : { censusEvidence: record.evidence }),
       });
     }
+  // A matching completed walk must reuse its frozen position. Putting walks first
+  // could make an old verified snapshot look current after a later walk regressed.
+  for (const walk of evidence.walks) {
+    const snapshot = walkSnapshot(walk);
+    observations.set(seamRecord(freezeObservation(snapshot)).id, snapshot);
+  }
   return observations;
 };
 
