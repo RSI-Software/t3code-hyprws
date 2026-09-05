@@ -9,16 +9,16 @@ import {
  *
  * `threadRoutes.ts` owns the route-family definitions (`hub` vs `project`)
  * and the project-window resolver. This module is the single fork-owned
- * entry point that upstream files call into. Centralising the `useParams`
- * indirection here keeps each of `ChatView.tsx`, `CommandPalette.tsx`, and
- * `useHandleNewThread.ts` to one seam (one hook call) instead of spreading
- * `resolveThreadRouteFamily` + `useParams`/`router.state` across the domain.
+ * entry point that upstream files call into. The hook centralizes render-time
+ * family selection; the resolver supports execution-time reads after awaits.
+ * ChatView keeps four navigation calls, CommandPalette three, and the new-thread
+ * hook three. These separate upstream lifecycle sites are intentional: one
+ * policy boundary does not mean one call or one diff hunk per file.
+ * `thread-route-navigation` guards the boundary imports and inline policy.
  *
- * Upstream has no equivalent helper (`apps/web/src/hooks`, `apps/web/src/lib`,
- * and router surface checked 2026-09-03: no navigation family helper exists
- * on `upstream/main`). If upstream adds one, this module becomes a thin
- * re-export and the original `refactor(web): centralize thread route
- * navigation` commit can retire.
+ * Recheck the selected upstream tag's hooks, lib and router surfaces before
+ * retiring this boundary. An equivalent must preserve hub/project dispatch
+ * and execution-time params; retire only the original patch pieces it replaces.
  */
 
 export type { ThreadRouteFamily };
