@@ -654,6 +654,7 @@ it("seeds the ledger ref once and refuses a second seed", () => {
 
 it("migrates every legacy census subject once and survives expired objects", () => {
   const root = repository();
+  runCommandText("git", ["remote", "add", "origin", root], { cwd: root });
   const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
   const commits = [
     runCommandText("git", ["commit-tree", tree, "-m", "feat(fork): first identity"], {
@@ -911,6 +912,81 @@ it("renders the frozen mirror before mutating the churn ref", () => {
     );
     assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), before);
   } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
+    else process.env.FAKE_GH_RESPONSE = previousResponse;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a mismatched census tag before mutation and accepts the matching identity", () => {
+  const root = ledgerRepository([]);
+  const record = renderRecord(reportFixture());
+  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousResponse = process.env.FAKE_GH_RESPONSE;
+  const originalWrite = process.stderr.write;
+  let stderr = "";
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  const evidence = {
+    version: 1,
+    method: "sequential-rebase-stage3-provisional",
+    sourceSha: A,
+    baseSha: A,
+    targetSha: B,
+    targetTag: "v2",
+    complete: true,
+    rows: [],
+  } as const;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(evidence)} -->`,
+    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
+    url: "https://example.test/issues/1",
+  });
+  try {
+    const before = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    const append = (tag: string) =>
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          tag,
+          "--before",
+          A,
+          "--after",
+          B,
+        ],
+        root,
+      );
+    assert.strictEqual(append("v2-alias"), 1);
+    assert.include(stderr, "--tag v2-alias does not match census targetTag v2");
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      before,
+    );
+    assert.deepStrictEqual(parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!), []);
+    assert.strictEqual(append("v2"), 0, stderr);
+    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    assert.strictEqual(appended.tag, "v2");
+    assert.deepStrictEqual(appended.censusEvidence, evidence);
+  } finally {
+    process.stderr.write = originalWrite;
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
     if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;

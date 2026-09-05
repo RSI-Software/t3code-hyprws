@@ -270,6 +270,8 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     typecheck: true,
     since: null,
     strict: false,
+    ledgerRef: "refs/fork/churn",
+    offline: false,
   });
   assert.deepStrictEqual(
     parseArgs([
@@ -289,6 +291,8 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       typecheck: false,
       since: "origin/hyprws",
       strict: true,
+      ledgerRef: "refs/fork/churn",
+      offline: false,
     },
   );
   assert.throws(() => parseArgs(["--nope"]), UsageError);
@@ -297,6 +301,12 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
   assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
   assert.throws(() => parseArgs(["--since"]), UsageError);
+  assert.throws(() => parseArgs(["--ledger-ref", "a".repeat(40)]), UsageError);
+  assert.throws(() => parseArgs(["--ledger-ref", "hyprws"]), UsageError);
+  assert.strictEqual(
+    parseArgs(["--offline", "--ledger-ref", "refs/fork/review-lessons"]).offline,
+    true,
+  );
 });
 
 it("carries ledger guard warnings into the report without changing the scan verdict", () => {
@@ -311,7 +321,10 @@ it("carries ledger guard warnings into the report without changing the scan verd
         patchesBySha: new Map(),
         upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx"]),
         hotSeams: new Map([
-          ["apps/web/src/components/ChatView.tsx", { walkCount: 3, worstClass: "seam-moved" }],
+          [
+            "apps/web/src/components/ChatView.tsx",
+            { walkCount: 3, worstClass: "seam-moved", countUnit: "conflict walk(s)" },
+          ],
         ]),
       },
     }),
