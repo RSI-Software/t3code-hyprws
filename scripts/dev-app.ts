@@ -12,7 +12,7 @@ Usage:
 Surfaces:
   --external             Open the web app in an external browser (default).
   --desktop              Open the Electron development app.
-  --preview              Open the native agent preview browser.
+  --preview              Print the ready pairing URL for the native preview.
 
 Options:
   --workspace <selector> Desktop placement: none, +1, -1, or a positive id.

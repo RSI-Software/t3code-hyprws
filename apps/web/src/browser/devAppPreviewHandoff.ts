@@ -6,6 +6,7 @@ import {
   type TerminalOutputCursor,
 } from "@t3tools/client-runtime/state/terminal";
 import type { EnvironmentId, TerminalAttachInput } from "@t3tools/contracts";
+import type { PreparedConnection } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 
@@ -16,11 +17,31 @@ import { formatEnvironmentQueryError } from "~/state/query";
 const PREVIEW_LINE_PREFIX = "[dev-app] previewUrl=";
 const MAX_PREVIEW_LINE_LENGTH = 4_096;
 const OUTPUT_OVERLAP_LENGTH = 8_192;
-const DEFAULT_HANDOFF_TIMEOUT_MS = 120_000;
+const DEFAULT_ATTACH_TIMEOUT_MS = 120_000;
+const DEFAULT_LAUNCH_TIMEOUT_MS = 600_000;
 
 export function isDevAppPreviewActionCommand(command: string): boolean {
   const tokens = devAppPreviewActionTokens(command);
   return tokens !== null;
+}
+
+/** Loopback preview URLs belong to the desktop's primary local backend. */
+export function devAppPreviewActionBlockReason(
+  command: string,
+  connection: Pick<PreparedConnection, "target" | "httpBaseUrl"> | null,
+): string | null {
+  if (!isDevAppPreviewActionCommand(command)) return null;
+  if (connection === null)
+    return "The environment is still connecting. Retry Dev Web after it reconnects.";
+  if (connection?.target._tag === "PrimaryConnectionTarget") {
+    try {
+      const { hostname } = new URL(connection.httpBaseUrl);
+      if (["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return null;
+    } catch {
+      // An unresolved origin cannot prove the launcher runs on this machine.
+    }
+  }
+  return "Dev Web opens a local checkout. Select the primary local environment before running this action.";
 }
 
 function devAppPreviewActionTokens(command: string): ReadonlyArray<string> | null {
@@ -355,6 +376,13 @@ export function createDevAppPreviewHandoffManager(
         const outputResult = watcher.observe(state);
         if (outputResult.type === "ready") {
           ready = true;
+          // Give a cold build its own budget after attachment; a live shell can outlast a failed command.
+          clearTimeout(timeout);
+          timeout = setTimeout(() => {
+            fail(
+              "Dev app did not become ready. Check its terminal output; stop the run before retrying.",
+            );
+          }, DEFAULT_LAUNCH_TIMEOUT_MS);
           resolveReady();
         } else if (outputResult.type === "preview") {
           finish();
@@ -367,9 +395,9 @@ export function createDevAppPreviewHandoffManager(
           fail(outputResult.message);
         }
       };
-      const timeout = setTimeout(() => {
-        fail("Timed out waiting for dev:app to produce a preview URL.");
-      }, input.timeoutMs ?? DEFAULT_HANDOFF_TIMEOUT_MS);
+      let timeout = setTimeout(() => {
+        fail("Timed out attaching to the dev app terminal. The launch was not started.");
+      }, input.timeoutMs ?? DEFAULT_ATTACH_TIMEOUT_MS);
 
       unsubscribe = attachment.subscribe(consume);
       if (settled) unsubscribe();
