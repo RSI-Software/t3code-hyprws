@@ -307,6 +307,7 @@ it("keeps the release outcome export scoped to its collector and upload path", (
     "        uses: actions/upload-artifact@v7",
     "        if: success()\n        uses: actions/upload-artifact@v7",
     "        if : always()\n        uses: actions/upload-artifact@v7",
+    "        if: always()\n        continue-on-error: true\n        uses: actions/upload-artifact@v7",
   ])
     assert.match(
       releaseOutcomeExportProblem(releaseWorkflow.replace(uploadIf, replacement))!,

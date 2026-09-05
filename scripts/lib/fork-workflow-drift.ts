@@ -92,8 +92,12 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
 
   const upload = workflowStep(outcome, "Upload distribution evidence");
   const uploadConditions = upload?.match(/^        if\s*:.*$/gm);
-  if (uploadConditions?.length !== 1 || uploadConditions[0] !== "        if: always()")
-    return "Upload distribution evidence must declare exact if: always()";
+  if (
+    uploadConditions?.length !== 1 ||
+    uploadConditions[0] !== "        if: always()" ||
+    /^        continue-on-error\s*:/m.test(upload ?? "")
+  )
+    return "Upload distribution evidence must declare exact if: always() without continue-on-error";
   const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
   const uploadPath = uploadWith === undefined ? undefined : workflowMapping(uploadWith, "path", 10);
   if (
