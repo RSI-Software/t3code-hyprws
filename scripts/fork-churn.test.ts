@@ -777,7 +777,7 @@ it("names every unresolved census commit without moving the ledger ref", () => {
   }
 });
 
-it("refuses a migration push when the exact expected-old lease is stale", () => {
+it("migrates against the advertised head and refuses a diverged local ledger", () => {
   const root = repository();
   const remote = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-remote-"));
   runCommandText("git", ["init", "--quiet", "--bare", remote], { cwd: root });
@@ -811,9 +811,22 @@ it("refuses a migration push when the exact expected-old lease is stale", () => 
   const ledgerTree = runCommandText("git", ["rev-parse", `${CHURN_REF}^{tree}`], {
     cwd: root,
   }).trim();
+  // A concurrent writer publishes a walk this checkout has never seen.
+  const rivalLedger = `${JSON.stringify([
+    ...parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? ""),
+    censusEntry("v1", []),
+  ])}\n`;
+  const rivalBlob = runCommandText("git", ["hash-object", "-w", "--stdin"], {
+    cwd: root,
+    input: rivalLedger,
+  }).trim();
+  const rivalTree = runCommandText("git", ["mktree"], {
+    cwd: root,
+    input: `100644 blob ${rivalBlob}\t${CHURN_LEDGER_FILE}\n`,
+  }).trim();
   const rival = runCommandText(
     "git",
-    ["commit-tree", ledgerTree, "-p", expectedOld, "-m", "churn: rival writer"],
+    ["commit-tree", rivalTree, "-p", expectedOld, "-m", "churn: rival writer"],
     { cwd: root },
   ).trim();
   runCommandText("git", ["push", "--quiet", "origin", `${rival}:${CHURN_REF}`], { cwd: root });
@@ -824,35 +837,45 @@ it("refuses a migration push when the exact expected-old lease is stale", () => 
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(run(["migrate-subjects", "--push"], root), 1);
-    assert.include(stderr, `--force-with-lease=${CHURN_REF}:${expectedOld}`);
-    assert.strictEqual(
-      runCommandText("git", ["ls-remote", remote, CHURN_REF], { cwd: root }).split("\t")[0],
-      rival,
-    );
-    assert.strictEqual(
-      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
-      expectedOld,
-    );
-
-    runCommandText("git", ["fetch", "--quiet", "origin", `+${CHURN_REF}:${CHURN_REF}`], {
-      cwd: root,
-    });
-    assert.strictEqual(
-      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
-      rival,
-    );
+    // The stale checkout refreshes onto the published walk and publishes on a normal run.
     assert.strictEqual(run(["migrate-subjects", "--push"], root), 0);
-    const retried = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
-    assert.notStrictEqual(retried, rival);
+    const migrated = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", `${CHURN_REF}~1`], { cwd: root }).trim(),
+      rival,
+    );
     assert.strictEqual(
       runCommandText("git", ["ls-remote", remote, CHURN_REF], { cwd: root }).split("\t")[0],
-      retried,
+      migrated,
+    );
+    const entries = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(
+      entries.map((entry) => entry.tag),
+      ["v0", "v1"],
     );
     assert.isTrue(
-      parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ?? "").every((entry) =>
-        entry.censusFiles.every((file) => file.subject !== undefined),
-      ),
+      entries.every((entry) => entry.censusFiles.every((file) => file.subject !== undefined)),
+    );
+
+    // A local ledger that is neither behind nor ahead of origin fails closed on all three SHAs.
+    const sibling = runCommandText(
+      "git",
+      ["commit-tree", ledgerTree, "-p", expectedOld, "-m", "churn: sibling"],
+      { cwd: root },
+    ).trim();
+    runCommandText("git", ["update-ref", CHURN_REF, sibling, migrated], { cwd: root });
+    assert.strictEqual(run(["migrate-subjects", "--push"], root), 1);
+    assert.include(
+      stderr,
+      `local=${sibling}, remote=${migrated}, expected=${migrated}; neither ref was overwritten`,
+    );
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      sibling,
+    );
+    assert.strictEqual(
+      runCommandText("git", ["ls-remote", remote, CHURN_REF], { cwd: root }).split("\t")[0],
+      migrated,
     );
   } finally {
     process.stderr.write = originalWrite;
