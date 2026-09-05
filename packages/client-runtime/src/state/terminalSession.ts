@@ -222,13 +222,16 @@ export function applyTerminalMetadataStreamEvent(
   if (event.type === "remove") {
     return current.filter(
       (terminal) =>
-        terminal.threadId !== event.threadId || terminal.terminalId !== event.terminalId,
+        terminal.threadId !== event.threadId ||
+        terminal.terminalId !== event.terminalId ||
+        (terminal.attachmentId ?? null) !== (event.attachmentId ?? null),
     );
   }
   const next = current.filter(
     (terminal) =>
       terminal.threadId !== event.terminal.threadId ||
-      terminal.terminalId !== event.terminal.terminalId,
+      terminal.terminalId !== event.terminal.terminalId ||
+      (terminal.attachmentId ?? null) !== (event.terminal.attachmentId ?? null),
   );
   return [...next, event.terminal];
 }
