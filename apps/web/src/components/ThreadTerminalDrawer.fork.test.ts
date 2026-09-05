@@ -12,6 +12,7 @@ import {
   shouldForwardThreadTerminalShortcut,
   shouldHandleTerminalFocusRequest,
   shouldRestoreTerminalFocusAfterResume,
+  lifecycleCursorFork,
 } from "./ThreadTerminalDrawer";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
@@ -147,5 +148,20 @@ describe("terminal focus requests", () => {
         handledFocusRequestId: 4,
       }),
     ).toBe(false);
+  });
+});
+
+describe("terminal session generations", () => {
+  it("forces a full renderer reset when the attached PTY generation changes", () => {
+    const cursor = { generation: 4, resetVersion: 7, offset: 99 };
+
+    expect(lifecycleCursorFork(cursor, { lifecycleVersion: 2 }, { lifecycleVersion: 2 })).toBe(
+      cursor,
+    );
+    expect(lifecycleCursorFork(cursor, { lifecycleVersion: 2 }, { lifecycleVersion: 3 })).toEqual({
+      generation: -1,
+      resetVersion: -1,
+      offset: 0,
+    });
   });
 });

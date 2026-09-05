@@ -50,8 +50,18 @@ export function createTerminalEnvironmentAtoms<R, E>(
     input,
   }: {
     readonly environmentId: string;
-    readonly input: { readonly threadId: string; readonly terminalId?: string | undefined };
-  }) => JSON.stringify([environmentId, input.threadId, input.terminalId ?? null]);
+    readonly input: {
+      readonly threadId: string;
+      readonly terminalId?: string | undefined;
+      readonly attachmentId?: string | undefined;
+    };
+  }) =>
+    JSON.stringify([
+      environmentId,
+      input.threadId,
+      input.terminalId ?? null,
+      input.attachmentId ?? null,
+    ]);
   const lifecycleConcurrency = { mode: "serial" as const, key: terminalThreadKey };
   const atoms = {
     observe: createEnvironmentSubscriptionAtomFamily(runtime, {
@@ -277,12 +287,13 @@ export function createTerminalSession(
   let lastStatus: TerminalBufferState["status"] | null = null;
   let loggedFirstOutput = false;
   let resizeRegistry: AtomRegistry.AtomRegistry | null = null;
+  let attachmentFork: { readonly attachmentId?: string } = {}; // fork-hook: zmux-estate/terminal-session-attachment
 
   const sendResize = () => {
     if (generation === null || resizeRegistry === null || !options.canOperate()) return;
     void runAtomCommand(resizeRegistry, atoms.resize, {
       environmentId,
-      input: { threadId, terminalId, cols: gridSize.cols, rows: gridSize.rows },
+      input: { threadId, terminalId, ...attachmentFork, cols: gridSize.cols, rows: gridSize.rows }, // fork-hook: zmux-estate/terminal-session-attachment
     });
   };
 
@@ -303,7 +314,7 @@ export function createTerminalSession(
       if (!options.canOperate()) return;
       void runAtomCommand(registry, atoms.close, {
         environmentId,
-        input: { threadId, terminalId },
+        input: { threadId, terminalId, ...attachmentFork }, // fork-hook: zmux-estate/terminal-session-attachment
       });
       options.onExit();
       return;
@@ -316,6 +327,7 @@ export function createTerminalSession(
         input: {
           threadId,
           terminalId,
+          ...attachmentFork, // fork-hook: zmux-estate/terminal-session-attachment
           cwd: input.cwd,
           worktreePath: input.worktreePath,
           cols: input.cols,
@@ -374,7 +386,7 @@ export function createTerminalSession(
       initialInputPending = false;
       void runAtomCommand(registry, atoms.write, {
         environmentId,
-        input: { threadId, terminalId, data: options.initialInput },
+        input: { threadId, terminalId, ...attachmentFork, data: options.initialInput }, // fork-hook: zmux-estate/terminal-session-attachment
       });
     }
 
@@ -399,6 +411,7 @@ export function createTerminalSession(
   const makeAttached = (input: TerminalAttachInput) =>
     Atom.make((get) => {
       const registry = get.registry;
+      attachmentFork = input.attachmentId ? { attachmentId: input.attachmentId } : {}; // fork-hook: zmux-estate/terminal-session-attachment
       get.addFinalizer(() => {
         generation = null;
         lastStatus = null;
