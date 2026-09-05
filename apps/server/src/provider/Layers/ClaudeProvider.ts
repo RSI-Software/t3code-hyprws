@@ -1,7 +1,6 @@
 import {
   type ClaudeSettings,
   type ModelCapabilities,
-  type ServerProviderModel,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -16,7 +15,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   query as claudeQuery,
-  type AgentInfo as ClaudeAgentInfo,
+  type AgentInfo as ClaudeAgentInfo, // fork-hook: custom-agents/claude-agent-info-type
   type Options as ClaudeQueryOptions,
   type SlashCommand as ClaudeSlashCommand,
   type SDKControlGetUsageResponse,
@@ -25,7 +24,6 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  buildSelectOptionDescriptor,
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
   DEFAULT_TIMEOUT_MS,
@@ -50,6 +48,10 @@ import {
   formatClaudeVersionUpgradeMessage,
   resolveClaudeModelsForVersion,
 } from "../ClaudeModelCatalog.ts";
+import {
+  parseClaudeInitializationAgents,
+  withClaudeAgentOptions,
+} from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-options-import
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -237,7 +239,7 @@ type ClaudeCapabilitiesProbe = {
    * the subscription/token fields are absent and auth is external AWS creds.
    */
   readonly apiProvider: string | undefined;
-  readonly agents?: ReadonlyArray<ClaudeAgentInfo>;
+  readonly agents?: ReadonlyArray<ClaudeAgentInfo>; // fork-hook: custom-agents/claude-probe-agents-field
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   /**
    * Subscription windows from the SDK's `get_usage` control request, or
@@ -246,67 +248,6 @@ type ClaudeCapabilitiesProbe = {
    */
   readonly usage?: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits">;
 };
-
-function parseClaudeInitializationAgents(
-  agents: ReadonlyArray<ClaudeAgentInfo> | undefined,
-): ReadonlyArray<ClaudeAgentInfo> {
-  const agentsByName = new Map<string, ClaudeAgentInfo>();
-
-  for (const agent of agents ?? []) {
-    const name = nonEmptyProbeString(agent.name);
-    const description = nonEmptyProbeString(agent.description);
-    if (!name || !description) {
-      continue;
-    }
-    const key = name.toLowerCase();
-    if (agentsByName.has(key)) {
-      continue;
-    }
-    const model = agent.model ? nonEmptyProbeString(agent.model) : undefined;
-    agentsByName.set(key, {
-      name,
-      description,
-      ...(model ? { model } : {}),
-    });
-  }
-
-  return [...agentsByName.values()].sort((left, right) => left.name.localeCompare(right.name));
-}
-
-export function withClaudeAgentOptions(
-  models: ReadonlyArray<ServerProviderModel>,
-  agents: ReadonlyArray<ClaudeAgentInfo>,
-): ReadonlyArray<ServerProviderModel> {
-  if (agents.length === 0) {
-    return models;
-  }
-
-  const agentDescriptor = buildSelectOptionDescriptor({
-    id: "agent",
-    label: "Agent",
-    description: "Run this thread as a Claude custom agent.",
-    options: [
-      {
-        value: "default",
-        label: "Default",
-        description: "Use Claude without a custom main-thread agent.",
-        isDefault: true,
-      },
-      ...agents.map((agent) => ({
-        value: agent.name,
-        label: agent.name,
-        description: agent.description,
-      })),
-    ],
-  });
-
-  return models.map((model) => ({
-    ...model,
-    capabilities: createModelCapabilities({
-      optionDescriptors: [...(model.capabilities?.optionDescriptors ?? []), agentDescriptor],
-    }),
-  }));
-}
 
 function parseClaudeInitializationCommands(
   commands: ReadonlyArray<ClaudeSlashCommand> | undefined,
@@ -450,7 +391,7 @@ const probeClaudeCapabilities = (
           subscriptionType: account?.subscriptionType,
           tokenSource: account?.tokenSource,
           apiProvider: account?.apiProvider,
-          agents: parseClaudeInitializationAgents(init.agents),
+          agents: parseClaudeInitializationAgents(init.agents), // fork-hook: custom-agents/claude-probe-agents-parse
           slashCommands: parseClaudeInitializationCommands(init.commands),
           ...(usage ? { usage } : {}),
         } satisfies ClaudeCapabilitiesProbe;
@@ -599,7 +540,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const capabilities = resolveCapabilities
     ? yield* resolveCapabilities(claudeSettings).pipe(Effect.orElseSucceed(() => undefined))
     : undefined;
-  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []);
+  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []); // fork-hook: custom-agents/claude-model-agent-options
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
@@ -702,4 +643,4 @@ export const makePendingClaudeProvider = (
     });
   });
 
-export { dedupeSlashCommands, probeClaudeCapabilities };
+export { dedupeSlashCommands, probeClaudeCapabilities }; // fork-hook: custom-agents/claude-dedupe-export
