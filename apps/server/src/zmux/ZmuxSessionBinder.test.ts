@@ -243,6 +243,61 @@ describe("ZmuxSessionBinder", () => {
     }).pipe(Effect.provide(makeLayer(run)));
   });
 
+  it.effect("accepts a restorable resolve DTO and preserves its durable record", () => {
+    const run = vi.fn(() =>
+      Effect.succeed({
+        ...successfulOutput,
+        stdout: JSON.stringify({
+          ...JSON.parse(resolveJson),
+          tmuxName: null,
+          nativeId: null,
+          serverId: null,
+          createdAt: null,
+          state: "restorable",
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const resolved = yield* binder.resolve("/repo/wt");
+      const prepared = yield* binder.prepareUnbind("/repo/wt");
+
+      assert.equal(resolved.status, "resolved");
+      assert.equal(prepared.status, "failed");
+      if (prepared.status !== "failed") return;
+      assert.match(prepared.notice.detail, /processes and durable record will be preserved/);
+      assert.match(prepared.notice.detail, /zmux tabs 't3code\/feat\/test'/);
+      assert.equal(prepared.notice.detail.includes("session kill"), false);
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
+  it.effect("returns the zmux refusal without duplicating recovery guidance", () => {
+    const run = vi.fn(() =>
+      Effect.succeed({
+        ...successfulOutput,
+        code: ChildProcessSpawner.ExitCode(1),
+        stdout: JSON.stringify({
+          errors: [{ code: "shared_view", message: "session has shared viewers" }],
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const result = yield* binder.unbind({
+        target: "t3code/feat'test",
+        nativeId: "$42",
+        serverId: "123:456",
+        createdAt: 789,
+      });
+
+      assert.equal(result.status, "failed");
+      if (result.status !== "failed") return;
+      assert.equal(result.notice.detail, "shared_view: session has shared viewers");
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
   it.effect("does not block worktree creation when zmux is missing", () => {
     const run = () =>
       Effect.fail(

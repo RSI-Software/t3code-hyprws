@@ -31,8 +31,8 @@ const ZmuxResolveOutput = Schema.Struct({
   match: Schema.String,
   tmuxName: Schema.NullOr(Schema.String),
   nativeId: Schema.NullOr(Schema.String),
-  serverId: Schema.optional(Schema.String),
-  createdAt: Schema.optional(Schema.Number),
+  serverId: Schema.optional(Schema.NullOr(Schema.String)),
+  createdAt: Schema.optional(Schema.NullOr(Schema.Number)),
   state: Schema.String,
   binding: Schema.Struct({
     branch: Schema.NullOr(Schema.String),
@@ -78,8 +78,8 @@ export type ZmuxResolveResult =
       readonly match: string;
       readonly tmuxName?: string | null;
       readonly nativeId?: string | null;
-      readonly serverId?: string;
-      readonly createdAt?: number;
+      readonly serverId?: string | null;
+      readonly createdAt?: number | null;
       readonly state?: string;
       readonly binding?: {
         readonly branch: string | null;
@@ -98,6 +98,24 @@ export interface ZmuxUnbindIdentity {
   readonly nativeId: string;
   readonly serverId: string;
   readonly createdAt: number;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+export function protectedCleanupCommand(identity: ZmuxUnbindIdentity): string {
+  return [
+    "zmux session kill",
+    shellQuote(identity.target),
+    "--if-session-id",
+    shellQuote(identity.nativeId),
+    "--if-server-id",
+    shellQuote(identity.serverId),
+    "--if-created-at",
+    shellQuote(String(identity.createdAt)),
+    "--json",
+  ].join(" ");
 }
 
 export type ZmuxPrepareUnbindResult =
@@ -522,7 +540,7 @@ export const make = Effect.gen(function* () {
         status: "failed",
         notice: {
           summary: "zmux session cleanup identity could not be prepared",
-          detail: `Session ${resolved.target} did not provide an exact cleanup identity. Its processes will be preserved; verify ownership before running \`zmux session kill ${resolved.target}\`.`,
+          detail: `Session ${resolved.target} did not provide an exact cleanup identity. Its processes and durable record will be preserved; inspect the surviving logical target with \`zmux tabs ${shellQuote(resolved.target)}\` before any manual cleanup.`,
         },
       } as const;
     }

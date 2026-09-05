@@ -290,7 +290,10 @@ describe("GitWorkflowService", () => {
       assert.equal(failure._tag, "GitCommandError");
       assert.equal(failure.operation, "GitWorkflowService.removeWorktree.cleanup");
       assert.match(failure.detail, /worktree was removed/);
-      assert.match(failure.detail, /zmux session kill \$23/);
+      assert.match(failure.detail, /zmux session kill 'repo\/wt'/);
+      assert.match(failure.detail, /--if-session-id '\$23'/);
+      assert.match(failure.detail, /--if-server-id '123:456'/);
+      assert.match(failure.detail, /--if-created-at '789'/);
     }).pipe(Effect.provide(layer));
   });
   it.effect("removes a plain worktree without running Worktrunk hooks", () => {
@@ -467,6 +470,31 @@ describe("GitWorkflowService", () => {
       assert.equal(failure.operation, "GitWorkflowService.removeWorktree.cleanup");
       assert.match(failure.detail, /managed session was preserved/);
       assert.match(failure.detail, /server generation/);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reports preserved cleanup when zmux is unavailable during preparation", () => {
+    const removeWorktree = vi.fn(() => Effect.void);
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ resolve: resolveGitHandle })),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          prepareUnbind: () => Effect.succeed({ status: "unavailable" as const }),
+        }),
+      ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
+    );
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const failure = yield* workflow
+        .removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false })
+        .pipe(Effect.flip);
+      expect(removeWorktree).toHaveBeenCalledOnce();
+      assert.equal(failure.operation, "GitWorkflowService.removeWorktree.cleanup");
+      assert.match(failure.detail, /zmux became unavailable/);
+      assert.match(failure.detail, /managed session was preserved/);
     }).pipe(Effect.provide(layer));
   });
 });
