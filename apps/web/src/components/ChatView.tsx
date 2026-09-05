@@ -188,6 +188,7 @@ import {
   armDevAppPreviewHandoff,
   DevAppPreviewHandoffCancelledError,
   DevAppPreviewInvocationLifecycle,
+  devAppPreviewActionBlockReason,
   devAppPreviewActionCommandForRuntime,
   isDevAppPreviewActionCommand,
   type DevAppPreviewHandoff,
@@ -3884,6 +3885,14 @@ export default function ChatView(props: ChatViewProps) {
       if (!activeThreadId || !activeProject || !activeThread) return;
       const previewScope = devAppPreviewScopeRef.current;
       if (previewScope?.threadKey !== activeThreadKey) return;
+      const previewBlockReason = devAppPreviewActionBlockReason(
+        script.command,
+        readPreparedConnection(environmentId),
+      );
+      if (previewBlockReason) {
+        setThreadError(activeThreadId, previewBlockReason);
+        return;
+      }
       const invocation = previewScope.lifecycle.begin();
       const isInvocationActive = () =>
         devAppPreviewScopeRef.current === previewScope && invocation.isActive();
