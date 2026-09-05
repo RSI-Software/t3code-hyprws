@@ -541,7 +541,9 @@ multi-command block carries gate state:
    It derives the next stable tag through the release helper,
    refuses a local or remote tag collision, and revalidates
    the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
-   for the exact snapshot and writes the draft beside the external report. Tooling comes from trunk
+   for the exact snapshot and writes the review draft beside the external report. The draft carries
+   every applicable condition from the previous stable's UAT, preserving whether it was accepted or
+   unsettled, alongside the new source material. Tooling comes from trunk
    and product comes from the snapshot, so the canonical checkout renders that draft against the
    snapshot ref while every content check above still runs through the lane. A preparation failure
    synchronously removes the cut lane, including lockfile drift, before requiring a fresh
@@ -555,17 +557,21 @@ multi-command block carries gate state:
    `latest-linux.yml`, then closes the candidate with the tag, snapshot SHA, and workflow URL.
 
 The preparation stop is the [`fork-uat`](../../.agents/skills/fork-uat/SKILL.md) judgement boundary.
-The agent reviews the rendered sources, writes observable UAT rows, removes the reviewer-only
-sections, and shows the exact draft to the human. Only an explicit human go permits creating that UAT
-issue. The human runs the candidate, ticks accepted rows, records findings, and comments `Signed off`
-or `Blocked: <reason>`; those facts inform the release judgement and are never converted into an
-automatic pass/fail rule.
+The agent reviews the rendered sources and carried conditions, writes observable task drafts, and
+removes the reviewer-only sections. `fork:uat --prepare` compiles that review into a hashed parent
+tracker plus one child issue per acceptance condition and preflights every filing. The agent shows
+the exact bundle to the human; only an explicit human go permits `fork:uat --create`. The human runs
+the candidate, closes each passing child, and leaves follow-up or polish work open with its findings.
+A `Signed off` parent comment is recommended when the candidate is accepted in principle, but neither
+that comment nor complete child closure is an automatic publication gate.
 
 At the stable sign-off stop, present the selected issue, snapshot branch and SHA, derived tag, prior
-matching tags, all preparation results, the clean/ref checks, and the UAT evidence. Missing sign-off
-or an inexact candidate/go is a hard stop. A stale snapshot, dirty or moved cut lane, issue change,
-tag collision, failed push, failed workflow, or missing asset refuses advancement. Never increment
-again after a refusal without returning to `stable-list` and obtaining fresh human sign-off.
+matching tags, all preparation results, the clean/ref checks, and the UAT evidence. If the app cannot
+launch or basic use fails, the human withholds the explicit release go. Ordinary open children,
+polish findings, and missing parent sign-off remain non-blocking evidence. An inexact candidate/go,
+stale snapshot, dirty or moved cut lane, issue change, tag collision, failed push, failed workflow,
+or missing asset refuses advancement. Never increment again after a refusal without returning to
+`stable-list` and obtaining a fresh human go.
 
 The issue close, immutable tag, workflow run, and GitHub release are the stable-cut record. Do not
 add a human sync record for an ordinary bot snapshot. An `upstream-watch` issue closes only after the

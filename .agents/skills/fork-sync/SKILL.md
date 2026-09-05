@@ -208,10 +208,12 @@ edit them, move a bot-owned ref, replace a tag, or infer a candidate.
    the draft against the snapshot ref.
 
    Review the emitted UAT draft under the [`fork-uat`](../fork-uat/SKILL.md) judgement boundary:
-   write observable rows, remove reviewer-only sections, show the exact draft to the human, and
-   create it only after their explicit UAT-draft go. Hand the created issue to the human to run and
-   record `Signed off` or `Blocked: <reason>`; those facts inform judgement and never become an
-   automatic pass/fail rule.
+   preserve applicable accepted and unsettled conditions carried from the previous UAT, add the new
+   observable tasks, remove reviewer-only sections, and prepare the hashed parent-and-children
+   bundle. Show the exact bundle to the human and create it only after their explicit UAT-draft go.
+   The human closes each passing child and leaves follow-up or polish work open with findings. A
+   `Signed off` parent comment is recommended when the candidate is accepted in principle, but open
+   children do not prevent that decision.
 
    A failed preparation synchronously removes its cut lane, including lockfile drift, before
    requiring a fresh `stable-list`. If that cleanup fails, run only the exact forced recovery
@@ -219,11 +221,15 @@ edit them, move a bot-owned ref, replace a tag, or infer a candidate.
 
    **Stop.** Present the selected issue, snapshot branch and SHA, derived tag, prior matching tags,
    every preparation result, clean/ref checks, and UAT evidence. Continue only when the human names
-   the exact candidate and gives an explicit release go. Missing sign-off, ambiguity, or a blocked
-   UAT is a hard stop; the agent must not infer acceptance.
+   the exact candidate and gives an explicit release go. Withhold that go when the app cannot launch
+   or basic use fails. Ordinary open UAT children and missing parent sign-off are non-blocking
+   tracking evidence; the agent must not infer the human's release judgement.
 
 3. After that go, publish with
    `vp run fork:sync stable-publish --report <report> --go <exact-candidate>`.
+
+   Publish revalidates the candidate, snapshot, clean lane, and absent tag before it creates the tag.
+   UAT state remains evidence for the human go rather than an automatic publication gate.
 
    **Stop on every refusal.** A changed issue or snapshot, moved or dirty lane, existing tag, failed
    push/workflow, or missing asset requires a fresh `stable-list` report and fresh human sign-off;
