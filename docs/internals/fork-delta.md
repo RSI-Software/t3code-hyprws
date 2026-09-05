@@ -230,6 +230,13 @@ The hub stays as the all-projects view; it stops being the only view.
 
 The core is a project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
 
+`lib/threadRouteNavigation.ts` owns route-family selection for the upstream chat,
+command palette and new-thread integrations. Their separate navigation calls preserve
+upstream lifecycle sites; the new-thread hook resolves current router params when each
+navigation executes, including after awaited work. The blocking `thread-route-navigation`
+authoring guard prevents direct resolver imports and inline family policy from returning
+to those files. A single policy boundary does not imply one call or one patch hunk per file.
+
 Launch intents reach the right window through the single-instance lock and hash routes.
 Previews, composer drafts, and preview IPC are namespaced per window. The preload policy accepts the complete desktop bridge, so the leased replay can keep upstream's profile-aware bridge assembly intact and remove the original preview-isolation split.
 
