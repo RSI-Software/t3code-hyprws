@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Verify object-only construction in isolated Git repositories.
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -97,16 +98,28 @@ const fixture = Effect.fn("rewriteFixture")(function* () {
   const objects = new RewriteObjects(root),
     before = objects.entries(tree),
     after = objects.entries(sourceTree);
+  const proofs: Array<RewriteManifest["proofs"][number]> = [];
+  yield* fs.makeDirectory(NodePath.join(directory, "proofs"));
+  for (const name of ["snapshot-tests", "composition", "test-ownership", "compatibility"]) {
+    const artifact = `proofs/${name}.json`;
+    const bytes = Buffer.from(
+      encodeJson({ schema: "fork.rewrite-proof.v1", name, source, verdict: "pass" }),
+    );
+    yield* fs.writeFile(NodePath.join(directory, artifact), bytes);
+    proofs.push({
+      name,
+      artifact,
+      sha256: NodeCrypto.createHash("sha256").update(bytes).digest("hex"),
+    });
+  }
   const manifest: RewriteManifest = {
     schema: "fork.rewrite-manifest.v1",
     source,
     sourceTree,
     base,
     baseTag,
-    proofs: ["snapshot-tests", "composition", "test-ownership", "compatibility"].map((name) => ({
-      name,
-      sha256: "a".repeat(64),
-    })),
+    proofs,
+    expected: { changedSlots: 1, unchangedSlots: 1, removedSignatures: 0 },
     unresolved: [],
     slots: [
       {
@@ -114,12 +127,22 @@ const fixture = Effect.fn("rewriteFixture")(function* () {
         tree,
         resultTree: sourceTree,
         readSet: [...after.keys()].map((path) => ({ path, entry: before.get(path) ?? null })),
-        changes: [...after].map(([path, entry]) => ({
-          path,
-          before: before.get(path) ?? null,
-          after: entry,
-          reason: "reviewed extraction at original slot",
-        })),
+        changes: [...after]
+          .filter(([path, entry]) => {
+            const prior = before.get(path);
+            return (
+              prior === undefined ||
+              prior.mode !== entry.mode ||
+              prior.type !== entry.type ||
+              prior.oid !== entry.oid
+            );
+          })
+          .map(([path, entry]) => ({
+            path,
+            before: before.get(path) ?? null,
+            after: entry,
+            reason: "reviewed extraction at original slot",
+          })),
       },
       { commit: source, tree: sourceTree, resultTree: sourceTree, readSet: [], changes: [] },
     ],
@@ -491,6 +514,23 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         yield* fs.writeFile(manifestPath, raw);
         yield* fs.writeFileString(receiptPath, encodeJson(receipt));
         assert.deepStrictEqual(verifyRewriteBuild(root, manifestPath, receiptPath), receipt);
+        const proof = manifest.proofs[0]!;
+        const proofPath = NodePath.join(directory, proof.artifact);
+        yield* fs.writeFileString(proofPath, "tampered\n");
+        assert.throws(
+          () => verifyRewriteBuild(root, manifestPath, receiptPath),
+          /proof artifact digest mismatch/,
+        );
+        yield* fs.writeFileString(
+          proofPath,
+          encodeJson({
+            schema: "fork.rewrite-proof.v1",
+            name: proof.name,
+            source: manifest.source,
+            verdict: "pass",
+          }),
+        );
+        assert.deepStrictEqual(verifyRewriteBuild(root, manifestPath, receiptPath), receipt);
         yield* fs.writeFileString(receiptPath, encodeJson({ ...receipt, result: manifest.source }));
         assert.throws(
           () => verifyRewriteBuild(root, manifestPath, receiptPath),
@@ -674,10 +714,27 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           ) + "\n",
         );
         git(root, ["update-ref", "refs/remotes/origin/hyprws", source]);
+        const proofs: Array<RewriteManifest["proofs"][number]> = [];
+        for (const proof of manifest.proofs) {
+          const bytes = Buffer.from(
+            encodeJson({
+              schema: "fork.rewrite-proof.v1",
+              name: proof.name,
+              source,
+              verdict: "pass",
+            }),
+          );
+          yield* fs.writeFile(NodePath.join(directory, proof.artifact), bytes);
+          proofs.push({
+            ...proof,
+            sha256: NodeCrypto.createHash("sha256").update(bytes).digest("hex"),
+          });
+        }
         const raw = Buffer.from(
           encodeJson({
             ...manifest,
             source,
+            proofs,
             slots: [
               { ...original, commit: rewrittenOriginal, tree },
               { ...manifest.slots[1], commit: source },
@@ -772,7 +829,12 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
       const check = (value: unknown) => buildRewrite(root, Buffer.from(encodeJson(value)));
       assert.throws(() => check({ ...manifest, source: manifest.base }), /stale rewrite source/);
       assert.throws(
-        () => check({ ...manifest, slots: manifest.slots.slice(1) }),
+        () =>
+          check({
+            ...manifest,
+            expected: { changedSlots: 0, unchangedSlots: 1, removedSignatures: 0 },
+            slots: manifest.slots.slice(1),
+          }),
         /every original commit/,
       );
       assert.throws(
@@ -780,6 +842,45 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
         /unresolved rewrite proof/,
       );
       assert.throws(() => check({ ...manifest, proofs: [] }), /reviewed snapshot-tests/);
+      assert.throws(
+        () =>
+          check({
+            ...manifest,
+            expected: { changedSlots: 1, unchangedSlots: 0, removedSignatures: 0 },
+          }),
+        /account for every manifest slot/,
+      );
+      assert.throws(
+        () =>
+          check({
+            ...manifest,
+            expected: { changedSlots: -1, unchangedSlots: 3, removedSignatures: 0 },
+          }),
+        /nonnegative integer/,
+      );
+      assert.throws(
+        () =>
+          check({
+            ...manifest,
+            expected: { changedSlots: 0, unchangedSlots: 2, removedSignatures: 0 },
+          }),
+        /rewrite census mismatch/,
+      );
+      const firstChange = manifest.slots[0]!.changes[0]!;
+      assert.throws(
+        () =>
+          check({
+            ...manifest,
+            slots: [
+              {
+                ...manifest.slots[0],
+                changes: [{ ...firstChange, after: firstChange.before }],
+              },
+              manifest.slots[1],
+            ],
+          }),
+        /must alter its entry/,
+      );
       assert.throws(
         () =>
           check({ ...manifest, slots: [{ ...manifest.slots[0], readSet: [] }, manifest.slots[1]] }),
@@ -885,6 +986,84 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
       assert.strictEqual(dangling.status, 3, dangling.stdout);
       assert.isFalse(yield* fs.exists(NodePath.join(root, "missing-receipt")));
       assert.strictEqual(git(root, ["count-objects", "-v"]), before);
+      const proof = manifest.proofs[0]!;
+      const proofPath = NodePath.join(directory, proof.artifact);
+      const linkedProofPath = NodePath.join(directory, "proofs/linked.json");
+      yield* fs.symlink(proofPath, linkedProofPath);
+      const linkedManifestPath = NodePath.join(directory, "linked-proof.json");
+      yield* fs.writeFileString(
+        linkedManifestPath,
+        encodeJson({
+          ...manifest,
+          proofs: [{ ...proof, artifact: "proofs/linked.json" }, ...manifest.proofs.slice(1)],
+        }),
+      );
+      const linkedProof = invoke("--manifest", linkedManifestPath, "--json");
+      assert.strictEqual(linkedProof.status, 3, linkedProof.stdout);
+      assert.include(linkedProof.stdout, "proof artifact must be a regular file");
+      assert.isFalse(yield* fs.exists(`${linkedManifestPath}.receipt.json`));
+      const missingManifestPath = NodePath.join(directory, "missing-proof.json");
+      yield* fs.writeFileString(
+        missingManifestPath,
+        encodeJson({
+          ...manifest,
+          proofs: [{ ...proof, artifact: "proofs/missing.json" }, ...manifest.proofs.slice(1)],
+        }),
+      );
+      const missingProof = invoke("--manifest", missingManifestPath, "--json");
+      assert.strictEqual(missingProof.status, 3, missingProof.stdout);
+      assert.include(missingProof.stdout, "missing rewrite proof artifact");
+      assert.isFalse(yield* fs.exists(`${missingManifestPath}.receipt.json`));
+      yield* fs.writeFileString(proofPath, "tampered\n");
+      const unproved = invoke("--manifest", path, "--json");
+      assert.strictEqual(unproved.status, 3, unproved.stdout);
+      assert.include(unproved.stdout, "proof artifact digest mismatch");
+      assert.isFalse(yield* fs.exists(`${path}.receipt.json`));
+      yield* fs.writeFileString(
+        proofPath,
+        encodeJson({
+          schema: "fork.rewrite-proof.v1",
+          name: proof.name,
+          source: manifest.source,
+          verdict: "pass",
+        }),
+      );
+      const wrongSourceBytes = Buffer.from(
+        encodeJson({
+          schema: "fork.rewrite-proof.v1",
+          name: proof.name,
+          source: manifest.base,
+          verdict: "pass",
+        }),
+      );
+      yield* fs.writeFile(proofPath, wrongSourceBytes);
+      yield* fs.writeFileString(
+        path,
+        encodeJson({
+          ...manifest,
+          proofs: [
+            {
+              ...proof,
+              sha256: NodeCrypto.createHash("sha256").update(wrongSourceBytes).digest("hex"),
+            },
+            ...manifest.proofs.slice(1),
+          ],
+        }),
+      );
+      const unattested = invoke("--manifest", path, "--json");
+      assert.strictEqual(unattested.status, 3, unattested.stdout);
+      assert.include(unattested.stdout, "did not attest this source");
+      assert.isFalse(yield* fs.exists(`${path}.receipt.json`));
+      yield* fs.writeFileString(path, encodeJson(manifest));
+      yield* fs.writeFileString(
+        proofPath,
+        encodeJson({
+          schema: "fork.rewrite-proof.v1",
+          name: proof.name,
+          source: manifest.source,
+          verdict: "pass",
+        }),
+      );
       const first = invoke("--manifest", path, "--json");
       assert.strictEqual(first.status, 0, first.stderr);
       const receipt = decodeCliResult(first.stdout);
