@@ -17,9 +17,12 @@ and stop verification. Do not install or switch to another automation system.
 
 ## Use an isolated backend
 
-Reuse this task's healthy backend. Otherwise run `vp run dev` from the
-repository root, retain its terminal session, and read the actual backend port
-from the dev-runner output. Use the worktree's ignored `.t3` state. Never run
+Reuse this task's healthy backend. When a `dev:app` web or Electron surface
+already owns that checkout's backend, reuse its printed server port and `.t3`
+base directory instead of starting a second one; each mobile client still needs
+its own pairing credential. Otherwise run `vp run dev` from the repository root,
+retain its terminal session, and read the actual backend port from the
+dev-runner output. Use the worktree's ignored `.t3` state. Never run
 against `~/.t3/userdata`. The Browser panel is not required for this workflow.
 
 Test with meaningful project and thread data. Read the shared
