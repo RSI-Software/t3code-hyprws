@@ -9,6 +9,7 @@ export const WORKFLOW_COPIES = [
 
 const RELEASE_OUTCOME_FILE = "FORK_RELEASE_OUTCOME_FILE";
 const RELEASE_OUTCOME_PATH = `\${{ runner.temp }}/\${{ env.${RELEASE_OUTCOME_FILE} }}`;
+export const RELEASE_OUTCOME_GUARD = "release-outcome-evidence-v1";
 
 const workflowJob = (workflow: string, name: string): string | undefined => {
   const marker = `  ${name}:\n`;
@@ -60,6 +61,20 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
   )
     return "FORK_OUTCOME_EXPORT must use the shared path in Retain release outcome env";
 
+  const verify = workflowStep(workflow, "Verify retained release outcome");
+  const retainIndex = workflow.indexOf("      - name: Retain release outcome\n");
+  const verifyIndex = workflow.indexOf("      - name: Verify retained release outcome\n");
+  const uploadIndex = workflow.indexOf("      - name: Upload distribution evidence\n");
+  if (
+    verify === undefined ||
+    !verify
+      .split("\n")
+      .includes('        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"') ||
+    retainIndex >= verifyIndex ||
+    verifyIndex >= uploadIndex
+  )
+    return "Verify retained release outcome must test the retained receipt is nonempty between collection and upload";
+
   const upload = workflowStep(workflow, "Upload distribution evidence");
   const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
   const uploadPath = uploadWith === undefined ? undefined : workflowMapping(uploadWith, "path", 10);
@@ -82,6 +97,7 @@ interface WorkflowReview {
   readonly forkBlob: string;
   readonly disposition: "adapted" | "no-change";
   readonly reason: string;
+  readonly guards?: ReadonlyArray<typeof RELEASE_OUTCOME_GUARD>;
 }
 
 export interface WorkflowDrift {
@@ -117,6 +133,13 @@ export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview>
         throw new Error(`invalid workflow review: ${key} must be a full Git object ID`);
     if (row.disposition !== "adapted" && row.disposition !== "no-change")
       throw new Error("invalid workflow review: disposition must be adapted or no-change");
+    if (
+      row.guards !== undefined &&
+      (!Array.isArray(row.guards) ||
+        row.guards.length !== 1 ||
+        row.guards[0] !== RELEASE_OUTCOME_GUARD)
+    )
+      throw new Error(`invalid workflow review: guards must contain ${RELEASE_OUTCOME_GUARD}`);
     return row as unknown as WorkflowReview;
   });
   const seen = new Set<string>();
@@ -127,6 +150,11 @@ export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview>
       )
     )
       throw new Error(`invalid workflow review counterpart: ${review.upstream} -> ${review.fork}`);
+    if (
+      review.guards?.includes(RELEASE_OUTCOME_GUARD) &&
+      review.fork !== ".github/workflows/hyprws-release.yml"
+    )
+      throw new Error(`${RELEASE_OUTCOME_GUARD} is only valid for the fork release workflow`);
     if (seen.has(review.upstream)) throw new Error(`duplicate workflow review: ${review.upstream}`);
     seen.add(review.upstream);
   }
@@ -152,7 +180,7 @@ export const readWorkflowDrift = (
     else if (review.upstreamBlob !== upstreamBlob)
       problem = "upstream workflow changed since review";
     else if (review.forkBlob !== forkBlob) problem = "fork counterpart changed since review";
-    else if (fork === ".github/workflows/hyprws-release.yml")
+    else if (review.guards?.includes(RELEASE_OUTCOME_GUARD))
       problem = releaseOutcomeExportProblem(git.run(["show", `${head}:${fork}`]));
     return { upstream, fork, upstreamBlob, forkBlob, review, problem };
   });

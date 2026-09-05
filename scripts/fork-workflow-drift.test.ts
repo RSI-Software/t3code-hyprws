@@ -13,6 +13,7 @@ import {
   parseWorkflowReviews,
   readWorkflowDrift,
   releaseOutcomeExportProblem,
+  RELEASE_OUTCOME_GUARD,
   WORKFLOW_COPIES,
   WORKFLOW_REVIEWS_PATH,
 } from "./lib/fork-workflow-drift.ts";
@@ -55,6 +56,7 @@ const fixture = (
     disposition?: "adapted" | "no-change";
     reason?: string;
     releaseWorkflow?: string;
+    releaseGuard?: boolean;
   } = {},
 ) => {
   const reviews = WORKFLOW_COPIES.map((pair) => ({
@@ -64,6 +66,9 @@ const fixture = (
     forkBlob: blob(options.reviewedFork ?? forkBefore),
     disposition: options.disposition ?? "adapted",
     reason: options.reason ?? "Use GitHub runners; preserve equivalent test steps.",
+    ...(pair.fork === ".github/workflows/hyprws-release.yml" && options.releaseGuard !== false
+      ? { guards: [RELEASE_OUTCOME_GUARD] }
+      : {}),
   }));
   const git = {
     run: (args: ReadonlyArray<string>): string => {
@@ -185,6 +190,13 @@ it("refuses absent, malformed, duplicate and unreasoned reviews", () => {
       ),
     /full Git/,
   );
+  assert.throws(
+    () =>
+      parseWorkflowReviews(
+        JSON.stringify({ version: 1, reviews: [{ ...reviews[0], guards: [] }] }),
+      ),
+    /guards/,
+  );
 });
 
 it("refuses provenance that names a different upstream blob", () => {
@@ -251,6 +263,34 @@ it("keeps the release outcome export scoped to its collector and upload path", (
     )!,
     /must error when outcome files are missing/,
   );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        '        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"',
+        '        run: test -e "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"',
+      ),
+    )!,
+    /must test the retained receipt is nonempty between collection and upload/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "      - name: Verify retained release outcome",
+        "      - name: Skip retained release outcome verification",
+      ),
+    )!,
+    /must test the retained receipt is nonempty between collection and upload/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        '      - name: Verify retained release outcome\n        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"\n\n',
+        "",
+      ) +
+        '      - name: Verify retained release outcome\n        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"\n',
+    )!,
+    /must test the retained receipt is nonempty between collection and upload/,
+  );
 });
 
 it("reports release outcome export drift through the workflow scan", () => {
@@ -269,4 +309,16 @@ it("reports release outcome export drift through the workflow scan", () => {
   assert.deepStrictEqual(scanFailures(result), [
     "workflow-drift: .github/workflows/release.yml -> .github/workflows/hyprws-release.yml: FORK_OUTCOME_EXPORT must be declared once in the release workflow",
   ]);
+});
+
+it("keeps historical workflow reviews valid before the release outcome guard marker", () => {
+  const reviewed = {
+    upstream: after,
+    reviewedUpstream: after,
+    fork: forkAfter,
+    reviewedFork: forkAfter,
+    releaseGuard: false,
+    releaseWorkflow: "jobs:\n  release:\n    runs-on: ubuntu-latest\n",
+  };
+  assert.isEmpty(scanFailures(scan(fixture(reviewed).git)));
 });

@@ -445,6 +445,9 @@ jobs:
           export GIT_CONFIG_VALUE_0
           node scripts/fork-churn.ts outcome --release --push
 
+      - name: Verify retained release outcome
+        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"
+
       - name: Upload distribution evidence
         if: always()
         uses: actions/upload-artifact@v7
