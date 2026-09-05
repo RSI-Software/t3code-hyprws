@@ -169,6 +169,7 @@ export class ZmuxSessionBinder extends Context.Service<
       checkoutPath: string,
       options?: { readonly projectPath?: string },
     ) => Effect.Effect<ZmuxEnsureResult>;
+    readonly reconcileExisting: (checkoutPath: string) => Effect.Effect<ZmuxResolveResult>;
     readonly resolve: (dir: string) => Effect.Effect<ZmuxResolveResult>;
     readonly prepareUnbind: (dir: string) => Effect.Effect<ZmuxPrepareUnbindResult>;
     readonly unbind: (identity: ZmuxUnbindIdentity) => Effect.Effect<ZmuxUnbindResult>;
@@ -356,7 +357,7 @@ export const make = Effect.gen(function* () {
     } as const;
   });
 
-  const checkoutFailure = (detail: string): ZmuxEnsureResult => ({
+  const checkoutFailure = (detail: string): Extract<ZmuxEnsureResult, { status: "failed" }> => ({
     status: "failed",
     notice: {
       summary: "Git checkout could not be verified",
@@ -417,6 +418,10 @@ export const make = Effect.gen(function* () {
       checkoutPath: normalizedTopLevel,
       projectPath: path.normalize(path.resolve(canonicalWorktree)),
       detachedHead: head._tag === "Failure" || head.success.timedOut || head.success.code !== 0,
+      branch:
+        head._tag === "Success" && !head.success.timedOut && head.success.code === 0
+          ? head.success.stdout.trim().replace(/^refs\/heads\//, "") || null
+          : null,
     } as const;
   });
 
@@ -661,6 +666,40 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const reconcileExisting: ZmuxSessionBinder["Service"]["reconcileExisting"] = Effect.fn(
+    "ZmuxSessionBinder.reconcileExisting",
+  )(function* (checkoutPath) {
+    if (!(yield* enabled)) return { status: "disabled" } as const;
+    return yield* ensureSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const inspected = yield* inspectCheckout(checkoutPath);
+        if (inspected.status !== "verified") return inspected;
+        const existing = yield* resolveEnabled(inspected.checkoutPath);
+        if (existing.status !== "resolved" || existing.match !== "worktree") return existing;
+        if (
+          !existing.binding?.worktreePath ||
+          path.normalize(path.resolve(existing.binding.worktreePath)) !== inspected.checkoutPath
+        ) {
+          return verificationFailure(
+            `managed target ${existing.target} is not bound to exact checkout ${inspected.checkoutPath}`,
+          );
+        }
+        if (inspected.branch === null || existing.binding.branch === inspected.branch)
+          return existing;
+        if (existing.state !== "live" || existing.nativeId == null) {
+          return verificationFailure(
+            `managed target ${existing.target} is ${existing.state ?? "not live"}; branch ${inspected.branch} will reconcile on the next explicit terminal open`,
+          );
+        }
+        const rebound = yield* bindEnabled(inspected.checkoutPath, {
+          projectPath: inspected.projectPath,
+        });
+        if (rebound.status !== "bound") return rebound;
+        return yield* resolveEnabled(inspected.checkoutPath);
+      }),
+    );
+  });
+
   const prepareUnbind: ZmuxSessionBinder["Service"]["prepareUnbind"] = Effect.fn(
     "ZmuxSessionBinder.prepareUnbind",
   )(function* (dir) {
@@ -741,7 +780,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return ZmuxSessionBinder.of({ bind, ensure, resolve, prepareUnbind, unbind });
+  return ZmuxSessionBinder.of({ bind, ensure, reconcileExisting, resolve, prepareUnbind, unbind });
 });
 
 export const layer = Layer.effect(ZmuxSessionBinder, make);
