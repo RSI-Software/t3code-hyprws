@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveTerminalCheckoutLaunch } from "./terminalCheckoutLaunch.fork.ts";
+import {
+  resolveTerminalCheckoutLaunch,
+  terminalCheckoutLaunchIdentity,
+} from "./terminalCheckoutLaunch.fork.ts";
 
 describe("terminal checkout launch", () => {
   it("follows the selected checkout instead of stale launch and session state", () => {
@@ -64,5 +67,20 @@ describe("terminal checkout launch", () => {
         current: { cwd: "/repo", worktreePath: null },
       }),
     ).toEqual({ cwd: "/repo", worktreePath: null });
+  });
+
+  it("changes launch identity when Pin then Follow retries a checkout move", () => {
+    const input = {
+      projectCwd: "/repo",
+      selectedWorktreePath: "/repo/worktrees/feature",
+      requested: null,
+      current: { cwd: "/repo", worktreePath: null },
+    } as const;
+    const pinned = resolveTerminalCheckoutLaunch({ ...input, mode: "pin" });
+    const followed = resolveTerminalCheckoutLaunch({ ...input, mode: "follow" });
+
+    expect(terminalCheckoutLaunchIdentity({ attachmentId: "terminal-1", ...pinned })).not.toBe(
+      terminalCheckoutLaunchIdentity({ attachmentId: "terminal-1", ...followed }),
+    );
   });
 });
