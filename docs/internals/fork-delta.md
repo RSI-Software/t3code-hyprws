@@ -254,6 +254,13 @@ The `sidebar-physical-scope` authoring guard rejects direct physical matching ad
 either upstream renderer while permitting the adapter calls.
 
 QoL covers a retry when a scoped draft fails to start, the `dev:desktop:agent` launcher with dynamic CDP discovery and no-focus Hyprland placement, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; `apps/web/src/components/pullRequest/PullRequestProjectScope.ts` adapts the upstream Pull Requests page through narrow scope and filter calls, while the project route explicitly reuses the hub route's exported page component and search validator. `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` adds the scoped route, and `apps/web/src/components/sidebar/SidebarChrome.tsx` resolves its project-window entry point.
+Scoped PR and Issues readiness lives in `apps/web/src/state/windowProjectBootstrap.fork.ts`.
+It observes only the named environment and preserves snapshot, initial retry and settled
+disconnect behavior; `state/shell.ts` retains upstream's all-environment bootstrap loop.
+The adopted `pull-request-project-scope` guard rejects inline route policy, nullable-project
+picker policy, the retired duplicate search module and scoped bootstrap declarations in
+upstream shell state. Narrow adapter calls, upstream option derivation and the hub validator
+remain the integration points during original-patch repair.
 Two bugfixes reproduce on an unmodified upstream build, so upstream is likely to fix them on its own and they are retire candidates; the rest are fork-only.
 The eager Lucide development-load guard tracks pending `pingdotgg/t3code#9943` at head `307b29ec`; retire the fork patch when the first upstream tag contains equivalent optimizer configuration and regression coverage.
 
@@ -325,6 +332,8 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/web/src/components/WindowProjectScopeToggle.tsx`                                                                              | Shared project/all-project segmented control.                                   |
 | `apps/web/src/components/pullRequest/PullRequestProjectScope.ts`                                                                    | Fork-owned physical scope policy and project-route adapter.                     |
 | `apps/web/src/components/pullRequest/PullRequestProjectScope.fork.test.ts`                                                          | Guards physical, all-project, remote, and search-patch scope behavior.          |
+| `apps/web/src/state/windowProjectBootstrap.fork.ts`, `apps/web/src/state/windowProjectBootstrap.fork.test.ts`                       | Scoped readiness shared by PRs and Issues, including remote retry transitions.  |
+| `apps/web/src/state/shell.ts`                                                                                                       | Retains upstream all-environment bootstrap and project readiness ownership.     |
 | `apps/web/src/components/sidebar/SidebarChrome.tsx`                                                                                 | Resolves Pull Requests and brand navigation in the active window scope.         |
 | `apps/web/src/components/ChatView.tsx`                                                                                              | Starts and navigates threads within project-window scope.                       |
 | `apps/web/src/components/settings/ProjectSettingsPanel.tsx`                                                                         | Project settings reached from scoped project-window chrome.                     |
