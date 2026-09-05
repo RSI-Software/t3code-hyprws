@@ -61,6 +61,8 @@ import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 import { RERERE_REF, readBotRefFile, saveRerereCache } from "./lib/fork-bot-refs.ts";
+import { parseSilentSeams } from "./fork-churn-ledger.ts";
+import { uniqueSilentSeams } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -3396,6 +3398,127 @@ it("unblock-check persists explicit silent seam evidence", () => {
       NodeFS.readFileSync(checked.recordPath, "utf8"),
       "`apps/desktop/src/preview/Manager.ts` [type]: adapt return type",
     );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("keeps distinct evidence once across check, refresh, check and auto resume", () => {
+  const input = "apps/a.ts=adapt return type:type";
+  const state = checkedRun(input);
+  const observations = [
+    parseSilentSeam(input),
+    parseSilentSeam("apps/a.ts=adapt return type:behaviour"),
+    parseSilentSeam("apps/a.ts=preserve focus:type"),
+  ];
+  try {
+    const first = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    execute(["unblock-refresh", "--report", state.reportPath], state.root, state.runner);
+    const checked = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--silent-seam",
+        input,
+        "--silent-seam",
+        input,
+        "--silent-seam",
+        "apps/a.ts=adapt return type:behaviour",
+        "--silent-seam",
+        "apps/a.ts=preserve focus:type",
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.deepStrictEqual(checked.silentSeams, observations);
+    assert.deepStrictEqual(checked.issue, first.issue);
+    assert.deepStrictEqual(checked.target, first.target);
+    assert.deepStrictEqual(
+      parseSilentSeams(NodeFS.readFileSync(checked.recordPath, "utf8")),
+      observations,
+    );
+    const installs = () =>
+      state.runner.calls.filter((c) => c.command === "vp" && c.args[0] === "i").length;
+    const beforeResume = installs();
+    const resumed = captureStdout(() =>
+      run(
+        ["unblock-auto", "--resume", "--report", state.reportPath, "--silent-seam", input],
+        state.root,
+        state.runner,
+      ),
+    );
+    assert.strictEqual(resumed.result, 2);
+    assert.include(resumed.output, "Gate 4 refusal: silent seam touches behaviour");
+    assert.strictEqual(installs(), beforeResume);
+    const after = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(after.silentSeams, observations);
+    assert.deepStrictEqual(
+      parseSilentSeams(NodeFS.readFileSync(after.recordPath, "utf8")),
+      observations,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("retains the first observation object and distinguishes exact evidence tuples", () => {
+  const first = {
+    path: "a=b",
+    summary: "c",
+    touchesBehaviour: false,
+    provenance: { source: "original" },
+  };
+  const other = { path: "a", summary: "b=c", touchesBehaviour: false };
+  const duplicate = { ...first, provenance: { source: "retry" } };
+  const result = uniqueSilentSeams([first, duplicate, other, first]);
+  assert.strictEqual(result[0], first);
+  assert.strictEqual(result[1], other);
+  assert.strictEqual(result.length, 2);
+  assert.deepStrictEqual(first.provenance, { source: "original" });
+});
+
+it("retries a failed check without accumulating evidence and normalizes old duplicates", () => {
+  const input = "apps/a.ts=adapt return type:type";
+  const state = checkedRun(input);
+  try {
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    // Legacy reports may already contain repeated observations; no history ledger is rewritten.
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({ ...checked, silentSeams: [parseSilentSeam(input), parseSilentSeam(input)] }),
+    );
+    execute(["unblock-refresh", "--report", state.reportPath], state.root, state.runner);
+    const before = NodeFS.readFileSync(state.reportPath, "utf8");
+    const scan = ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"];
+    state.runner.set("vp", scan, { status: 1, stderr: "scan failed" });
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-check", "--report", state.reportPath, "--silent-seam", input],
+          state.root,
+          state.runner,
+        ),
+      /scan failed/,
+    );
+    const failed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(failed.silentSeams, JSON.parse(before).silentSeams);
+    state.runner.set("vp", scan, { status: 0 });
+    const retried = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.deepStrictEqual(retried.silentSeams, [parseSilentSeam(input)]);
+    assert.deepStrictEqual(
+      parseSilentSeams(NodeFS.readFileSync(retried.recordPath, "utf8")),
+      retried.silentSeams,
+    );
+    assert.deepStrictEqual(retried.source, checked.source);
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
