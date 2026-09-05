@@ -46,6 +46,34 @@ const authoringCases = [
     rule: "sidebar-physical-scope",
     domain: "project-windows",
   },
+  {
+    name: "chat route-family selection",
+    sourcePath: "apps/web/src/components/ChatView.tsx",
+    inlineImplementation: 'import { resolveThreadRouteFamily } from "../threadRoutes";',
+    forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
+    integrationCall: "const routeFamily = useThreadRouteFamily();",
+    rule: "thread-route-navigation",
+    domain: "project-windows",
+  },
+  {
+    name: "command palette route-family selection",
+    sourcePath: "apps/web/src/components/CommandPalette.tsx",
+    inlineImplementation:
+      "const routeFamily = useParams({ select: (params) => resolveThreadRouteFamily(params) });",
+    forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
+    integrationCall: "const routeFamily = useThreadRouteFamily();",
+    rule: "thread-route-navigation",
+    domain: "project-windows",
+  },
+  {
+    name: "new-thread route-family selection",
+    sourcePath: "apps/web/src/hooks/useHandleNewThread.ts",
+    inlineImplementation: 'import { resolveThreadRouteFamily } from "../threadRoutes";',
+    forkPath: "apps/web/src/lib/threadRouteNavigation.ts",
+    integrationCall: "navigate(resolveThreadRouteFamily(getCurrentRouteParams()).draft(draftId));",
+    rule: "thread-route-navigation",
+    domain: "project-windows",
+  },
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
