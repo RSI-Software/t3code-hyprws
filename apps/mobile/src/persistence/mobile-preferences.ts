@@ -56,6 +56,7 @@ export interface Preferences {
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
   readonly threadListWorkingShelfExpanded?: boolean;
+  readonly terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -121,6 +122,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     threadListWorkingShelfExpanded?: boolean;
+    terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -226,6 +228,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
     preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
+  }
+  if (parsed.terminalCheckoutModes && typeof parsed.terminalCheckoutModes === "object") {
+    preferences.terminalCheckoutModes = Object.fromEntries(
+      Object.entries(parsed.terminalCheckoutModes).filter(
+        (entry): entry is [string, "follow" | "pin"] => entry[1] === "follow" || entry[1] === "pin",
+      ),
+    );
   }
   return preferences;
 }
