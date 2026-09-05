@@ -16,6 +16,7 @@ const TerminalRowsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).ch
   Schema.isLessThanOrEqualTo(500),
 );
 const TerminalIdSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(128));
+const TerminalAttachmentIdSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(128));
 const TerminalEnvKeySchema = Schema.String.check(
   Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
 ).check(Schema.isMaxLength(128));
@@ -33,6 +34,8 @@ export type TerminalThreadInput = typeof TerminalThreadInput.Type;
 const TerminalSessionInput = Schema.Struct({
   ...TerminalThreadInput.fields,
   terminalId: TerminalIdSchema,
+  /** Viewer-local managed attachment. Omission preserves the legacy shared terminal. */
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
 });
 export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionInput>;
 
@@ -86,6 +89,7 @@ export type TerminalRestartInput = Schema.Codec.Encoded<typeof TerminalRestartIn
 export const TerminalCloseInput = Schema.Struct({
   ...TerminalThreadInput.fields,
   terminalId: Schema.optional(TerminalIdSchema),
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   deleteHistory: Schema.optional(Schema.Boolean),
 });
 export type TerminalCloseInput = typeof TerminalCloseInput.Type;
@@ -99,6 +103,7 @@ export type TerminalAttachmentStatus = typeof TerminalAttachmentStatus.Type;
 export const TerminalSessionSnapshot = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   cwd: Schema.String.check(Schema.isNonEmpty()),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
@@ -118,6 +123,7 @@ export type TerminalSessionSnapshot = typeof TerminalSessionSnapshot.Type;
 export const TerminalSummary = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   cwd: Schema.String.check(Schema.isNonEmpty()),
   worktreePath: Schema.NullOr(TrimmedNonEmptyStringSchema),
   status: TerminalSessionStatus,
@@ -148,6 +154,7 @@ const TerminalMetadataRemoveEvent = Schema.Struct({
   type: Schema.Literal("remove"),
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
 });
 
 export const TerminalMetadataStreamEvent = Schema.Union([
@@ -160,6 +167,7 @@ export type TerminalMetadataStreamEvent = typeof TerminalMetadataStreamEvent.Typ
 const TerminalEventBaseSchema = Schema.Struct({
   threadId: Schema.String.check(Schema.isNonEmpty()),
   terminalId: Schema.String.check(Schema.isNonEmpty()),
+  attachmentId: Schema.optional(TerminalAttachmentIdSchema),
   sequence: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 
