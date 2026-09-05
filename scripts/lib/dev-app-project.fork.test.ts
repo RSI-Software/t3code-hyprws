@@ -111,6 +111,34 @@ describe("dev app project fixture", () => {
     assert.isFalse(NodeFS.existsSync(NodePath.join(outside, ".git")));
   });
 
+  it("refuses external Git metadata without changing it", () => {
+    const checkout = makeCheckout();
+    const outside = makeCheckout();
+    const fixtureRoot = NodePath.join(checkout, DEV_APP_PROJECT_RELATIVE_PATH);
+    const externalGitDir = NodePath.join(outside, "fixture.git");
+    NodeFS.mkdirSync(fixtureRoot, { recursive: true });
+    NodeChildProcess.execFileSync("git", ["init", "--bare", externalGitDir]);
+    NodeFS.writeFileSync(NodePath.join(fixtureRoot, ".git"), `gitdir: ${externalGitDir}\n`);
+    const configBefore = NodeFS.readFileSync(NodePath.join(externalGitDir, "config"), "utf8");
+
+    assert.throws(() => prepareDevAppProject(checkout), /Git metadata must be a real directory/u);
+    assert.equal(
+      NodeFS.readFileSync(NodePath.join(externalGitDir, "config"), "utf8"),
+      configBefore,
+    );
+  });
+
+  it("refuses a symlinked source directory without writing through it", () => {
+    const checkout = makeCheckout();
+    const outside = makeCheckout();
+    const fixtureRoot = NodePath.join(checkout, DEV_APP_PROJECT_RELATIVE_PATH);
+    NodeFS.mkdirSync(fixtureRoot, { recursive: true });
+    NodeFS.symlinkSync(outside, NodePath.join(fixtureRoot, "src"), "dir");
+
+    assert.throws(() => prepareDevAppProject(checkout), /source must be a real directory/u);
+    assert.deepStrictEqual(NodeFS.readdirSync(outside), []);
+  });
+
   it("removes inherited runner and bootstrap channels from the project CLI", () => {
     assert.deepStrictEqual(
       devAppProjectCliEnvironment({

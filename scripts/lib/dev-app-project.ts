@@ -51,9 +51,41 @@ function writeMissingFixtureFiles(root: string): void {
 }
 
 function assertFixtureRepository(root: string, git: SystemGit): void {
+  const gitPath = NodePath.join(root, ".git");
+  const gitMetadata = NodeFS.lstatSync(gitPath);
+  if (!gitMetadata.isDirectory() || gitMetadata.isSymbolicLink()) {
+    throw new Error(`dev app fixture Git metadata must be a real directory: ${gitPath}`);
+  }
+
   const discoveredRoot = NodeFS.realpathSync(git.run(["rev-parse", "--show-toplevel"]).trim());
   if (discoveredRoot !== NodeFS.realpathSync(root)) {
     throw new Error(`dev app fixture Git root resolved to ${discoveredRoot}, expected ${root}`);
+  }
+
+  const gitDir = NodeFS.realpathSync(git.run(["rev-parse", "--absolute-git-dir"]).trim());
+  const expectedGitDir = NodeFS.realpathSync(gitPath);
+  if (gitDir !== expectedGitDir) {
+    throw new Error(
+      `dev app fixture Git metadata resolved to ${gitDir}, expected ${expectedGitDir}`,
+    );
+  }
+}
+
+function prepareFixtureSourceDirectory(root: string): void {
+  const sourcePath = NodePath.join(root, "src");
+  try {
+    const source = NodeFS.lstatSync(sourcePath);
+    if (!source.isDirectory() || source.isSymbolicLink()) {
+      throw new Error(`dev app fixture source must be a real directory: ${sourcePath}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    NodeFS.mkdirSync(sourcePath);
+  }
+
+  const source = NodeFS.realpathSync(sourcePath);
+  if (source !== sourcePath) {
+    throw new Error(`dev app fixture source resolves outside its repository: ${source}`);
   }
 }
 
@@ -109,6 +141,7 @@ export function prepareDevAppProject(checkoutRoot: string): DevAppProjectFixture
     return { root, created: false };
   }
 
+  prepareFixtureSourceDirectory(root);
   writeMissingFixtureFiles(root);
   git.run(["config", "user.name", "T3 Code Dev Fixture"]);
   git.run(["config", "user.email", "dev-fixture@t3.codes"]);
