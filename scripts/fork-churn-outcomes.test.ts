@@ -383,4 +383,92 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
       assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
     }),
   );
+
+  // An existing checkout must append to a ledger another writer already advanced, rather
+  // than lease its own stale head forever (RSI-Software/t3code-hyprws#631).
+  it.effect("appends to a published ledger the checkout has not seen yet", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const remote = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-remote-" });
+      const publisher = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-publisher-" });
+      const consumer = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-consumer-" });
+      const git = (cwd: string) => (args: ReadonlyArray<string>) =>
+        NodeChildProcess.execFileSync("git", [...args], {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      const bare = git(remote);
+      const origin = git(publisher);
+      const existing = git(consumer);
+      bare(["init", "--quiet", "--bare", "."]);
+      origin(["init", "--initial-branch=fixture"]);
+      origin(["config", "user.name", "Fixture"]);
+      origin(["config", "user.email", "fixture@example.invalid"]);
+      origin(["commit", "--allow-empty", "-m", "older target"]);
+      const olderSha = origin(["rev-parse", "HEAD"]);
+      origin(["commit", "--allow-empty", "-m", "newer target"]);
+      const newerSha = origin(["rev-parse", "HEAD"]);
+      origin(["remote", "add", "origin", remote]);
+      origin(["push", "--quiet", "origin", "fixture"]);
+      writeBotRefFile(
+        publisher,
+        CHURN_REF,
+        CHURN_LEDGER_FILE,
+        '{"version":3,"walks":[],"seamRecords":[],"outcomes":[]}\n',
+        "churn: seed",
+      );
+      origin(["push", "--quiet", "origin", `${CHURN_REF}:${CHURN_REF}`]);
+      existing(["clone", "--quiet", remote, "."]);
+      existing(["config", "user.name", "Fixture"]);
+      existing(["config", "user.email", "fixture@example.invalid"]);
+      existing(["fetch", "--quiet", "origin", `+${CHURN_REF}:${CHURN_REF}`]);
+      const stale = existing(["rev-parse", CHURN_REF]);
+
+      const target = (tag: string, sha: string) => ({
+        kind: "target",
+        target: { tag, sha },
+        eligible: true,
+        reason: "selected tagged target under the fork tag policy",
+      });
+      const run = (cwd: string, args: ReadonlyArray<string>) =>
+        NodeChildProcess.spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8" });
+      yield* fs.writeFileString(
+        NodePath.join(publisher, "input.json"),
+        yield* encode({ version: 1, receipts: [target("v1-nightly.2", newerSha)] }),
+      );
+      const published = run(publisher, ["outcome", "--input", "input.json", "--push"]);
+      assert.strictEqual(published.status, 0, published.stderr);
+      const advanced = origin(["rev-parse", CHURN_REF]);
+      assert.notStrictEqual(advanced, stale);
+
+      // The consumer still holds the seed commit and its own pending import.
+      assert.strictEqual(existing(["rev-parse", CHURN_REF]), stale);
+      yield* fs.writeFileString(
+        NodePath.join(consumer, "input.json"),
+        yield* encode({ version: 1, receipts: [target("v1-nightly.1", olderSha)] }),
+      );
+      const appended = run(consumer, ["outcome", "--input", "input.json", "--push"]);
+      assert.strictEqual(appended.status, 0, appended.stderr);
+      assert.deepStrictEqual(
+        readChurnState(consumer).outcomes.map((row) =>
+          row.kind === "target" ? row.target.tag : row.kind,
+        ),
+        ["v1-nightly.1", "v1-nightly.2"],
+      );
+      const head = existing(["rev-parse", CHURN_REF]);
+      assert.strictEqual(
+        bare(["rev-parse", CHURN_REF]),
+        head,
+        "origin carries exactly the appended ledger",
+      );
+
+      // Reimporting identical evidence adds nothing and leaves the ledger object alone.
+      const replay = run(consumer, ["outcome", "--input", "input.json", "--push"]);
+      assert.strictEqual(replay.status, 0, replay.stderr);
+      assert.strictEqual((decodeJson(replay.stdout) as { added: number }).added, 0);
+      assert.strictEqual(existing(["rev-parse", CHURN_REF]), head);
+      assert.strictEqual(bare(["rev-parse", CHURN_REF]), head);
+    }),
+  );
 });
