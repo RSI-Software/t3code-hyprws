@@ -230,6 +230,7 @@ export const autoOutcomeReceipts = (
 export const syncOutcomeReceipts = (
   report: SyncReport,
   id = attemptId(),
+  failure?: { readonly phase: string; readonly detail: string },
 ): ReadonlyArray<OutcomeReceipt> => {
   if (!report.target || !report.source) return [];
   const executor = report.botCarried
@@ -252,15 +253,26 @@ export const syncOutcomeReceipts = (
   receipts.push(
     stage(attempt, "selection", "succeeded", "target bound by the retained sync report"),
   );
-  const verified = report.ciHead !== undefined && report.ciHead === report.installedHead;
+  const checkFailed = failure?.phase === "unblock-check";
+  const applyFailed = failure?.phase === "unblock-apply" && report.stage !== "applied";
+  const verified =
+    !checkFailed && report.ciHead !== undefined && report.ciHead === report.installedHead;
   receipts.push(
     stage(
       attempt,
       "verification",
-      verified ? "succeeded" : report.stage === "conflicts" ? "blocked" : "unknown",
-      verified
-        ? "retained checked CI head"
-        : `walk stopped at ${report.stage}; no matching CI-head receipt`,
+      checkFailed
+        ? "failed"
+        : verified
+          ? "succeeded"
+          : report.stage === "conflicts"
+            ? "blocked"
+            : "unknown",
+      checkFailed
+        ? failure.detail
+        : verified
+          ? "retained checked CI head"
+          : `walk stopped at ${report.stage}; no matching CI-head receipt`,
       verified ? report.ciHead : undefined,
     ),
   );
@@ -268,10 +280,12 @@ export const syncOutcomeReceipts = (
     stage(
       attempt,
       "apply",
-      report.stage === "applied" ? "succeeded" : "not-attempted",
-      report.stage === "applied"
-        ? "durable trunk apply in retained report"
-        : "checked/installed lane head is not trunk apply",
+      report.stage === "applied" ? "succeeded" : applyFailed ? "failed" : "not-attempted",
+      applyFailed
+        ? failure.detail
+        : report.stage === "applied"
+          ? "durable trunk apply in retained report"
+          : "checked/installed lane head is not trunk apply",
       report.stage === "applied" ? report.installedHead : undefined,
     ),
   );
@@ -288,11 +302,38 @@ export const syncOutcomeReceipts = (
 };
 
 /** Sidecar is local evidence only. Publishing the bot ledger stays an explicit outcome command. */
-export const captureSyncOutcome = (report: SyncReport): void => {
-  const receipts = syncOutcomeReceipts(report);
-  if (receipts.length === 0) return;
+export const captureSyncOutcome = (report: SyncReport, phase?: string, failure?: string): void => {
+  if (!report.target || !report.source) return;
   const path = `${report.reportPath}.outcome.json`;
   const previous = NodeFS.existsSync(path) ? readBundle(path) : [];
+  const fingerprint = NodeCrypto.createHash("sha256")
+    .update(
+      JSON.stringify({
+        target: report.target,
+        source: report.source,
+        stage: report.stage,
+        installedHead: report.installedHead,
+        ciHead: report.ciHead,
+        verification: report.verification,
+        rererePublication: report.rererePublication,
+      }),
+    )
+    .digest("hex");
+  const snapshot = `/snapshot-${fingerprint}`;
+  if (
+    phase === undefined &&
+    previous.some((row) => row.kind === "attempt" && row.attemptId.endsWith(snapshot))
+  )
+    return;
+  const verdict =
+    failure === undefined
+      ? "complete"
+      : NodeCrypto.createHash("sha256").update(failure).digest("hex");
+  const receipts = syncOutcomeReceipts(
+    report,
+    `${attemptId()}/${phase ?? "report-collection"}/${verdict}${snapshot}`,
+    phase && failure ? { phase, detail: failure } : undefined,
+  );
   saveBundle(path, [...previous, ...receipts]);
 };
 
@@ -564,7 +605,7 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
         stage(attempt, "apply", "unknown", "no report proves whether trunk apply was attempted"),
       ];
     } else {
-      if (!NodeFS.existsSync(`${path}.outcome.json`)) captureSyncOutcome(readReport(path));
+      captureSyncOutcome(readReport(path));
       receipts = readBundle(`${path}.outcome.json`);
     }
     if (process.env.FORK_OUTCOME_CACHE_EXPORT) {

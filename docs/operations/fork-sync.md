@@ -132,7 +132,13 @@ vp run fork:churn outcome --sync-report /path/sync-report.json --push
 vp run fork:churn outcome --input reviewed-outcomes.json --push
 ```
 
-Sync commands retain a local `.outcome.json` sidecar, including conflict stops. Set
+The auto, rehearse, check, and apply commands retain a local `.outcome.json` sidecar,
+including conflict stops and failed verification. List, orient, review, and refresh do not
+create carry attempts. Workflow identity is extended with the command phase and an immutable
+report-snapshot digest: a stopped walk and its resumed apply retain separate attempts, while
+re-collecting an unchanged snapshot adds nothing. Collectors refresh the report before reading
+its sidecar; an old sidecar cannot hide a later apply. Local executing commands receive a new
+invocation ID, while readback reuses the retained snapshot evidence. Set
 `FORK_OUTCOME_EXECUTOR=agent` or `human` before an operator's sync invocation; otherwise
 that executor remains unknown. `FORK_OUTCOME_EXPORT` saves an importable bundle before
 ledger publication. Workflow artifacts retain raw reports and outcome bundles for 90 days.

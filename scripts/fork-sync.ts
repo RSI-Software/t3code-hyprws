@@ -1912,10 +1912,12 @@ class AutoBotRefusal extends Error {
 }
 class AutoFailure extends Error {
   readonly reportPath: string;
+  readonly phase: "unblock-auto" | "unblock-rehearse" | "unblock-check" | "unblock-apply";
 
-  constructor(message: string, reportPath: string) {
+  constructor(message: string, reportPath: string, phase: AutoFailure["phase"]) {
     super(message);
     this.reportPath = reportPath;
+    this.phase = phase;
   }
 }
 
@@ -2483,6 +2485,7 @@ const unblockAuto = (
     writeReport(report);
   }
 
+  let executingPhase: AutoFailure["phase"] = "unblock-auto";
   try {
     if (report.stage !== "applied") {
       if (resume) {
@@ -2528,10 +2531,12 @@ const unblockAuto = (
     }
 
     while (report.stage === "oriented" || report.stage === "conflicts") {
+      executingPhase = "unblock-rehearse";
       const rehearsal = captureStdout(() =>
         unblockRehearse(new Map([["--report", report.reportPath]]), cwd, runner),
       );
       report = rehearsal.value;
+      executingPhase = "unblock-auto";
       if (report.stage !== "conflicts") continue;
       report =
         autoResolveConflicts(report, runner) ??
@@ -2546,7 +2551,9 @@ const unblockAuto = (
       // parseVerbArgs joins repeated --silent-seam with newline; unblockCheck splits again
       if (silentSeamEntries.length > 0)
         checkArgs.set("--silent-seam", silentSeamEntries.join("\n"));
+      executingPhase = "unblock-check";
       report = captureStdout(() => unblockCheck(checkArgs, cwd, runner)).value;
+      executingPhase = "unblock-auto";
     }
 
     if (report.stage === "checked") {
@@ -2637,6 +2644,7 @@ const unblockAuto = (
       if (!orientationCoheres(report, runner))
         stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
       validateAutoLane(report, runner);
+      executingPhase = "unblock-apply";
       report = captureStdout(() =>
         unblockApply(
           new Map([
@@ -2647,6 +2655,7 @@ const unblockAuto = (
           runner,
         ),
       ).value;
+      executingPhase = "unblock-auto";
       process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
     }
 
@@ -2671,6 +2680,7 @@ const unblockAuto = (
     throw new AutoFailure(
       error instanceof Error ? error.message : String(error),
       report.reportPath,
+      executingPhase,
     );
   }
 };
@@ -3057,12 +3067,16 @@ export const run = (
     return 0;
   }
   let completedReport: SyncReport | null = null;
+  let outcomeFailure: string | undefined;
+  let outcomePhase = argv[0];
   let outcomeReportPath = argv[argv.indexOf("--report") + 1];
   if (!argv.includes("--report")) outcomeReportPath = undefined;
   try {
     completedReport = execute(argv, cwd, runner);
     return 0;
   } catch (error) {
+    outcomeFailure = error instanceof Error ? error.message : String(error);
+    if (error instanceof AutoFailure) outcomePhase = error.phase;
     if (
       error instanceof AutoFailure ||
       error instanceof AutoBotRefusal ||
@@ -3097,11 +3111,13 @@ export const run = (
     process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   } finally {
-    if (argv[0]?.startsWith("unblock-")) {
+    if (
+      ["unblock-auto", "unblock-rehearse", "unblock-check", "unblock-apply"].includes(argv[0] ?? "")
+    ) {
       const path = completedReport?.reportPath ?? outcomeReportPath;
       if (path && NodeFS.existsSync(path)) {
         try {
-          captureSyncOutcome(readReport(path));
+          captureSyncOutcome(readReport(path), outcomePhase, outcomeFailure);
         } catch (error) {
           process.stderr.write(
             `outcome capture failed: ${error instanceof Error ? error.message : String(error)}\n`,

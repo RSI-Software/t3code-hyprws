@@ -164,6 +164,58 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         assert.deepStrictEqual(distribution.interveningCommits, [releasedSha]);
         assert.strictEqual(distribution.verifiedSha, releasedSha);
         assert.isTrue(yield* fs.exists(NodePath.join(root, "retained.json")));
+        const report = {
+          schemaVersion: 1,
+          stage: "conflicts",
+          repositoryRoot: root,
+          reportPath: NodePath.join(root, "sync-report.json"),
+          recordPath: NodePath.join(root, "record.md"),
+          issue: { number: 1, title: "retained stop", blockingSha: targetSha },
+          candidates: [target.target],
+          target: target.target,
+          source: { sha: appliedSha, sharedBase: targetSha, expectedOld: appliedSha },
+          botCarried: true,
+          conflicts: [],
+          verification: [],
+          installedHead: releasedSha,
+        };
+        yield* write("sync-report.json", report);
+        const stopped = run(["outcome", "--sync-report", "sync-report.json"]);
+        assert.strictEqual(stopped.status, 0, stopped.stderr);
+        const stoppedAttempt = decode(stopped.stdout).attempts.at(-1)!;
+        assert.strictEqual(
+          decode(stopped.stdout).stages.find(
+            (row) => row.attemptId === stoppedAttempt.attemptId && row.stage === "verification",
+          )?.status,
+          "blocked",
+        );
+        yield* write("sync-report.json", {
+          ...report,
+          stage: "applied",
+          ciHead: releasedSha,
+          rererePublication: { state: "published" },
+        });
+        const resumed = run(["outcome", "--sync-report", "sync-report.json"], {
+          FORK_OUTCOME_CACHE_EXPORT: "success",
+        });
+        assert.strictEqual(resumed.status, 0, resumed.stderr);
+        const resumedOutcome = decode(resumed.stdout);
+        assert.strictEqual(resumedOutcome.appliedSha, releasedSha);
+        assert.notStrictEqual(resumedOutcome.attempts.at(-1)!.attemptId, stoppedAttempt.attemptId);
+        assert.strictEqual(
+          resumedOutcome.stages.find(
+            (row) => row.attemptId === stoppedAttempt.attemptId && row.stage === "verification",
+          )?.status,
+          "blocked",
+        );
+        const retained = git(["rev-parse", CHURN_REF]);
+        assert.strictEqual(
+          run(["outcome", "--sync-report", "sync-report.json"], {
+            FORK_OUTCOME_CACHE_EXPORT: "success",
+          }).status,
+          0,
+        );
+        assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
       }),
   );
 });

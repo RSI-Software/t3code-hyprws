@@ -290,6 +290,17 @@ it("retains durable apply with pending cache but never mistakes a checked lane f
   );
 });
 
+it("retains a failed manual verification without claiming a trunk apply", () => {
+  const rows = syncOutcomeReceipts(syncReport("checked"), "manual-check", {
+    phase: "unblock-check",
+    detail: "hyprws CI failed for the selected lane",
+  });
+  const outcome = summarizeOutcomes(rows)[0]!;
+  assert.strictEqual(outcome.stages.find((row) => row.stage === "verification")?.status, "failed");
+  assert.strictEqual(outcome.appliedSha, null);
+  assert.strictEqual(outcome.noAgentCarry, false);
+});
+
 it("keeps release failure visible and resumes release without another rebase", () => {
   const failed = requireOutcomeReceipts([
     ...clean,
