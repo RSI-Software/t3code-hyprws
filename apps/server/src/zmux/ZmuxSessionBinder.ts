@@ -31,6 +31,8 @@ const ZmuxResolveOutput = Schema.Struct({
   match: Schema.String,
   tmuxName: Schema.NullOr(Schema.String),
   nativeId: Schema.NullOr(Schema.String),
+  serverId: Schema.optional(Schema.String),
+  createdAt: Schema.optional(Schema.Number),
   state: Schema.String,
   binding: Schema.Struct({
     branch: Schema.NullOr(Schema.String),
@@ -76,6 +78,8 @@ export type ZmuxResolveResult =
       readonly match: string;
       readonly tmuxName?: string | null;
       readonly nativeId?: string | null;
+      readonly serverId?: string;
+      readonly createdAt?: number;
       readonly state?: string;
       readonly binding?: {
         readonly branch: string | null;
@@ -257,6 +261,8 @@ export const make = Effect.gen(function* () {
       match: decoded.success.match,
       tmuxName: decoded.success.tmuxName,
       nativeId: decoded.success.nativeId,
+      ...(decoded.success.serverId === undefined ? {} : { serverId: decoded.success.serverId }),
+      ...(decoded.success.createdAt === undefined ? {} : { createdAt: decoded.success.createdAt }),
       state: decoded.success.state,
       binding: decoded.success.binding,
     } as const;
@@ -505,62 +511,30 @@ export const make = Effect.gen(function* () {
       return { status: "not-worktree" } as const;
     }
 
-    if (resolved.state !== "live" || !resolved.nativeId) {
-      return {
-        status: "failed",
-        notice: {
-          summary: "zmux session cleanup identity could not be prepared",
-          detail: `Session ${resolved.target} is not live with a native identity. Remove it manually with \`zmux session kill ${resolved.target}\` after verifying its ownership.`,
-        },
-      } as const;
-    }
-
-    const identityResult = yield* processRunner
-      .run({
-        command: "tmux",
-        args: [
-          "display-message",
-          "-p",
-          "-t",
-          resolved.nativeId,
-          "-F",
-          "#{session_id}\t#{pid}:#{start_time}\t#{session_created}",
-        ],
-        env,
-        extendEnv: false,
-      })
-      .pipe(Effect.result);
-    if (identityResult._tag === "Failure") {
-      return {
-        status: "failed",
-        notice: {
-          summary: "zmux session cleanup identity could not be prepared",
-          detail: identityResult.failure.message,
-        },
-      } as const;
-    }
-    const output = identityResult.success;
-    const [nativeId, serverId, createdAtText] = output.stdout.trim().split("\t");
-    const createdAt = Number(createdAtText);
     if (
-      output.code !== 0 ||
-      nativeId !== resolved.nativeId ||
-      !serverId ||
-      !Number.isSafeInteger(createdAt) ||
-      createdAt <= 0
+      resolved.state !== "live" ||
+      !resolved.nativeId ||
+      !resolved.serverId ||
+      !Number.isSafeInteger(resolved.createdAt) ||
+      (resolved.createdAt ?? 0) <= 0
     ) {
       return {
         status: "failed",
         notice: {
           summary: "zmux session cleanup identity could not be prepared",
-          detail: `Session ${resolved.target} changed while its native identity was read. Verify it before running \`zmux session kill ${resolved.target}\`.`,
+          detail: `Session ${resolved.target} did not provide an exact cleanup identity. Its processes will be preserved; verify ownership before running \`zmux session kill ${resolved.target}\`.`,
         },
       } as const;
     }
 
     return {
       status: "prepared",
-      identity: { target: resolved.target, nativeId, serverId, createdAt },
+      identity: {
+        target: resolved.target,
+        nativeId: resolved.nativeId,
+        serverId: resolved.serverId,
+        createdAt: resolved.createdAt!,
+      },
     } as const;
   });
 
@@ -576,6 +550,7 @@ export const make = Effect.gen(function* () {
         identity.serverId,
         "--if-created-at",
         String(identity.createdAt),
+        "--json",
       ]).pipe(Effect.result);
       if (runResult._tag === "Failure") {
         if (isMissingZmux(runResult.failure)) {

@@ -248,7 +248,7 @@ describe("GitWorkflowService", () => {
       expect(unbind).not.toHaveBeenCalled();
     }).pipe(Effect.provide(layer));
   });
-  it.effect("keeps a successful removal successful when exact session cleanup is refused", () => {
+  it.effect("reports a partial failure after Git succeeds but exact cleanup is refused", () => {
     const removeWorktree = vi.fn(() => Effect.void);
     const unbind = vi.fn(() =>
       Effect.succeed({
@@ -282,9 +282,15 @@ describe("GitWorkflowService", () => {
     );
     return Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
-      yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
+      const failure = yield* workflow
+        .removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false })
+        .pipe(Effect.flip);
       expect(removeWorktree).toHaveBeenCalledOnce();
       expect(unbind).toHaveBeenCalledOnce();
+      assert.equal(failure._tag, "GitCommandError");
+      assert.equal(failure.operation, "GitWorkflowService.removeWorktree.cleanup");
+      assert.match(failure.detail, /worktree was removed/);
+      assert.match(failure.detail, /zmux session kill \$23/);
     }).pipe(Effect.provide(layer));
   });
   it.effect("removes a plain worktree without running Worktrunk hooks", () => {
@@ -427,6 +433,40 @@ describe("GitWorkflowService", () => {
       yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
       assert.equal(unbind.mock.calls.length, 0);
       assert.equal(removeWorktree.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
+  it.effect("reports preserved cleanup when identity preparation failed before removal", () => {
+    const removeWorktree = vi.fn(() => Effect.void);
+    const unbind = vi.fn(() => Effect.succeed({ status: "unbound" as const, target: "repo/wt" }));
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ resolve: resolveGitHandle })),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          prepareUnbind: () =>
+            Effect.succeed({
+              status: "failed" as const,
+              notice: {
+                summary: "cleanup identity unavailable",
+                detail: "resolve did not return a server generation",
+              },
+            }),
+          unbind,
+        }),
+      ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
+    );
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const failure = yield* workflow
+        .removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false })
+        .pipe(Effect.flip);
+      expect(removeWorktree).toHaveBeenCalledOnce();
+      expect(unbind).not.toHaveBeenCalled();
+      assert.equal(failure.operation, "GitWorkflowService.removeWorktree.cleanup");
+      assert.match(failure.detail, /managed session was preserved/);
+      assert.match(failure.detail, /server generation/);
     }).pipe(Effect.provide(layer));
   });
 });

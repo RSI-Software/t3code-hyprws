@@ -43,6 +43,8 @@ const resolveJson = JSON.stringify({
   match: "worktree",
   tmuxName: "t3code__feat_test",
   nativeId: "$42",
+  serverId: "123:456",
+  createdAt: 789,
   state: "live",
   binding: {
     branch: "feat/test",
@@ -170,9 +172,6 @@ describe("ZmuxSessionBinder", () => {
 
   it.effect("resolves and kills only the worktree-matched managed session", () => {
     const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
-      if (input.command === "tmux") {
-        return Effect.succeed({ ...successfulOutput, stdout: "$42\t123:456\t789\n" });
-      }
       if (input.args[1] === "resolve") {
         return Effect.succeed({ ...successfulOutput, stdout: resolveJson });
       }
@@ -193,6 +192,8 @@ describe("ZmuxSessionBinder", () => {
         match: "worktree",
         tmuxName: "t3code__feat_test",
         nativeId: "$42",
+        serverId: "123:456",
+        createdAt: 789,
         state: "live",
         binding: {
           branch: "feat/test",
@@ -209,14 +210,6 @@ describe("ZmuxSessionBinder", () => {
           ["session", "resolve", "--cwd", "/repo/wt", "--json"],
           ["session", "resolve", "--cwd", "/repo/wt", "--json"],
           [
-            "display-message",
-            "-p",
-            "-t",
-            "$42",
-            "-F",
-            "#{session_id}\t#{pid}:#{start_time}\t#{session_created}",
-          ],
-          [
             "session",
             "kill",
             "t3code/feat/test",
@@ -226,17 +219,18 @@ describe("ZmuxSessionBinder", () => {
             "123:456",
             "--if-created-at",
             "789",
+            "--json",
           ],
         ],
       );
     }).pipe(Effect.provide(makeLayer(run)));
   });
 
-  it.effect("refuses cleanup when the native session changes during preparation", () => {
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+  it.effect("refuses cleanup preparation without the complete native generation", () => {
+    const run = vi.fn(() =>
       Effect.succeed({
         ...successfulOutput,
-        stdout: input.command === "tmux" ? "$99\t123:456\t789\n" : resolveJson,
+        stdout: JSON.stringify({ ...JSON.parse(resolveJson), serverId: undefined }),
       }),
     );
 
@@ -245,11 +239,7 @@ describe("ZmuxSessionBinder", () => {
       const prepared = yield* binder.prepareUnbind("/repo/wt");
 
       assert.equal(prepared.status, "failed");
-      assert.equal(run.mock.calls.length, 2);
-      assert.equal(
-        run.mock.calls.some(([input]) => input.args[1] === "kill"),
-        false,
-      );
+      assert.equal(run.mock.calls.length, 1);
     }).pipe(Effect.provide(makeLayer(run)));
   });
 

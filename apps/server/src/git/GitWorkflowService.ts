@@ -381,24 +381,20 @@ export const make = Effect.gen(function* () {
                   result.status === "failed"
                     ? result.notice.detail
                     : `cleanup returned ${result.status}`;
-                yield* Effect.logWarning(
-                  "worktree was removed but its verified zmux session could not be cleaned up",
-                  {
-                    worktreePath: input.path,
-                    target: preparedUnbind.identity.target,
-                    detail,
-                    recovery: `Verify ownership, then run \`zmux session kill ${preparedUnbind.identity.target}\`.`,
-                  },
-                );
+                return yield* new GitCommandError({
+                  operation: "GitWorkflowService.removeWorktree.cleanup",
+                  command: "zmux session kill",
+                  cwd: input.cwd,
+                  detail: `The worktree was removed, but its managed session cleanup failed: ${detail}. Verify the frozen native session ${preparedUnbind.identity.nativeId}, then run \`zmux session kill ${preparedUnbind.identity.nativeId}\`.`,
+                });
               }
             } else if (preparedUnbind.status === "failed") {
-              yield* Effect.logWarning(
-                "worktree was removed but no verified zmux cleanup identity was available",
-                {
-                  worktreePath: input.path,
-                  detail: preparedUnbind.notice.detail,
-                },
-              );
+              return yield* new GitCommandError({
+                operation: "GitWorkflowService.removeWorktree.cleanup",
+                command: "zmux session resolve",
+                cwd: input.cwd,
+                detail: `The worktree was removed, but its managed session was preserved because cleanup ownership could not be verified: ${preparedUnbind.notice.detail}`,
+              });
             }
           }),
         ),
