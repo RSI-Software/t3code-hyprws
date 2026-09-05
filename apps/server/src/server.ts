@@ -93,6 +93,7 @@ import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "./sourceControl/SourceControlRateLimit.ts";
@@ -176,6 +177,7 @@ const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
   Layer.provide(ProcessRunner.layer),
   Layer.provideMerge(ServerSettingsLayerLive),
 );
+const CheckoutMutationCoordinatorLayerLive = CheckoutMutationCoordinator.layer;
 const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
   Layer.provide(ProcessRunner.layer),
 );
@@ -285,7 +287,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
-  Layer.provideMerge(CheckpointReactorLive),
+  Layer.provideMerge(CheckpointReactorLive.pipe(Layer.provide(ProcessRunner.layer))),
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(ThreadSettlementReactor.layer),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
@@ -542,6 +544,7 @@ const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(RemoteOpenTargets.layer),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   Layer.provide(NetService.layer),
+  Layer.provideMerge(CheckoutMutationCoordinatorLayerLive),
 );
 
 const commandReadinessLayer = HttpRouter.middleware(
@@ -793,6 +796,7 @@ export const makeServerLayer = Layer.unwrap(
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ApplicationObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provide(CheckoutMutationCoordinatorLayerLive),
       // PR reads, Git operations, and WebSocket discovery share one process limiter.
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(PlatformServicesLive),
