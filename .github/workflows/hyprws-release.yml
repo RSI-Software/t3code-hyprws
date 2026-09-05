@@ -149,6 +149,10 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
+      - id: release_ref
+        name: Resolve release commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -158,10 +162,6 @@ jobs:
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
-
-      - id: release_ref
-        name: Resolve release commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - id: release_meta
         name: Resolve release version
@@ -226,6 +226,8 @@ jobs:
 
   build:
     name: Build Linux x64
+    outputs:
+      expected_assets: ${{ steps.assets.outputs.expected_assets }}
     needs: [preflight, check_changes]
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
@@ -295,14 +297,18 @@ jobs:
             --verbose
 
       - name: Collect release assets
+        id: assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release-publish
+          assets=()
           shopt -s nullglob
           for file in release/*.AppImage release/*.yml; do
             cp "$file" release-publish/
+            assets+=("$(basename "$file")")
           done
+          echo "expected_assets=$(jq -cn --args '$ARGS.positional' "${assets[@]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
@@ -399,3 +405,52 @@ jobs:
             echo "Deleting old nightly release and tag: $tag"
             gh release delete "$tag" --cleanup-tag --yes
           done <<< "$stale_tags"
+
+  outcome:
+    name: Retain distribution outcome
+    needs: [preflight, build, release]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORK_RELEASE_NEEDS: ${{ toJSON(needs) }}
+      FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-release-outcome-receipts.json
+    steps:
+      - name: Checkout receipt collector
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Retain release outcome
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+        run: |
+          printf '%s\n' "$FORK_RELEASE_NEEDS" > "$RUNNER_TEMP/fork-release-needs.json"
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --tags upstream main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-churn.ts outcome --release --push
+
+      - name: Upload distribution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-outcomes-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fork-release-outcome-receipts.json
+            ${{ runner.temp }}/fork-release-needs.json
+          if-no-files-found: warn
+          retention-days: 90

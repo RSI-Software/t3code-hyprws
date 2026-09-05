@@ -202,7 +202,32 @@ jobs:
         if: ${{ always() && steps.rebase.outputs.status == 'blocked' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/fork-churn.ts report
+        run: node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json"
+
+      - name: Retain target outcomes
+        if: always()
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-outcome-receipts.json
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-churn.ts outcome --auto-report "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
+            --report-receipt "$RUNNER_TEMP/fork-churn-report-receipt.json" --push
+
+      - name: Upload outcome evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sync-outcomes-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fork-outcome-receipts.json
+            ${{ runner.temp }}/fork-auto-rebase-issues.json*
+            ${{ runner.temp }}/fork-churn-report-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
 
   # The carried unblock walk. It waits on the rehearsal lane's CI, so it gets its
   # own timeout; the workflow-level hyprws-rebase concurrency group is the lease,
@@ -279,6 +304,7 @@ jobs:
       # Every walk teaches rerere something, whether it applied or stopped, so the
       # cache is refreshed before the outcome is acted on.
       - name: Save rerere cache
+        id: rerere_save
         if: always()
         env:
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
@@ -290,7 +316,7 @@ jobs:
           node scripts/fork-carry.ts rerere-save --push
 
       - name: Append the churn row
-        if: ${{ steps.carry.outputs.outcome == 'applied' }}
+        if: ${{ always() && steps.carry.outputs.outcome == 'applied' }}
         env:
           GH_TOKEN: ${{ github.token }}
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
@@ -300,6 +326,32 @@ jobs:
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
           export GIT_CONFIG_VALUE_0
           node scripts/fork-carry.ts churn-row --report "$RUNNER_TEMP/fork-sync-report.json"
+
+      - name: Retain carried outcomes
+        if: always()
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
+          FORK_OUTCOME_CACHE_EXPORT: ${{ steps.rerere_save.outcome }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-churn.ts outcome --sync-report "$RUNNER_TEMP/fork-sync-report.json" --push
+
+      - name: Upload carried outcome evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: carry-outcomes-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fork-carry-outcome-receipts.json
+            ${{ runner.temp }}/fork-sync-report.json*
+            ${{ runner.temp }}/carry.log
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Hand the stop surface to the notification issue
         if: ${{ steps.carry.outputs.outcome == 'stop' }}

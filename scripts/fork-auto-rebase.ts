@@ -34,6 +34,7 @@ export {
   type VerificationDependencySetup,
 } from "./fork-auto-rebase-plan.ts";
 import { SystemGit } from "./lib/fork-command.ts";
+import { prepareAutoOutcome } from "./fork-churn-outcomes.ts";
 
 export { SystemGit } from "./lib/fork-command.ts";
 import {
@@ -655,6 +656,12 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     // Read exactly once. Every later hyprws mutation uses this expected old SHA.
     const oldSha = git.run(["rev-parse", "origin/hyprws^{commit}"]).trim();
     const plan = buildAutoRebasePlan(git, oldSha, options.target);
+    if (options.issueJson !== null)
+      prepareAutoOutcome(
+        NodePath.resolve(root, `${options.issueJson}.outcome.json`),
+        plan,
+        options,
+      );
     const result = executeAutoRebase(root, options, plan);
     const summary = renderSummary(result);
     if (options.summary !== null) writeOutput(NodePath.resolve(root, options.summary), summary);

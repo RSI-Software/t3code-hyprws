@@ -33,6 +33,14 @@ const A = "a".repeat(40),
   C = "c".repeat(40),
   D = "d".repeat(40);
 const attestation = { actor: "maintainer-agent", evidenceUrl: "https://example.test/review/1" };
+const outcomes = [
+  {
+    kind: "target",
+    target: { tag: "v1", sha: A },
+    eligible: true,
+    reason: "selected tagged target under the fork tag policy",
+  },
+] as const;
 const file = (path = "seam.ts", subject = "feat: preserve fork intent") => ({
   path,
   subject,
@@ -345,6 +353,9 @@ it("records evidence idempotently and preserves it through walk and legacy reade
   const root = repository();
   try {
     const input = NodePath.join(root, "records.json");
+    const outcomeInput = NodePath.join(root, "outcomes.json");
+    NodeFS.writeFileSync(outcomeInput, JSON.stringify({ version: 1, receipts: outcomes }));
+    assert.strictEqual(run(["outcome", "--input", outcomeInput], root), 0);
     NodeFS.writeFileSync(input, JSON.stringify({ version: 1, records }));
     assert.strictEqual(run(["record", "--input", input], root), 0);
     const ref = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root });
@@ -353,11 +364,17 @@ it("records evidence idempotently and preserves it through walk and legacy reade
     assert.strictEqual(runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }), ref);
     const walks = [walk("v1", snapshot(A))];
     writeChurnLedger(root, walks, "walk");
-    assert.deepStrictEqual(readChurnState(root), { version: 2, walks, seamRecords: records });
+    assert.deepStrictEqual(readChurnState(root), {
+      version: 3,
+      walks,
+      seamRecords: records,
+      outcomes,
+    });
     assert.deepStrictEqual(parseChurnState(JSON.stringify(walks)), {
-      version: 2,
+      version: 3,
       walks,
       seamRecords: [],
+      outcomes: [],
     });
     const good = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
     NodeFS.writeFileSync(
@@ -407,11 +424,12 @@ it("preserves records while seeding v2 and migrating legacy subjects", () => {
     // Force a genuinely subjectless legacy row to exercise the later migration writer.
     writeChurnState(
       root,
-      { version: 2, walks: [legacyWalk], seamRecords: records },
+      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes },
       "legacy subjects",
     );
     assert.strictEqual(run(["migrate-subjects"], root), 0);
     assert.deepStrictEqual(readChurnState(root).seamRecords, records);
+    assert.deepStrictEqual(readChurnState(root).outcomes, outcomes);
     assert.strictEqual(
       readChurnState(root).walks[0]?.censusFiles[0]?.subject,
       "feat: legacy subject",
@@ -555,16 +573,26 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       writeChurnState(
         root,
         {
-          version: 2,
+          version: 3,
           walks: item.snapshots.map((snapshot, i) =>
             walk(i === item.snapshots.length - 1 ? item.current.tag : `old-${i}`, snapshot),
           ),
           seamRecords: item.records,
+          outcomes: [],
         },
         "case",
       );
       process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(item.current.censusEvidence)} -->`;
-      assert.strictEqual(run(["report", "--issue", "1"], root), item.exit);
+      const receiptPath = NodePath.join(root, "report-receipt.json");
+      assert.strictEqual(
+        run(["report", "--issue", "1", "--receipt", receiptPath], root),
+        item.exit,
+      );
+      assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+        publication: "succeeded",
+        policy: item.exit === 0 ? "succeeded" : "failed",
+        url: "https://example.test/comment",
+      });
       const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
       assert.include(posted, item.status);
       if (item.records.length === 0) assert.notInclude(posted, "was fixed at");
