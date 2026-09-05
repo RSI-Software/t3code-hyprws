@@ -40,6 +40,7 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as PullRequestService from "../../pullRequest/PullRequestService.ts";
 import * as ZmuxSessionBinder from "../../zmux/ZmuxSessionBinder.ts";
+import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -92,6 +93,7 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const zmuxSessionBinder = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
+  const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const startedTurns = new Map<ThreadId, TurnId>();
   const pending = new Set<ThreadId>();
 
@@ -631,9 +633,16 @@ const make = Effect.gen(function* () {
       }
 
       const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-      const checkoutThreads = shell.threads.filter(
-        (candidate) => candidate.worktreePath === thread.worktreePath,
-      );
+      const checkoutIdentity = yield* vcsDriverRegistry.resolve({ cwd: input.cwd });
+      const checkoutThreads = yield* Effect.filter(shell.threads, (candidate) => {
+        if (!candidate.worktreePath) return Effect.succeed(false);
+        return vcsDriverRegistry.resolve({ cwd: candidate.worktreePath }).pipe(
+          Effect.map(
+            (identity) => identity.repository.rootPath === checkoutIdentity.repository.rootPath,
+          ),
+          Effect.orElseSucceed(() => false),
+        );
+      });
       if (checkoutThreads.some((candidate) => candidate.session?.activeTurnId != null)) {
         return;
       }

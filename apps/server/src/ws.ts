@@ -118,6 +118,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import { withCheckoutMutationLease } from "./git/CheckoutMutationCoordinator.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -472,6 +473,7 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
       const threadDeletionReactor = yield* ThreadDeletionReactor;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Every command dispatched on this connection carries the connecting
@@ -479,13 +481,31 @@ const makeWsRpcLayer = (
       // the client's request caused them.
       const hasClientOrigin =
         clientOrigin.surface !== undefined || clientOrigin.appVersion !== undefined;
-      const dispatchFromClient: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (
-        command,
-      ) =>
+      const dispatchRaw: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (command) =>
         orchestrationEngine.dispatch(
           command,
           hasClientOrigin ? { origin: clientOrigin } : undefined,
         );
+      const dispatchFromClient: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (
+        command,
+      ) => {
+        if (command.type !== "thread.turn.start") return dispatchRaw(command);
+        return Effect.gen(function* () {
+          const bootstrapPath = command.bootstrap?.createThread?.worktreePath;
+          const existing = bootstrapPath
+            ? undefined
+            : yield* projectionSnapshotQuery
+                .getThreadShellById(command.threadId)
+                .pipe(Effect.map(Option.getOrUndefined), Effect.orDie);
+          const cwd = bootstrapPath ?? existing?.worktreePath;
+          if (!cwd) return yield* dispatchRaw(command);
+          const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.orDie);
+          return yield* withCheckoutMutationLease(
+            checkout.repository.rootPath,
+            dispatchRaw(command),
+          );
+        });
+      };
       const recordClientCommandAnalytics = (command: OrchestrationCommand) => {
         switch (command.type) {
           case "thread.create":
@@ -504,6 +524,18 @@ const makeWsRpcLayer = (
 
       const guardSharedCheckoutBranchMutation = Effect.fn("ws.guardSharedCheckoutBranchMutation")(
         function* (cwd: string) {
+          const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "vcs.branch.change",
+                  command: "shared-checkout-guard",
+                  cwd,
+                  detail: "Could not identify this Git checkout.",
+                  cause,
+                }),
+            ),
+          );
           const shell = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
             Effect.mapError(
               (cause) =>
@@ -516,7 +548,15 @@ const makeWsRpcLayer = (
                 }),
             ),
           );
-          const checkoutThreads = shell.threads.filter((thread) => thread.worktreePath === cwd);
+          const checkoutThreads = yield* Effect.filter(shell.threads, (thread) => {
+            if (!thread.worktreePath) return Effect.succeed(false);
+            return vcsDriverRegistry.resolve({ cwd: thread.worktreePath }).pipe(
+              Effect.map(
+                (candidate) => candidate.repository.rootPath === checkout.repository.rootPath,
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+          });
           if (
             checkoutThreads.length > 1 &&
             checkoutThreads.some((thread) => thread.session?.activeTurnId != null)
@@ -529,6 +569,7 @@ const makeWsRpcLayer = (
                 "Wait for active turns sharing this checkout to finish before changing branch.",
             });
           }
+          return checkout.repository.rootPath;
         },
       );
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -2641,7 +2682,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
             guardSharedCheckoutBranchMutation(input.cwd).pipe(
-              Effect.andThen(gitWorkflow.createRef(input)),
+              Effect.flatMap((checkoutRoot) =>
+                withCheckoutMutationLease(
+                  checkoutRoot,
+                  guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                    Effect.andThen(gitWorkflow.createRef(input)),
+                  ),
+                ),
+              ),
               Effect.tap(() => refreshGitStatus(input.cwd)),
             ),
             { "rpc.aggregate": "vcs" },
@@ -2650,7 +2698,14 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
             guardSharedCheckoutBranchMutation(input.cwd).pipe(
-              Effect.andThen(gitWorkflow.switchRef(input)),
+              Effect.flatMap((checkoutRoot) =>
+                withCheckoutMutationLease(
+                  checkoutRoot,
+                  guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                    Effect.andThen(gitWorkflow.switchRef(input)),
+                  ),
+                ),
+              ),
               Effect.tap(() => refreshGitStatus(input.cwd)),
             ),
             { "rpc.aggregate": "vcs" },
