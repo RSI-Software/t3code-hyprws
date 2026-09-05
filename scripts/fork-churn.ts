@@ -584,6 +584,7 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   }
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
   if (churn === null) {
+    receipt("succeeded", "failed", url);
     process.stderr.write(
       "Lesson assessment unavailable for the newer ledger schema; the published report does not establish a policy pass.\n",
     );

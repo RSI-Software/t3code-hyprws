@@ -242,6 +242,12 @@ const boundaries: ReadonlyArray<{
     owner: 583,
   },
   {
+    paths: ["apps/server/src/provider/Layers/CodexProvider.ts"],
+    boundary:
+      "agent model metadata additions only: keep helper declarations out of CodexProvider; compose apps/server/src/provider/Layers/CodexAgentOptions.fork.ts at the CodexDriver snapshot boundary; runtime and child-work policy remains unresolved here",
+    owner: 583,
+  },
+  {
     paths: [
       "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
       "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
@@ -280,6 +286,12 @@ const boundaries: ReadonlyArray<{
     paths: ["apps/web/src/state/shell.ts"],
     boundary:
       "physical project-window bootstrap only: apps/web/src/state/windowProjectBootstrap.fork.ts; retain upstream shell orchestration",
+    owner: 535,
+  },
+  {
+    paths: ["apps/web/src/components/pullRequest/pullRequestListRoute.ts"],
+    boundary:
+      "retired parser path: keep the upstream route validator and apply physical scope through apps/web/src/components/pullRequest/PullRequestProjectScope.ts; do not recreate this route parser",
     owner: 535,
   },
   {

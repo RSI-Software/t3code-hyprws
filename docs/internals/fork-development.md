@@ -359,6 +359,11 @@ General warnings are advisory; `--strict` makes them fatal. `--since <ref>` rest
 commits after that ref and makes adopted authoring guards blocking, as in the CI authoring step.
 Retained historical hot-seam warnings remain advisory without `--strict`.
 
+`AUTHORING_GUARD_TARGETS` in `scripts/fork-scan-guards.ts` supplies the exact paths used by
+each adopted seam matcher. Its invariant requires scoped lesson guidance for every target,
+including retired paths. Upstream test ownership keeps its generic policy and the two exact
+file-local harness deferrals instead of inheriting a basename-based boundary recommendation.
+
 ### Workflow copies require an explicit review
 
 `workflow-drift` is a blocking `fork:scan` check, including in `fork:sync unblock-check`.

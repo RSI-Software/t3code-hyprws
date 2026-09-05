@@ -18,6 +18,11 @@ import {
 } from "./fork-lesson-guidance.ts";
 import type { ChurnEntry, CensusSnapshot } from "./fork-churn-ledger.ts";
 import {
+  ADOPTED_AUTHORING_GUARDS,
+  AUTHORING_GUARD_TARGETS,
+  UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS,
+} from "./fork-scan-guards.ts";
+import {
   CHURN_REF,
   CHURN_LEDGER_FILE,
   fetchBotRef,
@@ -32,8 +37,55 @@ const A = "a".repeat(40),
   C = "c".repeat(40);
 const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeSync = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decode = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const empty = '{"version":2,"walks":[],"seamRecords":[]}';
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
+
+it("covers every adopted named guard's real source targets with scoped lesson guidance", () => {
+  assert.deepStrictEqual(
+    Object.keys(AUTHORING_GUARD_TARGETS).toSorted(),
+    [...ADOPTED_AUTHORING_GUARDS].filter((rule) => rule !== "upstream-test").toSorted(),
+  );
+  const policyReferences = {
+    "terminal-attachment-boundary": 582,
+    "provider-agent-boundary": 583,
+    "sidebar-physical-scope": 584,
+    "thread-route-navigation": 446,
+    "pull-request-project-scope": 535,
+    "github-issue-settings-search": 539,
+    "mobile-ignored-file-listing": 536,
+    "agent-spawn-navigation": 537,
+    "rich-markdown-boundary": 538,
+  };
+  for (const [rule, targets] of Object.entries(AUTHORING_GUARD_TARGETS)) {
+    assert.isAbove(Object.keys(targets).length, 0, rule);
+    for (const path of Object.values(targets)) {
+      const preferred = preferredLessonBoundary(path);
+      assert.isDefined(preferred, `${rule}: ${path}`);
+      assert.strictEqual(
+        preferred?.owner,
+        policyReferences[rule as keyof typeof policyReferences],
+        `${rule}: ${path}`,
+      );
+    }
+  }
+  assert.include(
+    preferredLessonBoundary(AUTHORING_GUARD_TARGETS["pull-request-project-scope"].retiredParser)
+      ?.boundary ?? "",
+    "do not recreate this route parser",
+  );
+  assert.include(
+    preferredLessonBoundary(AUTHORING_GUARD_TARGETS["provider-agent-boundary"].codex)?.boundary ??
+      "",
+    "runtime and child-work policy remains unresolved",
+  );
+  assert.isTrue(ADOPTED_AUTHORING_GUARDS.has("upstream-test"));
+  for (const path of UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS)
+    assert.include(
+      preferredLessonBoundary(path)?.boundary ?? "",
+      "exact file-local harness deferral",
+    );
+});
 
 it("deduplicates frozen copies of legacy censuses without creating single-occurrence hot warnings", () => {
   const file = {
@@ -287,7 +339,6 @@ it("does not infer a reviewed boundary from a basename or unrelated provider beh
     "apps/server/src/provider/Layers/OtherSessionRuntime.ts",
     "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
     "apps/server/src/provider/Drivers/ClaudeDriver.ts",
-    "apps/server/src/provider/Layers/CodexProvider.ts",
     "apps/server/src/provider/Layers/CodexAdapter.ts",
     "apps/server/src/provider/Layers/ProviderService.ts",
     ".github/workflows/hyprws-upstream-sync.yml",
@@ -553,6 +604,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
         // without refreshing the retained writer ref as a side effect.
         const reportBin = NodePath.join(root, "report-bin");
         const reportBodyPath = NodePath.join(root, "published-report.md");
+        const reportReceiptPath = NodePath.join(root, "report-receipt.json");
         yield* fs.makeDirectory(reportBin);
         const fakeGh = NodePath.join(reportBin, "gh");
         yield* fs.writeFileString(
@@ -575,7 +627,14 @@ else if (args[0] === "issue" && args[1] === "comment") {
         const publishReport = () =>
           NodeChildProcess.spawnSync(
             process.execPath,
-            [NodePath.join(import.meta.dirname, "fork-churn.ts"), "report", "--issue", "1"],
+            [
+              NodePath.join(import.meta.dirname, "fork-churn.ts"),
+              "report",
+              "--issue",
+              "1",
+              "--receipt",
+              reportReceiptPath,
+            ],
             {
               cwd: consumer,
               encoding: "utf8",
@@ -591,6 +650,11 @@ else if (args[0] === "issue" && args[1] === "comment") {
         assert.strictEqual(report.status, 0, report.stderr);
         const published = yield* fs.readFileString(reportBodyPath);
         assert.include(published, `at ${next}; freshness=current`);
+        assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
+          publication: "succeeded",
+          policy: "succeeded",
+          url: "https://example.test/issues/1#issuecomment-1",
+        });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         const future = writeBotRefFile(
           publisher,
@@ -606,6 +670,11 @@ else if (args[0] === "issue" && args[1] === "comment") {
         assert.include(unavailable, `at ${future}; freshness=current`);
         assert.include(unavailable, "Lesson assessment unavailable");
         assert.include(futureReport.stderr, "does not establish a policy pass");
+        assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
+          publication: "succeeded",
+          policy: "failed",
+          url: "https://example.test/issues/1#issuecomment-1",
+        });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         const offline = scan("--offline");
         assert.strictEqual(offline.status, 0, offline.stderr);
