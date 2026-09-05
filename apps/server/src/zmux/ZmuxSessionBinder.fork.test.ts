@@ -52,7 +52,11 @@ const ensured = (linked = false, status = "created") =>
     nativeId: linked ? "$23" : "$22",
   });
 
-function layer(run: ProcessRunner.ProcessRunner["Service"]["run"], topLevel = "/repo/project") {
+function layer(
+  run: ProcessRunner.ProcessRunner["Service"]["run"],
+  topLevel = "/repo/project",
+  branch = "main",
+) {
   const routed: ProcessRunner.ProcessRunner["Service"]["run"] = (input) =>
     input.command !== "git"
       ? run(input)
@@ -61,7 +65,7 @@ function layer(run: ProcessRunner.ProcessRunner["Service"]["run"], topLevel = "/
             input.args.includes("worktree")
               ? "worktree /repo/project\nHEAD abc\nbranch refs/heads/main\n"
               : input.args.includes("symbolic-ref")
-                ? "refs/heads/main\n"
+                ? `refs/heads/${branch}\n`
                 : `${topLevel}\n`,
           ),
         );
@@ -198,5 +202,62 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
       );
       assert.equal(run.mock.calls.filter(([i]) => i.args[0] === "checkout").length, 2);
     }).pipe(Effect.provide(layer(run)));
+  });
+  it.effect("observes a restorable branch drift without restoring it", () => {
+    const restorable = JSON.stringify({
+      ...JSON.parse(worktree),
+      tmuxName: null,
+      nativeId: null,
+      state: "restorable",
+    });
+    const run = vi.fn((_input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(output(restorable)),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.reconcileExisting("/repo/project-worktree");
+      assert.equal(result.status, "failed");
+      assert.deepStrictEqual(
+        run.mock.calls.map(([input]) => input.args[0]),
+        ["session"],
+      );
+    }).pipe(Effect.provide(layer(run, "/repo/project-worktree", "renamed")));
+  });
+  it.effect("keeps explicit slash labels while reconciling a live binding", () => {
+    const renamed = JSON.stringify({
+      ...JSON.parse(worktree),
+      session: "team/renamed",
+      target: "project/team/renamed",
+      binding: { branch: "team/renamed", worktreePath: "/repo/project-worktree" },
+    });
+    const ensuredRename = JSON.stringify({
+      status: "reused",
+      code: "ok",
+      workspace: "project",
+      session: "team/renamed",
+      target: "project/team/renamed",
+      repositoryRoot: "/repo/project-worktree",
+      cwd: "/repo/project-worktree",
+      nativeId: "$23",
+    });
+    let worktreeResolves = 0;
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] === "session") {
+        const cwd = input.args[input.args.indexOf("--cwd") + 1];
+        if (cwd === "/repo/project") return Effect.succeed(output(project));
+        worktreeResolves++;
+        return Effect.succeed(output(worktreeResolves === 1 ? worktree : renamed));
+      }
+      return Effect.succeed(output(ensuredRename));
+    });
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.reconcileExisting("/repo/project-worktree");
+      assert.equal(result.status, "resolved");
+      if (result.status === "resolved") {
+        assert.equal(result.workspace, "project");
+        assert.equal(result.session, "team/renamed");
+      }
+    }).pipe(Effect.provide(layer(run, "/repo/project-worktree", "team/renamed")));
   });
 });
