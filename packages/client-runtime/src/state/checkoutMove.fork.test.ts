@@ -1,5 +1,7 @@
-import type { ThreadCheckoutMove } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type ThreadCheckoutMove } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
+import { mergeEnvironmentThread } from "./threadDetail.ts";
 import {
   boundedTerminalAttachmentId,
   checkoutMoveExpectedRoot,
@@ -91,5 +93,29 @@ describe("checkout move client policy", () => {
       detail: expect.stringContaining("No provider is running; the next turn starts at feature."),
     });
     expect(checkoutMoveExpectedRoot(dormant)).toBe("/repo/feature");
+  });
+
+  it("takes checkout movement from the authoritative shell projection", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+    const id = ThreadId.make("thread-1");
+    const detail = {
+      environmentId,
+      id,
+      checkoutMove: move("queued"),
+    } as EnvironmentThread;
+    const shellMove = move("committed", { dormant: true });
+    const shell = {
+      environmentId,
+      id,
+      branch: "feature",
+      worktreePath: "/repo/feature",
+      checkoutMove: shellMove,
+    } as EnvironmentThreadShell;
+
+    expect(mergeEnvironmentThread(detail, shell)).toMatchObject({
+      branch: "feature",
+      worktreePath: "/repo/feature",
+      checkoutMove: shellMove,
+    });
   });
 });
