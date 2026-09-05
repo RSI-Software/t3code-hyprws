@@ -51,6 +51,9 @@ export interface ScanOptions {
   // Ledger guards warn about commits after this ref only, so a pull request
   // sees the shapes it introduces rather than the whole replayed stack.
   readonly since: string | null;
+  // A historical rewrite may suppress authoring warnings for the replayed
+  // stack only after proving its complete tree equals this source ref.
+  readonly sameTreeRewriteOf: string | null;
   readonly strict: boolean;
   readonly ledgerRef: string;
   readonly offline: boolean;
@@ -102,6 +105,8 @@ Options:
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
   --since <ref>   Warn only about commits after <ref> (default: every commit in the range)
+  --same-tree-rewrite-of <ref>
+                  Treat no replayed commit as newly authored after proving head has <ref>'s tree
   --ledger-ref <ref> Named refs/fork/... lesson ledger (default: refs/fork/churn)
   --offline      Read retained local lesson evidence without network access or writes
   --strict        Fail on ledger guard warnings as well as scan gaps
@@ -135,6 +140,7 @@ const defaultOptions = (): ScanOptions => ({
   target: "upstream/main",
   typecheck: true,
   since: null,
+  sameTreeRewriteOf: null,
   strict: false,
   ledgerRef: CHURN_REF,
   offline: false,
@@ -143,7 +149,14 @@ const defaultOptions = (): ScanOptions => ({
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set(["--base", "--head", "--target", "--since", "--ledger-ref"]);
+  const valueFlags = new Set([
+    "--base",
+    "--head",
+    "--target",
+    "--since",
+    "--same-tree-rewrite-of",
+    "--ledger-ref",
+  ]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
@@ -167,6 +180,7 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     if (argument === "--base") options.base = value;
     else if (argument === "--head") options.head = value;
     else if (argument === "--since") options.since = value;
+    else if (argument === "--same-tree-rewrite-of") options.sameTreeRewriteOf = value;
     else if (argument === "--ledger-ref") options.ledgerRef = value;
     else options.target = value;
   }
@@ -176,6 +190,9 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   }
   if (options.since !== null && options.since.length === 0) {
     throw new UsageError("--since cannot be empty");
+  }
+  if (options.sameTreeRewriteOf !== null && options.sameTreeRewriteOf.length === 0) {
+    throw new UsageError("--same-tree-rewrite-of cannot be empty");
   }
   if (options.head.length === 0) throw new UsageError("--head cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
@@ -513,6 +530,20 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
   target: options.target,
 });
 
+export const resolveAuthoringSince = (git: GitReader, options: ScanOptions): string | null => {
+  if (options.sameTreeRewriteOf === null) return options.since;
+  const headTree = git.run(["rev-parse", "--verify", `${options.head}^{tree}`]).trim();
+  const sourceTree = git
+    .run(["rev-parse", "--verify", `${options.sameTreeRewriteOf}^{tree}`])
+    .trim();
+  if (headTree !== sourceTree) {
+    throw new Error(
+      `historical rewrite head ${options.head} has tree ${headTree}, expected ${options.sameTreeRewriteOf} tree ${sourceTree}`,
+    );
+  }
+  return options.head;
+};
+
 // The guard rules read one patch per warned commit, so `--since` is what keeps
 // a pull request's run proportional to the commits it adds.
 const buildGuardInput = (
@@ -523,10 +554,9 @@ const buildGuardInput = (
   filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
   churn: string | null,
 ): GuardInput => {
+  const since = resolveAuthoringSince(git, options);
   const warned =
-    options.since === null
-      ? null
-      : new Set(readLines(git.run(["rev-list", `${options.since}..${range.head}`])));
+    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
   const guardCommits = commits.flatMap((commit) =>
     commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
       ? []
@@ -627,7 +657,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     }
     if (result.warnings.length > 0) {
       const adoptedFailures =
-        options.since === null
+        options.since === null && options.sameTreeRewriteOf === null
           ? []
           : result.warnings.filter(({ rule }) => ADOPTED_AUTHORING_GUARDS.has(rule));
       if (!options.strict && adoptedFailures.length > 0) {

@@ -9,6 +9,7 @@ import {
   parseCommitFiles,
   parseRebaseScans,
   renderScanReport,
+  resolveAuthoringSince,
   scanFailures,
   scanFailureSummary,
   UsageError,
@@ -269,6 +270,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
     target: "upstream/main",
     typecheck: true,
     since: null,
+    sameTreeRewriteOf: null,
     strict: false,
     ledgerRef: "refs/fork/churn",
     offline: false,
@@ -281,6 +283,8 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       "v0.0.35",
       "--since",
       "origin/hyprws",
+      "--same-tree-rewrite-of",
+      "archive/hyprws-pre-rewrite",
       "--strict",
       "--no-typecheck",
     ]),
@@ -290,6 +294,7 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
       target: "v0.0.35",
       typecheck: false,
       since: "origin/hyprws",
+      sameTreeRewriteOf: "archive/hyprws-pre-rewrite",
       strict: true,
       ledgerRef: "refs/fork/churn",
       offline: false,
@@ -301,11 +306,67 @@ it("defaults the target to upstream/main and the base to the merge base", () => 
   assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
   assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
   assert.throws(() => parseArgs(["--since"]), UsageError);
+  assert.throws(() => parseArgs(["--same-tree-rewrite-of"]), UsageError);
   assert.throws(() => parseArgs(["--ledger-ref", "a".repeat(40)]), UsageError);
   assert.throws(() => parseArgs(["--ledger-ref", "hyprws"]), UsageError);
   assert.strictEqual(
     parseArgs(["--offline", "--ledger-ref", "refs/fork/review-lessons"]).offline,
     true,
+  );
+});
+
+it("scopes an exact same-tree rewrite to no newly authored commits", () => {
+  const calls: Array<ReadonlyArray<string>> = [];
+  const git = {
+    run: (args: ReadonlyArray<string>) => {
+      calls.push(args);
+      return "same-tree\n";
+    },
+  };
+  const options = parseArgs([
+    "--head",
+    "rewrite-head",
+    "--since",
+    "shared-base",
+    "--same-tree-rewrite-of",
+    "origin/hyprws",
+  ]);
+
+  assert.strictEqual(resolveAuthoringSince(git, options), "rewrite-head");
+  assert.deepStrictEqual(calls, [
+    ["rev-parse", "--verify", "rewrite-head^{tree}"],
+    ["rev-parse", "--verify", "origin/hyprws^{tree}"],
+  ]);
+});
+
+it("refuses to suppress authoring guards when rewrite content changed", () => {
+  const git = {
+    run: (args: ReadonlyArray<string>) =>
+      args.at(-1) === "rewrite-head^{tree}" ? "changed-tree\n" : "source-tree\n",
+  };
+  const options = parseArgs([
+    "--head",
+    "rewrite-head",
+    "--since",
+    "shared-base",
+    "--same-tree-rewrite-of",
+    "origin/hyprws",
+  ]);
+
+  assert.throws(
+    () => resolveAuthoringSince(git, options),
+    /historical rewrite head rewrite-head has tree changed-tree, expected origin\/hyprws tree source-tree/,
+  );
+});
+
+it("keeps the ordinary authoring range without a rewrite assertion", () => {
+  const options = parseArgs(["--head", "pr-head", "--since", "pr-base"]);
+  assert.strictEqual(
+    resolveAuthoringSince(
+      { run: () => assert.fail("ordinary ranges do not need a tree lookup") },
+      options,
+    ),
+    "pr-base",
   );
 });
 

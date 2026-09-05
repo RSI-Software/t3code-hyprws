@@ -6,9 +6,9 @@
       "fork": ".github/workflows/hyprws-ci.yml",
       "upstreamCommit": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
       "upstreamBlob": "7fee5f57a83c6199ad40850d93f87e55e09ae44f",
-      "forkBlob": "9fbd1f56316768952b0434834a66effeeedeeb4a",
+      "forkBlob": "074403f74bbf11212a6d5818121e36dcc8e48d0e",
       "disposition": "adapted",
-      "reason": "Libsecret and pkg-config installation is present before desktop build and non-server tests. Keep GitHub-hosted runners, fork ledger checks and fork branch triggers instead of upstream Blacksmith infrastructure. Server test shards remain separate. Fork-only authoring guards now block against the selected head's upstream base; the separately named live-upstream scan stays advisory so unrelated upstream drift does not fail a PR."
+      "reason": "Libsecret and pkg-config installation is present before desktop build and non-server tests. Keep GitHub-hosted runners, fork ledger checks and fork branch triggers instead of upstream Blacksmith infrastructure. Server test shards remain separate. Fork-only authoring guards block against the selected head's upstream base; a pushed historical rewrite can suppress replayed authoring warnings only after proving its full tree equals the live fork source. The separately named live-upstream scan stays advisory so unrelated upstream drift does not fail a PR."
     },
     {
       "upstream": ".github/workflows/release.yml",

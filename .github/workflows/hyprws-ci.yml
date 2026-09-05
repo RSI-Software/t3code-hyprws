@@ -82,7 +82,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE: ${{ steps.fork_ledger.outputs.base }}
           SINCE: ${{ steps.fork_ledger.outputs.since }}
-        run: vp run fork:scan --head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck
+        run: |
+          args=(--head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck)
+          if [[ "$GITHUB_REF" == refs/heads/rehearse/rewrite-* ]]; then
+            # A history-only rewrite has no newly authored content. The scan
+            # itself refuses this scope unless every tree entry still matches
+            # the live fork source exactly.
+            args+=(--same-tree-rewrite-of origin/hyprws)
+          fi
+          vp run fork:scan "${args[@]}"
 
       # A rebase scan is what the next sync reads before trusting an automerge,
       # so a domain that changes a file upstream is changing too has to name it
