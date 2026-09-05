@@ -752,8 +752,12 @@ word for every decision and stops; its recommendation is never recorded as the h
    `--silent-seam '<path>=<summary>:type'` or
    `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence for Gate 4. It
    pushes the disposable rehearsal lane, then waits up to 45 minutes for the CI verdict on the
-   pushed lane head, polling every 30 seconds. A timeout or failed job stops the gate with its failed
-   log evidence. It then renders the decision and grounding surface.
+   pushed lane head, polling every 30 seconds. A timeout or a completed red run stops the gate
+   nonzero with bounded evidence: the run URL, its id and conclusion, the failed job names, and an
+   ANSI-stripped tail of each failed job's log capped per line and in total. An unreadable job list
+   or log degrades to what the run already reported rather than replacing the verdict. The report
+   stays at the stage it reached and the stop prints its `unblock-auto --resume --report` command.
+   It then renders the decision and grounding surface.
 5. For a nightly target, a walk-mode host first runs
    `vp run fork:sync unblock-auto --resume --report <report>` to bind its proposal identity and emit
    the review stop. `unblock-review` then binds the proposal record, target, blocking SHA,
@@ -818,8 +822,8 @@ multi-command block carries gate state:
    typecheck, and test verdict comes from `hyprws CI`: the snapshot head is already pushed as
    `release/vX.Y.Z-hyprws`, so the prepare reverifies that remote head and waits up to 45 minutes for
    the run on that exact SHA, recording `hyprws CI <run-url>` in its verification list. A failed job
-   or a timeout fails the prepare with the run URL and the failed-log tail before any UAT draft is
-   rendered. The full battery never runs on the operator machine.
+   or a timeout fails the prepare with the run URL and that same bounded failed-log evidence before
+   any UAT draft is rendered. The full battery never runs on the operator machine.
    It derives the next stable tag through the release helper,
    refuses a local or remote tag collision, and revalidates
    the snapshot, clean lane, and checked head. It also calls the existing `fork:uat` dry-run surface
