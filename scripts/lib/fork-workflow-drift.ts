@@ -91,6 +91,9 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
     return "Verify retained release outcome must unconditionally test the retained receipt is nonempty between collection and upload";
 
   const upload = workflowStep(outcome, "Upload distribution evidence");
+  const uploadConditions = upload?.match(/^        if\s*:.*$/gm);
+  if (uploadConditions?.length !== 1 || uploadConditions[0] !== "        if: always()")
+    return "Upload distribution evidence must declare exact if: always()";
   const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
   const uploadPath = uploadWith === undefined ? undefined : workflowMapping(uploadWith, "path", 10);
   if (

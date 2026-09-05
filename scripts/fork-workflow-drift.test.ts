@@ -302,6 +302,16 @@ it("keeps the release outcome export scoped to its collector and upload path", (
     )!,
     /with\.path must use the FORK_OUTCOME_EXPORT path/,
   );
+  const uploadIf = "        if: always()\n        uses: actions/upload-artifact@v7";
+  for (const replacement of [
+    "        uses: actions/upload-artifact@v7",
+    "        if: success()\n        uses: actions/upload-artifact@v7",
+    "        if : always()\n        uses: actions/upload-artifact@v7",
+  ])
+    assert.match(
+      releaseOutcomeExportProblem(releaseWorkflow.replace(uploadIf, replacement))!,
+      /Upload distribution evidence must declare exact if: always\(\)/,
+    );
   assert.match(
     releaseOutcomeExportProblem(
       releaseWorkflow.replace(
