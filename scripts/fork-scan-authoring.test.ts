@@ -111,6 +111,24 @@ const authoringCases = [
     rule: "github-issue-settings-search",
     domain: "github-issues",
   },
+  {
+    name: "mobile ignored-file preference",
+    sourcePath: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    inlineImplementation: "const showIgnoredFiles = preferences.value.showIgnoredFiles === true;",
+    forkPath: "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts",
+    integrationCall: "const listing = useIgnoredWorkspaceFileListing(cwd);",
+    rule: "mobile-ignored-file-listing",
+    domain: "workspace-files",
+  },
+  {
+    name: "mobile ignored-file request",
+    sourcePath: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    inlineImplementation: "const input = { cwd, includeIgnored: true };",
+    forkPath: "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts",
+    integrationCall: "const listing = useIgnoredWorkspaceFileListing(cwd);",
+    rule: "mobile-ignored-file-listing",
+    domain: "workspace-files",
+  },
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
