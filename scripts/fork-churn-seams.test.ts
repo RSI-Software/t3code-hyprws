@@ -177,6 +177,106 @@ it("requires full comparable evidence and keeps an attested guard failure blocki
   assert.isTrue(neverVerified?.blocking);
 });
 
+it("never suppresses an attested guard failure at a measurement boundary", () => {
+  const { id: _id, ...proof } = verification;
+  const changedBase = snapshot(B, []);
+  assert.isDefined(changedBase.censusEvidence);
+  const alternatives = [
+    snapshot(B, [], D),
+    { ...changedBase, censusEvidence: { ...changedBase.censusEvidence!, baseSha: C } },
+    snapshot(B, [], C, false),
+  ];
+  for (const after of alternatives) {
+    const frozen = seamRecord(freezeObservation(after));
+    const failed = seamRecord({
+      ...proof,
+      after: frozen.id,
+      guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+    });
+    const state = assessSeams([snapshot(A), after], [before, frozen, repair, failed])[0];
+    assert.strictEqual(state?.status, "repair-unverified");
+    assert.isTrue(state?.blocking);
+    assert.include(state!.reason, "guard failed");
+  }
+  const legacy = seamRecord(freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }));
+  const { id: _repairId, ...repairPayload } = repair;
+  const legacyRepair = seamRecord({ ...repairPayload, before: { observation: legacy.id, row: 0 } });
+  const failed = seamRecord({
+    ...proof,
+    repair: legacyRepair.id,
+    guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+  });
+  const legacyState = assessSeams([snapshot(B, [])], [legacy, clear, legacyRepair, failed])[0];
+  assert.strictEqual(legacyState?.status, "repair-unverified");
+  assert.isTrue(legacyState?.blocking);
+});
+
+it("retains legacy identity without inventing absence or return across methods", () => {
+  const legacy: CensusSnapshot = { tag: "legacy", fixedAt: null, files: [file()] };
+  const absent = assessSeams([legacy, snapshot(B, [])], [])[0];
+  assert.strictEqual(absent?.status, "unknown");
+  const returned = assessSeams([legacy, snapshot(B, []), snapshot(C)], [])[0];
+  assert.strictEqual(returned?.id, seamIdentity(file()));
+  assert.strictEqual(returned?.status, "observed");
+  assert.isFalse(returned?.blocking);
+  const realReturn = assessSeams(
+    [legacy, snapshot(B, []), snapshot(C), snapshot(D, []), snapshot(A)],
+    [],
+  )[0];
+  assert.strictEqual(realReturn?.status, "returned-unresolved");
+  assert.isTrue(realReturn?.blocking);
+});
+
+it("does not call the frozen pre-repair head a later regression", () => {
+  const stale = assessSeams([snapshot(A)], records)[0];
+  assert.strictEqual(stale?.status, "unknown");
+  assert.isFalse(stale?.blocking);
+  assert.include(stale!.reason, "pre-repair");
+});
+
+it("resolves transitive mappings independently of record order and refuses ambiguous roots", () => {
+  const secondSnapshot = snapshot(B, [file("second.ts")]);
+  const thirdSnapshot = snapshot(C, [file("third.ts")]);
+  const second = seamRecord(freezeObservation(secondSnapshot));
+  const third = seamRecord(freezeObservation(thirdSnapshot));
+  const firstMapping = seamRecord({
+    kind: "mapping",
+    from: { observation: before.id, row: 0 },
+    to: [{ observation: second.id, row: 0 }],
+    attestation,
+  } as const);
+  const secondMapping = seamRecord({
+    kind: "mapping",
+    from: { observation: second.id, row: 0 },
+    to: [{ observation: third.id, row: 0 }],
+    attestation,
+  } as const);
+  for (const mappings of [
+    [firstMapping, secondMapping],
+    [secondMapping, firstMapping],
+  ]) {
+    const mapped = requireSeamRecords([before, second, third, ...mappings]);
+    const states = assessSeams([snapshot(A), snapshot(B, []), thirdSnapshot], mapped);
+    assert.strictEqual(states.length, 1);
+    assert.strictEqual(states[0]?.id, seamIdentity(file()));
+    assert.strictEqual(states[0]?.status, "returned-unresolved");
+  }
+  const ambiguous = seamRecord({
+    kind: "mapping",
+    from: { observation: third.id, row: 0 },
+    to: [{ observation: second.id, row: 0 }],
+    attestation,
+  } as const);
+  assert.throws(
+    () => requireSeamRecords([before, second, third, firstMapping, ambiguous]),
+    /ambiguous reviewed seam mapping/,
+  );
+  assert.throws(
+    () => requireSeamRecords([before, second, third, secondMapping, ambiguous]),
+    /cyclic reviewed seam mapping/,
+  );
+});
+
 it("preserves rename, path move and split aliases with full frozen source rows", () => {
   const movedFiles = [file("new.ts", "feat: renamed patch"), file("split.ts", "feat: split patch")];
   const movedSnapshot = snapshot(B, movedFiles);
@@ -378,6 +478,15 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
     );
     process.env.PATH = `${bin}:${oldPath ?? ""}`;
     process.env.SEAM_FIXTURE_OUTPUT = NodePath.join(root, "posted.md");
+    const changedTarget = snapshot(B, [], D);
+    const changed = seamRecord(freezeObservation(changedTarget));
+    const { id: _id, ...proof } = verification;
+    const failed = seamRecord({
+      ...proof,
+      after: changed.id,
+      guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+    });
+    const legacy: CensusSnapshot = { tag: "legacy", fixedAt: null, files: [file()] };
     const cases: ReadonlyArray<{
       snapshots: ReadonlyArray<CensusSnapshot>;
       current: CensusSnapshot;
@@ -412,6 +521,34 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records,
         status: "regressed",
         exit: 1,
+      },
+      {
+        snapshots: [snapshot(A)],
+        current: changedTarget,
+        records: [before, changed, repair, failed],
+        status: "repair-unverified",
+        exit: 1,
+      },
+      {
+        snapshots: [legacy],
+        current: snapshot(B, []),
+        records: [],
+        status: "unknown",
+        exit: 0,
+      },
+      {
+        snapshots: [legacy, snapshot(B, [])],
+        current: snapshot(C),
+        records: [],
+        status: "| observed |",
+        exit: 0,
+      },
+      {
+        snapshots: [snapshot(A)],
+        current: snapshot(A),
+        records,
+        status: "pre-repair",
+        exit: 0,
       },
     ];
     for (const item of cases) {

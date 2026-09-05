@@ -150,7 +150,7 @@ const seamTable = (churn: CensusChurn): ReadonlyArray<string> =>
         "| --- | --- | --- | --- |",
         ...churn.seams.map(
           (seam) =>
-            `| ${escapeCell(code(seam.id.slice(0, 12)))} ${escapeCell(code(seam.path))} / ${escapeCell(code(seam.subject))} | ${seam.status} | ${seam.blocking ? "yes" : "no"} | ${escapeCell(seam.guard ?? seam.reason)} |`,
+            `| ${escapeCell(code(seam.id.slice(0, 12)))} ${escapeCell(code(seam.path))} / ${escapeCell(code(seam.subject))} | ${seam.status} | ${seam.blocking ? "yes" : "no"} | ${escapeCell(seam.guard === null ? seam.reason : `${seam.guard}: ${seam.reason}`)} |`,
         ),
       ];
 

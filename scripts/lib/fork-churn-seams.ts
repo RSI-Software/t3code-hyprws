@@ -273,21 +273,42 @@ const recordRegistry = (records: ReadonlyArray<SeamRecord>) => {
       throw new Error("mapping or repair row is outside frozen observation");
     return result;
   };
-  const aliases = new Map<string, string>();
-  const identity = (file: CensusFile): string => aliases.get(tuple(file)) ?? seamIdentity(file);
+  const files = new Map<string, CensusFile>();
+  const parents = new Map<string, Set<string>>();
   for (const record of records) {
     if (record.kind !== "mapping") continue;
     const from = row(record.from);
-    const id = identity(from);
-    aliases.set(tuple(from), id);
+    const source = tuple(from);
+    files.set(source, from);
     for (const target of record.to) {
-      const key = tuple(row(target));
-      const existing = aliases.get(key);
-      if (existing !== undefined && existing !== id)
-        throw new Error("conflicting reviewed seam mappings");
-      aliases.set(key, id);
+      const file = row(target);
+      const key = tuple(file);
+      files.set(key, file);
+      if (key === source) continue;
+      const incoming = parents.get(key) ?? new Set<string>();
+      incoming.add(source);
+      parents.set(key, incoming);
     }
   }
+  const aliases = new Map<string, string>();
+  const visiting = new Set<string>();
+  const resolve = (key: string): string => {
+    const known = aliases.get(key);
+    if (known !== undefined) return known;
+    if (visiting.has(key)) throw new Error("cyclic reviewed seam mapping");
+    visiting.add(key);
+    const incoming = parents.get(key);
+    const roots = new Set(
+      incoming === undefined ? [seamIdentity(files.get(key)!)] : [...incoming].map(resolve),
+    );
+    if (roots.size !== 1) throw new Error("ambiguous reviewed seam mapping roots");
+    const id = [...roots][0]!;
+    aliases.set(key, id);
+    visiting.delete(key);
+    return id;
+  };
+  for (const key of files.keys()) resolve(key);
+  const identity = (file: CensusFile): string => aliases.get(tuple(file)) ?? seamIdentity(file);
   return { byId, observation, row, identity };
 };
 
@@ -328,7 +349,8 @@ export const assessSeams = (
 ): ReadonlyArray<SeamAssessment> => {
   const registry = recordRegistry(records);
   const states = new Map<string, SeamAssessment>();
-  const absent = new Set<string>();
+  const observedMethods = new Map<string, Set<FrozenObservation["method"]>>();
+  const absent = new Map<string, Set<FrozenObservation["method"]>>();
   const observations = snapshots.map(freezeObservation);
   for (const observation of observations) {
     const present = new Set<string>();
@@ -336,7 +358,11 @@ export const assessSeams = (
       const id = registry.identity(file);
       present.add(id);
       const previous = states.get(id);
-      const returned = absent.has(id) || previous?.blocking === true;
+      const methods = observedMethods.get(id) ?? new Set<FrozenObservation["method"]>();
+      methods.add(observation.method);
+      observedMethods.set(id, methods);
+      const returned =
+        absent.get(id)?.has(observation.method) === true || previous?.blocking === true;
       states.set(id, {
         id,
         path: file.path,
@@ -356,14 +382,21 @@ export const assessSeams = (
     for (const [id, state] of states) {
       if (present.has(id)) continue;
       const partial = observation.evidence?.complete === false;
-      if (!partial) absent.add(id);
+      const changedMethod = !observedMethods.get(id)?.has(observation.method);
+      if (!partial && !changedMethod) {
+        const methods = absent.get(id) ?? new Set<FrozenObservation["method"]>();
+        methods.add(observation.method);
+        absent.set(id, methods);
+      }
       states.set(id, {
         ...state,
         tag: observation.tag,
-        status: partial ? "unknown" : "not-observed",
+        status: partial || changedMethod ? "unknown" : "not-observed",
         reason: partial
           ? "Partial census cannot establish absence."
-          : "Not observed; unresolved identity retained.",
+          : changedMethod
+            ? "Different measurement method cannot establish absence of the retained identity."
+            : "Not observed; unresolved identity retained.",
       });
     }
   }
@@ -399,6 +432,15 @@ export const assessSeams = (
     for (const verification of records) {
       if (verification.kind !== "verification" || verification.repair !== record.id) continue;
       const after = registry.observation(verification.after);
+      if (verification.guardProof.exitCode !== 0) {
+        next = {
+          ...next,
+          status: verifiedRepair && comparable(before, after) ? "regressed" : "repair-unverified",
+          blocking: true,
+          reason: "Maintainer attests the named guard failed on the frozen verification head.",
+        };
+        continue;
+      }
       if (!comparable(before, after)) {
         next = {
           ...next,
@@ -406,18 +448,20 @@ export const assessSeams = (
         };
         continue;
       }
-      const guardPassed = verification.guardProof.exitCode === 0;
-      const repaired = guardPassed && !after.files.some((row) => registry.identity(row) === id);
+      const repaired = !after.files.some((row) => registry.identity(row) === id);
       const previouslyVerified = verifiedRepair;
       if (repaired) verifiedRepair = true;
       const current = latest ?? after;
       const currentPresent = current.files.some((row) => registry.identity(row) === id);
-      if (!guardPassed) {
+      const staleBefore =
+        current.evidence?.sourceSha === before.evidence?.sourceSha &&
+        current.evidence?.sourceSha !== after.evidence?.sourceSha;
+      if (repaired && staleBefore) {
         next = {
           ...next,
-          status: previouslyVerified ? "regressed" : "repair-unverified",
-          blocking: true,
-          reason: "Maintainer attests the named guard failed on the frozen verification head.",
+          status: "unknown",
+          reason:
+            "Current census still uses the frozen pre-repair head; current after evidence is required.",
         };
       } else if (
         repaired &&
