@@ -1,5 +1,7 @@
 import {
   CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -142,6 +144,47 @@ it.layer(NodeServices.layer)("checkout move decider", (it) => {
       expect(error).toMatchObject({
         _tag: "OrchestrationCommandInvariantError",
         detail: "reverse move no longer matches the effective checkout",
+      });
+    }),
+  );
+
+  it.effect("rejects a turn while its checkout move is in progress", () =>
+    Effect.gen(function* () {
+      const preparing: ThreadCheckoutMove = {
+        requestId: prepare.requestId,
+        source,
+        sourceThreadBranch: source.branch,
+        sourceThreadWorktreePath: source.checkoutRoot,
+        requestedPath: destination.checkoutRoot,
+        destination,
+        expectedCheckoutRoot: source.checkoutRoot,
+        status: "preparing",
+        completedSteps: [],
+        effectiveProvider: source,
+        providerAvailable: true,
+        requestedAt: contextRevision,
+        updatedAt: contextRevision,
+      };
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.make("turn-during-checkout-move"),
+          threadId: ThreadId.make("thread-checkout-move"),
+          message: {
+            messageId: MessageId.make("message-during-checkout-move"),
+            role: "user",
+            text: "continue",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: "2026-09-05T08:00:02.000Z",
+        },
+        readModel: readModel(preparing),
+      }).pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "OrchestrationCommandInvariantError",
+        detail: "thread thread-checkout-move has a checkout move in progress",
       });
     }),
   );

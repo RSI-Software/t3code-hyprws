@@ -65,6 +65,7 @@ import {
 import { threadHasQueuedTurnStart } from "../ThreadSettlementPolicy.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
+const isCheckoutMoveValidationError = Schema.is(CheckoutMoveValidationError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
 type ProviderIntentEvent = Extract<
@@ -412,6 +413,9 @@ const make = Effect.gen(function* () {
     }
     if (isProviderAdapterValidationError(failReason?.error)) {
       return failReason.error.issue;
+    }
+    if (isCheckoutMoveValidationError(failReason?.error)) {
+      return failReason.error.reason;
     }
     return Cause.pretty(cause);
   };
@@ -1879,6 +1883,30 @@ const make = Effect.gen(function* () {
             return yield* new CheckoutMoveValidationError({
               reason: "checkout identity changed before transition",
             });
+          }
+          const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+          for (const candidate of shell.threads) {
+            if (candidate.id === threadId) continue;
+            if (
+              candidate.session?.activeTurnId == null &&
+              candidate.session?.status !== "starting" &&
+              !threadHasQueuedTurnStart(candidate, createdAt)
+            )
+              continue;
+            const project = yield* resolveProject(candidate.projectId);
+            if (!project) {
+              return yield* new CheckoutMoveValidationError({
+                reason: `active checkout owner ${candidate.id} has no project`,
+              });
+            }
+            const candidateIdentity = yield* resolveCheckoutPhysicalIdentity(
+              candidate.worktreePath ?? project.workspaceRoot,
+            );
+            if (checkoutRoots.includes(candidateIdentity.checkoutRoot)) {
+              return yield* new CheckoutMoveValidationError({
+                reason: `checkout is active on thread ${candidate.id}`,
+              });
+            }
           }
           const runtimeSession = (yield* providerService.listSessions()).find(
             (session) => session.threadId === threadId,

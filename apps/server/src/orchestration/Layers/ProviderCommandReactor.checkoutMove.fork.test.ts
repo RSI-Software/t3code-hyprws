@@ -12,6 +12,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   defaultInstanceIdForDriver,
   type CheckoutPhysicalIdentity,
 } from "@t3tools/contracts";
@@ -250,6 +251,41 @@ describe("checkout move provider reactor", () => {
         assert.equal(blocked.value.checkoutMove?.status, "preparing");
         yield* Deferred.succeed(release, undefined);
         yield* harness.drainProviderCommand;
+      }),
+    ),
+  );
+
+  it.live("refuses a move while another active thread owns either checkout", () =>
+    withHarness((harness) =>
+      Effect.gen(function* () {
+        const source = checkoutIdentity(harness.workspaceDir);
+        const destination = makeDestination(harness);
+        yield* seedProjectAndThreads(harness, source, true);
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("checkout-move-other-active-session"),
+          threadId: OTHER_THREAD_ID,
+          session: {
+            threadId: OTHER_THREAD_ID,
+            status: "running",
+            providerName: PROVIDER,
+            providerInstanceId: INSTANCE_ID,
+            runtimeMode: "approval-required",
+            activeTurnId: TurnId.make("checkout-move-other-active-turn"),
+            lastError: null,
+            updatedAt: "2026-09-05T00:00:02.000Z",
+          },
+          createdAt: "2026-09-05T00:00:02.000Z",
+        });
+
+        yield* prepareMove(harness, source, destination);
+        yield* harness.drainProviderCommand;
+
+        const refused = yield* harness.snapshotQuery.getThreadShellById(THREAD_ID);
+        assert(Option.isSome(refused));
+        assert.equal(refused.value.checkoutMove?.status, "failed");
+        assert.match(refused.value.checkoutMove?.detail ?? "", /active on thread/);
+        assert.equal(refused.value.worktreePath, null);
       }),
     ),
   );
