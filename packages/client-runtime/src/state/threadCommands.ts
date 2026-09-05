@@ -19,6 +19,7 @@ import {
 } from "./runtime.ts";
 import {
   type InterruptThreadTurnInput,
+  type MoveThreadCheckoutInput,
   archiveThread,
   closeGuestShare,
   resolveGuestMessage,
@@ -34,6 +35,7 @@ import {
   resumeThreadQueue,
   retryWorkspacePreparation,
   linkThreadPullRequest,
+  moveThreadCheckout,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -241,6 +243,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     watchPullRequest: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:watch-pull-request",
       execute: watchThreadPullRequest,
+      scheduler,
+      concurrency,
+    }),
+    moveCheckout: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:move-checkout",
+      execute: (input: MoveThreadCheckoutInput) => moveThreadCheckout(input),
       scheduler,
       concurrency,
     }),
