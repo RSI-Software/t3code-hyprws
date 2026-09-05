@@ -280,6 +280,13 @@ it.layer(
           }),
       }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
       yield* Effect.addFinalizer(() => manager.close({ threadId: "thread-1" }).pipe(Effect.ignore));
+      const suspended = yield* Deferred.make<TerminalEvent>();
+      const unsubscribeEvents = yield* manager.subscribe((event) =>
+        event.type === "activity" && event.attachmentStatus === "suspended"
+          ? Deferred.succeed(suspended, event).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribeEvents));
       const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
       const release = yield* manager.attachStream(
         openInput({ worktreePath: process.cwd() }),
@@ -293,14 +300,8 @@ it.layer(
         (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
       ).toBe(true);
       release();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      const suspendedEvent = (yield* getEvents).findLast(
-        (event) => event.type === "activity" && event.attachmentStatus === "suspended",
-      );
+      const suspendedEvent = yield* Deferred.await(suspended);
       expect(suspendedEvent).toMatchObject({
         type: "activity",
         hasRunningSubprocess: true,
