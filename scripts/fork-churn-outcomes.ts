@@ -249,9 +249,35 @@ export const syncOutcomeReceipts = (
       id,
     ),
   ];
-  const attempt = receipts[1] as OutcomeAttempt;
+  let attempt = receipts[1] as OutcomeAttempt;
+  if (report.kind === "rewrite") {
+    const rewrite = report.rewrite;
+    if (rewrite?.build === undefined || rewrite.outcomeTarget === undefined || report.botCarried)
+      throw new Error(
+        "rewrite outcome requires construction provenance and a retained target declaration",
+      );
+    if (
+      rewrite.outcomeTarget.target.sha !== report.target.sha ||
+      rewrite.outcomeTarget.target.tag !== report.target.tag
+    )
+      throw new Error("rewrite outcome target differs from its retained declaration");
+    receipts[0] = rewrite.outcomeTarget;
+    attempt = {
+      ...attempt,
+      mode: report.bot?.mode ?? "unknown",
+      rewriteProvenance: `manifest sha256:${rewrite.build.manifestSha256}; source ${rewrite.originSha}; constructed ${rewrite.build.result}`,
+    };
+    receipts[1] = attempt;
+  }
   receipts.push(
-    stage(attempt, "selection", "succeeded", "target bound by the retained sync report"),
+    stage(
+      attempt,
+      "selection",
+      "succeeded",
+      report.kind === "rewrite"
+        ? "same-base rewrite of an existing target; no upstream advance"
+        : "target bound by the retained sync report",
+    ),
   );
   const checkFailed = failure?.phase === "unblock-check";
   const applyFailed = failure?.phase === "unblock-apply" && report.stage !== "applied";
@@ -310,6 +336,8 @@ export const captureSyncOutcome = (report: SyncReport, phase?: string, failure?:
     .update(
       JSON.stringify({
         target: report.target,
+        kind: report.kind,
+        rewrite: report.rewrite,
         source: report.source,
         stage: report.stage,
         installedHead: report.installedHead,

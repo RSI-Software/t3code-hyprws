@@ -11,6 +11,76 @@ intervenes only to resolve a reported block, enable trunk rewrites, or cut a sta
 [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill owns the gated nightly review and stable human sign-off procedures
 for unblocking a rebase and cutting a stable release.
 
+## Historical rewrite construction
+
+`vp run fork:sync rewrite-build --manifest <reviewed-json> [--json]` constructs an exact same-base
+history from materialized, reviewed snapshot changes. It never interprets AST recipes, fetches,
+touches an index or worktree, moves refs, changes bot mode, or publishes to GitHub. It writes only
+unreferenced Git objects and `<manifest>.receipt.json`. A second identical build returns identical
+object IDs and receipt bytes; an existing different receipt refuses replacement. Keep manifests
+and proof artifacts outside the implementation checkout and out of commits.
+
+The executable schema is `fork.rewrite-manifest.v1`. Unknown fields, abbreviated object IDs,
+design-only schemas and nonempty `unresolved` arrays refuse. Its fields are:
+
+| Field                                     | Contract                                                                                                                                                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`, `sourceTree`, `base`, `baseTag` | Exact SHA-1 source/tree/base and tagged base; source must match retained `origin/hyprws`. Refresh and independently verify the advertised trunk before freezing. The constructor is offline and cannot assert remote freshness. |
+| `proofs`                                  | Unique `{name, sha256}` artifact references, including exactly one each of `snapshot-tests`, `composition`, `test-ownership`, and `compatibility`. These are reviewed input attestations, not tests run by the constructor.     |
+| `unresolved`                              | An empty array is required; unfinished source/test/compatibility proof is not an executable manifest.                                                                                                                           |
+| `slots`                                   | Every original commit once in original order, each with `commit`, original `tree`, expected `resultTree`, `readSet`, and `changes`. Empty cleanup commits remain slots.                                                         |
+| `readSet`                                 | `{path, entry}` for the complete reviewed source/dependency read set. Every changed path must appear. `entry` is null for absence or `{mode, type, oid}`.                                                                       |
+| `changes`                                 | `{path, before, after, reason}` using the same entry shape. Compose overlapping transforms into one reviewed change per path; duplicate paths refuse. Replacement objects must already exist.                                   |
+
+Supported entries are ordinary/executable files, symlinks and gitlinks with their exact Git modes
+and types. The constructor preserves all undeclared entries, validates every expected output tree
+before writing any object, and currently requires the final **full tree** to equal the frozen
+source, including tests and non-test harnesses. This is deliberately stricter than the legacy
+rewrite diagnostic's test-file exclusion. A donor tree must never replace an entire combined
+snapshot: materialize only its declared path changes alongside the other active transforms.
+
+Raw commit message and identity bytes, timestamps, timezones and ordered parent correspondence
+remain unchanged. Rewritten signed commits lose only the now-invalid `gpgsig` header, with its
+digest retained in the receipt; unchanged objects retain signatures. Merge histories, shallow
+repositories, grafts, unsupported headers/object formats, explicit empty subtrees and non-UTF8 tree paths refuse.
+Partial/promisor configuration (including inherited config), promisor pack markers and alternate
+object stores also refuse before object traversal: Git 2.43 can otherwise fetch missing objects
+during a read. Empty subtrees refuse because the flat path model cannot preserve them. A
+nonempty `GIT_CONFIG` also refuses before Git runs, because it can redirect the metadata probe
+without changing the configuration read by subsequent object commands. A
+read-only verifier recomputes the receipt from the manifest and objects at the governed gates.
+Manifest paths resolve from the repository root, including when invoked in a subdirectory. The
+manifest and its adjacent receipt must be regular files outside the checkout; symlinked parents
+cannot redirect them into the checkout. Build and every later rehearsal/check/review/apply
+verification share this validation before object traversal or writes; copied or replaced artifacts
+cannot bypass it after construction.
+`--json` emits one complete ANSI-free result/error object. Exits: 0 verified, 1 runtime failure,
+2 usage/schema error, 3 stale or unsupported proof precondition. Help performs no work.
+
+Pause the bot for the walk series, then use:
+
+```bash
+vp run fork:sync rewrite-build --manifest /external/reviewed.json --json
+vp run fork:sync rewrite-rehearse --from <receipt-result-sha> --manifest /external/reviewed.json --issue <live-block>
+vp run fork:sync unblock-check --report <emitted-report>
+vp run fork:sync unblock-auto --resume --report <emitted-report>
+```
+
+The lane binds its exact manifest receipt, existing base tag, real blocking marker and retained
+base outcome declaration. It refuses relaxed count/path proofs or a different issue. For a nightly
+base, auto emits the independent Opus stop; that distinct session uses `unblock-review`, then the
+host resumes auto for the leased apply and reconciliation. The record digest covers construction
+and outcome provenance. A changed candidate needs a new manifest/proposal, not a refreshed head
+with the old receipt. A source movement voids the proposal. Existing unbound reports can still be
+inspected through `rewrite-rehearse --dry-run`; they cannot check or publish as constructed rewrites.
+
+The outcome collector reuses the base's immutable eligibility and reason and adds
+`rewriteProvenance` to the actual attempt. It never invents a target declaration or claims an
+upstream advance; missing retained eligibility must be reconciled from reviewed evidence first.
+Check/apply failures and pending cache publication stay visible. The builder/preparation is not a
+carry attempt. A same-base apply does not resolve the upstream blocker: start a fresh tagged walk
+for the upstream replay, and keep its comparable seam and distribution proof separate.
+
 ## Model
 
 `hyprws` is the single fork trunk. The bot scans only through the newest stable or nightly upstream

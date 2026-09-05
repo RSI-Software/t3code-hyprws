@@ -647,6 +647,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
 - `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
 - `scripts/fork-preflight.ts` with its `fork:preflight` alias, the precondition check every sync gate runs first.
+- `fork:sync rewrite-build` constructs reviewed same-base history through `scripts/lib/fork-rewrite-build.ts`; exact snapshot/metadata/final-tree receipts bind the existing nightly review and leased apply. Batch transforms remain external, and rewrite attempts preserve existing outcome eligibility.
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
 - `scripts/fork-lesson-guidance.ts` resolves declared lesson evidence without moving refs and

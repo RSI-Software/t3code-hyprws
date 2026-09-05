@@ -6,6 +6,11 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { captureSyncOutcome } from "./fork-churn-outcomes.ts";
+import {
+  runRewriteBuild,
+  verifyRewriteBuild,
+  type RewriteBuildReceipt,
+} from "./lib/fork-rewrite-build.ts";
 
 import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
@@ -38,7 +43,7 @@ import {
 import { snapshotCrossedStableTags } from "./fork-stable-crossing.ts";
 import { remoteLaneHead, waitForCiVerdict } from "./fork-sync-ci.ts";
 import { executeStable } from "./fork-sync-stable.ts";
-import { humanVerdictsBySubject, readChurnLedger } from "./fork-churn-ledger.ts";
+import { humanVerdictsBySubject, readChurnLedger, readChurnState } from "./fork-churn-ledger.ts";
 import {
   assertOnly,
   BLOCK_LABEL,
@@ -1216,7 +1221,8 @@ const unblockCheck = (
   if (report.kind === "rewrite") {
     if (report.lane === undefined || report.rewrite === undefined)
       throw new Error("replay binding is incomplete");
-    // rewrite has no tag replay to verify; binding is the lane head itself
+    if (!orientationCoheres(report, runner))
+      throw new Error("rewrite construction binding is stale");
   } else {
     if (report.lane === undefined || report.target === undefined)
       throw new Error("replay binding is incomplete");
@@ -1266,6 +1272,8 @@ const unblockCheck = (
     throw new Error("vp i introduced importer drift after replay");
   if (installedAfter !== before) restoreSnapshotDrift(runner, worktree);
   const installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
+  if (report.kind === "rewrite" && installedHead !== report.rewrite?.build?.result)
+    throw new Error("installed rewrite differs from its constructed head; rebuild the manifest");
   // Both lanes pin the scan to the tag the stack sits on. A rewrite keeps the
   // fork's current base, so scanning it against a moved `upstream/main` would
   // fail the rewrite for upstream drift it did not introduce.
@@ -1722,6 +1730,10 @@ const unblockApply = (
       throw new Error("nightly apply refused: independent review blocking marker is stale");
   }
   const isRewrite = report.kind === "rewrite";
+  if (isRewrite && !orientationCoheres(report, runner))
+    throw new Error(
+      "rewrite construction, source, or blocking marker changed; restart the proposal",
+    );
   if (report.lane === undefined || report.source === undefined)
     throw new Error("apply binding is incomplete");
   if (isRewrite ? report.rewrite === undefined : report.target === undefined)
@@ -1953,6 +1965,8 @@ const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): Sync
 const refreshRehearsalHead = (report: SyncReport, runner: CommandRunner): SyncReport => {
   if (report.lane === undefined) throw new Error("rehearsal lane is missing");
   const head = git(runner, report.lane.worktree, ["rev-parse", "HEAD"]);
+  if (report.kind === "rewrite" && head !== report.rewrite?.build?.result)
+    throw new Error("rewrite refresh cannot replace its constructed head; rebuild a new proposal");
   const next = {
     ...report,
     stage: "replayed" as const,
@@ -1996,7 +2010,55 @@ const trackerTargetIssues = (runner: CommandRunner, root: string): ReadonlyArray
     ) as ReadonlyArray<AutoTargetIssue>
   ).filter(({ parent }) => parent?.number === 397);
 
+export const rewriteBindingMatches = (
+  report: SyncReport,
+  receipt: RewriteBuildReceipt,
+): boolean => {
+  const rewrite = report.rewrite;
+  return (
+    report.kind === "rewrite" &&
+    report.botCarried !== true &&
+    rewrite?.build !== undefined &&
+    rewrite.allowExtra === 0 &&
+    rewrite.allowPaths.length === 0 &&
+    rewrite.baseToOriginCount === receipt.slots.length &&
+    rewrite.baseToFromCount === receipt.slots.length &&
+    report.originalCount === receipt.slots.length &&
+    rewrite.build.manifestSha256 === receipt.manifestSha256 &&
+    rewrite.build.result === receipt.result &&
+    rewrite.fromSha === receipt.result &&
+    rewrite.originSha === receipt.source &&
+    rewrite.base === receipt.base &&
+    rewrite.baseTag === receipt.baseTag &&
+    report.source?.sha === receipt.source &&
+    report.source.expectedOld === receipt.source &&
+    report.source.sharedBase === receipt.base &&
+    report.target?.sha === receipt.base &&
+    report.target.tag === receipt.baseTag &&
+    report.rebasedHead === receipt.result &&
+    (report.installedHead === undefined || report.installedHead === receipt.result) &&
+    (report.ciHead === undefined || report.ciHead === receipt.result) &&
+    rewrite.outcomeTarget?.target.sha === receipt.base &&
+    rewrite.outcomeTarget.target.tag === receipt.baseTag
+  );
+};
+
 const orientationCoheres = (report: SyncReport, runner: CommandRunner): boolean => {
+  if (report.kind === "rewrite") {
+    const build = report.rewrite?.build;
+    if (build === undefined) return false;
+    const receipt = verifyRewriteBuild(
+      report.repositoryRoot,
+      build.manifestPath,
+      build.receiptPath,
+    );
+    if (!rewriteBindingMatches(report, receipt)) return false;
+    const live = readIssue(runner, report.repositoryRoot);
+    return (
+      live.number === report.issue.number &&
+      extractBlockingSha(live.body) === report.issue.blockingSha
+    );
+  }
   if (
     report.target === undefined ||
     report.source === undefined ||
@@ -2713,12 +2775,14 @@ const rewriteRehearse = (
   const allowExtraRaw = values.get("--allow-extra");
   const allowPathsRaw = values.get("--allow-paths");
   const dryRun = values.has("--dry-run");
+  const manifestArg = values.get("--manifest");
   const allowedFlags = new Set([
     "--from",
     "--issue",
     "--allow-extra",
     "--allow-paths",
     "--dry-run",
+    "--manifest",
   ]);
   for (const k of values.keys())
     if (!allowedFlags.has(k)) throw new UsageError(`unknown option: ${k}`);
@@ -2733,6 +2797,16 @@ const rewriteRehearse = (
           .map((s) => s.trim())
           .filter(Boolean);
   const root = rootFor(runner, cwd);
+  if (!dryRun && manifestArg === undefined)
+    throw new UsageError("rewrite publication requires --manifest from rewrite-build");
+  const manifestPath = manifestArg === undefined ? undefined : NodePath.resolve(root, manifestArg);
+  const receiptPath = manifestPath === undefined ? undefined : `${manifestPath}.receipt.json`;
+  const build =
+    manifestPath === undefined || receiptPath === undefined
+      ? undefined
+      : verifyRewriteBuild(root, manifestPath, receiptPath);
+  if (build !== undefined && (allowExtra !== 0 || allowPaths.length !== 0))
+    throw new UsageError("constructed rewrites forbid --allow-extra and --allow-paths");
   // The same bounded wait as the unblock walk: a concurrent run holds this
   // entry verb too. The ceiling message keeps the "bot run is in progress"
   // wording so the runner still reports it as a precondition refusal.
@@ -2747,8 +2821,12 @@ const rewriteRehearse = (
   }
   const expectedOld = git(runner, root, ["rev-parse", "origin/hyprws"]);
   const fromSha = git(runner, root, ["rev-parse", fromArg]);
+  if (build !== undefined && (build.source !== expectedOld || build.result !== fromSha))
+    throw new Error("rewrite build source/candidate does not match this proposal");
   const baseOrigin = git(runner, root, ["merge-base", "upstream/main", "origin/hyprws"]);
   const baseFrom = git(runner, root, ["merge-base", "upstream/main", fromSha]);
+  if (build !== undefined && build.base !== baseOrigin)
+    throw new Error("rewrite manifest base differs from the current upstream shared base");
   const countOrigin = Number(
     git(runner, root, ["rev-list", "--count", `${baseOrigin}..origin/hyprws`]),
   );
@@ -2910,7 +2988,25 @@ const rewriteRehearse = (
   let issueNumber = 0;
   let blockingSha = "0".repeat(40);
   let issueTitle = "rewrite rehearsal";
-  if (issueArg !== undefined) {
+  let outcomeTarget: import("./lib/fork-sync-outcomes.ts").OutcomeTarget | undefined;
+  if (build !== undefined) {
+    const live = readIssue(runner, root);
+    if (issueArg !== undefined && Number(issueArg) !== live.number)
+      throw new Error("rewrite issue must match the live blocking issue");
+    issueNumber = live.number;
+    issueTitle = live.title;
+    const marker = extractBlockingSha(live.body);
+    if (marker === null) throw new Error("rewrite issue has no blocking marker");
+    blockingSha = marker;
+    outcomeTarget = readChurnState(root).outcomes.find(
+      (row): row is import("./lib/fork-sync-outcomes.ts").OutcomeTarget =>
+        row.kind === "target" && row.target.sha === build.base && row.target.tag === build.baseTag,
+    );
+    if (outcomeTarget === undefined)
+      throw new Error(
+        "rewrite base has no retained outcome declaration; reconcile reviewed evidence before publication",
+      );
+  } else if (issueArg !== undefined) {
     issueNumber = Number(issueArg);
     blockingSha = expectedOld; // not used for rewrite; keep a valid SHA
   } else {
@@ -2984,6 +3080,7 @@ const rewriteRehearse = (
     candidates: [],
     bot: bot2,
     source: { sha: expectedOld, expectedOld, sharedBase: baseOrigin },
+    ...(build === undefined ? {} : { target: { tag: build.baseTag, sha: build.base } }),
     lane: { branch: laneBranch, worktree },
     originalMessages: "",
     originalCount: countFrom,
@@ -2992,13 +3089,24 @@ const rewriteRehearse = (
     rebasedHead: fromSha,
     stackSize: countFrom,
     rewrite: {
+      ...(build === undefined || manifestPath === undefined || receiptPath === undefined
+        ? {}
+        : {
+            build: {
+              manifestPath,
+              receiptPath,
+              manifestSha256: build.manifestSha256,
+              result: build.result,
+            },
+            ...(outcomeTarget === undefined ? {} : { outcomeTarget }),
+          }),
       from: fromArg,
       fromSha,
       fromShort,
       originSha: expectedOld,
       originShort: originHeadShort,
       base: baseOrigin,
-      baseTag: baseReleaseTag(runner, root, baseOrigin),
+      baseTag: build?.baseTag ?? baseReleaseTag(runner, root, baseOrigin),
       baseToOriginCount: countOrigin,
       baseToFromCount: countFrom,
       allowExtra,
@@ -3066,6 +3174,8 @@ export const run = (
     process.stdout.write(SYNC_HELP);
     return 0;
   }
+  if (argv[0] === "rewrite-build")
+    return runRewriteBuild(argv.slice(1), () => rootFor(runner, cwd));
   let completedReport: SyncReport | null = null;
   let outcomeFailure: string | undefined;
   let outcomePhase = argv[0];
