@@ -6,7 +6,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { pushBotRef, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
+import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   SystemCommandRunner as SystemRunner,
@@ -1595,15 +1595,41 @@ export const baseReleaseTag = (runner: CommandRunner, root: string, baseSha: str
  * ref for the next walk. The apply already landed; a failed publish is reported and
  * never voids it (RSI-Software/t3code-hyprws#444).
  */
-const publishRerereCache = (worktree: string, tag: string): void => {
+export const resumeRererePublication = (
+  report: SyncReport,
+  publish: typeof publishRerereSnapshot = publishRerereSnapshot,
+): SyncReport => {
+  if (report.stage !== "applied") throw new Error("rerere recovery requires an applied report");
+  if (report.rererePublication?.state === "published") return report;
+  if (report.lane === undefined || report.installedHead === undefined)
+    throw new Error("rerere recovery has no applied lane binding");
+  let pending = report;
   try {
-    const commit = saveRerereCache(worktree, `rerere: ${tag}`);
-    if (commit === null) return;
-    pushBotRef(worktree, RERERE_REF);
-    process.stdout.write(`${RERERE_REF} at ${commit}\n`);
+    const snapshot =
+      report.rererePublication?.snapshot === undefined
+        ? saveRerereCache(report.lane.worktree, `rerere: applied ${report.installedHead}`)
+        : report.rererePublication.snapshot;
+    pending = { ...report, rererePublication: { state: "pending", snapshot } };
+    writeReport(pending);
+    const commit = snapshot === null ? null : publish(report.lane.worktree, snapshot);
+    const completed: SyncReport = {
+      ...pending,
+      rererePublication: { state: "published", snapshot, ...(commit === null ? {} : { commit }) },
+    };
+    writeReport(completed);
+    process.stdout.write(
+      commit === null ? "rerere: no cache additions\n" : `${RERERE_REF} at ${commit}\n`,
+    );
+    return completed;
   } catch (error) {
-    process.stderr.write(
-      `warning: ${RERERE_REF} not published: ${error instanceof Error ? error.message : String(error)}\n`,
+    const message = error instanceof Error ? error.message : String(error);
+    writeReport({
+      ...pending,
+      rererePublication: { ...pending.rererePublication, state: "pending", error: message },
+    });
+    throw new Error(
+      `trunk already applied; ${RERERE_REF} publication pending: ${message}. Resume with unblock-apply --report ${report.reportPath} --record ${report.recordPath}`,
+      { cause: error },
     );
   }
 };
@@ -1654,6 +1680,13 @@ const unblockApply = (
 ): SyncReport => {
   assertOnly(values, ["--report", "--record"]);
   let report = readReport(oneValue(values, "--report") ?? "");
+  if (report.stage === "applied") {
+    if (
+      NodePath.resolve(oneValue(values, "--record") ?? "") !== NodePath.resolve(report.recordPath)
+    )
+      throw new Error("record path does not match the report binding");
+    return resumeRererePublication(report);
+  }
   if (report.stage !== "checked")
     throw new Error(`unblock-apply requires checked state, got ${report.stage}`);
   // A checked report that is already stale must void as staleness
@@ -1745,6 +1778,9 @@ const unblockApply = (
     ...(isNightlyUpstreamTag(gateTag) ? ["--allow-nightly"] : []),
   ];
   requireSuccess(runner, "vp", gateArgs, worktree, undefined, applyEnv);
+  // Freeze the reusable resolutions before publication. Recovery must not depend
+  // on a mutable rr-cache which a later walk may have already changed.
+  const rerereSnapshot = saveRerereCache(worktree, `rerere: applied ${report.installedHead}`);
   const recordCommentUrl = requireSuccess(
     runner,
     "gh",
@@ -1780,6 +1816,16 @@ const unblockApply = (
   );
   if (push.status !== 0)
     throw new Error(`leased apply refused; this report cannot be refreshed: ${push.stderr.trim()}`);
+  report = {
+    ...report,
+    stage: "applied",
+    recordCommentUrl,
+    rererePublication: {
+      state: "pending",
+      snapshot: rerereSnapshot,
+    },
+  };
+  writeReport(report);
   announceStableCandidates(stableCandidates);
   requireSuccess(
     runner,
@@ -1798,9 +1844,7 @@ const unblockApply = (
     worktree,
   );
   git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
-  publishRerereCache(worktree, gateTag);
-  report = { ...report, stage: "applied", recordCommentUrl };
-  writeReport(report);
+  report = resumeRererePublication(report);
   process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
   return report;
 };
@@ -2597,6 +2641,9 @@ const unblockAuto = (
       ).value;
       process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
     }
+
+    if (report.stage === "applied" && report.rererePublication?.state === "pending")
+      report = resumeRererePublication(report);
 
     // The carrier's own apply pushes `hyprws`, and that push is the workflow's
     // trigger, so dispatching a second run would only duplicate the reconciliation

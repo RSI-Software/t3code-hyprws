@@ -123,6 +123,105 @@ export const saveRerereCache = (root: string, message: string, ref = RERERE_REF)
   });
 };
 
+/** Merge immutable cache snapshots, refusing a different resolution for the same key. */
+const rerereEntries = (root: string, commit: string | null): Map<string, string> => {
+  const entries = new Map<string, string>();
+  if (commit === null) return entries;
+  for (const row of gitText(root, ["ls-tree", "-rz", commit]).split("\0")) {
+    if (row === "") continue;
+    const match = /^100644 blob ([a-f0-9]+)\t(.+)$/.exec(row);
+    if (match === null) throw new Error(`unsupported rerere cache entry: ${row}`);
+    const [, blob, path] = match;
+    if (blob === undefined || path === undefined) throw new Error("invalid rerere entry");
+    // Git rewrites thisimage while checking an unresolved conflict. It is not a
+    // reusable resolution and must not contend with another walk's observation.
+    if (/\/thisimage(?:\.\d+)?$/.test(path)) continue;
+    entries.set(path, blob);
+  }
+  return entries;
+};
+
+const remoteRerereHead = (root: string): string | null => {
+  const remote = gitText(root, ["ls-remote", "origin", RERERE_REF]).trim();
+  if (remote === "") return null;
+  // Fetch the advertised object, not into the local ref holding our pending
+  // snapshot. A concurrent publisher must never erase our unpushed additions.
+  const sha = remote.split(/\s+/)[0];
+  if (sha === undefined || !/^[a-f0-9]{40,64}$/.test(sha))
+    throw new Error("invalid remote rerere head");
+  gitText(root, ["fetch", "--quiet", "--no-write-fetch-head", "origin", sha]);
+  return sha;
+};
+
+const pushRerereSnapshot = (root: string, commit: string, expectedOld: string): void => {
+  gitText(root, [
+    "push",
+    "--quiet",
+    `--force-with-lease=${RERERE_REF}:${expectedOld}`,
+    "origin",
+    `${commit}:${RERERE_REF}`,
+  ]);
+};
+
+/** Publish an immutable snapshot with an additive merge and at most three leased pushes. */
+export const publishRerereSnapshot = (
+  root: string,
+  snapshot: string,
+  push: typeof pushRerereSnapshot = pushRerereSnapshot,
+): string => {
+  const pending = rerereEntries(root, snapshot);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const expectedOld = remoteRerereHead(root);
+    const merged = rerereEntries(root, expectedOld);
+    for (const [path, blob] of pending) {
+      const existing = merged.get(path);
+      if (existing !== undefined && existing !== blob)
+        throw new Error(
+          `rerere resolution disagreement at ${path}; neither resolution was overwritten`,
+        );
+      merged.set(path, blob);
+    }
+    const tree = temporaryIndex((indexFile) => {
+      const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+      const input = [...merged].map(([path, blob]) => `100644 ${blob}\t${path}\0`).join("");
+      const update = runCommand("git", ["update-index", "-z", "--index-info"], {
+        cwd: root,
+        env,
+        input,
+      });
+      if (update.status !== 0) throw new Error(`rerere index failed: ${update.stderr.trim()}`);
+      return runCommandText("git", ["write-tree"], { cwd: root, env }).trim();
+    });
+    if (
+      expectedOld !== null &&
+      gitText(root, ["rev-parse", `${expectedOld}^{tree}`]).trim() === tree
+    )
+      return expectedOld;
+    const commit = gitText(root, [
+      "commit-tree",
+      tree,
+      ...(expectedOld === null ? [] : ["-p", expectedOld]),
+      "-m",
+      "rerere: retain concurrent cache additions",
+    ]).trim();
+    try {
+      push(root, commit, expectedOld ?? "");
+      return commit;
+    } catch (error) {
+      // An auth/network failure is not a lease race. Never retry it blindly.
+      const observed = remoteRerereHead(root);
+      if (observed === commit) return commit;
+      if (observed === expectedOld) throw error;
+      if (attempt === 3)
+        throw new Error(
+          "rerere publication exhausted 3 leased attempts; snapshot retained for resume",
+          { cause: error },
+        );
+    }
+  }
+  throw new Error("unreachable rerere publication state");
+};
+
 /**
  * Restore the shared rerere cache into `.git/rr-cache`. Returns false when the ref
  * does not exist yet, which is the first-run state rather than a failure.

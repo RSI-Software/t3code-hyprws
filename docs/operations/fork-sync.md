@@ -175,6 +175,18 @@ cannot install, and skips the post-apply reconciliation dispatch because its own
 `hyprws` already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
 every carried walk, applied or stopped, and after every leased apply.
 
+After a leased apply, the report records trunk as `applied` separately from
+`rererePublication`. Cache publication combines independent additions with the current remote
+cache and uses at most three explicit expected-old leases. A different resolution at the same
+cache path refuses publication without replacing either resolution; transient `thisimage` files
+are excluded from the shared cache.
+
+A failed cache publication exits nonzero with the immutable snapshot and error retained in the
+report. Resume with `vp run fork:sync unblock-apply --report <report> --record <record>` or
+`unblock-auto --resume --report <report>`. An applied report retries only its pending cache work;
+it does not rebase, repeat the trunk push, or repeat its review. The original apply still requires
+the exact reviewed head, checks, stale-evidence guards, and trunk lease.
+
 ### Walk pause
 
 Before an unblock walk, set the bot to candidate mode and leave it there until the ladder or walk
