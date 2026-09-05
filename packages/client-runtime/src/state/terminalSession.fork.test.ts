@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, TerminalSessionSnapshot, ThreadId } from "@t3tools/contracts";
 import {
   applyTerminalAttachStreamEvent,
+  applyTerminalMetadataStreamEvent,
   combineTerminalSessionState,
   EMPTY_TERMINAL_BUFFER_STATE,
   terminalOutputText,
@@ -25,6 +26,54 @@ const BASE_SNAPSHOT: TerminalSessionSnapshot = {
   updatedAt: "2026-04-01T00:00:00.000Z",
 };
 describe("terminal session reducers", () => {
+  it("updates and removes one viewer without replacing another viewer's metadata", () => {
+    const viewerA = {
+      threadId: BASE_SNAPSHOT.threadId,
+      terminalId: BASE_SNAPSHOT.terminalId,
+      attachmentId: "viewer-a:term-1",
+      cwd: "/repo/a",
+      worktreePath: "/repo/a",
+      status: "running" as const,
+      pid: 123,
+      exitCode: null,
+      exitSignal: null,
+      updatedAt: "2026-04-01T00:00:00.000Z",
+      hasRunningSubprocess: false,
+      label: "Viewer A",
+    };
+    const viewerB = {
+      ...viewerA,
+      attachmentId: "viewer-b:term-1",
+      cwd: "/repo/b",
+      worktreePath: "/repo/b",
+      pid: 456,
+      label: "Viewer B",
+    };
+    const initial = applyTerminalMetadataStreamEvent([], {
+      type: "snapshot",
+      terminals: [viewerA, viewerB],
+    });
+    const updated = applyTerminalMetadataStreamEvent(initial, {
+      type: "upsert",
+      terminal: { ...viewerA, cwd: "/repo/a-next", worktreePath: "/repo/a-next" },
+    });
+    const removed = applyTerminalMetadataStreamEvent(updated, {
+      type: "remove",
+      threadId: viewerA.threadId,
+      terminalId: viewerA.terminalId,
+      attachmentId: viewerA.attachmentId,
+    });
+
+    expect(updated).toHaveLength(2);
+    expect(updated.find((terminal) => terminal.attachmentId === viewerA.attachmentId)?.cwd).toBe(
+      "/repo/a-next",
+    );
+    expect(updated.find((terminal) => terminal.attachmentId === viewerB.attachmentId)).toEqual(
+      viewerB,
+    );
+    expect(removed).toEqual([viewerB]);
+  });
+
   it("preserves scrollback across managed suspension and replaces it from the resume snapshot", () => {
     const attached = applyTerminalAttachStreamEvent(EMPTY_TERMINAL_BUFFER_STATE, {
       type: "snapshot",

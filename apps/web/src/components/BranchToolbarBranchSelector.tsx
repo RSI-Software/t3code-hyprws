@@ -5,6 +5,12 @@ import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thr
 import { useRightPanelStore } from "../rightPanelStore";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  checkoutMoveExpectedRoot,
+  isCheckoutMoveInFlight,
+  isStaleCheckoutMoveRejection,
+  presentCheckoutMove,
+} from "@t3tools/client-runtime/state/checkout-move";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -67,6 +73,8 @@ import {
 
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
 import { ComposerControl } from "./chat/ComposerControl";
+import { Button } from "./ui/button"; // fork-hook: zmux-estate/branch-selector-button-import
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip"; // fork-hook: zmux-estate/branch-selector-tooltip-import
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -125,6 +133,9 @@ export function BranchToolbarBranchSelector({
   const updateEmptyThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
+    reportFailure: false,
+  });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, {
     reportFailure: false,
   });
@@ -140,6 +151,24 @@ export function BranchToolbarBranchSelector({
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+  const checkoutMovePresentation = presentCheckoutMove(serverThread?.checkoutMove);
+  const checkoutMoveInFlight = isCheckoutMoveInFlight(serverThread?.checkoutMove);
+  const [checkoutMoveSubmission, setCheckoutMoveSubmission] = useState<{
+    readonly baseRequestId: CommandId | null;
+  } | null>(null);
+  const [staleUndoRequestId, setStaleUndoRequestId] = useState<CommandId | null>(null);
+  const checkoutMoveAwaitingProjection =
+    checkoutMoveSubmission !== null &&
+    (serverThread?.checkoutMove?.requestId ?? null) === checkoutMoveSubmission.baseRequestId;
+  const checkoutMoveControlsLocked = checkoutMoveInFlight || checkoutMoveAwaitingProjection;
+  const displayedCheckoutMove = checkoutMoveAwaitingProjection
+    ? {
+        action: null,
+        inFlight: true,
+        label: "Requesting checkout move…",
+        detail: "Waiting for the environment to accept and project the checkout move.",
+      }
+    : checkoutMovePresentation;
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
   const activeProjectRef = serverThread
@@ -170,6 +199,42 @@ export function BranchToolbarBranchSelector({
       draftThreadEnvMode: draftThread?.envMode,
     });
 
+  const runCheckoutMove = async (input: {
+    readonly requestedPath: string;
+    readonly expectedCheckoutRoot: string;
+    readonly reverseOfRequestId?: CommandId;
+    readonly failureTitle: string;
+  }) => {
+    if (checkoutMoveControlsLocked) return;
+    setCheckoutMoveSubmission({
+      baseRequestId: serverThread?.checkoutMove?.requestId ?? null,
+    });
+    const result = await moveThreadCheckout({
+      environmentId,
+      input: {
+        threadId,
+        requestedPath: input.requestedPath,
+        expectedCheckoutRoot: input.expectedCheckoutRoot,
+        ...(input.reverseOfRequestId ? { reverseOfRequestId: input.reverseOfRequestId } : {}),
+      },
+    }); // fork-hook: zmux-estate/checkout-move-request
+    if (result._tag === "Failure") setCheckoutMoveSubmission(null);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      const staleUndo =
+        input.reverseOfRequestId !== undefined &&
+        isStaleCheckoutMoveRejection(toBranchActionErrorMessage(error));
+      if (staleUndo) setStaleUndoRequestId(input.reverseOfRequestId ?? null);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: staleUndo ? "Checkout move can no longer be undone" : input.failureTitle,
+          description: toBranchActionErrorMessage(error),
+        }),
+      );
+    } // fork-hook: zmux-estate/checkout-move-failure
+  }; // fork-hook: zmux-estate/checkout-move-run
+
   const setThreadBranch = (
     branch: string | null,
     worktreePath: string | null,
@@ -188,6 +253,21 @@ export function BranchToolbarBranchSelector({
       });
     }
     if (hasServerThread) {
+        if (worktreePath !== activeWorktreePath && serverThread) {
+          const destinationPath = worktreePath ?? activeProject.workspaceRoot;
+          const sourcePath =
+            (serverThread.checkoutMove
+              ? checkoutMoveExpectedRoot(serverThread.checkoutMove)
+              : null) ??
+            activeWorktreePath ??
+            activeProject.workspaceRoot;
+          void runCheckoutMove({
+            requestedPath: destinationPath,
+            expectedCheckoutRoot: sourcePath,
+            failureTitle: "Failed to move thread checkout",
+          });
+          return;
+        }
       void (automatic ? updateEmptyThreadMetadata : updateThreadMetadata)({
         environmentId,
         input: {
@@ -443,10 +523,25 @@ export function BranchToolbarBranchSelector({
     });
   };
 
+  const retryOrUndoCheckoutMove = useCallback(() => {
+    const move = serverThread?.checkoutMove;
+    if (!move || checkoutMoveControlsLocked) return;
+    const undo = move.status === "committed";
+    void runCheckoutMove({
+      requestedPath: undo ? move.source.checkoutRoot : move.requestedPath,
+      expectedCheckoutRoot: checkoutMoveExpectedRoot(move),
+      ...(undo ? { reverseOfRequestId: move.requestId } : {}),
+      failureTitle: undo ? "Failed to undo checkout move" : "Failed to retry checkout move",
+    });
+  }, [checkoutMoveControlsLocked, runCheckoutMove, serverThread?.checkoutMove]);
+  const undoUnavailable =
+    serverThread?.checkoutMove?.status === "committed" &&
+    staleUndoRequestId === serverThread.checkoutMove.requestId;
+
   const createRef = (rawName: string) => {
     if (!canChangeThreadBranch) return;
     const name = sanitizeNewRefName(rawName);
-    if (!branchCwd || !name || isBranchActionPending) return;
+    if (!branchCwd || !name || isBranchActionPending || checkoutMoveControlsLocked) return;
 
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
@@ -496,6 +591,7 @@ export function BranchToolbarBranchSelector({
     ) {
       return;
     }
+    // oxlint-disable-next-line react/set-state-in-effect -- The automatic default keeps the null checkout, so it never starts a checkout move. // fork-hook: zmux-estate/checkout-move-default-branch
     setThreadBranch(worktreeBaseBranchCandidate, null, true);
   }, [
     activeThreadBranch,
@@ -700,6 +796,40 @@ export function BranchToolbarBranchSelector({
             }}
           />
         ) : null}
+        {displayedCheckoutMove ? (
+          displayedCheckoutMove.action === null ? (
+            <span
+              className="px-1 text-3xs text-muted-foreground" // fork-hook: zmux-estate/checkout-move-label-size
+              aria-live="polite"
+              aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
+            >
+              {displayedCheckoutMove.label}
+            </span>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="micro" // fork-hook: zmux-estate/checkout-move-size
+                    disabled={checkoutMoveControlsLocked || undoUnavailable}
+                    onClick={retryOrUndoCheckoutMove}
+                    aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
+                  />
+                }
+              >
+                {undoUnavailable
+                  ? "Undo unavailable: checkout changed"
+                  : displayedCheckoutMove.label}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {undoUnavailable
+                  ? "The physical checkout changed after this move. Start a new move to return."
+                  : displayedCheckoutMove.detail}
+              </TooltipPopup>
+            </Tooltip>
+          )
+        ) : null}
         <span
           className="flex min-w-0"
           onMouseDownCapture={(event) => {
@@ -718,7 +848,9 @@ export function BranchToolbarBranchSelector({
               )
             }
             className="min-w-0 max-w-full active:scale-100"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            disabled={
+              isInitialBranchesLoadPending || isBranchActionPending || checkoutMoveControlsLocked
+            }
           >
             <GitBranchIcon
               className={cn(
