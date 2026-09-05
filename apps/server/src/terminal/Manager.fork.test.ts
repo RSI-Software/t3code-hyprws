@@ -73,6 +73,152 @@ it.layer(
       });
     }),
   );
+  it.effect("uses fresh activity when deciding whether an unmanaged terminal can retarget", () =>
+    Effect.gen(function* () {
+      let running = false;
+      let inspectionCount = 0;
+      const firstInspection = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join, getEvents } = yield* createManager(50, {
+        terminalSessionMode: "shell",
+        subprocessPollIntervalMs: 1_000,
+        subprocessInspector: () =>
+          Effect.gen(function* () {
+            inspectionCount += 1;
+            if (inspectionCount === 1) yield* Deferred.succeed(firstInspection, undefined);
+            return {
+              hasRunningSubprocess: running,
+              childCommand: running ? "vite" : null,
+              processIds: running ? [9000, 9001] : [],
+            };
+          }),
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const source = join(baseDir, "source");
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(source, { recursive: true });
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const input = openInput({
+        attachmentId: "viewer-a",
+        cwd: source,
+        worktreePath: source,
+        env: { T3CODE_WORKTREE_PATH: source },
+      });
+      const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
+      const release = yield* manager.attachStream(input, (event) =>
+        Ref.update(attachEvents, (events) => [...events, event]),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(release));
+      const sourceProcess = ptyAdapter.processes[0];
+      expect(sourceProcess).toBeDefined();
+      if (!sourceProcess) return;
+      sourceProcess.emitData("source history\r\n");
+      yield* Deferred.await(firstInspection);
+      expect((yield* getEvents).some((event) => event.type === "activity")).toBe(false);
+
+      running = true;
+      const preserved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+        env: { T3CODE_WORKTREE_PATH: destination },
+        cols: 132,
+        rows: 40,
+      });
+
+      expect(sourceProcess.killSignals).toEqual([]);
+      expect(sourceProcess.resizeCalls).toEqual([{ cols: 132, rows: 40 }]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(preserved).toMatchObject({
+        attachmentId: "viewer-a",
+        cwd: source,
+        worktreePath: source,
+        pid: sourceProcess.pid,
+        status: "running",
+      });
+      expect(preserved.history).toContain("source history");
+      expect(preserved.history).toContain(
+        "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow, or move the thread again to retry.",
+      );
+      expect(
+        (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
+      ).toBe(true);
+      expect(yield* Ref.get(attachEvents)).toContainEqual(
+        expect.objectContaining({
+          type: "output",
+          data: expect.stringContaining("Checkout follow paused"),
+        }),
+      );
+
+      running = false;
+      const moved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+        env: { T3CODE_WORKTREE_PATH: destination },
+      });
+      expect(sourceProcess.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+      expect(moved).toMatchObject({ cwd: destination, worktreePath: destination });
+      expect(inspectionCount).toBe(3);
+    }),
+  );
+  it.effect("preserves an unmanaged terminal when fresh activity inspection fails", () =>
+    Effect.gen(function* () {
+      let failInspection = false;
+      let inspectionCount = 0;
+      const firstInspection = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "shell",
+        subprocessPollIntervalMs: 1_000,
+        subprocessInspector: () => {
+          inspectionCount += 1;
+          if (failInspection) {
+            return Effect.fail(new Error("inspection failed") as never);
+          }
+          return Deferred.succeed(firstInspection, undefined).pipe(
+            Effect.as({
+              hasRunningSubprocess: false,
+              childCommand: null,
+              processIds: [],
+            }),
+          );
+        },
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const source = join(baseDir, "source");
+      const destination = join(baseDir, "destination");
+      yield* fileSystem.makeDirectory(source, { recursive: true });
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const input = openInput({ cwd: source, worktreePath: source });
+      yield* manager.open(input);
+      yield* Deferred.await(firstInspection);
+      const sourceProcess = ptyAdapter.processes[0];
+      expect(sourceProcess).toBeDefined();
+      if (!sourceProcess) return;
+
+      failInspection = true;
+      const preserved = yield* manager.open({
+        ...input,
+        cwd: destination,
+        worktreePath: destination,
+      });
+
+      expect(inspectionCount).toBe(2);
+      expect(sourceProcess.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+      expect(preserved).toMatchObject({
+        cwd: source,
+        worktreePath: source,
+        pid: sourceProcess.pid,
+      });
+      expect(preserved.history).toContain(
+        "Checkout follow paused because T3 Code could not confirm that this terminal is idle.",
+      );
+      expect(preserved.history).toContain(
+        "To retry, toggle Pin then Follow, or move the thread again.",
+      );
+    }),
+  );
   it.effect("isolates viewer attachments that share a logical terminal", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
