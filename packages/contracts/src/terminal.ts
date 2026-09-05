@@ -300,6 +300,7 @@ export class TerminalManagedRetargetError extends Schema.TaggedErrorClass<Termin
       "binding-conflict",
       "attach-failed",
       "attach-timeout",
+      "readiness-overflow",
     ]),
     target: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
