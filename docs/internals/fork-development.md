@@ -22,6 +22,16 @@ The fork stays small, replayable, and in sync with upstream without a person in 
 
 The measure: consecutive tags carried with the bot on and no agent stop, and ledger rows that read `mechanical: 0`. Tracked in RSI-Software/t3code-hyprws#443.
 
+Blocked reports distinguish sequential replay observations from pairwise feasibility overlap.
+The sequential census retains its source, base, target, stop ordinal, replayed commit, path and
+Git conflict kind; its totals come from those same rows. Continuation provisionally takes the
+fork-side index stage (or deletion), with rerere disabled. It records no resolution verdict.
+The versioned `sequential-census-v1` evidence survives in the churn ledger as `censusEvidence`.
+Hunk counts are unknown for these observations, not zero. Legacy rows without that provenance
+remain labelled pairwise feasibility overlap; their old aggregate census counts have no retained
+stop rows. Method changes and partial censuses break comparison continuity, so neither can prove
+a seam disappeared. A partial census remains useful evidence but cannot decide a clean replay.
+
 ## Project-window direction
 
 The unit of desktop organization is a physical project in an environment.

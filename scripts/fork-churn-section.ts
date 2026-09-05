@@ -208,6 +208,8 @@ export const renderChurnSection = (
     "",
     "### Census churn",
     "",
+    "Measurement: rows without census provenance are legacy pairwise feasibility overlap. Sequential provisional replay uses its own evidence; method changes and partial observations break comparison continuity.",
+    "",
     ...censusChurnTable(census),
     "",
     "### Regressed seams",
