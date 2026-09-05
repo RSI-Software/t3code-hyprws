@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import {
   EMPTY_TERMINAL_BUFFER_STATE,
@@ -6,8 +7,9 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import {
   EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+  terminalAttachmentIdentity,
   updateRetainedTerminalAttachment,
-} from "./terminalSessions";
+} from "./terminalAttachmentRetention.fork";
 
 const buffer = (version: number, value: string) => {
   const byteLength = new TextEncoder().encode(value).byteLength;
@@ -25,6 +27,58 @@ const buffer = (version: number, value: string) => {
 };
 
 describe("retained terminal attachments", () => {
+  it("separates identical thread and split IDs across environments", () => {
+    const terminal = { threadId: ThreadId.make("thread"), terminalId: "split" };
+    const first = terminalAttachmentIdentity({
+      environmentId: EnvironmentId.make("env-a"),
+      terminal,
+    });
+    const other = terminalAttachmentIdentity({
+      environmentId: EnvironmentId.make("env-b"),
+      terminal,
+    });
+    expect(other).not.toBe(first);
+    expect(terminalAttachmentIdentity({ environmentId: null, terminal })).toBeNull();
+    expect(
+      terminalAttachmentIdentity({ environmentId: EnvironmentId.make("env-a"), terminal: null }),
+    ).toBeNull();
+  });
+
+  it("retains one bounded buffer without appending or mutating earlier snapshots", () => {
+    const source = buffer(4, "bounded output");
+    const first = updateRetainedTerminalAttachment(
+      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+      "terminal",
+      source,
+      null,
+    );
+    const hidden = updateRetainedTerminalAttachment(first, "terminal", null, null);
+    expect(hidden).toBe(first);
+    expect(hidden.value.output).toBe(source.output);
+    const resumed = updateRetainedTerminalAttachment(
+      hidden,
+      "terminal",
+      buffer(1, "resumed"),
+      null,
+    );
+    expect(terminalOutputText(first.value.output)).toBe("bounded output");
+    expect(terminalOutputText(resumed.value.output)).toBe("resumed");
+    expect(source.version).toBe(4);
+  });
+
+  it("clears a prior attach failure when a new stream supplies data", () => {
+    const failed = updateRetainedTerminalAttachment(
+      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+      "terminal",
+      null,
+      "attach failed",
+    );
+    const resumed = updateRetainedTerminalAttachment(failed, "terminal", buffer(1, "ready"), null);
+    expect(resumed.error).toBeNull();
+    expect(updateRetainedTerminalAttachment(resumed, null, null, null)).toBe(
+      EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,
+    );
+  });
   it("resets scrollback when the terminal identity changes", () => {
     const first = updateRetainedTerminalAttachment(
       EMPTY_RETAINED_TERMINAL_ATTACHMENT_STATE,

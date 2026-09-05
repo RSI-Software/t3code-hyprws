@@ -45,6 +45,13 @@ and target resolved by its original attachment; resume never re-resolves the wor
 to a new plain shell. The requested grid is committed before resume, so tmux never attaches at stale
 dimensions.
 
+Web attachment retention lives in `apps/web/src/state/terminalAttachmentRetention.fork.ts`.
+`terminalSessions.ts` only calls that hook at its attachment boundary; metadata subscription,
+indexing, ordering and snapshot reuse remain upstream-owned. Keep fork retention tests in
+`terminalAttachmentRetention.fork.test.ts`, leaving upstream's `terminalSessions.test.ts` intact
+when its index changes arrive. The `terminal-attachment-boundary` authoring guard in `fork:scan`
+warns when state/effect calls or inline retention declarations grow back into the metadata module.
+
 The retained T3 scrollback is the output captured before suspension, bounded by the server's line
 limit and the client's byte limit. Output produced inside tmux while no client is attached remains
 subject to tmux's own pane-history policy. On resume, T3 keeps its retained scrollback and appends

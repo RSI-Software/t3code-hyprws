@@ -821,6 +821,8 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `apps/server/src/terminal/Manager.ts`                    | Shell candidate resolution, demand leases, and managed PTY suspension.    |
 | `apps/server/src/terminal/ManagedAttachmentLifecycle.ts` | Fork-only cancellable hidden-surface attachment state machine.            |
 | `apps/web/src/components/ThreadTerminalDrawer.tsx`       | Surface and browser/Electron window demand determine attachment leases.   |
+| `apps/web/src/state/terminalSessions.ts`                 | Retained hook only; preserve upstream metadata indexing.                  |
+| `apps/web/src/state/terminalAttachmentRetention.fork.ts` | Fork-only buffer/error retention across demand-gated attach streams.      |
 | `apps/desktop/src/window/DesktopWindow.ts`               | BrowserWindow lifecycle publishes per-project-window demand.              |
 | `apps/desktop/src/preload.ts`                            | Optional typed demand bridge keeps older desktop shells compatible.       |
 | `packages/client-runtime/src/state/terminal.ts`          | Attach atoms release without the generic subscription idle TTL.           |
