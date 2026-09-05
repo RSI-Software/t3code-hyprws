@@ -118,6 +118,7 @@ export interface Preferences {
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
   readonly workspaceSelections?: WorkspaceSelections;
+  readonly terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -192,6 +193,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
     workspaceSelections?: WorkspaceSelections;
+    terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
   } = {};
 
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
@@ -337,6 +339,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isWorkspaceSelections(parsed.workspaceSelections)) {
     preferences.workspaceSelections = parsed.workspaceSelections;
+  }
+  if (parsed.terminalCheckoutModes && typeof parsed.terminalCheckoutModes === "object") {
+    preferences.terminalCheckoutModes = Object.fromEntries(
+      Object.entries(parsed.terminalCheckoutModes).filter(
+        (entry): entry is [string, "follow" | "pin"] => entry[1] === "follow" || entry[1] === "pin",
+      ),
+    );
   }
   return preferences;
 }
