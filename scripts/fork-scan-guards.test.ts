@@ -280,6 +280,56 @@ it("warns about inline terminal retention while allowing its fork-owned hook and
   );
 });
 
+it("rejects the old pull-request scope policy while permitting upstream derivation and fork adapters", () => {
+  const route = "apps/web/src/routes/_chat.pull-requests.tsx";
+  const filters = "apps/web/src/components/pullRequest/PullRequestListFilters.tsx";
+  const duplicate = "apps/web/src/components/pullRequest/pullRequestListRoute.ts";
+  const scope = "apps/web/src/components/pullRequest/PullRequestProjectScope.ts";
+  const shell = "apps/web/src/state/shell.ts";
+  const sha = "a".repeat(40);
+  for (const [file, content, rejected] of [
+    [route, "+const forcedProjectScope = listScope.projectRef;", true],
+    [route, "+const requested = forcedProjectScope?.environmentId ?? search.environmentId;", true],
+    [route, "+const projectId = forcedProjectRef.projectId;", true],
+    [filters, "+const options = projects === null ? [] : projects.map(toOption);", true],
+    [duplicate, "+export function validatePullRequestsSearch(raw) { return raw; }", true],
+    [
+      route,
+      '+import { validatePullRequestsSearch } from "../components/pullRequest/pullRequestListRoute";',
+      true,
+    ],
+    [shell, "+export const environmentShellBootstrappedAtom = Atom.family(makeScopedAtom);", true],
+    [route, "+const projectScope = usePullRequestProjectScope(input);", false],
+    [route, "+const patch = normalizePullRequestProjectScopePatch(next, forcedProjectRef);", false],
+    [filters, "+const options = projects.toSorted(compare).map(toOption);", false],
+    [filters, "+showProjectFilter?: boolean;", false],
+    [scope, "+const forcedProjectScope = listScope.projectRef;", false],
+    [
+      "apps/web/src/state/windowProjectBootstrap.fork.ts",
+      "+export const environmentShellBootstrappedAtom = Atom.family(makeScopedAtom);",
+      false,
+    ],
+    [shell, "+export const allEnvironmentShellsBootstrappedAtom = Atom.make(readAll);", false],
+    [route, "-const forcedProjectScope = listScope.projectRef;", false],
+    [filters, "+// projects === null was the old scope signal.", false],
+    [duplicate, "+/* Retired search adapter. */", false],
+    [route, "+const environments = capableEnvironments.filter(matchesSearch);", false],
+  ] as const) {
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(sha, [`--- a/${file}`, `+++ b/${file}`, "@@ -1 +1 @@", content].join("\n")),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "pull-request-project-scope"),
+      rejected,
+      `${file}: ${content}`,
+    );
+  }
+});
+
 it("warns when a fork commit touches a hot seam and stays quiet on a cold upstream file", () => {
   const hot = collectScanWarnings(
     guardInput({
@@ -481,7 +531,7 @@ it("warns when a commit deletes an upstream export and re-declares it elsewhere"
   );
   assert.deepStrictEqual(
     warnings.map(({ rule }) => rule),
-    ["replaced-export"],
+    ["replaced-export", "pull-request-project-scope"],
   );
   assert.include(warnings[0]?.detail ?? "", "interface PullRequestsSearch is deleted from");
   assert.include(warnings[0]?.detail ?? "", "pullRequestListRoute.ts");

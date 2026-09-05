@@ -29,6 +29,7 @@ export type ScanWarningRule =
   | "provider-agent-boundary"
   | "lockfile"
   | "sidebar-physical-scope"
+  | "pull-request-project-scope"
   | "terminal-attachment-boundary"
   | "thread-route-navigation";
 
@@ -40,6 +41,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "provider-agent-boundary",
   "sidebar-physical-scope",
   "thread-route-navigation",
+  "pull-request-project-scope",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -52,6 +54,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "lockfile",
   "terminal-attachment-boundary",
   "thread-route-navigation",
+  "pull-request-project-scope",
 ];
 
 export interface ScanWarning {
@@ -88,6 +91,7 @@ export interface CommitPatch {
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
+  readonly pullRequestProjectScopeAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -152,6 +156,26 @@ const THREAD_NAVIGATION_IMPORT =
 const THREAD_NAVIGATION_SELECTION =
   /\bselect\s*:\s*(?:\([^)]*\)|\w+)\s*=>\s*(?:\{\s*return\s+)?resolveThreadRouteFamily\s*\(/;
 const THREAD_NAVIGATION_DECLARATION = /\b(?:function|const|let)\s+resolveThreadRouteFamily\b/;
+// These are the original scope rewrite's policy branches, not upstream list
+// filtering or the adapter's narrow calls. The removed search module duplicated
+// the upstream route validator; its original path must stay retired.
+const isPullRequestProjectScopeAddition = (path: string, content: string): boolean => {
+  if (/^\s*(?:\/\/|\/\*|\*)/.test(content) || content.trim().length === 0) return false;
+  if (path === "apps/web/src/components/pullRequest/pullRequestListRoute.ts") return true;
+  if (path === "apps/web/src/state/shell.ts")
+    return /\b(?:const|function)\s+environmentShellBootstrappedAtom\b/.test(content);
+  if (path === "apps/web/src/routes/_chat.pull-requests.tsx") {
+    return (
+      /\b(?:const|let)\s+forcedProjectScope\b/.test(content) ||
+      /\bforcedProject(?:Scope|Ref)\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
+      /["'][^"']*\/pullRequestListRoute(?:\.ts)?["']/.test(content)
+    );
+  }
+  return (
+    path === "apps/web/src/components/pullRequest/PullRequestListFilters.tsx" &&
+    /\bprojects\s*(?:===?|!==?)\s*null\b/.test(content)
+  );
+};
 
 const diffPath = (value: string): string | null => {
   const target = value.trim();
@@ -171,6 +195,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
     const navigationAdditions = new Map<string, Array<string>>();
+    let pullRequestProjectScopeAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -227,6 +252,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ) {
         sidebarPhysicalScopeAdded = true;
       }
+      if (added && isPullRequestProjectScopeAddition(path, content))
+        pullRequestProjectScopeAdded = true;
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -257,6 +284,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
       ...(threadRouteNavigationAdded ? { threadRouteNavigationAdded: true } : {}),
+      ...(pullRequestProjectScopeAdded ? { pullRequestProjectScopeAdded: true } : {}),
     });
   }
   return patches;
@@ -323,6 +351,12 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "provider-agent-boundary",
         "ClaudeProvider.ts/CodexProvider.ts gains fork agent normalization or model-option implementation; keep it in the provider-specific *AgentOptions.fork.ts sibling and retain only the integration call",
+      );
+    }
+    if (patch.pullRequestProjectScopeAdded) {
+      warn(
+        "pull-request-project-scope",
+        "physical pull-request scope belongs in PullRequestProjectScope and scoped readiness in windowProjectBootstrap.fork.ts; preserve upstream route search, filter options, sorting and all-environment bootstrap, and reuse the hub validator instead of restoring pullRequestListRoute",
       );
     }
 
