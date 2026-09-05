@@ -43,8 +43,8 @@ import {
   makePendingCodexProvider,
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
-  withCodexAgentOptions,
 } from "../Layers/CodexProvider.ts";
+import { makeCodexAgentOptionsDecorator } from "../Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
 import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -73,7 +73,6 @@ import { makeManagedCodexProvider } from "./CodexManagedProvider.ts";
 import { CodexInstallation } from "../CodexInstallation.ts";
 import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
 import { ServerEnvironmentIdentity } from "../../environment/ServerEnvironment.ts";
-import { discoverCodexAgents } from "./CodexAgents.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -190,6 +189,11 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         ),
       );
 
+      const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator({
+        homePath: effectiveConfig.homePath,
+        environment: processEnv,
+      }); // fork-hook: custom-agents/codex-agent-options-decorator
+
       // Build a managed snapshot whose settings never change — mutations come
       // in as instance rebuilds from the registry rather than in-place
       // updates. Pre-provide `ChildProcessSpawner` so the check fits
@@ -199,27 +203,17 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       // provider check. A refresh that lands mid-probe applies on the next one.
       const checkProvider = modelManifest.refreshInBackground.pipe(
         Effect.andThen(
-          Effect.all({
-            snapshot: checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
-            agents: discoverCodexAgents({
-              homePath: effectiveConfig.homePath,
-              environment: processEnv,
-            }),
-            manifest: modelManifest.current,
-          }),
-        ),
-        Effect.map(({ snapshot, agents, manifest }) =>
-          stampIdentity(
-            ModelManifest.applyModelManifest(
-              { ...snapshot, models: withCodexAgentOptions(snapshot.models, agents) },
-              manifest,
-              DRIVER_KIND,
+          Effect.zipWith(
+            withCodexAgentSelection(
+              checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
             ),
+            modelManifest.current,
+            (draft, manifest) =>
+              stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),
+            { concurrent: true },
           ),
         ),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, pathService),
       );
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
