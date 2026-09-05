@@ -13,7 +13,7 @@ import * as NodePath from "node:path";
 import {
   restoreRerereCache,
   RERERE_REF,
-  pushBotRef,
+  publishRerereSnapshot,
   saveRerereCache,
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
@@ -48,8 +48,10 @@ const rerereSave = (argv: ReadonlyArray<string>, root: string): number => {
     process.stdout.write("rerere cache is empty; nothing to store\n");
     return 0;
   }
-  if (argv.includes("--push")) pushBotRef(root, RERERE_REF);
-  process.stdout.write(`${RERERE_REF} at ${commit}${argv.includes("--push") ? " (pushed)" : ""}\n`);
+  const published = argv.includes("--push") ? publishRerereSnapshot(root, commit) : commit;
+  process.stdout.write(
+    `${RERERE_REF} at ${published}${argv.includes("--push") ? " (pushed)" : ""}\n`,
+  );
   return 0;
 };
 
