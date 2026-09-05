@@ -90,6 +90,8 @@ import {
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
+import { withVerifiedCheckoutMove } from "./orchestration/CheckoutMoveCoordinator.ts";
+import { threadHasQueuedTurnStart } from "./orchestration/ThreadSettlementPolicy.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -1484,7 +1486,96 @@ const makeWsRpcLayer = (
                     ),
                   )
                 : false;
-              const result = yield* dispatchNormalizedCommand(normalizedCommand).pipe(
+              const commandForDispatch =
+                normalizedCommand.type !== "thread.checkout-move.request"
+                  ? normalizedCommand
+                  : yield* Effect.gen(function* () {
+                      const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+                      const thread = snapshot.threads.find(
+                        (candidate) => candidate.id === normalizedCommand.threadId,
+                      );
+                      if (!thread) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move thread was not found",
+                        });
+                      }
+                      const project = snapshot.projects.find(
+                        (candidate) => candidate.id === thread.projectId,
+                      );
+                      if (!project) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move project was not found",
+                        });
+                      }
+                      if (thread.checkoutMove?.requestId === normalizedCommand.commandId) {
+                        const existing = thread.checkoutMove;
+                        const samePayload =
+                          existing.requestedPath === normalizedCommand.requestedPath &&
+                          existing.expectedCheckoutRoot ===
+                            normalizedCommand.expectedCheckoutRoot &&
+                          existing.reverseOfRequestId === normalizedCommand.reverseOfRequestId;
+                        if (!samePayload) {
+                          return yield* new OrchestrationDispatchCommandError({
+                            message:
+                              "Checkout move request identity was reused with different input",
+                          });
+                        }
+                        // The engine's command receipt returns the original result before
+                        // the raw request reaches the decider.
+                        return normalizedCommand;
+                      }
+                      const sourcePath = thread.worktreePath ?? project.workspaceRoot;
+                      const serverCreatedAt = yield* nowIso;
+                      if (normalizedCommand.expectedCheckoutRoot !== sourcePath) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move context changed; refresh and retry",
+                        });
+                      }
+                      return yield* withVerifiedCheckoutMove({
+                        sourcePath,
+                        destinationPath: normalizedCommand.requestedPath,
+                        effect: (source, destination) =>
+                          Effect.gen(function* () {
+                            const latest = yield* projectionSnapshotQuery.getThreadShellById(
+                              normalizedCommand.threadId,
+                            );
+                            if (
+                              Option.isNone(latest) ||
+                              (latest.value.worktreePath ?? project.workspaceRoot) !== sourcePath
+                            ) {
+                              return yield* new OrchestrationDispatchCommandError({
+                                message: "Checkout move context changed; refresh and retry",
+                              });
+                            }
+                            return {
+                              type: "thread.checkout-move.prepare" as const,
+                              commandId: normalizedCommand.commandId,
+                              threadId: normalizedCommand.threadId,
+                              requestId: normalizedCommand.commandId,
+                              source,
+                              sourceThreadBranch: latest.value.branch,
+                              sourceThreadWorktreePath: latest.value.worktreePath,
+                              destination,
+                              ...(normalizedCommand.reverseOfRequestId
+                                ? { reverseOfRequestId: normalizedCommand.reverseOfRequestId }
+                                : {}),
+                              queued:
+                                latest.value.session?.activeTurnId != null ||
+                                threadHasQueuedTurnStart(latest.value, serverCreatedAt),
+                              createdAt: serverCreatedAt,
+                            };
+                          }),
+                      }).pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new OrchestrationDispatchCommandError({
+                              message: "Checkout move identity validation failed",
+                              cause,
+                            }),
+                        ),
+                      );
+                    });
+              const result = yield* dispatchNormalizedCommand(commandForDispatch).pipe(
                 Effect.tapError(() => cleanupFailedUploadedAttachments(command, normalizedCommand)),
               );
               yield* recordClientCommandAnalytics(normalizedCommand);
