@@ -1,39 +1,28 @@
-import * as Effect from "effect/Effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Semaphore from "effect/Semaphore";
 
-class CheckoutMutex {
-  private locked = false;
-  private readonly waiters: Array<() => void> = [];
-
-  readonly acquire = Effect.callback<void>((resume) => {
-    const enter = () => {
-      this.locked = true;
-      resume(Effect.void);
-    };
-    if (this.locked) this.waiters.push(enter);
-    else enter();
-  });
-
-  readonly release = Effect.sync(() => {
-    const next = this.waiters.shift();
-    if (next) next();
-    else this.locked = false;
-  });
-}
-
-const checkouts = new Map<string, CheckoutMutex>();
-
-export function withCheckoutMutationLease<A, E, R>(
-  physicalCheckoutRoot: string,
-  effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> {
-  let mutex = checkouts.get(physicalCheckoutRoot);
-  if (!mutex) {
-    mutex = new CheckoutMutex();
-    checkouts.set(physicalCheckoutRoot, mutex);
+export class CheckoutMutationCoordinator extends Context.Service<
+  CheckoutMutationCoordinator,
+  {
+    readonly withLease: <A, E, R>(
+      physicalCheckoutRoot: string,
+      effect: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
   }
-  return Effect.acquireUseRelease(
-    mutex.acquire,
-    () => effect,
-    () => mutex.release,
-  );
-}
+>()("t3/git/CheckoutMutationCoordinator") {}
+
+export const layer = Layer.sync(CheckoutMutationCoordinator, () => {
+  const checkouts = new Map<string, Semaphore.Semaphore>();
+  return CheckoutMutationCoordinator.of({
+    withLease: (physicalCheckoutRoot, effect) => {
+      let semaphore = checkouts.get(physicalCheckoutRoot);
+      if (!semaphore) {
+        semaphore = Semaphore.makeUnsafe(1);
+        checkouts.set(physicalCheckoutRoot, semaphore);
+      }
+      return semaphore.withPermits(1)(effect);
+    },
+  });
+});

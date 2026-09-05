@@ -55,6 +55,8 @@ import {
 } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
+import { CheckoutMutationCoordinator } from "../../git/CheckoutMutationCoordinator.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
@@ -316,6 +318,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 }
 
 const make = Effect.gen(function* () {
+  const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -323,6 +326,7 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
+  const vcsDriverRegistry = yield* VcsDriverRegistry;
   const fileSystem = yield* FileSystem.FileSystem;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
@@ -934,38 +938,61 @@ const make = Effect.gen(function* () {
       const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
       if (targetBranch === oldBranch) return;
 
-      const latestThread = yield* projectionSnapshotQuery
-        .getThreadShellById(input.threadId)
-        .pipe(Effect.map(Option.getOrUndefined));
-      if (!latestThread || latestThread.branch !== oldBranch || latestThread.worktreePath !== cwd) {
-        return;
-      }
-      const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-      if (
-        shell.threads.some(
-          (candidate) =>
-            candidate.id !== input.threadId &&
-            candidate.worktreePath === cwd &&
-            candidate.session?.activeTurnId != null,
-        )
-      ) {
-        return;
-      }
-      const local = yield* gitWorkflow.localStatus({ cwd });
-      if (local.refName !== oldBranch) return;
+      const checkout = yield* vcsDriverRegistry.resolve({ cwd });
+      yield* checkoutMutationCoordinator.withLease(
+        checkout.repository.rootPath,
+        Effect.gen(function* () {
+          const latestThread = yield* projectionSnapshotQuery
+            .getThreadShellById(input.threadId)
+            .pipe(Effect.map(Option.getOrUndefined));
+          if (
+            !latestThread ||
+            latestThread.branch !== oldBranch ||
+            latestThread.worktreePath !== cwd
+          ) {
+            return;
+          }
+          const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+          const checkoutThreads = yield* Effect.filter(shell.threads, (candidate) => {
+            if (!candidate.worktreePath) return Effect.succeed(false);
+            return vcsDriverRegistry.resolve({ cwd: candidate.worktreePath }).pipe(
+              Effect.map(
+                (identity) => identity.repository.rootPath === checkout.repository.rootPath,
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+          });
+          if (
+            checkoutThreads.some(
+              (candidate) =>
+                candidate.id !== input.threadId &&
+                (candidate.session?.activeTurnId != null ||
+                  candidate.session?.status === "starting"),
+            )
+          ) {
+            return;
+          }
+          const local = yield* gitWorkflow.localStatus({ cwd });
+          if (local.refName !== oldBranch) return;
 
-      const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
-      const afterRename = yield* gitWorkflow.localStatus({ cwd });
-      if (afterRename.refName !== renamed.branch) return;
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: yield* serverCommandId("worktree-branch-rename"),
-        threadId: input.threadId,
-        branch: renamed.branch,
-        worktreePath: cwd,
-        expectedBranch: oldBranch,
-      });
-      yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
+          const renamed = yield* gitWorkflow.renameBranch({
+            cwd,
+            oldBranch,
+            newBranch: targetBranch,
+          });
+          const afterRename = yield* gitWorkflow.localStatus({ cwd });
+          if (afterRename.refName !== renamed.branch) return;
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: yield* serverCommandId("worktree-branch-rename"),
+            threadId: input.threadId,
+            branch: renamed.branch,
+            worktreePath: cwd,
+            expectedBranch: oldBranch,
+          });
+          yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
+        }),
+      );
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {

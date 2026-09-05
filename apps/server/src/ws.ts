@@ -118,7 +118,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
-import { withCheckoutMutationLease } from "./git/CheckoutMutationCoordinator.ts";
+import { CheckoutMutationCoordinator } from "./git/CheckoutMutationCoordinator.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -474,6 +474,7 @@ const makeWsRpcLayer = (
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
+      const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
       const threadDeletionReactor = yield* ThreadDeletionReactor;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Every command dispatched on this connection carries the connecting
@@ -500,7 +501,7 @@ const makeWsRpcLayer = (
           const cwd = bootstrapPath ?? existing?.worktreePath;
           if (!cwd) return yield* dispatchRaw(command);
           const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.orDie);
-          return yield* withCheckoutMutationLease(
+          return yield* checkoutMutationCoordinator.withLease(
             checkout.repository.rootPath,
             dispatchRaw(command),
           );
@@ -549,18 +550,35 @@ const makeWsRpcLayer = (
             ),
           );
           const checkoutThreads = yield* Effect.filter(shell.threads, (thread) => {
-            if (!thread.worktreePath) return Effect.succeed(false);
-            return vcsDriverRegistry.resolve({ cwd: thread.worktreePath }).pipe(
-              Effect.map(
-                (candidate) => candidate.repository.rootPath === checkout.repository.rootPath,
+            const candidateCwd = thread.worktreePath
+              ? Effect.succeed(thread.worktreePath)
+              : projectionSnapshotQuery
+                  .getProjectShellById(thread.projectId)
+                  .pipe(
+                    Effect.map(Option.map((project) => project.workspaceRoot)),
+                    Effect.map(Option.getOrUndefined),
+                  );
+            return candidateCwd.pipe(
+              Effect.flatMap((resolvedCwd) =>
+                resolvedCwd
+                  ? vcsDriverRegistry
+                      .resolve({ cwd: resolvedCwd })
+                      .pipe(
+                        Effect.map(
+                          (candidate) =>
+                            candidate.repository.rootPath === checkout.repository.rootPath,
+                        ),
+                      )
+                  : Effect.succeed(false),
               ),
               Effect.orElseSucceed(() => false),
             );
           });
-          if (
-            checkoutThreads.length > 1 &&
-            checkoutThreads.some((thread) => thread.session?.activeTurnId != null)
-          ) {
+          const hasBusyThread = checkoutThreads.some(
+            (thread) =>
+              thread.session?.activeTurnId != null || thread.session?.status === "starting",
+          );
+          if (hasBusyThread) {
             return yield* new GitCommandError({
               operation: "vcs.branch.change",
               command: "shared-checkout-guard",
@@ -2681,17 +2699,19 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            guardSharedCheckoutBranchMutation(input.cwd).pipe(
-              Effect.flatMap((checkoutRoot) =>
-                withCheckoutMutationLease(
-                  checkoutRoot,
-                  guardSharedCheckoutBranchMutation(input.cwd).pipe(
-                    Effect.andThen(gitWorkflow.createRef(input)),
+            (input.switchRef === true
+              ? guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                  Effect.flatMap((checkoutRoot) =>
+                    checkoutMutationCoordinator.withLease(
+                      checkoutRoot,
+                      guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                        Effect.andThen(gitWorkflow.createRef(input)),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Effect.tap(() => refreshGitStatus(input.cwd)),
-            ),
+                )
+              : gitWorkflow.createRef(input)
+            ).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
@@ -2699,7 +2719,7 @@ const makeWsRpcLayer = (
             WS_METHODS.vcsSwitchRef,
             guardSharedCheckoutBranchMutation(input.cwd).pipe(
               Effect.flatMap((checkoutRoot) =>
-                withCheckoutMutationLease(
+                checkoutMutationCoordinator.withLease(
                   checkoutRoot,
                   guardSharedCheckoutBranchMutation(input.cwd).pipe(
                     Effect.andThen(gitWorkflow.switchRef(input)),

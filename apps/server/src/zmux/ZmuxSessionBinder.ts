@@ -418,6 +418,10 @@ export const make = Effect.gen(function* () {
       checkoutPath: normalizedTopLevel,
       projectPath: path.normalize(path.resolve(canonicalWorktree)),
       detachedHead: head._tag === "Failure" || head.success.timedOut || head.success.code !== 0,
+      branch:
+        head._tag === "Success" && !head.success.timedOut && head.success.code === 0
+          ? head.success.stdout.trim().replace(/^refs\/heads\//, "") || null
+          : null,
     } as const;
   });
 

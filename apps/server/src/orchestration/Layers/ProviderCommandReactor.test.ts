@@ -29,6 +29,7 @@ import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -68,7 +69,9 @@ import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerActivation } from "../../serverActivation.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "../../git/CheckoutMutationCoordinator.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -480,6 +483,25 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
       Layer.provideMerge(
+        Layer.mock(VcsDriverRegistry)({
+          resolve: ({ cwd }) =>
+            Effect.succeed({
+              kind: "git",
+              repository: {
+                kind: "git",
+                rootPath: cwd,
+                metadataPath: null,
+                freshness: {
+                  source: "live-local",
+                  observedAt: "2026-09-05T00:00:00.000Z",
+                  expiresAt: Option.none(),
+                } as never,
+              },
+              driver: {} as never,
+            }),
+        }),
+      ),
+      Layer.provideMerge(
         Layer.mock(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
@@ -489,6 +511,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(CheckoutMutationCoordinator.layer),
     );
     runtime = ManagedRuntime.make(layer);
 
@@ -1173,9 +1196,14 @@ describe("ProviderCommandReactor", () => {
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {
       const releaseStart = yield* Deferred.make<void>();
+      const startEntered = yield* Deferred.make<void>();
       const harness = yield* Effect.promise(() =>
         createHarness({
-          startSessionEffect: (session) => Deferred.await(releaseStart).pipe(Effect.as(session)),
+          startSessionEffect: (session) =>
+            Deferred.succeed(startEntered, undefined).pipe(
+              Effect.andThen(Deferred.await(releaseStart)),
+              Effect.as(session),
+            ),
         }),
       );
       const now = "2026-01-01T00:00:00.000Z";
@@ -1195,12 +1223,16 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       });
 
-      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+      yield* Deferred.await(startEntered);
       const duringStartup = yield* Effect.promise(() => harness.readModel());
-      expect(
-        duringStartup.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session
-          ?.status,
-      ).toBe("starting");
+      const startingSession = duringStartup.threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      )?.session;
+      expect(startingSession?.status).toBe("starting");
+      expect(startingSession?.activeTurnId).toBeNull();
+      expect(yield* Effect.promise(() => harness.readPendingTurnStarts())).toEqual([
+        { threadId: "thread-1" },
+      ]);
       expect(harness.sendTurn).not.toHaveBeenCalled();
 
       yield* Deferred.succeed(releaseStart, undefined);

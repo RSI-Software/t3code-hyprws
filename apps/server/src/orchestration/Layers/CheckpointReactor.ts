@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - fs.watch exposes the synchronous acquisition receipt required before checkout mutations can be observed safely.
+import * as NodeFS from "node:fs";
 import {
   CommandId,
   type CheckpointRef,
@@ -7,20 +9,23 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
+  type OrchestrationThreadShell,
   type ProviderRuntimeEvent,
   type VcsStatusLocalResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import type * as PlatformError from "effect/PlatformError";
 import * as Stream from "effect/Stream";
-import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
@@ -45,7 +50,7 @@ import * as PullRequestService from "../../pullRequest/PullRequestService.ts";
 import * as ZmuxSessionBinder from "../../zmux/ZmuxSessionBinder.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as ProcessRunner from "../../processRunner.ts";
-import { withCheckoutMutationLease } from "../../git/CheckoutMutationCoordinator.ts";
+import { CheckoutMutationCoordinator } from "../../git/CheckoutMutationCoordinator.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -83,7 +88,10 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
   }
 }
 
-const make = Effect.gen(function* () {
+export const makeCheckpointReactor = Effect.fn("makeCheckpointReactor")(function* (
+  watchDirectory: typeof NodeFS.watch = NodeFS.watch,
+) {
+  const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
   const crypto = yield* Crypto.Crypto;
   const randomUUID = crypto.randomUUIDv4;
   const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
@@ -99,12 +107,29 @@ const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const zmuxSessionBinder = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
   const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
-  const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
-  const path = yield* Effect.serviceOption(Path.Path);
-  const processRunner = yield* Effect.serviceOption(ProcessRunner.ProcessRunner);
+  const path = yield* Path.Path;
+  const processRunner = yield* ProcessRunner.ProcessRunner;
   const startedTurns = new Map<ThreadId, TurnId>();
   const pending = new Set<ThreadId>();
-  const watchedCheckoutRoots = new Set<string>();
+  const watchedCheckoutRoots = new Map<
+    string,
+    {
+      readonly cwd: string;
+      readonly threadId: ThreadId;
+      readonly token: object;
+      fiber?: Fiber.Fiber<void, never>;
+    }
+  >();
+
+  const threadCheckoutCwd = Effect.fn("CheckpointReactor.threadCheckoutCwd")(function* (
+    thread: OrchestrationThreadShell,
+  ) {
+    if (thread.worktreePath) return thread.worktreePath;
+    const project = yield* projectionSnapshotQuery
+      .getProjectShellById(thread.projectId)
+      .pipe(Effect.map(Option.getOrUndefined));
+    return project?.workspaceRoot;
+  });
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -555,29 +580,34 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const local = yield* vcsStatusBroadcaster.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("failed to refresh local git status after turn completion", {
+    const identity = yield* vcsDriverRegistry.resolve({ cwd: sessionRuntime.value.cwd });
+    yield* checkoutMutationCoordinator.withLease(
+      identity.repository.rootPath,
+      Effect.gen(function* () {
+        const local = yield* vcsStatusBroadcaster.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to refresh local git status after turn completion", {
+              threadId: event.threadId,
+              turnId: event.turnId ?? null,
+              cwd: sessionRuntime.value.cwd,
+              detail: error.message,
+            }).pipe(Effect.as(null)),
+          ),
+        );
+        if (local === null) return;
+        yield* followWorktreeBranchDrift({
           threadId: event.threadId,
-          turnId: event.turnId ?? null,
           cwd: sessionRuntime.value.cwd,
-          detail: error.message,
-        }).pipe(Effect.as(null)),
-      ),
+          local,
+        });
+        yield* refreshPullRequestAfterTurn({
+          threadId: event.threadId,
+          turnId: toTurnId(event.turnId),
+          cwd: sessionRuntime.value.cwd,
+          local,
+        });
+      }),
     );
-    if (local !== null) {
-      yield* followWorktreeBranchDrift({
-        threadId: event.threadId,
-        cwd: sessionRuntime.value.cwd,
-        local,
-      });
-      yield* refreshPullRequestAfterTurn({
-        threadId: event.threadId,
-        turnId: toTurnId(event.turnId),
-        cwd: sessionRuntime.value.cwd,
-        local,
-      });
-    }
   });
 
   // Retry a missing PR after the agent finishes its push and PR creation.
@@ -630,29 +660,33 @@ const make = Effect.gen(function* () {
       const thread = yield* projectionSnapshotQuery
         .getThreadShellById(input.threadId)
         .pipe(Effect.map(Option.getOrUndefined));
-      if (
-        !thread ||
-        thread.branch === null ||
-        thread.branch === checkedOutBranch ||
-        thread.worktreePath === null ||
-        thread.worktreePath !== input.cwd ||
-        isTemporaryWorktreeBranch(thread.branch)
-      ) {
-        return;
-      }
+      if (!thread) return;
 
       const shell = yield* projectionSnapshotQuery.getShellSnapshot();
       const checkoutIdentity = yield* vcsDriverRegistry.resolve({ cwd: input.cwd });
       const checkoutThreads = yield* Effect.filter(shell.threads, (candidate) => {
-        if (!candidate.worktreePath) return Effect.succeed(false);
-        return vcsDriverRegistry.resolve({ cwd: candidate.worktreePath }).pipe(
-          Effect.map(
-            (identity) => identity.repository.rootPath === checkoutIdentity.repository.rootPath,
+        return threadCheckoutCwd(candidate).pipe(
+          Effect.flatMap((cwd) =>
+            cwd
+              ? vcsDriverRegistry
+                  .resolve({ cwd })
+                  .pipe(
+                    Effect.map(
+                      (identity) =>
+                        identity.repository.rootPath === checkoutIdentity.repository.rootPath,
+                    ),
+                  )
+              : Effect.succeed(false),
           ),
           Effect.orElseSucceed(() => false),
         );
       });
-      if (checkoutThreads.some((candidate) => candidate.session?.activeTurnId != null)) {
+      const busy = checkoutThreads.some((candidate) => {
+        // The projection persists a requested turn as a starting session before
+        // provider activation assigns activeTurnId.
+        return candidate.session?.activeTurnId != null || candidate.session?.status === "starting";
+      });
+      if (busy) {
         return;
       }
 
@@ -704,46 +738,102 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const watchCheckoutHead = Effect.fn("watchCheckoutHead")(function* (cwd: string) {
-    if (Option.isNone(fileSystem) || Option.isNone(path) || Option.isNone(processRunner)) return;
-    const identity = yield* vcsDriverRegistry.resolve({ cwd });
-    if (watchedCheckoutRoots.has(identity.repository.rootPath)) return;
-    const gitDirResult = yield* processRunner.value.run({
+  const watchCheckoutHead = Effect.fn("watchCheckoutHead")(function* (
+    root: string,
+    cwd: string,
+    threadId: ThreadId,
+  ) {
+    if (watchedCheckoutRoots.has(root)) return;
+    const gitDirResult = yield* processRunner.run({
       command: "git",
-      args: ["-C", identity.repository.rootPath, "rev-parse", "--git-dir"],
-      cwd: identity.repository.rootPath,
+      args: ["-C", root, "rev-parse", "--git-dir"],
+      cwd: root,
       timeout: Duration.seconds(5),
     });
     if (gitDirResult.code !== 0 || gitDirResult.timedOut) return;
     const rawGitDir = gitDirResult.stdout.trim();
     if (!rawGitDir) return;
-    const gitDir = path.value.resolve(identity.repository.rootPath, rawGitDir);
-    watchedCheckoutRoots.add(identity.repository.rootPath);
-    yield* fileSystem.value.watch(gitDir).pipe(
-      Stream.filter((event) => path.value.basename(event.path) === "HEAD"),
-      Stream.debounce(Duration.millis(75)),
-      Stream.runForEach(() =>
-        withCheckoutMutationLease(
-          identity.repository.rootPath,
-          Effect.gen(function* () {
-            const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-            const thread = shell.threads.find((candidate) => candidate.worktreePath === cwd);
-            if (!thread) return;
-            const local = yield* vcsStatusBroadcaster.refreshLocalStatus(cwd);
-            yield* followWorktreeBranchDrift({ threadId: thread.id, cwd, local });
-          }),
-        ).pipe(Effect.ignoreCause({ log: true })),
+    const gitDir = path.resolve(root, rawGitDir);
+    const ready = yield* Deferred.make<boolean>();
+    const token = {};
+    const entry = { cwd, threadId, token } as {
+      readonly cwd: string;
+      readonly threadId: ThreadId;
+      readonly token: object;
+      fiber?: Fiber.Fiber<void, never>;
+    };
+    watchedCheckoutRoots.set(root, entry);
+    const fiber = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const changes = yield* Queue.unbounded<void>();
+        const watcher = yield* Effect.acquireRelease(
+          Effect.try(() =>
+            watchDirectory(gitDir, (_event, filename) => {
+              if (filename === null || path.basename(filename.toString()) === "HEAD") {
+                Queue.offerUnsafe(changes, undefined);
+              }
+            }),
+          ),
+          (watcher) => Effect.sync(() => watcher.close()),
+        );
+        watcher.on("error", () => Effect.runFork(Queue.shutdown(changes)));
+        yield* Deferred.succeed(ready, true);
+        yield* Stream.fromQueue(changes).pipe(
+          Stream.debounce(Duration.millis(75)),
+          Stream.runForEach(() =>
+            checkoutMutationCoordinator
+              .withLease(
+                root,
+                Effect.gen(function* () {
+                  const local = yield* vcsStatusBroadcaster.refreshLocalStatus(cwd);
+                  yield* followWorktreeBranchDrift({ threadId, cwd, local });
+                }),
+              )
+              .pipe(Effect.ignoreCause({ log: true })),
+          ),
+        );
+      }),
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Deferred.succeed(ready, false).pipe(Effect.andThen(Effect.failCause(cause))),
       ),
       Effect.ignoreCause({ log: true }),
-      Effect.forkScoped,
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (watchedCheckoutRoots.get(root)?.token === token) watchedCheckoutRoots.delete(root);
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
     );
+    entry.fiber = fiber;
+    const acquired = yield* Deferred.await(ready);
+    if (!acquired && watchedCheckoutRoots.get(root)?.token === token) {
+      watchedCheckoutRoots.delete(root);
+    }
   });
 
   const syncCheckoutHeadWatchers = Effect.fn("syncCheckoutHeadWatchers")(function* () {
     const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+    const desired = new Map<string, { readonly cwd: string; readonly threadId: ThreadId }>();
+    yield* Effect.forEach(shell.threads, (thread) =>
+      Effect.gen(function* () {
+        const cwd = yield* threadCheckoutCwd(thread);
+        if (!cwd) return;
+        const identity = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.option);
+        if (Option.isSome(identity) && !desired.has(identity.value.repository.rootPath)) {
+          desired.set(identity.value.repository.rootPath, { cwd, threadId: thread.id });
+        }
+      }),
+    );
+    for (const [root, watched] of watchedCheckoutRoots) {
+      const target = desired.get(root);
+      if (target?.cwd === watched.cwd && target.threadId === watched.threadId) continue;
+      watchedCheckoutRoots.delete(root);
+      if (watched.fiber) yield* Fiber.interrupt(watched.fiber);
+    }
     yield* Effect.forEach(
-      shell.threads,
-      (thread) => (thread.worktreePath ? watchCheckoutHead(thread.worktreePath) : Effect.void),
+      desired,
+      ([root, target]) => watchCheckoutHead(root, target.cwd, target.threadId),
       { discard: true },
     );
   });
@@ -1067,12 +1157,22 @@ const make = Effect.gen(function* () {
     );
 
   const worker = yield* makeDrainableWorker(processInputSafely);
+  const watcherWorker = yield* makeDrainableWorker(() =>
+    syncCheckoutHeadWatchers().pipe(Effect.ignoreCause({ log: true })),
+  );
 
   const start: CheckpointReactorShape["start"] = Effect.fn("start")(function* () {
     yield* syncCheckoutHeadWatchers().pipe(Effect.ignoreCause({ log: true }));
     yield* forkParked(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-        const syncWatchers = syncCheckoutHeadWatchers().pipe(Effect.ignoreCause({ log: true }));
+        const topologyChanged =
+          event.type === "project.created" ||
+          event.type === "project.deleted" ||
+          (event.type === "project.meta-updated" && event.payload.workspaceRoot !== undefined) ||
+          event.type === "thread.created" ||
+          event.type === "thread.deleted" ||
+          (event.type === "thread.meta-updated" && event.payload.worktreePath !== undefined);
+        const syncWatchers = topologyChanged ? watcherWorker.enqueue(undefined) : Effect.void;
         if (
           event.type !== "thread.turn-start-requested" &&
           event.type !== "thread.message-sent" &&
@@ -1102,8 +1202,10 @@ const make = Effect.gen(function* () {
 
   return {
     start,
-    drain: worker.drain,
+    drain: Effect.all([worker.drain, watcherWorker.drain], { discard: true }),
   } satisfies CheckpointReactorShape;
 });
+
+const make = makeCheckpointReactor();
 
 export const CheckpointReactorLive = Layer.effect(CheckpointReactor, make);
