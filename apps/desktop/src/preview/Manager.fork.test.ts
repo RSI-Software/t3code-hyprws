@@ -1,18 +1,13 @@
 import { it as effectIt } from "@effect/vitest";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import { describe, expect, vi } from "vite-plus/test";
-import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
-import * as BrowserSession from "./BrowserSession.ts";
+import { previewManagerFixtureLayer } from "./Manager.fork-test-harness.ts";
 import * as PreviewManager from "./Manager.ts";
 
 vi.mock("electron", () => ({
@@ -24,35 +19,7 @@ vi.mock("electron", () => ({
   webContents: { fromId: vi.fn(() => null), getFocusedWebContents: vi.fn(() => null) },
 }));
 
-// Real PreviewManager operations need no webview or Electron window for these
-// ownership cases. Keep the fixture local so importing it never registers upstream tests.
-const layer = PreviewManager.layer.pipe(
-  Layer.provideMerge(
-    Layer.succeed(
-      BrowserSession.BrowserSession,
-      BrowserSession.BrowserSession.of({
-        getPartition: () => Effect.succeed("persist:t3code-preview-test"),
-        isPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
-        getSession: () => Effect.die("unexpected getSession"),
-        clearCookies: () => Effect.void,
-        clearCache: () => Effect.void,
-      }),
-    ),
-  ),
-  Layer.provideMerge(
-    Layer.succeed(
-      DesktopEnvironment.DesktopEnvironment,
-      DesktopEnvironment.DesktopEnvironment.of({
-        browserArtifactsDir: "/tmp/t3/dev/browser-artifacts",
-        dirname: "/tmp/t3/desktop",
-        path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
-      } as DesktopEnvironment.DesktopEnvironment["Service"]),
-    ),
-  ),
-  Layer.provideMerge(FileSystem.layerNoop({})),
-  Layer.provideMerge(Path.layer),
-  Layer.provideMerge(Layer.succeed(HostProcessPlatform, "darwin")),
-);
+const layer = previewManagerFixtureLayer();
 const withManager = <A>(
   use: (
     manager: PreviewManager.PreviewManager["Service"],
