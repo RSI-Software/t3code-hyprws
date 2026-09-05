@@ -1566,6 +1566,7 @@ it("drives unblock-review through the command entry point with live runtime prov
       session: "review-2",
     });
     assert.strictEqual(reviewed.nightlyReview?.status, "withheld");
+    assert.isFalse(NodeFS.existsSync(`${base.reportPath}.outcome.json`));
     assert.include(
       NodeFS.readFileSync(base.recordPath, "utf8"),
       "Reviewer: agent `claude/anthropic/claude-opus-5`, session `review-2`",
@@ -1838,6 +1839,13 @@ it("takes canonical walker decisions to the independent nightly review boundary"
     assert.strictEqual(result, 2);
     assert.include(output, "Independent Claude Opus review required");
     assert.notInclude(output, "Gate 4 refusal");
+    const bundle = JSON.parse(
+      NodeFS.readFileSync(`${checked.reportPath}.outcome.json`, "utf8"),
+    ) as { receipts: Array<{ kind: string; stage?: string; status?: string }> };
+    assert.strictEqual(
+      bundle.receipts.find((row) => row.kind === "stage" && row.stage === "apply")?.status,
+      "not-attempted",
+    );
     const proposed = validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")));
     assert.deepStrictEqual(proposed.recordDecisions, checked.recordDecisions);
     assert.deepInclude(proposed.proposedBy, {
@@ -2650,6 +2658,36 @@ it("unblock-auto prints the resume line after an apply refusal", () => {
     assert.include(
       stderr,
       `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${checked.reportPath}\n`,
+    );
+    runner.set("vp", ["run", "fork:upstream-refs", checked.recordPath], { status: 0 });
+    runner.set(
+      "git",
+      [
+        "-c",
+        "core.commentChar=auto",
+        "push",
+        `--force-with-lease=refs/heads/hyprws:${C}`,
+        "origin",
+        "HEAD:refs/heads/hyprws",
+      ],
+      { status: 1, stderr: "fixture leased push rejected" },
+    );
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
+      1,
+    );
+    assert.include(stderr, "leased apply refused");
+    const bundle = JSON.parse(
+      NodeFS.readFileSync(`${checked.reportPath}.outcome.json`, "utf8"),
+    ) as { receipts: Array<{ kind: string; stage?: string; status?: string; detail?: string }> };
+    assert.isTrue(
+      bundle.receipts.some(
+        (row) =>
+          row.kind === "stage" &&
+          row.stage === "apply" &&
+          row.status === "failed" &&
+          row.detail?.includes("fixture leased push rejected"),
+      ),
     );
   } finally {
     process.stderr.write = original;
@@ -3642,6 +3680,18 @@ it("unblock-auto prints the resume line after a Gate 3 failure", () => {
       1,
     );
     assert.include(stderr, "failed: vp run --no-cache fork:scan --target v1.2.3");
+    const bundle = JSON.parse(NodeFS.readFileSync(`${state.reportPath}.outcome.json`, "utf8")) as {
+      receipts: Array<{ kind: string; stage?: string; status?: string; detail?: string }>;
+    };
+    assert.isTrue(
+      bundle.receipts.some(
+        (row) =>
+          row.kind === "stage" &&
+          row.stage === "verification" &&
+          row.status === "failed" &&
+          row.detail?.includes("scan failed"),
+      ),
+    );
     assert.include(
       stderr,
       `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${state.reportPath}\n`,
@@ -3858,6 +3908,22 @@ it("surfaces each failing CI job with its last 40 failed-log lines verbatim", ()
     assert.include(message, "Check\tstep\tcheck-045");
     assert.notInclude(message, "Check\tstep\tcheck-005");
     assert.notInclude(message, "Test Server 1");
+    assert.strictEqual(
+      run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      1,
+    );
+    const bundle = JSON.parse(NodeFS.readFileSync(`${state.reportPath}.outcome.json`, "utf8")) as {
+      receipts: Array<{ kind: string; stage?: string; status?: string; detail?: string }>;
+    };
+    assert.isTrue(
+      bundle.receipts.some(
+        (row) =>
+          row.kind === "stage" &&
+          row.stage === "verification" &&
+          row.status === "failed" &&
+          row.detail?.includes("hyprws CI failed"),
+      ),
+    );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
