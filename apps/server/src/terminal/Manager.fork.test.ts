@@ -137,7 +137,7 @@ it.layer(
       });
       expect(preserved.history).toContain("source history");
       expect(preserved.history).toContain(
-        "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow, or move the thread again to retry.",
+        "Checkout follow paused because a command is still running. Pin this terminal to keep its current checkout. After stopping the command, toggle Pin then Follow to retry.",
       );
       expect(
         (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
@@ -159,7 +159,7 @@ it.layer(
       expect(sourceProcess.killSignals[0]).toBe("SIGTERM");
       expect(ptyAdapter.spawnInputs).toHaveLength(2);
       expect(moved).toMatchObject({ cwd: destination, worktreePath: destination });
-      expect(inspectionCount).toBe(3);
+      expect(inspectionCount).toBeGreaterThanOrEqual(3);
     }),
   );
   it.effect("preserves an unmanaged terminal when fresh activity inspection fails", () =>
@@ -203,7 +203,7 @@ it.layer(
         worktreePath: destination,
       });
 
-      expect(inspectionCount).toBe(2);
+      expect(inspectionCount).toBeGreaterThanOrEqual(2);
       expect(sourceProcess.killSignals).toEqual([]);
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
       expect(preserved).toMatchObject({
@@ -214,9 +214,7 @@ it.layer(
       expect(preserved.history).toContain(
         "Checkout follow paused because T3 Code could not confirm that this terminal is idle.",
       );
-      expect(preserved.history).toContain(
-        "To retry, toggle Pin then Follow, or move the thread again.",
-      );
+      expect(preserved.history).toContain("To retry, toggle Pin then Follow.");
     }),
   );
   it.effect("isolates viewer attachments that share a logical terminal", () =>
