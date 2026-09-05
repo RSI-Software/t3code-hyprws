@@ -348,30 +348,59 @@ export const make = Effect.gen(function* () {
       ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
         Effect.andThen(
           Effect.gen(function* () {
-            const resolved = yield* zmuxSessionBinder.resolve(input.path);
-            if (resolved.status === "resolved" && resolved.match === "worktree") {
-              const result = yield* zmuxSessionBinder.unbind(input.path);
-              if (result.status === "failed") {
-                yield* Effect.logWarning("worktree removal could not unbind its zmux session", {
-                  worktreePath: input.path,
-                  detail: result.notice.detail,
-                });
-              }
-            }
+            const preparedUnbind = yield* zmuxSessionBinder.prepareUnbind(input.path);
             // Decide before removal: the marker lives in the gitdir that
             // `git worktree remove` deletes.
             const worktrunk = yield* worktrunkHookRunner.isWorktrunkWorktree(input.path);
             if (worktrunk) {
-              yield* worktrunkHookRunner.runPreRemoveHook({
+              const preRemove = yield* worktrunkHookRunner.runPreRemoveHook({
                 projectCwd: input.cwd,
                 worktreePath: input.path,
               });
+              if (preRemove.status === "failed") {
+                return yield* new GitCommandError({
+                  operation: "GitWorkflowService.removeWorktree",
+                  command: "wt hook pre-remove",
+                  cwd: input.path,
+                  detail: preRemove.detail,
+                  ...(preRemove.exitCode === null ? {} : { exitCode: preRemove.exitCode }),
+                });
+              }
             }
             yield* git.removeWorktree(input);
             if (worktrunk) {
               yield* worktrunkHookRunner.runPostRemoveHook({
                 projectCwd: input.cwd,
                 worktreePath: input.path,
+              });
+            }
+            if (preparedUnbind.status === "prepared") {
+              const result = yield* zmuxSessionBinder.unbind(preparedUnbind.identity);
+              if (result.status !== "unbound") {
+                const detail =
+                  result.status === "failed"
+                    ? result.notice.detail
+                    : `cleanup returned ${result.status}`;
+                return yield* new GitCommandError({
+                  operation: "GitWorkflowService.removeWorktree.cleanup",
+                  command: "zmux session kill",
+                  cwd: input.cwd,
+                  detail: `The worktree was removed, but its managed session cleanup failed: ${detail}. Retry only with the frozen identity: \`${ZmuxSessionBinder.protectedCleanupCommand(preparedUnbind.identity)}\`.`,
+                });
+              }
+            } else if (
+              preparedUnbind.status === "failed" ||
+              preparedUnbind.status === "unavailable"
+            ) {
+              return yield* new GitCommandError({
+                operation: "GitWorkflowService.removeWorktree.cleanup",
+                command: "zmux session resolve",
+                cwd: input.cwd,
+                detail: `The worktree was removed, but its managed session was preserved because cleanup ownership could not be verified: ${
+                  preparedUnbind.status === "failed"
+                    ? preparedUnbind.notice.detail
+                    : "zmux became unavailable before its exact cleanup identity could be prepared"
+                }`,
               });
             }
           }),
