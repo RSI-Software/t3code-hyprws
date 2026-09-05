@@ -32,7 +32,8 @@ export type ScanWarningRule =
   | "pull-request-project-scope"
   | "terminal-attachment-boundary"
   | "thread-route-navigation"
-  | "github-issue-settings-search";
+  | "github-issue-settings-search"
+  | "mobile-ignored-file-listing";
 
 // Adopted boundaries are enforced on the commits an authoring scan selects.
 // Historical inventory remains advisory so its original patches can be repaired
@@ -45,6 +46,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "pull-request-project-scope",
   "upstream-test",
   "github-issue-settings-search",
+  "mobile-ignored-file-listing",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -59,6 +61,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "thread-route-navigation",
   "pull-request-project-scope",
   "github-issue-settings-search",
+  "mobile-ignored-file-listing",
 ];
 
 export interface ScanWarning {
@@ -97,6 +100,7 @@ export interface CommitPatch {
   readonly threadRouteNavigationAdded?: boolean;
   readonly pullRequestProjectScopeAdded?: boolean;
   readonly githubIssueSettingsSearchAdded?: boolean;
+  readonly mobileIgnoredFilePolicyAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -206,6 +210,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const navigationAdditions = new Map<string, Array<string>>();
     let pullRequestProjectScopeAdded = false;
     let githubIssueSettingsSearchAdded = false;
+    let mobileIgnoredFilePolicyAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -271,6 +276,13 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         /(?:\bid|["']id["'])\s*:\s*["']github-issue-handoff-prompt["']/.test(content)
       )
         githubIssueSettingsSearchAdded = true;
+      if (
+        added &&
+        path === "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx" &&
+        !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
+        /\b(?:showIgnoredFiles|includeIgnored)\b/.test(content)
+      )
+        mobileIgnoredFilePolicyAdded = true;
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -303,6 +315,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(threadRouteNavigationAdded ? { threadRouteNavigationAdded: true } : {}),
       ...(pullRequestProjectScopeAdded ? { pullRequestProjectScopeAdded: true } : {}),
       ...(githubIssueSettingsSearchAdded ? { githubIssueSettingsSearchAdded: true } : {}),
+      ...(mobileIgnoredFilePolicyAdded ? { mobileIgnoredFilePolicyAdded: true } : {}),
     });
   }
   return patches;
@@ -389,6 +402,13 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "github-issue-settings-search",
         "register the issue handoff item in githubIssueSettingsSearch.ts through useAvailableSettingsSearchItems; preserve upstream settingsSearch.ts items, availability and ordering",
+      );
+    }
+
+    if (patch.mobileIgnoredFilePolicyAdded) {
+      warn(
+        "mobile-ignored-file-listing",
+        "keep ignored-file preference and includeIgnored request policy in ignoredWorkspaceFileListing.ts; the route calls useIgnoredWorkspaceFileListing(cwd) and retains its environment and file-inspector gates",
       );
     }
 
