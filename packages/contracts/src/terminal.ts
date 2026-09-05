@@ -278,6 +278,31 @@ export class TerminalCwdStatError extends Schema.TaggedErrorClass<TerminalCwdSta
   }
 }
 
+export class TerminalManagedRetargetError extends Schema.TaggedErrorClass<TerminalManagedRetargetError>()(
+  "TerminalManagedRetargetError",
+  {
+    cwd: Schema.String,
+    worktreePath: Schema.NullOr(Schema.String),
+    reason: Schema.Literals([
+      "cwd-outside-worktree",
+      "command-unavailable",
+      "resolve-timeout",
+      "invalid-protocol",
+      "missing-session",
+      "binding-conflict",
+      "attach-failed",
+    ]),
+    target: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message() {
+    const destination = this.worktreePath ?? this.cwd;
+    const target = this.target ? ` (${this.target})` : "";
+    return `Managed terminal retarget failed for ${destination}: ${this.reason}${target}`;
+  }
+}
+
 export const TerminalCwdError = Schema.Union([
   TerminalCwdNotFoundError,
   TerminalCwdNotDirectoryError,
@@ -355,6 +380,7 @@ export class TerminalResizeError extends Schema.TaggedErrorClass<TerminalResizeE
 
 export const TerminalError = Schema.Union([
   TerminalCwdError,
+  TerminalManagedRetargetError,
   TerminalHistoryError,
   TerminalSessionLookupError,
   TerminalNotRunningError,

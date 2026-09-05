@@ -28,9 +28,20 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
   resizeFailure: unknown | undefined;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: PtyAdapter.PtyExitEvent) => void>();
+  private readonly initialEvent:
+    | { readonly type: "data"; readonly data: string }
+    | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent }
+    | undefined;
   killed = false;
-  constructor(pid: number) {
+  private initialEventDelivered = false;
+  constructor(
+    pid: number,
+    initialEvent?:
+      | { readonly type: "data"; readonly data: string }
+      | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent },
+  ) {
     this.pid = pid;
+    this.initialEvent = initialEvent;
   }
   write(data: string): void {
     if (this.writeFailure !== undefined) {
@@ -50,12 +61,20 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
   onData(callback: (data: string) => void): () => void {
     this.dataListeners.add(callback);
+    if (!this.initialEventDelivered && this.initialEvent?.type === "data") {
+      this.initialEventDelivered = true;
+      callback(this.initialEvent.data);
+    }
     return () => {
       this.dataListeners.delete(callback);
     };
   }
   onExit(callback: (event: PtyAdapter.PtyExitEvent) => void): () => void {
     this.exitListeners.add(callback);
+    if (!this.initialEventDelivered && this.initialEvent?.type === "exit") {
+      this.initialEventDelivered = true;
+      callback(this.initialEvent.event);
+    }
     return () => {
       this.exitListeners.delete(callback);
     };
@@ -114,7 +133,7 @@ export function resolvedZmuxProcessRunner(): FakeProcessRunner {
     Effect.succeed(
       processResult({
         stdout:
-          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}',
       }),
     ),
   );
@@ -123,6 +142,15 @@ export class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
   readonly spawnFailures: Error[] = [];
+  readonly spawnInitialEvents: Array<
+    | { readonly type: "data"; readonly data: string }
+    | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent }
+    | ((
+        input: PtyAdapter.PtySpawnInput,
+      ) =>
+        | { readonly type: "data"; readonly data: string }
+        | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent })
+  > = [];
   private readonly mode: "sync" | "async";
   private nextPid = 9000;
   constructor(mode: "sync" | "async" = "sync") {
@@ -142,7 +170,11 @@ export class FakePtyAdapter {
         }),
       );
     }
-    const process = new FakePtyProcess(this.nextPid++);
+    const initialEvent = this.spawnInitialEvents.shift();
+    const process = new FakePtyProcess(
+      this.nextPid++,
+      typeof initialEvent === "function" ? initialEvent(input) : initialEvent,
+    );
     this.processes.push(process);
     if (this.mode === "async") {
       return Effect.tryPromise({
@@ -188,6 +220,7 @@ export interface CreateManagerOptions {
 export interface ManagerFixture {
   readonly baseDir: string;
   readonly logsDir: string;
+  readonly join: (...paths: ReadonlyArray<string>) => string;
   readonly ptyAdapter: FakePtyAdapter;
   readonly manager: TerminalManager.TerminalManager["Service"];
   readonly getEvents: Effect.Effect<ReadonlyArray<TerminalEvent>>;
