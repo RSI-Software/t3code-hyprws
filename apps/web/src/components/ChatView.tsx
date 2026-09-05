@@ -166,6 +166,7 @@ import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import {
   armDevAppPreviewHandoff,
   DevAppPreviewHandoffCancelledError,
+  DevAppPreviewInvocationLifecycle,
   devAppPreviewActionCommandForRuntime,
   isDevAppPreviewActionCommand,
   type DevAppPreviewHandoff,
@@ -1839,12 +1840,23 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const devAppPreviewHandoffsRef = useRef(new Set<DevAppPreviewHandoff>());
-  useEffect(() => {
-    const handoffs = devAppPreviewHandoffsRef.current;
+  const devAppPreviewScopeRef = useRef<{
+    readonly threadKey: string | null;
+    readonly lifecycle: DevAppPreviewInvocationLifecycle;
+    readonly handoffs: Set<DevAppPreviewHandoff>;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const scope = {
+      threadKey: activeThreadKey,
+      lifecycle: new DevAppPreviewInvocationLifecycle(),
+      handoffs: new Set<DevAppPreviewHandoff>(),
+    };
+    devAppPreviewScopeRef.current = scope;
     return () => {
-      for (const handoff of handoffs) handoff.cancel();
-      handoffs.clear();
+      if (devAppPreviewScopeRef.current === scope) devAppPreviewScopeRef.current = null;
+      scope.lifecycle.dispose();
+      for (const handoff of scope.handoffs) handoff.cancel();
+      scope.handoffs.clear();
     };
   }, [activeThreadKey]);
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
@@ -3498,6 +3510,11 @@ export default function ChatView(props: ChatViewProps) {
       },
     ) => {
       if (!activeThreadId || !activeProject || !activeThread) return;
+      const previewScope = devAppPreviewScopeRef.current;
+      if (previewScope?.threadKey !== activeThreadKey) return;
+      const invocation = previewScope.lifecycle.begin();
+      const isInvocationActive = () =>
+        devAppPreviewScopeRef.current === previewScope && invocation.isActive();
       if (options?.rememberAsLastInvoked !== false) {
         setLastInvokedScriptByProjectId((current) => {
           if (current[activeProject.id] === script.id) return current;
@@ -3561,6 +3578,7 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       const openResult = await openTerminal({ environmentId, input: openTerminalInput });
+      if (!isInvocationActive()) return;
       if (openResult._tag === "Failure") {
         if (!isAtomCommandInterrupted(openResult)) {
           const error = squashAtomCommandFailure(openResult);
@@ -3569,6 +3587,7 @@ export default function ChatView(props: ChatViewProps) {
             error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
           );
         }
+        invocation.cancel();
         return;
       }
 
@@ -3580,7 +3599,7 @@ export default function ChatView(props: ChatViewProps) {
           environmentId,
           terminal: openTerminalInput,
           onPreviewUrl: async (url) => {
-            if (!previewHandoff || !devAppPreviewHandoffsRef.current.delete(previewHandoff)) {
+            if (!previewHandoff || !previewScope.handoffs.delete(previewHandoff)) {
               return;
             }
             const previewResult = await openUrlInPreview({
@@ -3597,15 +3616,15 @@ export default function ChatView(props: ChatViewProps) {
             }
           },
           onError: (message) => {
-            if (previewHandoff) devAppPreviewHandoffsRef.current.delete(previewHandoff);
+            if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
             setThreadError(activeThreadId, message);
           },
         });
-        devAppPreviewHandoffsRef.current.add(previewHandoff);
+        previewScope.handoffs.add(previewHandoff);
         try {
           await previewHandoff.ready;
         } catch (error: unknown) {
-          devAppPreviewHandoffsRef.current.delete(previewHandoff);
+          previewScope.handoffs.delete(previewHandoff);
           if (!(error instanceof DevAppPreviewHandoffCancelledError)) {
             setThreadError(
               activeThreadId,
@@ -3615,9 +3634,26 @@ export default function ChatView(props: ChatViewProps) {
           previewHandoff = null;
         }
       }
-      if (isDevAppPreviewAction && previewSupported && previewHandoff === null) return;
+      if (
+        !isInvocationActive() ||
+        (isDevAppPreviewAction &&
+          previewSupported &&
+          (previewHandoff === null || !previewHandoff.isActive()))
+      ) {
+        previewHandoff?.cancel();
+        if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+        invocation.cancel();
+        return;
+      }
 
       const command = devAppPreviewActionCommandForRuntime(script.command, previewSupported);
+
+      if (!isInvocationActive() || (previewHandoff !== null && !previewHandoff.isActive())) {
+        previewHandoff?.cancel();
+        if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+        invocation.cancel();
+        return;
+      }
 
       const writeResult = await writeTerminal({
         environmentId,
@@ -3627,9 +3663,14 @@ export default function ChatView(props: ChatViewProps) {
           data: `${command}\r`,
         },
       });
+      if (!isInvocationActive()) {
+        previewHandoff?.cancel();
+        if (previewHandoff) previewScope.handoffs.delete(previewHandoff);
+        return;
+      }
       if (writeResult._tag === "Failure" && previewHandoff) {
         previewHandoff.cancel();
-        devAppPreviewHandoffsRef.current.delete(previewHandoff);
+        previewScope.handoffs.delete(previewHandoff);
       }
       if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
         const error = squashAtomCommandFailure(writeResult);
@@ -3638,12 +3679,14 @@ export default function ChatView(props: ChatViewProps) {
           error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
         );
       }
+      invocation.cancel();
     },
     [
       activeProject,
       activeThread,
       activeThreadId,
       activeThreadRef,
+      activeThreadKey,
       gitCwd,
       setTerminalOpen,
       setThreadError,

@@ -233,7 +233,34 @@ function terminalEndedResult(state: TerminalBufferState): DevAppPreviewOutputRes
 
 export interface DevAppPreviewHandoff {
   readonly ready: Promise<void>;
+  readonly isActive: () => boolean;
   readonly cancel: () => void;
+}
+
+export interface DevAppPreviewInvocationLease {
+  readonly isActive: () => boolean;
+  readonly cancel: () => void;
+}
+
+export class DevAppPreviewInvocationLifecycle {
+  private disposed = false;
+  private generation = 0;
+
+  begin(): DevAppPreviewInvocationLease {
+    const generation = this.generation;
+    let active = true;
+    return {
+      isActive: () => active && !this.disposed && generation === this.generation,
+      cancel: () => {
+        active = false;
+      },
+    };
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.generation += 1;
+  }
 }
 
 export class DevAppPreviewHandoffCancelledError extends Error {
@@ -302,6 +329,7 @@ export function createDevAppPreviewHandoffManager(
       };
       const handoff: DevAppPreviewHandoff = {
         ready: readyPromise,
+        isActive: () => !settled,
         cancel: () => {
           const wasReady = ready;
           finish();

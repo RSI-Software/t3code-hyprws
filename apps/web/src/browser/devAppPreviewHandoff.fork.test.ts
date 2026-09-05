@@ -11,6 +11,7 @@ import {
   createDevAppPreviewHandoffManager,
   DevAppPreviewLineDecoder,
   DevAppPreviewHandoffCancelledError,
+  DevAppPreviewInvocationLifecycle,
   DevAppPreviewOutputWatcher,
   devAppPreviewActionCommandForRuntime,
   type DevAppPreviewHandoffSource,
@@ -93,6 +94,42 @@ function outputState(data: string, resetVersion: number): TerminalOutputState {
 }
 
 describe("dev app preview handoff", () => {
+  it("invalidates an invocation waiting across an async scope boundary", async () => {
+    const lifecycle = new DevAppPreviewInvocationLifecycle();
+    const invocation = lifecycle.begin();
+    let continueInvocation!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      continueInvocation = resolve;
+    });
+    const continued = gate.then(() => invocation.isActive());
+
+    lifecycle.dispose();
+    continueInvocation();
+
+    await expect(continued).resolves.toBe(false);
+  });
+
+  it("cancels one invocation lease without invalidating its scoped peers", () => {
+    const lifecycle = new DevAppPreviewInvocationLifecycle();
+    const first = lifecycle.begin();
+    const second = lifecycle.begin();
+    first.cancel();
+
+    expect(first.isActive()).toBe(false);
+    expect(second.isActive()).toBe(true);
+  });
+
+  it("uses a fresh lifecycle after StrictMode cleanup and setup", () => {
+    const firstSetup = new DevAppPreviewInvocationLifecycle();
+    const firstSetupInvocation = firstSetup.begin();
+    firstSetup.dispose();
+    const secondSetup = new DevAppPreviewInvocationLifecycle();
+    const secondSetupInvocation = secondSetup.begin();
+
+    expect(firstSetupInvocation.isActive()).toBe(false);
+    expect(secondSetupInvocation.isActive()).toBe(true);
+  });
+
   it("keeps concurrent handoffs isolated by environment, thread, and terminal", async () => {
     const fake = fakeHandoffSource();
     const manager = createDevAppPreviewHandoffManager(fake.source);
@@ -212,9 +249,10 @@ describe("dev app preview handoff", () => {
       },
       onError: () => {},
     });
+    const continuationSeesActiveHandoff = handoff.ready.then(() => handoff.isActive());
     fake.emit(environmentId, input, withOutput(EMPTY_TERMINAL_BUFFER_STATE, outputState("", 1)));
-    await handoff.ready;
     handoff.cancel();
+    await expect(continuationSeesActiveHandoff).resolves.toBe(false);
 
     fake.emit(
       environmentId,
