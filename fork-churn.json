@@ -9489,6 +9489,107 @@
       "status": "failed",
       "detail": "churn policy verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33958764779"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
+      "attemptId": "33959264097/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "f4b532fbc73cbfee6b3ac86d80511337a0f715e1",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "target",
+      "target": {
+        "tag": "v0.0.39-nightly.20260905.1286",
+        "sha": "09aac71563c66a4f65f6fbe701aa9596cb677767"
+      },
+      "eligible": true,
+      "reason": "selected tagged target under the fork tag policy"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "f4b532fbc73cbfee6b3ac86d80511337a0f715e1",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/568#issuecomment-5549329372"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "09aac71563c66a4f65f6fbe701aa9596cb677767",
+      "attemptId": "33959264097/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "churn policy verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/33959264097"
     }
   ]
 }
