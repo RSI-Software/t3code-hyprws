@@ -202,29 +202,33 @@ function makeDeterministicRandomService(seed = 305419896): {
 }
 const THREAD_ID = ThreadId.make("thread-claude-1");
 describe("ClaudeAdapterLive", () => {
-  it.effect("launches the selected Claude custom agent as the main session", () => {
-    const harness = makeHarness({ claudeConfig: { launchArgs: "--agent legacy --verbose" } });
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: ProviderDriverKind.make("claudeAgent"),
-        modelSelection: createModelSelection(
-          ProviderInstanceId.make("claudeAgent"),
-          "claude-opus-5",
-          [{ id: "agent", value: "fable" }],
-        ),
-        runtimeMode: "full-access",
-      });
-      assert.deepEqual(harness.getLastCreateQueryInput()?.options.extraArgs, {
-        agent: "fable",
-        verbose: null,
-      });
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
+  for (const resume of [undefined, "550e8400-e29b-41d4-a716-446655440000"]) {
+    it.effect(`launches the selected Claude custom agent on ${resume ? "resume" : "start"}`, () => {
+      const harness = makeHarness({ claudeConfig: { launchArgs: "--agent legacy --verbose" } });
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          modelSelection: createModelSelection(
+            ProviderInstanceId.make("claudeAgent"),
+            "claude-opus-5",
+            [{ id: "agent", value: "fable" }],
+          ),
+          runtimeMode: "full-access",
+          ...(resume ? { resumeCursor: { resume } } : {}),
+        });
+        assert.deepEqual(harness.getLastCreateQueryInput()?.options.extraArgs, {
+          agent: "fable",
+          verbose: null,
+        });
+        assert.equal(harness.getLastCreateQueryInput()?.options.resume, resume);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+  }
   it.effect("removes a configured Claude agent when Default is selected", () => {
     const harness = makeHarness({ claudeConfig: { launchArgs: "--agent legacy --verbose" } });
     return Effect.gen(function* () {
