@@ -7,13 +7,13 @@ import {
   renderScanReport,
   scanFailures,
   scanFailureSummary,
-} from "../fork-scan.ts";
+} from "./fork-scan.ts";
 import {
   parseWorkflowReviews,
   readWorkflowDrift,
   WORKFLOW_COPIES,
   WORKFLOW_REVIEWS_PATH,
-} from "./fork-workflow-drift.ts";
+} from "./lib/fork-workflow-drift.ts";
 
 const blob = (text: string): string =>
   NodeCrypto.createHash("sha1")
