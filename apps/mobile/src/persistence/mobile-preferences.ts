@@ -194,6 +194,7 @@ export interface Preferences {
   readonly workspaceSelections?: WorkspaceSelections;
   readonly pullRequestSavedViews?: ReadonlyArray<PullRequestSavedView>;
   readonly issueSavedViews?: ReadonlyArray<IssueSavedView>;
+  readonly terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -288,6 +289,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workspaceSelections?: WorkspaceSelections;
     pullRequestSavedViews?: ReadonlyArray<PullRequestSavedView>;
     issueSavedViews?: ReadonlyArray<IssueSavedView>;
+    terminalCheckoutModes?: Readonly<Record<string, "follow" | "pin">>;
   } = {};
 
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
@@ -480,6 +482,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (Array.isArray(parsed.issueSavedViews)) {
     preferences.issueSavedViews = parsed.issueSavedViews.filter(isIssueSavedView);
+  }
+  if (parsed.terminalCheckoutModes && typeof parsed.terminalCheckoutModes === "object") {
+    preferences.terminalCheckoutModes = Object.fromEntries(
+      Object.entries(parsed.terminalCheckoutModes).filter(
+        (entry): entry is [string, "follow" | "pin"] => entry[1] === "follow" || entry[1] === "pin",
+      ),
+    );
   }
   return preferences;
 }

@@ -26,6 +26,7 @@ import { waitForTitleRegenerationOutcome } from "./threadTitleRegeneration.ts";
 import {
   type InterruptThreadTurnInput,
   type UpdateThreadMetadataInput,
+  type MoveThreadCheckoutInput,
   archiveThread,
   closeGuestShare,
   resolveGuestMessage,
@@ -43,6 +44,7 @@ import {
   retryWorkspacePreparation,
   linkThreadPullRequest,
   linkThreadIssue,
+  moveThreadCheckout,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -382,6 +384,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     unlinkIssue: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:unlink-issue",
       execute: unlinkThreadIssue,
+      scheduler,
+      concurrency,
+    }),
+    moveCheckout: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:move-checkout",
+      execute: (input: MoveThreadCheckoutInput) => moveThreadCheckout(input),
       scheduler,
       concurrency,
     }),

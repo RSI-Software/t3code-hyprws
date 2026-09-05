@@ -2,6 +2,7 @@ import { useAtomMount } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { checkoutMoveExpectedRoot } from "@t3tools/client-runtime/state/checkout-move";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   createVcsStatusRevalidationAtomFamily,
@@ -70,6 +71,9 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     reportFailure: false,
   });
   const readRefs = useAtomCommand(vcsEnvironment.readRefs, { reportFailure: false });
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
+    reportFailure: false,
+  });
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const createRef = useAtomCommand(vcsEnvironment.createRef, { reportFailure: false });
