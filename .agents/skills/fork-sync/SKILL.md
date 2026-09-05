@@ -31,6 +31,11 @@ outcome evidence needs reviewed reconciliation; never invent eligibility to get 
 No proof relaxation applies. The check pins the base tag and the installed head must equal the
 constructed head. Refresh cannot substitute a different candidate.
 
+The rewrite record binds `archive/hyprws-pre-rewrite-<12-char expected-old>` to the full old-trunk
+SHA. Apply creates that branch with a missing-ref lease, accepts it on retry only at the same SHA,
+and reads it back before publishing the record or leasing `hyprws`. If the trunk lease fails, retain
+the archive and the report's failed-attempt evidence. Never substitute or move `hyprws-previous`.
+
 For a nightly base, the final command binds the walking host and stops for the same independent
 Claude Opus review below. The reviewer signs that rewrite's report and record; auto resume applies
 with its expected-old lease. Keep judgement and withhold boundaries unchanged. After the same-base
@@ -197,9 +202,11 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
 
    For a nightly target both paths require the nightly independent-review guard. It binds distinct
    proposer/reviewer identities to the record, target, blocking SHA, installed/CI head, lane, and
-   lease. The apply also refuses a rehearsal lane moved since the CI verdict, calls `fork:sync-gate`, posts the
-   record, uses only its expected-old lease, and deletes the remote lane after apply. Rejection voids
-   the report: retain its external files and restart at step 1. Never commit them.
+   lease. A rewrite apply also creates and reads back its bound old-trunk archive before it posts the
+   record or mutates trunk. The apply refuses a rehearsal lane moved since the CI verdict, calls
+   `fork:sync-gate`, posts the record, uses only its expected-old trunk lease, and deletes the remote
+   lane after apply. A rejected rewrite trunk lease retains the archive as failed-attempt evidence.
+   Rejection voids the report: retain its external files and restart at step 1. Never commit them.
 
 6. Ledger row:
 
