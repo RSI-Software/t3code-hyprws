@@ -604,6 +604,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            checkoutMove: null,
             linkedPullRequest: null,
             branchPullRequest: null,
             latestTurnId: null,
@@ -810,6 +811,33 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { branchPullRequest: event.payload.branchPullRequest }
               : {}),
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.checkout-move-updated": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) return;
+          const destination = event.payload.move.destination;
+          const project = yield* projectionProjectRepository.getById({
+            projectId: existingRow.value.projectId,
+          });
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            checkoutMove: event.payload.move,
+            ...(event.payload.move.status === "committed" && destination
+              ? {
+                  branch: destination.branch,
+                  worktreePath:
+                    Option.isSome(project) &&
+                    destination.checkoutRoot === project.value.workspaceRoot
+                      ? null
+                      : destination.checkoutRoot,
+                }
+              : {}),
+            updatedAt: event.payload.move.updatedAt,
           });
           return;
         }
