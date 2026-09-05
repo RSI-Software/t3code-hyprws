@@ -2,6 +2,7 @@
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeCrypto from "node:crypto";
 
 import { UsageError } from "./lib/fork-cli.ts";
 import {
@@ -31,6 +32,13 @@ export interface RewriteProof {
 }
 
 export interface RewriteBinding {
+  readonly build?: {
+    readonly manifestPath: string;
+    readonly receiptPath: string;
+    readonly manifestSha256: string;
+    readonly result: string;
+  };
+  readonly outcomeTarget?: import("./lib/fork-sync-outcomes.ts").OutcomeTarget;
   readonly from: string;
   readonly fromSha: string;
   readonly fromShort: string;
@@ -366,7 +374,12 @@ Unblock verbs:
   unblock-review --report <json> (--sign-off | --withhold <reason>)
   unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
-  rewrite-rehearse --from <branch-or-sha> [--issue N] [--allow-extra N] [--allow-paths <glob,...>] [--dry-run]
+  rewrite-rehearse --from <branch-or-sha> [--manifest <reviewed-json>] [--issue N] [--dry-run]
+  rewrite-build --manifest <reviewed-json> [--json]
+
+Rewrite publication requires rewrite-rehearse --manifest <reviewed-json>.
+Build writes unreferenced objects and <manifest>.receipt.json, never refs or an index.
+Build exits: 0 verified; 1 runtime; 2 usage/schema; 3 stale/unsupported proof.
 
 Stable verbs:
   stable-list [--output <external-json>]
@@ -586,6 +599,15 @@ const renderRewriteRecord = (report: SyncReport): string => {
     `- Stack size: \`${report.stackSize ?? 0}\` fork commits`,
     "",
     ...renderRewriteProofs(rw),
+    ...(rw.build === undefined
+      ? []
+      : [
+          `- Build manifest SHA-256: \`${rw.build.manifestSha256}\``,
+          `- Constructed head: \`${rw.build.result}\``,
+          `- Retained outcome SHA-256: \`${NodeCrypto.createHash("sha256")
+            .update(JSON.stringify(rw.outcomeTarget ?? null))
+            .digest("hex")}\``,
+        ]),
     "",
     "## Silent seams",
     "",
@@ -600,6 +622,7 @@ const renderRewriteRecord = (report: SyncReport): string => {
     "",
     ...report.verification.map((row) => `- \`${row.command}\`: ${row.result}`),
     "",
+    ...renderNightlyReview(report),
     "## Grounding",
     "",
     "None.",

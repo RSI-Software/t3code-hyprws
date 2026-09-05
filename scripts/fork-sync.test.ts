@@ -3618,47 +3618,19 @@ const rewriteReplayedRun = (
   return { ...state, branch };
 };
 
-it("pins the rewrite lane scan to its base tag, not upstream/main", () => {
-  const state = rewriteReplayedRun("v0.0.38-nightly.20260831.1236");
-  try {
-    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
-    assert.isAbove(
-      order(state.runner, "vp", [
-        "run",
-        "--no-cache",
-        "fork:scan",
-        "--target",
-        "v0.0.38-nightly.20260831.1236",
-      ]),
-      -1,
-    );
-    assert.strictEqual(order(state.runner, "vp", ["run", "--no-cache", "fork:scan"]), -1);
-  } finally {
-    NodeFS.rmSync(state.root, { recursive: true, force: true });
-    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
-  }
-});
-
-it("resolves the rewrite scan tag from the fork base when the report carries none", () => {
-  const state = rewriteReplayedRun(undefined);
-  state.runner.set("git", ["tag", "--points-at", A], {
-    stdout: "hyprws-checkpoint\nv0.0.38-nightly.20260831.1236\n",
-  });
-  try {
-    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
-    assert.isAbove(
-      order(state.runner, "vp", [
-        "run",
-        "--no-cache",
-        "fork:scan",
-        "--target",
-        "v0.0.38-nightly.20260831.1236",
-      ]),
-      -1,
-    );
-  } finally {
-    NodeFS.rmSync(state.root, { recursive: true, force: true });
-    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+it("refuses legacy rewrite checks without constructor provenance", () => {
+  for (const tag of ["v0.0.38-nightly.20260831.1236", undefined]) {
+    const state = rewriteReplayedRun(tag);
+    try {
+      assert.throws(
+        () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+        /rewrite construction binding is stale/,
+      );
+      assert.isFalse(state.runner.calls.some(({ command }) => command === "vp"));
+    } finally {
+      NodeFS.rmSync(state.root, { recursive: true, force: true });
+      NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    }
   }
 });
 
@@ -4100,7 +4072,7 @@ it("rewrite-rehearse waits out a running bot and then continues", () => {
   );
   try {
     const { output } = captureStdout(() => {
-      const code = run(["rewrite-rehearse", "--from", from], root, runner);
+      const code = run(["rewrite-rehearse", "--from", from, "--dry-run"], root, runner);
       assert.strictEqual(code, 3);
     });
     // The walk waited one poll instead of refusing, then continued past the
@@ -4170,7 +4142,7 @@ it("rewrite-rehearse refuses a stale from via count proof", () => {
     { stdout: "" },
   );
   try {
-    const code = run(["rewrite-rehearse", "--from", from], root, runner);
+    const code = run(["rewrite-rehearse", "--from", from, "--dry-run"], root, runner);
     assert.strictEqual(code, 3);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
