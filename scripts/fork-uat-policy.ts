@@ -26,6 +26,24 @@ export interface ExcludedRow extends DifferenceRow {
   readonly reason: ExclusionReason;
 }
 
+export type PriorUatStatus = "accepted" | "unsettled";
+
+export interface UatTask {
+  readonly area: string;
+  readonly title: string;
+  readonly carriedFrom: ReadonlyArray<{
+    readonly issue: number;
+    readonly task?: number;
+    readonly status: PriorUatStatus;
+  }>;
+}
+
+export interface PreviousUat {
+  readonly issue: number;
+  readonly url: string;
+  readonly tasks: ReadonlyArray<UatTask>;
+}
+
 export interface UatBodyInput {
   readonly ref: string;
   readonly sha: string;
@@ -35,6 +53,7 @@ export interface UatBodyInput {
   readonly previousStable: string;
   readonly previousStableOverridden: boolean;
   readonly relatesTo: number | null;
+  readonly previousUat: PreviousUat | null;
   readonly sources: ReadonlyArray<{
     readonly short: string;
     readonly subject: string;
@@ -180,6 +199,127 @@ export const uatTitle = (targetVersion: string): string => `UAT ${targetVersion}
 export const relationshipArguments = (relatesTo: number | null): ReadonlyArray<string> =>
   relatesTo === null ? ["--no-relationship"] : ["--relates-to", `${REPOSITORY}#${relatesTo}`];
 
+const trailingFindingLink = /\s+\(\[[^\]]+\]\([^)]+\)\)\s*$/;
+
+const closeConditionOnly = (title: string): boolean =>
+  title.startsWith("Every UAT row above") || /^`v\d+\.\d+\.\d+-hyprws\.\d+` is tagged/.test(title);
+
+export const legacyUatTasks = (body: string, issue: number): ReadonlyArray<UatTask> => {
+  let section: "uat" | "close" | null = null;
+  let area = "Acceptance";
+  const tasks: Array<UatTask> = [];
+  for (const line of body.split(/\r?\n/)) {
+    const second = /^## (.+)$/.exec(line)?.[1];
+    if (second !== undefined) {
+      section = second === "UAT" ? "uat" : second === "Close condition" ? "close" : null;
+      area = "Acceptance";
+      continue;
+    }
+    if (section === null) continue;
+    const third = /^### (.+)$/.exec(line)?.[1];
+    if (third !== undefined) {
+      area = third;
+      continue;
+    }
+    const row = /^- \[([ xX])\] (.+)$/.exec(line);
+    if (row === null || area === "Sign-off") continue;
+    const title = (row[2] ?? "").replace(trailingFindingLink, "").trim();
+    if (title.length === 0 || closeConditionOnly(title)) continue;
+    tasks.push({
+      area,
+      title,
+      carriedFrom: [{ issue, status: row[1] === " " ? "unsettled" : "accepted" }],
+    });
+  }
+  return tasks;
+};
+
+const carryMarker =
+  /<!-- fork-uat:carried-from #([1-9][0-9]*) (accepted|unsettled)(?: task #([1-9][0-9]*))? -->/g;
+
+export const reviewedUatTasks = (body: string): ReadonlyArray<UatTask> => {
+  const heading = /^## UAT\s*$/m.exec(body);
+  if (heading === null) throw new Error("reviewed draft has no ## UAT section");
+  const after = body.slice(heading.index + heading[0].length);
+  const next = /^## /m.exec(after);
+  const section = next === null ? after : after.slice(0, next.index);
+  let area: string | null = null;
+  const tasks: Array<UatTask> = [];
+  for (const line of section.split(/\r?\n/)) {
+    const third = /^### (.+)$/.exec(line)?.[1];
+    if (third !== undefined) {
+      area = third;
+      continue;
+    }
+    const row = /^- \[ \] (.+)$/.exec(line);
+    if (row === null) continue;
+    if (area === null) throw new Error("reviewed draft UAT row has no feature heading");
+    const raw = row[1] ?? "";
+    const carriedFrom = [...raw.matchAll(carryMarker)].map((match) => ({
+      issue: Number(match[1]),
+      status: match[2] as PriorUatStatus,
+      ...(match[3] === undefined ? {} : { task: Number(match[3]) }),
+    }));
+    const title = raw.replace(carryMarker, "").trim();
+    if (title.length === 0) throw new Error("reviewed draft has an empty UAT row");
+    tasks.push({ area, title, carriedFrom });
+  }
+  const normalized = new Set<string>();
+  for (const task of tasks) {
+    const key = task.title.toLocaleLowerCase().replace(/\s+/g, " ");
+    if (normalized.has(key)) throw new Error(`reviewed draft repeats UAT task: ${task.title}`);
+    normalized.add(key);
+  }
+  if (tasks.length === 0) throw new Error("reviewed draft has no unchecked UAT rows");
+  return tasks;
+};
+
+export const parentUatBody = (body: string): string => {
+  const heading = /^## UAT\s*$/m.exec(body);
+  if (heading === null) throw new Error("reviewed draft has no ## UAT section");
+  const after = body.slice(heading.index + heading[0].length);
+  const next = /^## /m.exec(after);
+  const end = next === null ? body.length : heading.index + heading[0].length + next.index;
+  const replacement = [
+    "## Acceptance",
+    "",
+    "Acceptance is tracked by this issue's child tasks.",
+    "",
+    "<!-- fork-uat:subissues:v1 -->",
+    "",
+  ].join("\n");
+  return `${body.slice(0, heading.index)}${replacement}${body.slice(end)}`;
+};
+
+export const renderUatTaskBody = (
+  task: UatTask,
+  snapshot: Pick<UatBodyInput, "targetVersion" | "ref" | "sha">,
+): string => {
+  const carried = task.carriedFrom.map(
+    ({ issue, task, status }) =>
+      `- ${REPOSITORY}#${task ?? issue}${task === undefined ? "" : ` (previous UAT: ${REPOSITORY}#${issue})`}: ${status === "accepted" ? "previously accepted" : "unsettled"}`,
+  );
+  return [
+    `Origin: human acceptance task for \`${snapshot.targetVersion}\` at \`${snapshot.sha}\`.`,
+    "",
+    `- Area: ${task.area}`,
+    `- Ref: \`${snapshot.ref}\``,
+    `- Commit: \`${snapshot.sha}\``,
+    ...(carried.length === 0 ? [] : ["", "## Previous evidence", "", ...carried]),
+    "",
+    "## Acceptance",
+    "",
+    task.title,
+    "",
+    "## Result",
+    "",
+    "Close this task when accepted. Leave unresolved behavior or polish opportunities open with their findings.",
+    "",
+    "<!-- fork-uat:task:v1 -->",
+    "",
+  ].join("\n");
+};
+
 const exclusionLabel = (reason: ExclusionReason): string => {
   if (reason === "fork-meta") return "Fork-Domain fork-meta";
   if (reason === "conventional") return "non-product conventional commit";
@@ -196,6 +336,23 @@ export const renderUatBody = (input: UatBodyInput): string => {
   );
   const related =
     input.relatesTo === null ? [] : [`Related issue: \`${REPOSITORY}#${input.relatesTo}\`.`, ""];
+  const carriedTasks = input.previousUat?.tasks ?? [];
+  const tasks: Array<string> = [];
+  let currentArea: string | null = null;
+  for (const task of carriedTasks) {
+    if (task.area !== currentArea) {
+      if (tasks.length > 0) tasks.push("");
+      tasks.push(`### ${task.area}`, "");
+      currentArea = task.area;
+    }
+    const evidence = task.carriedFrom
+      .map(
+        ({ issue, status, task: previousTask }) =>
+          ` <!-- fork-uat:carried-from #${issue} ${status}${previousTask === undefined ? "" : ` task #${previousTask}`} -->`,
+      )
+      .join("");
+    tasks.push(`- [ ] ${task.title}${evidence}`);
+  }
   return [
     `Ref \`${input.ref}\` at \`${input.sha}\` is ready for human acceptance.`,
     "",
@@ -209,6 +366,9 @@ export const renderUatBody = (input: UatBodyInput): string => {
     `- Commit: \`${input.sha}\``,
     `- Upstream base: \`${input.upstreamBaseTag}\` at \`${input.upstreamBaseSha}\``,
     `- Previous stable: \`${input.previousStable}\`${input.previousStableOverridden ? " (overridden)" : ""}`,
+    ...(input.previousUat === null
+      ? []
+      : [`- Previous UAT: ${REPOSITORY}#${input.previousUat.issue}`]),
     "",
     "## Sources",
     "",
@@ -221,7 +381,8 @@ export const renderUatBody = (input: UatBodyInput): string => {
     "",
     "## UAT",
     "",
-    "<!-- agent: write rows here, see SKILL.md -->",
+    "<!-- fork-uat:task-drafts:v1 -->",
+    ...(tasks.length === 0 ? ["<!-- agent: write rows here, see SKILL.md -->"] : tasks),
     "",
     "## Excluded",
     "",
@@ -234,9 +395,10 @@ export const renderUatBody = (input: UatBodyInput): string => {
     "",
     "## Close condition",
     "",
-    "Tick every accepted row and add findings as comments.",
-    "Comment `Signed off` when this ref is accepted, or `Blocked: <reason>` when it is not.",
-    "Unticked or blocked rows are human decision evidence; they do not gate automatically.",
+    "Close every acceptance child after it passes.",
+    "Leave follow-up or polish work open and record the finding on that child.",
+    "Comment `Signed off` when this candidate is accepted in principle; open children remain non-blocking evidence.",
+    "Withhold the stable release go only when the app cannot launch or basic use fails.",
     "",
   ].join("\n");
 };
