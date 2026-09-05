@@ -218,4 +218,169 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
       }),
   );
+
+  it.effect("migrates historical backfills into upstream ancestry order", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-order-" });
+      const git = (args: ReadonlyArray<string>) =>
+        NodeChildProcess.execFileSync("git", [...args], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      git(["init", "--initial-branch=fixture"]);
+      git(["config", "user.name", "Fixture"]);
+      git(["config", "user.email", "fixture@example.invalid"]);
+      git(["commit", "--allow-empty", "-m", "target 1273"]);
+      const oldestSha = git(["rev-parse", "HEAD"]);
+      git(["commit", "--allow-empty", "-m", "target 1284"]);
+      const middleSha = git(["rev-parse", "HEAD"]);
+      git(["commit", "--allow-empty", "-m", "target 1288"]);
+      const latestSha = git(["rev-parse", "HEAD"]);
+
+      const target = (tag: string, sha: string) => ({
+        kind: "target",
+        target: { tag, sha },
+        eligible: true,
+        reason: "selected tagged target under the fork tag policy",
+      });
+      const latestTarget = target("v0.0.39-nightly.20260905.1288", latestSha);
+      const latestAttempt = {
+        kind: "attempt",
+        targetSha: latestSha,
+        attemptId: "sync/1288",
+        sourceSha: middleSha,
+        trigger: "schedule",
+        executor: "bot",
+        mode: "on",
+        runUrl: "https://example.test/runs/1288",
+      };
+      const latestStage = (
+        stage: "selection" | "verification" | "apply" | "rerere" | "cache-export",
+        extra: Record<string, unknown> = {},
+      ) => ({
+        kind: "stage",
+        targetSha: latestSha,
+        attemptId: latestAttempt.attemptId,
+        stage,
+        status: stage === "rerere" || stage === "cache-export" ? "not-attempted" : "succeeded",
+        detail: "complete automatic carry",
+        ...(stage === "verification" || stage === "apply" ? { sha: latestSha } : {}),
+        ...(stage === "rerere" || stage === "cache-export"
+          ? { notApplicableReason: "direct-clean-rebase" }
+          : {}),
+        ...extra,
+      });
+      const middleTarget = target("v0.0.39-nightly.20260905.1284", middleSha);
+      const middleAttempt = {
+        ...latestAttempt,
+        targetSha: middleSha,
+        attemptId: "sync/1284",
+        sourceSha: oldestSha,
+        mode: "candidate",
+        runUrl: "https://example.test/runs/1284",
+      };
+      const wrongOrder = [
+        latestTarget,
+        latestAttempt,
+        latestStage("selection"),
+        latestStage("verification"),
+        latestStage("apply"),
+        latestStage("rerere"),
+        latestStage("cache-export"),
+        target("v0.0.39-nightly.20260903.1273", oldestSha),
+        middleTarget,
+        middleAttempt,
+        {
+          kind: "stage",
+          targetSha: middleSha,
+          attemptId: middleAttempt.attemptId,
+          stage: "selection",
+          status: "blocked",
+          detail: "retained blocked target",
+        },
+      ];
+      const original = writeBotRefFile(
+        root,
+        CHURN_REF,
+        CHURN_LEDGER_FILE,
+        `${yield* encode({ version: 3, walks: [], seamRecords: [], outcomes: wrongOrder })}\n`,
+        "out-of-order seed",
+      );
+      yield* fs.writeFileString(
+        NodePath.join(root, "duplicate.json"),
+        yield* encode({ version: 1, receipts: [latestTarget] }),
+      );
+      const migrated = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--input", "duplicate.json"],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.strictEqual(migrated.status, 0, migrated.stderr);
+      const result = decodeJson(migrated.stdout) as {
+        readonly added: number;
+        readonly noAgentCarry: number;
+      };
+      assert.strictEqual(result.added, 0);
+      assert.strictEqual(result.noAgentCarry, 1);
+      assert.notStrictEqual(git(["rev-parse", CHURN_REF]), original);
+      assert.strictEqual(
+        git(["log", "-1", "--format=%s", CHURN_REF]),
+        "churn: order target outcomes",
+      );
+      assert.deepStrictEqual(
+        readChurnState(root)
+          .outcomes.filter((row) => row.kind === "target")
+          .map((row) => row.target.tag),
+        [
+          "v0.0.39-nightly.20260903.1273",
+          "v0.0.39-nightly.20260905.1284",
+          "v0.0.39-nightly.20260905.1288",
+        ],
+      );
+
+      const retained = git(["rev-parse", CHURN_REF]);
+      const repeated = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--input", "duplicate.json"],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.strictEqual(repeated.status, 0, repeated.stderr);
+      assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
+
+      yield* fs.writeFileString(
+        NodePath.join(root, "missing.json"),
+        yield* encode({
+          version: 1,
+          receipts: [target("v0.0.39-nightly.20260905.1290", "f".repeat(40))],
+        }),
+      );
+      const missing = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--input", "missing.json"],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.strictEqual(missing.status, 1);
+      assert.include(missing.stderr, "could not compare outcome target ancestry");
+      assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
+
+      const orphanSha = git(["commit-tree", git(["rev-parse", "HEAD^{tree}"]), "-m", "orphan"]);
+      yield* fs.writeFileString(
+        NodePath.join(root, "incomparable.json"),
+        yield* encode({
+          version: 1,
+          receipts: [target("v0.0.39-nightly.20260905.1289", orphanSha)],
+        }),
+      );
+      const incomparable = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--input", "incomparable.json"],
+        { cwd: root, encoding: "utf8" },
+      );
+      assert.strictEqual(incomparable.status, 1);
+      assert.include(incomparable.stderr, "not on one ancestry chain");
+      assert.strictEqual(git(["rev-parse", CHURN_REF]), retained);
+    }),
+  );
 });
