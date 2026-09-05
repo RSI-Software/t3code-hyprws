@@ -89,6 +89,18 @@ export type ZmuxUnbindResult =
   | { readonly status: "unbound"; readonly target: string }
   | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
 
+export interface ZmuxUnbindIdentity {
+  readonly target: string;
+  readonly nativeId: string;
+  readonly serverId: string;
+  readonly createdAt: number;
+}
+
+export type ZmuxPrepareUnbindResult =
+  | { readonly status: "disabled" | "unavailable" | "not-found" | "not-worktree" }
+  | { readonly status: "prepared"; readonly identity: ZmuxUnbindIdentity }
+  | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
+
 export class ZmuxSessionBinder extends Context.Service<
   ZmuxSessionBinder,
   {
@@ -97,7 +109,8 @@ export class ZmuxSessionBinder extends Context.Service<
       options?: { readonly projectPath?: string },
     ) => Effect.Effect<ZmuxBindResult>;
     readonly resolve: (dir: string) => Effect.Effect<ZmuxResolveResult>;
-    readonly unbind: (dir: string) => Effect.Effect<ZmuxUnbindResult>;
+    readonly prepareUnbind: (dir: string) => Effect.Effect<ZmuxPrepareUnbindResult>;
+    readonly unbind: (identity: ZmuxUnbindIdentity) => Effect.Effect<ZmuxUnbindResult>;
   }
 >()("t3/zmux/ZmuxSessionBinder") {}
 
@@ -481,20 +494,92 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const unbind: ZmuxSessionBinder["Service"]["unbind"] = Effect.fn("ZmuxSessionBinder.unbind")(
-    function* (dir) {
-      const resolved = yield* resolve(dir);
-      if (resolved.status !== "resolved") {
-        return resolved;
-      }
-      if (resolved.match !== "worktree") {
-        return { status: "not-worktree" } as const;
-      }
+  const prepareUnbind: ZmuxSessionBinder["Service"]["prepareUnbind"] = Effect.fn(
+    "ZmuxSessionBinder.prepareUnbind",
+  )(function* (dir) {
+    const resolved = yield* resolve(dir);
+    if (resolved.status !== "resolved") {
+      return resolved;
+    }
+    if (resolved.match !== "worktree") {
+      return { status: "not-worktree" } as const;
+    }
 
-      const runResult = yield* run(["session", "kill", resolved.target]).pipe(Effect.result);
+    if (resolved.state !== "live" || !resolved.nativeId) {
+      return {
+        status: "failed",
+        notice: {
+          summary: "zmux session cleanup identity could not be prepared",
+          detail: `Session ${resolved.target} is not live with a native identity. Remove it manually with \`zmux session kill ${resolved.target}\` after verifying its ownership.`,
+        },
+      } as const;
+    }
+
+    const identityResult = yield* processRunner
+      .run({
+        command: "tmux",
+        args: [
+          "display-message",
+          "-p",
+          "-t",
+          resolved.nativeId,
+          "-F",
+          "#{session_id}\t#{pid}:#{start_time}\t#{session_created}",
+        ],
+        env,
+        extendEnv: false,
+      })
+      .pipe(Effect.result);
+    if (identityResult._tag === "Failure") {
+      return {
+        status: "failed",
+        notice: {
+          summary: "zmux session cleanup identity could not be prepared",
+          detail: identityResult.failure.message,
+        },
+      } as const;
+    }
+    const output = identityResult.success;
+    const [nativeId, serverId, createdAtText] = output.stdout.trim().split("\t");
+    const createdAt = Number(createdAtText);
+    if (
+      output.code !== 0 ||
+      nativeId !== resolved.nativeId ||
+      !serverId ||
+      !Number.isSafeInteger(createdAt) ||
+      createdAt <= 0
+    ) {
+      return {
+        status: "failed",
+        notice: {
+          summary: "zmux session cleanup identity could not be prepared",
+          detail: `Session ${resolved.target} changed while its native identity was read. Verify it before running \`zmux session kill ${resolved.target}\`.`,
+        },
+      } as const;
+    }
+
+    return {
+      status: "prepared",
+      identity: { target: resolved.target, nativeId, serverId, createdAt },
+    } as const;
+  });
+
+  const unbind: ZmuxSessionBinder["Service"]["unbind"] = Effect.fn("ZmuxSessionBinder.unbind")(
+    function* (identity) {
+      const runResult = yield* run([
+        "session",
+        "kill",
+        identity.target,
+        "--if-session-id",
+        identity.nativeId,
+        "--if-server-id",
+        identity.serverId,
+        "--if-created-at",
+        String(identity.createdAt),
+      ]).pipe(Effect.result);
       if (runResult._tag === "Failure") {
         if (isMissingZmux(runResult.failure)) {
-          yield* unavailable("unbind", dir);
+          yield* unavailable("unbind", identity.target);
           return { status: "unavailable" } as const;
         }
         return {
@@ -516,11 +601,11 @@ export const make = Effect.gen(function* () {
           },
         } as const;
       }
-      return { status: "unbound", target: resolved.target } as const;
+      return { status: "unbound", target: identity.target } as const;
     },
   );
 
-  return ZmuxSessionBinder.of({ bind, resolve, unbind });
+  return ZmuxSessionBinder.of({ bind, resolve, prepareUnbind, unbind });
 });
 
 export const layer = Layer.effect(ZmuxSessionBinder, make);

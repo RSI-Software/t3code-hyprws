@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { GitCommandError } from "@t3tools/contracts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -84,24 +85,26 @@ describe("GitWorkflowService", () => {
       assert.deepStrictEqual(plain, localStatus);
     });
   });
-  it.effect("unbinds a worktree session before removing the worktree", () => {
+  it.effect("unbinds the prepared worktree session after removing the worktree", () => {
     const calls: string[] = [];
     const removeWorktree = vi.fn(() =>
       Effect.sync(() => {
         calls.push("remove");
       }),
     );
-    const resolve = vi.fn(() =>
+    const identity = {
+      target: "repo/feat-test",
+      nativeId: "$23",
+      serverId: "123:456",
+      createdAt: 789,
+    };
+    const prepareUnbind = vi.fn(() =>
       Effect.sync(() => {
-        calls.push("resolve");
-        return {
-          status: "resolved" as const,
-          target: "repo/feat-test",
-          match: "worktree" as const,
-        };
+        calls.push("prepare-unbind");
+        return { status: "prepared" as const, identity };
       }),
     );
-    const unbind = vi.fn((_dir: string) =>
+    const unbind = vi.fn((_identity: ZmuxSessionBinder.ZmuxUnbindIdentity) =>
       Effect.sync(() => {
         calls.push("unbind");
         return { status: "unbound" as const, target: "repo/feat-test" };
@@ -127,7 +130,7 @@ describe("GitWorkflowService", () => {
       ),
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
-      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, unbind })),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ prepareUnbind, unbind })),
       Layer.provide(
         makeWorktrunkHookRunnerLayer({
           isWorktrunkWorktree: () => Effect.sync(() => calls.push("marker") > 0),
@@ -140,14 +143,14 @@ describe("GitWorkflowService", () => {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
       yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
       assert.deepStrictEqual(calls, [
-        "resolve",
-        "unbind",
+        "prepare-unbind",
         "marker",
         "pre-remove",
         "remove",
         "post-remove",
+        "unbind",
       ]);
-      assert.deepStrictEqual(unbind.mock.calls[0]?.[0], "/repo/wt");
+      assert.deepStrictEqual(unbind.mock.calls[0]?.[0], identity);
       assert.deepStrictEqual(runPreRemoveHook.mock.calls[0]?.[0], {
         projectCwd: "/repo",
         worktreePath: "/repo/wt",
@@ -156,6 +159,132 @@ describe("GitWorkflowService", () => {
         projectCwd: "/repo",
         worktreePath: "/repo/wt",
       });
+    }).pipe(Effect.provide(layer));
+  });
+  it.effect("preserves the prepared session when worktree removal fails", () => {
+    const removalError = new GitCommandError({
+      operation: "GitVcsDriver.removeWorktree",
+      command: "git worktree remove",
+      cwd: "/repo",
+      detail: "dirty worktree",
+    });
+    const removeWorktree = vi.fn(() => Effect.fail(removalError));
+    const unbind = vi.fn(() => Effect.succeed({ status: "unbound" as const, target: "repo/wt" }));
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ resolve: resolveGitHandle })),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          prepareUnbind: () =>
+            Effect.succeed({
+              status: "prepared" as const,
+              identity: {
+                target: "repo/wt",
+                nativeId: "$23",
+                serverId: "123:456",
+                createdAt: 789,
+              },
+            }),
+          unbind,
+        }),
+      ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
+    );
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const failure = yield* workflow
+        .removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false })
+        .pipe(Effect.flip);
+      assert.equal(failure, removalError);
+      expect(unbind).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(layer));
+  });
+  it.effect("preserves the prepared session when the pre-remove hook fails", () => {
+    const removeWorktree = vi.fn(() => Effect.void);
+    const unbind = vi.fn(() => Effect.succeed({ status: "unbound" as const, target: "repo/wt" }));
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ resolve: resolveGitHandle })),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          prepareUnbind: () =>
+            Effect.succeed({
+              status: "prepared" as const,
+              identity: {
+                target: "repo/wt",
+                nativeId: "$23",
+                serverId: "123:456",
+                createdAt: 789,
+              },
+            }),
+          unbind,
+        }),
+      ),
+      Layer.provide(
+        makeWorktrunkHookRunnerLayer({
+          isWorktrunkWorktree: () => Effect.succeed(true),
+          runPreRemoveHook: () =>
+            Effect.succeed({
+              status: "failed" as const,
+              operation: "pre-remove" as const,
+              detail: "hook refused removal",
+              exitCode: 1,
+              timedOut: false,
+            }),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const failure = yield* workflow
+        .removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false })
+        .pipe(Effect.flip);
+      assert.equal(failure._tag, "GitCommandError");
+      assert.equal(failure.command, "wt hook pre-remove");
+      assert.equal(failure.detail, "hook refused removal");
+      expect(removeWorktree).not.toHaveBeenCalled();
+      expect(unbind).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(layer));
+  });
+  it.effect("keeps a successful removal successful when exact session cleanup is refused", () => {
+    const removeWorktree = vi.fn(() => Effect.void);
+    const unbind = vi.fn(() =>
+      Effect.succeed({
+        status: "failed" as const,
+        notice: {
+          summary: "zmux session failed to unbind",
+          detail: "target identity changed after handoff setup",
+        },
+      }),
+    );
+    const layer = GitWorkflowService.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ resolve: resolveGitHandle })),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ removeWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
+          prepareUnbind: () =>
+            Effect.succeed({
+              status: "prepared" as const,
+              identity: {
+                target: "repo/wt",
+                nativeId: "$23",
+                serverId: "123:456",
+                createdAt: 789,
+              },
+            }),
+          unbind,
+        }),
+      ),
+      Layer.provide(makeWorktrunkHookRunnerLayer()),
+    );
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.removeWorktree({ cwd: "/repo", path: "/repo/wt", force: false });
+      expect(removeWorktree).toHaveBeenCalledOnce();
+      expect(unbind).toHaveBeenCalledOnce();
     }).pipe(Effect.provide(layer));
   });
   it.effect("removes a plain worktree without running Worktrunk hooks", () => {
@@ -172,7 +301,7 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(
         Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-          resolve: () => Effect.succeed({ status: "disabled" as const }),
+          prepareUnbind: () => Effect.succeed({ status: "disabled" as const }),
         }),
       ),
       Layer.provide(makeWorktrunkHookRunnerLayer({ runPreRemoveHook, runPostRemoveHook })),
@@ -272,8 +401,8 @@ describe("GitWorkflowService", () => {
       assert.equal(renameBranch.mock.calls.length, 1);
     }).pipe(Effect.provide(layer));
   });
-  it.effect("does not unbind a session resolved by a non-worktree match", () => {
-    const unbind = vi.fn((_dir: string) =>
+  it.effect("does not unbind a session without a prepared worktree identity", () => {
+    const unbind = vi.fn((_identity: ZmuxSessionBinder.ZmuxUnbindIdentity) =>
       Effect.succeed({ status: "unbound" as const, target: "repo/root" }),
     );
     const removeWorktree = vi.fn(() => Effect.void);
@@ -287,12 +416,7 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(
         Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-          resolve: () =>
-            Effect.succeed({
-              status: "resolved" as const,
-              target: "repo/root",
-              match: "workspace" as const,
-            }),
+          prepareUnbind: () => Effect.succeed({ status: "not-worktree" as const }),
           unbind,
         }),
       ),
