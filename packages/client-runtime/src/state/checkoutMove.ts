@@ -47,7 +47,6 @@ export function shouldFollowCommittedCheckout(input: {
 
 /** Resolve the physical checkout a retry or reverse request must compare against. */
 export function checkoutMoveExpectedRoot(move: ThreadCheckoutMove): string {
-  if (move.effectiveProvider !== null) return move.effectiveProvider.checkoutRoot;
   if (move.completedSteps.includes("metadata")) {
     return move.destination?.checkoutRoot ?? move.requestedPath;
   }
