@@ -3174,7 +3174,8 @@ export const run = (
     process.stdout.write(SYNC_HELP);
     return 0;
   }
-  if (argv[0] === "rewrite-build") return runRewriteBuild(argv.slice(1), cwd);
+  if (argv[0] === "rewrite-build")
+    return runRewriteBuild(argv.slice(1), () => rootFor(runner, cwd), externalPath);
   let completedReport: SyncReport | null = null;
   let outcomeFailure: string | undefined;
   let outcomePhase = argv[0];

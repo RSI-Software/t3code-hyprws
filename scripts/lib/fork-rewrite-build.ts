@@ -64,6 +64,11 @@ export class RewritePreconditionError extends Error {
 const fail = (message: string): never => {
   throw new RewritePreconditionError(message);
 };
+const requireConsistentGitConfig = (): void => {
+  // GIT_CONFIG redirects only `git config`, hiding settings consumed by object commands.
+  if ((process.env.GIT_CONFIG ?? "").length > 0)
+    fail("GIT_CONFIG must be unset for consistent offline reconstruction configuration");
+};
 const object = (input: unknown, keys: ReadonlyArray<string>): Record<string, unknown> => {
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new UsageError("expected rewrite manifest object");
@@ -186,6 +191,37 @@ export class RewriteObjects {
   readonly root: string;
   constructor(root: string) {
     this.root = root;
+    requireConsistentGitConfig();
+    // Git 2.43 can fetch from an object read; metadata checks must precede traversal.
+    const keys = this.text(["config", "--includes", "--name-only", "--null", "--list"])
+      .split("\0")
+      .map((key) => key.toLowerCase());
+    if (
+      keys.some(
+        (key) =>
+          key === "extensions.partialclone" ||
+          /^remote\.[\s\S]*\.(?:promisor|partialclonefilter)$/.test(key),
+      )
+    )
+      fail("partial/promisor repository configuration cannot be used for offline reconstruction");
+    const objectDirectory = NodePath.resolve(
+      root,
+      this.text(["rev-parse", "--git-path", "objects"]),
+    );
+    if (
+      (process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES ?? "").length > 0 ||
+      ["alternates", "http-alternates"].some((name) => {
+        const file = NodePath.join(objectDirectory, "info", name);
+        return NodeFS.existsSync(file) && NodeFS.readFileSync(file).length > 0;
+      })
+    )
+      fail("alternate object stores cannot establish an offline reconstruction boundary");
+    const packDirectory = NodePath.join(objectDirectory, "pack");
+    if (
+      NodeFS.existsSync(packDirectory) &&
+      NodeFS.readdirSync(packDirectory).some((name) => name.endsWith(".promisor"))
+    )
+      fail("promisor object-store markers cannot be used for offline reconstruction");
   }
   git(args: ReadonlyArray<string>, input?: Buffer): Buffer {
     const result = NodeChildProcess.spawnSync("git", ["--no-replace-objects", ...args], {
@@ -230,7 +266,18 @@ export class RewriteObjects {
           const tab = line.indexOf("\t"),
             [mode, type, oid] = line.slice(0, tab).split(" ");
           this.known.add(sha(oid));
-          return type === "tree" ? [] : [[path(line.slice(tab + 1)), entry({ mode, type, oid })!]];
+          if (type === "tree" && oid === "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+            fail(
+              "explicit empty subtrees are unsupported; flattening would erase an undeclared entry",
+            );
+          let name: string;
+          try {
+            name = path(line.slice(tab + 1));
+          } catch (error) {
+            if (error instanceof UsageError) fail("unsupported tree path in frozen snapshot");
+            throw error;
+          }
+          return type === "tree" ? [] : [[name, entry({ mode, type, oid })!]];
         }),
     );
   }
@@ -437,7 +484,11 @@ export const verifyRewriteBuild = (
   return expected;
 };
 
-export const runRewriteBuild = (argv: ReadonlyArray<string>, root: string): number => {
+export const runRewriteBuild = (
+  argv: ReadonlyArray<string>,
+  resolveRoot: () => string,
+  externalPath: (root: string, path: string) => string,
+): number => {
   const json = argv.includes("--json");
   try {
     let manifestPath: string | undefined;
@@ -454,11 +505,33 @@ export const runRewriteBuild = (argv: ReadonlyArray<string>, root: string): numb
         argv[index + 1]!.startsWith("--")
       )
         throw new UsageError("rewrite-build --manifest <reviewed-json> [--json]");
-      manifestPath = NodePath.resolve(root, argv[++index]!);
+      manifestPath = argv[++index]!;
     }
     if (!manifestPath) throw new UsageError("--manifest is required");
-    const receipt = buildRewrite(root, NodeFS.readFileSync(manifestPath));
+    requireConsistentGitConfig();
+    const root = resolveRoot();
+    manifestPath = NodePath.resolve(root, manifestPath);
     const receiptPath = `${manifestPath}.receipt.json`;
+    for (const file of [manifestPath, receiptPath]) {
+      try {
+        externalPath(root, file);
+        externalPath(
+          root,
+          NodePath.join(NodeFS.realpathSync(NodePath.dirname(file)), NodePath.basename(file)),
+        );
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      let stat: NodeFS.Stats | undefined;
+      try {
+        stat = NodeFS.lstatSync(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (stat !== undefined && !stat.isFile())
+        fail("rewrite manifest and receipt must be regular external files");
+    }
+    const receipt = buildRewrite(root, NodeFS.readFileSync(manifestPath));
     const bytes = JSON.stringify(receipt, null, 2) + "\n";
     if (NodeFS.existsSync(receiptPath)) {
       if (

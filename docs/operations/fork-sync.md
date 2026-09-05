@@ -42,8 +42,16 @@ snapshot: materialize only its declared path changes alongside the other active 
 Raw commit message and identity bytes, timestamps, timezones and ordered parent correspondence
 remain unchanged. Rewritten signed commits lose only the now-invalid `gpgsig` header, with its
 digest retained in the receipt; unchanged objects retain signatures. Merge histories, shallow
-repositories, grafts, unsupported headers/object formats and non-UTF8 tree paths refuse. A
+repositories, grafts, unsupported headers/object formats, explicit empty subtrees and non-UTF8 tree paths refuse.
+Partial/promisor configuration (including inherited config), promisor pack markers and alternate
+object stores also refuse before object traversal: Git 2.43 can otherwise fetch missing objects
+during a read. Empty subtrees refuse because the flat path model cannot preserve them. A
+nonempty `GIT_CONFIG` also refuses before Git runs, because it can redirect the metadata probe
+without changing the configuration read by subsequent object commands. A
 read-only verifier recomputes the receipt from the manifest and objects at the governed gates.
+Manifest paths resolve from the repository root, including when invoked in a subdirectory. The
+manifest and its adjacent receipt must be regular files outside the checkout; symlinked parents
+cannot redirect them into the checkout. These paths are checked before object traversal or writes.
 `--json` emits one complete ANSI-free result/error object. Exits: 0 verified, 1 runtime failure,
 2 usage/schema error, 3 stale or unsupported proof precondition. Help performs no work.
 

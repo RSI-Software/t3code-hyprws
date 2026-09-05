@@ -21,11 +21,22 @@ import {
 } from "./lib/fork-rewrite-build.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const redirectedConfig = {
+  GIT_CONFIG: "/dev/null",
+  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_KEY_0: "remote.review.promisor",
+  GIT_CONFIG_VALUE_0: "true",
+};
 const decodeCliError = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ exitCode: Schema.Number })),
 );
 const decodeCliResult = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Struct({ result: Schema.String, receiptPath: Schema.String })),
+);
+const decodeTraceEvent = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({ event: Schema.String, argv: Schema.optional(Schema.Array(Schema.String)) }),
+  ),
 );
 
 const git = (root: string, args: ReadonlyArray<string>, input?: string): string =>
@@ -435,6 +446,216 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
       }),
   );
 
+  it.effect("refuses partial/promisor indicators before object retrieval or transport", () =>
+    Effect.gen(function* () {
+      for (const indicator of [
+        "promisor",
+        "disabled-promisor",
+        "filter",
+        "extension",
+        "include",
+        "marker",
+        "alternates",
+        "environment",
+        "redirected-config",
+      ]) {
+        const { root, directory, fs, manifest } = yield* fixture();
+        const manifestPath = NodePath.join(directory, "manifest.json");
+        const tracePath = NodePath.join(directory, "trace.jsonl");
+        const raw = Buffer.from(encodeJson(manifest));
+        yield* fs.writeFile(manifestPath, raw);
+        // If the constructor reaches source traversal, this missing tip can trigger lazy fetch.
+        yield* fs.writeFileString(
+          NodePath.join(root, ".git/refs/remotes/origin/hyprws"),
+          "f".repeat(40) + "\n",
+        );
+        git(root, ["config", "remote.origin.url", "file:///rewrite-transport-must-not-run"]);
+        if (indicator === "promisor" || indicator === "disabled-promisor")
+          git(root, [
+            "config",
+            "remote.origin.promisor",
+            indicator === "promisor" ? "true" : "false",
+          ]);
+        if (indicator === "filter")
+          git(root, ["config", "remote.origin.partialCloneFilter", "blob:none"]);
+        if (indicator === "extension") git(root, ["config", "extensions.partialClone", "origin"]);
+        if (indicator === "include") {
+          const included = NodePath.join(directory, "included-config");
+          yield* fs.writeFileString(
+            included,
+            '[remote "cache"]\n partialCloneFilter = blob:none\n',
+          );
+          git(root, ["config", "include.path", included]);
+        }
+        if (indicator === "marker")
+          yield* fs.writeFileString(
+            NodePath.join(root, ".git/objects/pack/pack-fixture.promisor"),
+            "",
+          );
+        if (indicator === "alternates")
+          yield* fs.writeFileString(
+            NodePath.join(root, ".git/objects/info/alternates"),
+            NodePath.join(root, ".git/objects") + "\n",
+          );
+        const before = git(root, ["count-objects", "-v"]);
+        const cli = NodeChildProcess.spawnSync(
+          process.execPath,
+          [
+            NodePath.join(import.meta.dirname, "fork-sync.ts"),
+            "rewrite-build",
+            "--manifest",
+            manifestPath,
+            "--json",
+          ],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GIT_TRACE2_EVENT: tracePath,
+              ...(indicator === "environment"
+                ? { GIT_ALTERNATE_OBJECT_DIRECTORIES: NodePath.join(root, ".git/objects") }
+                : {}),
+              ...(indicator === "redirected-config" ? redirectedConfig : {}),
+            },
+          },
+        );
+        assert.strictEqual(cli.status, 3, `${indicator}: ${cli.stdout}\n${cli.stderr}`);
+        assert.match(
+          cli.stdout,
+          /partial\/promisor|promisor object-store|alternate object stores|GIT_CONFIG must be unset/,
+        );
+        assert.isFalse(yield* fs.exists(`${manifestPath}.receipt.json`));
+        if (indicator === "redirected-config") {
+          const direct = NodeChildProcess.spawnSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "--eval",
+              `import { RewriteObjects } from ${encodeJson(NodePath.join(import.meta.dirname, "lib/fork-rewrite-build.ts"))};
+try { new RewriteObjects(process.argv[1]); process.exitCode = 1; }
+catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw error; }`,
+              root,
+            ],
+            {
+              cwd: root,
+              encoding: "utf8",
+              env: { ...process.env, ...redirectedConfig, GIT_TRACE2_EVENT: tracePath },
+            },
+          );
+          assert.strictEqual(direct.status, 0, direct.stderr);
+          assert.isFalse(
+            yield* fs.exists(tracePath),
+            "configuration refusal must precede every Git invocation",
+          );
+          assert.strictEqual(git(root, ["count-objects", "-v"]), before);
+          continue;
+        }
+        const events = (yield* fs.readFileString(tracePath))
+          .trim()
+          .split("\n")
+          .map((line) => decodeTraceEvent(line));
+        assert.isFalse(
+          events.some((event) => event.event === "child_start"),
+          indicator,
+        );
+        const commands = events
+          .filter((event) => event.event === "start")
+          .map((event) => event.argv ?? []);
+        assert.isAbove(commands.length, 0);
+        for (const argv of commands)
+          assert.isTrue(
+            argv[2] === "config" ||
+              (argv[2] === "rev-parse" && argv[3] === "--git-path" && argv[4] === "objects") ||
+              (argv[1] === "rev-parse" && argv[2] === "--show-toplevel"),
+            `${indicator}: ${argv.join(" ")}`,
+          );
+        assert.strictEqual(git(root, ["count-objects", "-v"]), before);
+        if (indicator !== "environment") {
+          assert.throws(
+            () => buildRewrite(root, raw, false),
+            /partial\/promisor|promisor object-store|alternate object stores/,
+          );
+          assert.throws(
+            () => verifyRewriteBuild(root, manifestPath, `${manifestPath}.receipt.json`),
+            /partial\/promisor|promisor object-store|alternate object stores/,
+          );
+        }
+      }
+    }),
+  );
+
+  it.effect("refuses unsupported tree shapes before writing constructed objects", () =>
+    Effect.gen(function* () {
+      for (const shape of ["empty", "control-path"]) {
+        const { root, directory, fs, manifest } = yield* fixture();
+        const emptyTree = git(root, ["mktree"], "");
+        const original = manifest.slots[0]!;
+        const extra =
+          shape === "empty"
+            ? `040000 tree ${emptyTree}\tempty-directory\0`
+            : `100644 blob ${git(root, ["rev-parse", `${manifest.source}:main.ts`])}\tcontrol\tpath\0`;
+        const tree = git(
+          root,
+          ["mktree", "-z"],
+          git(root, ["ls-tree", "-z", original.tree]) + extra,
+        );
+        const rewrittenOriginal = git(
+          root,
+          ["hash-object", "-t", "commit", "-w", "--stdin"],
+          git(root, ["cat-file", "commit", original.commit]).replace(
+            `tree ${original.tree}`,
+            `tree ${tree}`,
+          ) + "\n",
+        );
+        const source = git(
+          root,
+          ["hash-object", "-t", "commit", "-w", "--stdin"],
+          git(root, ["cat-file", "commit", manifest.source]).replace(
+            `parent ${original.commit}`,
+            `parent ${rewrittenOriginal}`,
+          ) + "\n",
+        );
+        git(root, ["update-ref", "refs/remotes/origin/hyprws", source]);
+        const raw = Buffer.from(
+          encodeJson({
+            ...manifest,
+            source,
+            slots: [
+              { ...original, commit: rewrittenOriginal, tree },
+              { ...manifest.slots[1], commit: source },
+            ],
+          }),
+        );
+        const manifestPath = NodePath.join(directory, "manifest.json");
+        yield* fs.writeFile(manifestPath, raw);
+        const before = git(root, ["count-objects", "-v"]);
+        assert.throws(
+          () => buildRewrite(root, raw),
+          /explicit empty subtrees|unsupported tree path/,
+        );
+        assert.throws(
+          () => verifyRewriteBuild(root, manifestPath, `${manifestPath}.receipt.json`),
+          /explicit empty subtrees|unsupported tree path/,
+        );
+        const cli = NodeChildProcess.spawnSync(
+          process.execPath,
+          [
+            NodePath.join(import.meta.dirname, "fork-sync.ts"),
+            "rewrite-build",
+            "--manifest",
+            manifestPath,
+            "--json",
+          ],
+          { cwd: root, encoding: "utf8" },
+        );
+        assert.strictEqual(cli.status, 3, cli.stdout);
+        assert.isFalse(yield* fs.exists(`${manifestPath}.receipt.json`));
+        assert.strictEqual(git(root, ["count-objects", "-v"]), before);
+      }
+    }),
+  );
+
   it.effect("refuses stale or incomplete snapshots and nonconvergent final trees", () =>
     Effect.gen(function* () {
       const { root, manifest } = yield* fixture();
@@ -518,12 +739,13 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
       const { root, directory, fs, manifest } = yield* fixture();
       const path = NodePath.join(directory, "manifest.json");
       yield* fs.writeFileString(path, encodeJson(manifest));
-      const invoke = (...args: string[]) =>
+      const invokeFrom = (cwd: string, ...args: string[]) =>
         NodeChildProcess.spawnSync(
           process.execPath,
           [NodePath.join(import.meta.dirname, "fork-sync.ts"), "rewrite-build", ...args],
-          { cwd: root, encoding: "utf8" },
+          { cwd, encoding: "utf8" },
         );
+      const invoke = (...args: string[]) => invokeFrom(root, ...args);
       const refs = git(root, ["show-ref"]);
       const help = invoke("--help");
       assert.strictEqual(help.status, 0);
@@ -532,12 +754,37 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
       assert.strictEqual(invalid.status, 2);
       assert.strictEqual(decodeCliError(invalid.stdout).exitCode, 2);
       assert.isFalse(yield* fs.exists(`${path}.receipt.json`));
+      const inside = NodePath.join(root, "inside.json");
+      yield* fs.writeFileString(inside, encodeJson(manifest));
+      const subdirectory = NodePath.join(root, "ordered");
+      const before = git(root, ["count-objects", "-v"]);
+      for (const cwd of [root, subdirectory]) {
+        const rejected = invokeFrom(cwd, "--manifest", "inside.json", "--json");
+        assert.strictEqual(rejected.status, 3, rejected.stdout);
+        assert.include(rejected.stdout, "outside the repository");
+      }
+      const redirected = NodePath.join(directory, "redirected");
+      yield* fs.symlink(root, redirected);
+      const symlinked = invoke("--manifest", NodePath.join(redirected, "inside.json"), "--json");
+      assert.strictEqual(symlinked.status, 3, symlinked.stdout);
+      assert.isFalse(yield* fs.exists(`${inside}.receipt.json`));
+      const blocked = NodePath.join(directory, "blocked.json");
+      yield* fs.writeFileString(blocked, encodeJson(manifest));
+      yield* fs.symlink(NodePath.join(root, "missing-receipt"), `${blocked}.receipt.json`);
+      const dangling = invoke("--manifest", blocked, "--json");
+      assert.strictEqual(dangling.status, 3, dangling.stdout);
+      assert.isFalse(yield* fs.exists(NodePath.join(root, "missing-receipt")));
+      assert.strictEqual(git(root, ["count-objects", "-v"]), before);
       const first = invoke("--manifest", path, "--json");
       assert.strictEqual(first.status, 0, first.stderr);
       const receipt = decodeCliResult(first.stdout);
       assert.match(receipt.result, /^[a-f0-9]{40}$/);
       assert.strictEqual(receipt.receiptPath, `${path}.receipt.json`);
       assert.strictEqual(invoke("--manifest", path, "--json").stdout, first.stdout);
+      assert.strictEqual(
+        invokeFrom(subdirectory, "--manifest", NodePath.relative(root, path), "--json").stdout,
+        first.stdout,
+      );
       assert.strictEqual(git(root, ["show-ref"]), refs);
     }),
   );
