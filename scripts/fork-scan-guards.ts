@@ -29,6 +29,13 @@ export type ScanWarningRule =
   | "lockfile"
   | "terminal-attachment-boundary";
 
+// Adopted boundaries are enforced on the commits an authoring scan selects.
+// Historical inventory remains advisory so its original patches can be repaired
+// in the controlled replay lane without unrelated old warnings blocking authors.
+export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
+  "terminal-attachment-boundary",
+]);
+
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "hot-seam",
   "upstream-test",

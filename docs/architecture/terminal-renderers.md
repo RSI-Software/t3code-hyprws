@@ -50,7 +50,9 @@ Web attachment retention lives in `apps/web/src/state/terminalAttachmentRetentio
 indexing, ordering and snapshot reuse remain upstream-owned. Keep fork retention tests in
 `terminalAttachmentRetention.fork.test.ts`, leaving upstream's `terminalSessions.test.ts` intact
 when its index changes arrive. The `terminal-attachment-boundary` authoring guard in `fork:scan`
-warns when state/effect calls or inline retention declarations grow back into the metadata module.
+rejects state/effect calls or inline retention declarations added back to the metadata module
+when `--since` selects newly authored commits, including the CI scan. Full-history inventory
+still reports the original patch as advisory until the controlled historical repair lands.
 
 The retained T3 scrollback is the output captured before suspension, bounded by the server's line
 limit and the client's byte limit. Output produced inside tmux while no client is attached remains
