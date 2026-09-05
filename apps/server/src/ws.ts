@@ -247,7 +247,8 @@ import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
+import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -1371,7 +1372,7 @@ export const layerWsRpc = (
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const sourceControlSignIn = yield* SourceControlSignIn.SourceControlSignIn;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
-      const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+      const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -2678,14 +2679,7 @@ export const layerWsRpc = (
           withPullRequestViewer(input, pullRequests.labelCandidates(input)),
         [WS_METHODS.pullRequestsSetLabels]: (input) =>
           withPullRequestViewer(input, pullRequests.setLabels(input)),
-        [WS_METHODS.githubIssuesList]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesList, githubIssues.list(input), {
-            "rpc.aggregate": "github-issues",
-          }),
-        [WS_METHODS.githubIssuesDetail]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesDetail, githubIssues.detail(input), {
-            "rpc.aggregate": "github-issues",
-          }),
+        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           sourceControlRepositories.lookupRepository(input),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>
@@ -3295,7 +3289,7 @@ export const layer = Layer.unwrap(
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const sql = yield* SqlClient.SqlClient;
-    const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+    const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3378,7 +3372,7 @@ export const layer = Layer.unwrap(
               ),
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
-              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)),
+              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
