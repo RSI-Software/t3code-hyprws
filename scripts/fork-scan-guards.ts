@@ -27,6 +27,7 @@ export type ScanWarningRule =
   | "footprint"
   | "replaced-export"
   | "provider-agent-boundary"
+  | "agent-spawn-navigation"
   | "lockfile"
   | "sidebar-physical-scope"
   | "pull-request-project-scope"
@@ -47,6 +48,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "upstream-test",
   "github-issue-settings-search",
   "mobile-ignored-file-listing",
+  "agent-spawn-navigation",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -56,6 +58,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "replaced-export",
   "provider-agent-boundary",
   "sidebar-physical-scope",
+  "agent-spawn-navigation",
   "lockfile",
   "terminal-attachment-boundary",
   "thread-route-navigation",
@@ -101,6 +104,7 @@ export interface CommitPatch {
   readonly pullRequestProjectScopeAdded?: boolean;
   readonly githubIssueSettingsSearchAdded?: boolean;
   readonly mobileIgnoredFilePolicyAdded?: boolean;
+  readonly agentSpawnNavigationAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -190,6 +194,12 @@ const isPullRequestProjectScopeAddition = (path: string, content: string): boole
   );
 };
 
+const AGENT_SPAWN_TIMELINE = "apps/web/src/components/chat/MessagesTimeline.tsx";
+// The timeline keeps CTA presentation and widened callback arguments. Target
+// selection and its click closure belong behind AgentSpawnNavigation's handler.
+const AGENT_SPAWN_SELECTION =
+  /\bresolveAgentSpawnOpenTarget\b|\bopenTarget\s*\.\s*(?:selectedAgentId|rosterFocusAgentId)\b/;
+
 const diffPath = (value: string): string | null => {
   const target = value.trim();
   return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
@@ -211,6 +221,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let pullRequestProjectScopeAdded = false;
     let githubIssueSettingsSearchAdded = false;
     let mobileIgnoredFilePolicyAdded = false;
+    let agentSpawnNavigationAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -252,6 +263,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         const additions = navigationAdditions.get(path) ?? [];
         additions.push(content);
         navigationAdditions.set(path, additions);
+      }
+      if (
+        added &&
+        path === AGENT_SPAWN_TIMELINE &&
+        !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
+        AGENT_SPAWN_SELECTION.test(content)
+      ) {
+        agentSpawnNavigationAdded = true;
       }
       if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
         terminalAttachmentStateAdded = true;
@@ -316,6 +335,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(pullRequestProjectScopeAdded ? { pullRequestProjectScopeAdded: true } : {}),
       ...(githubIssueSettingsSearchAdded ? { githubIssueSettingsSearchAdded: true } : {}),
       ...(mobileIgnoredFilePolicyAdded ? { mobileIgnoredFilePolicyAdded: true } : {}),
+      ...(agentSpawnNavigationAdded ? { agentSpawnNavigationAdded: true } : {}),
     });
   }
   return patches;
@@ -388,6 +408,12 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "pull-request-project-scope",
         "physical pull-request scope belongs in PullRequestProjectScope and scoped readiness in windowProjectBootstrap.fork.ts; preserve upstream route search, filter options, sorting and all-environment bootstrap, and reuse the hub validator instead of restoring pullRequestListRoute",
+      );
+    }
+    if (patch.agentSpawnNavigationAdded) {
+      warn(
+        "agent-spawn-navigation",
+        `${AGENT_SPAWN_TIMELINE} gains fork child-work target selection; keep it in AgentSpawnNavigation.ts and retain createAgentSpawnOpenHandler with upstream CTA markup`,
       );
     }
 
