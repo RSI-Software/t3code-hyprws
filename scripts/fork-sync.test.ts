@@ -37,6 +37,7 @@ import {
   parseSilentSeam,
   preserveRecordDecisions,
   reconcileAfterApply,
+  resumeRererePublication,
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
@@ -59,10 +60,68 @@ import { inspectRecord } from "./fork-sync-gate.ts";
 import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
+import { RERERE_REF, readBotRefFile, saveRerereCache } from "./lib/fork-bot-refs.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
 const C = "c".repeat(40);
+
+it("resumes failed cache publication from an applied report without reapplying trunk", () => {
+  const root = fixtureRoot();
+  const remote = NodePath.join(root, "remote.git");
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "--bare", remote], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  const cache = NodePath.join(root, ".git", "rr-cache", "key");
+  NodeFS.mkdirSync(cache, { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(cache, "postimage"), "reviewed resolution\n");
+  const snapshot = saveRerereCache(root, "rerere: reviewed snapshot")!;
+  const applied = report(root, {
+    stage: "applied",
+    lane: { branch: "rehearse/test", worktree: root },
+    installedHead: B,
+    recordCommentUrl: "https://example.test/reviewed-record",
+    rererePublication: { state: "pending", snapshot },
+  });
+  try {
+    assert.throws(
+      () =>
+        resumeRererePublication(applied, () => {
+          throw new Error("cache unavailable");
+        }),
+      /trunk already applied/,
+    );
+    const pending = validateReport(JSON.parse(NodeFS.readFileSync(applied.reportPath, "utf8")));
+    assert.strictEqual(pending.stage, "applied");
+    assert.strictEqual(pending.rererePublication?.snapshot, snapshot);
+    assert.strictEqual(pending.recordCommentUrl, applied.recordCommentUrl);
+    // Recovery uses its bound snapshot even after a later walk changes the cache.
+    NodeFS.writeFileSync(NodePath.join(cache, "postimage"), "later unreviewed resolution\n");
+    const runner = new FakeRunner();
+    const completed = execute(
+      ["unblock-apply", "--report", applied.reportPath, "--record", applied.recordPath],
+      root,
+      runner,
+    );
+    assert.strictEqual(completed.rererePublication?.state, "published");
+    assert.strictEqual(
+      readBotRefFile(remote, RERERE_REF, "key/postimage"),
+      "reviewed resolution\n",
+    );
+    execute(
+      ["unblock-apply", "--report", applied.reportPath, "--record", applied.recordPath],
+      root,
+      runner,
+    );
+    assert.deepStrictEqual(runner.calls, []);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
+  }
+});
 
 const fixtureRoot = (): string => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-test-"));

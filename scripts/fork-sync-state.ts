@@ -324,6 +324,13 @@ export interface SyncReport {
   readonly installedHead?: string;
   readonly ciHead?: string;
   readonly recordCommentUrl?: string;
+  /** Trunk apply is durable even when its independently resumable cache push fails. */
+  readonly rererePublication?: {
+    readonly state: "pending" | "published";
+    readonly snapshot?: string | null;
+    readonly commit?: string;
+    readonly error?: string;
+  };
   readonly reconciliation?: {
     readonly state: "dispatched" | "ambiguous";
     readonly runUrl?: string;
@@ -348,6 +355,8 @@ Stable verbs:
   stable-list [--output <external-json>]
   stable-prepare --report <json> --issue <human-selected-issue>
   stable-publish --report <json> --go <exact-candidate>
+
+An applied unblock-apply report resumes only pending rerere publication.
 `;
 
 export const commandText = (command: string, args: ReadonlyArray<string>): string =>
@@ -492,6 +501,14 @@ export const validateReport = (value: unknown): SyncReport => {
     !Array.isArray(report.verification)
   )
     throw new Error("report collections are invalid");
+  const publication = report.rererePublication;
+  if (
+    publication !== undefined &&
+    ((publication.state !== "pending" && publication.state !== "published") ||
+      (publication.snapshot != null && !FULL_SHA.test(publication.snapshot)) ||
+      (publication.commit !== undefined && !FULL_SHA.test(publication.commit)))
+  )
+    throw new Error("report rerere publication is invalid");
   return report as SyncReport;
 };
 
