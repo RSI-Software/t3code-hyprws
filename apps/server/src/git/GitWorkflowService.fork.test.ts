@@ -331,12 +331,13 @@ describe("GitWorkflowService", () => {
         return { branch: "t3code/new-name" };
       }),
     );
-    const ensure = vi.fn((_dir: string) =>
+    const reconcileExisting = vi.fn((_dir: string) =>
       Effect.sync(() => {
-        calls.push("ensure");
+        calls.push("reconcile");
         return {
-          status: "ensured" as const,
+          status: "resolved" as const,
           target: "repo/t3code-new-name",
+          match: "worktree",
           workspace: "repo",
           session: "t3code-new-name",
         };
@@ -350,7 +351,7 @@ describe("GitWorkflowService", () => {
       ),
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ renameBranch })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
-      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ ensure })),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ reconcileExisting })),
       Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
     return Effect.gen(function* () {
@@ -361,13 +362,15 @@ describe("GitWorkflowService", () => {
         newBranch: "t3code/new-name",
       });
       assert.equal(renamed.branch, "t3code/new-name");
-      assert.deepStrictEqual(calls, ["rename", "ensure"]);
-      assert.deepStrictEqual(ensure.mock.calls[0]?.[0], "/repo/wt");
+      assert.deepStrictEqual(calls, ["rename", "reconcile"]);
+      assert.deepStrictEqual(reconcileExisting.mock.calls[0]?.[0], "/repo/wt");
     }).pipe(Effect.provide(layer));
   });
   it.effect("does not rebind after a rename outside a bound worktree", () => {
     const renameBranch = vi.fn(() => Effect.succeed({ branch: "feat/renamed" }));
-    const ensure = vi.fn((_dir: string) => Effect.succeed({ status: "disabled" as const }));
+    const reconcileExisting = vi.fn((_dir: string) =>
+      Effect.succeed({ status: "disabled" as const }),
+    );
     const layer = GitWorkflowService.layer.pipe(
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -378,7 +381,7 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(
         Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-          ensure,
+          reconcileExisting,
         }),
       ),
       Layer.provide(makeWorktrunkHookRunnerLayer()),
@@ -390,7 +393,7 @@ describe("GitWorkflowService", () => {
         oldBranch: "feat/old",
         newBranch: "feat/renamed",
       });
-      assert.equal(ensure.mock.calls.length, 1);
+      assert.equal(reconcileExisting.mock.calls.length, 1);
       assert.equal(renameBranch.mock.calls.length, 1);
     }).pipe(Effect.provide(layer));
   });

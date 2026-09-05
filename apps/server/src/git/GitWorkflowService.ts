@@ -259,7 +259,7 @@ export const make = Effect.gen(function* () {
 
   const reconcileManagedSession = Effect.fn("GitWorkflowService.reconcileManagedSession")(
     function* (cwd: string) {
-      const result = yield* zmuxSessionBinder.ensure(cwd);
+      const result = yield* zmuxSessionBinder.reconcileExisting(cwd);
       if (result.status === "failed") {
         yield* Effect.logWarning(
           "Git branch changed but its managed zmux session did not reconcile",
