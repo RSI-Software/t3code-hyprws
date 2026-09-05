@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - fs.watch exposes the synchronous acquisition receipt required before checkout mutations can be observed safely.
+import * as NodeFS from "node:fs";
 import {
   CommandId,
   type CheckpointRef,
@@ -7,12 +9,15 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
+  type OrchestrationThreadShell,
   type ProviderRuntimeEvent,
   type VcsStatusLocalResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
@@ -20,6 +25,8 @@ import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import type * as PlatformError from "effect/PlatformError";
 import * as Stream from "effect/Stream";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
@@ -40,6 +47,10 @@ import type { OrchestrationDispatchError } from "../Errors.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as PullRequestService from "../../pullRequest/PullRequestService.ts";
+import * as ZmuxSessionBinder from "../../zmux/ZmuxSessionBinder.ts";
+import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
+import * as ProcessRunner from "../../processRunner.ts";
+import { CheckoutMutationCoordinator } from "../../git/CheckoutMutationCoordinator.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -77,7 +88,10 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
   }
 }
 
-const make = Effect.gen(function* () {
+export const makeCheckpointReactor = Effect.fn("makeCheckpointReactor")(function* (
+  watchDirectory: typeof NodeFS.watch = NodeFS.watch,
+) {
+  const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
   const crypto = yield* Crypto.Crypto;
   const randomUUID = crypto.randomUUIDv4;
   const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
@@ -93,6 +107,10 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const zmuxSessionBinder = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
+  const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
+  const processRunner = yield* ProcessRunner.ProcessRunner;
+
   const queuedEntryRefreshes = new Set<string>();
   const entryRefreshWorker = yield* makeDrainableWorker((cwd: string) =>
     Effect.sync(() => queuedEntryRefreshes.delete(cwd)).pipe(
@@ -111,9 +129,27 @@ const make = Effect.gen(function* () {
     queuedEntryRefreshes.add(cwd);
     yield* entryRefreshWorker.enqueue(cwd);
   });
-
   const startedTurns = new Map<ThreadId, TurnId>();
   const pending = new Set<ThreadId>();
+  const watchedCheckoutRoots = new Map<
+    string,
+    {
+      readonly cwd: string;
+      readonly threadId: ThreadId;
+      readonly token: object;
+      fiber?: Fiber.Fiber<void, never>;
+    }
+  >();
+
+  const threadCheckoutCwd = Effect.fn("CheckpointReactor.threadCheckoutCwd")(function* (
+    thread: OrchestrationThreadShell,
+  ) {
+    if (thread.worktreePath) return thread.worktreePath;
+    const project = yield* projectionSnapshotQuery
+      .getProjectShellById(thread.projectId)
+      .pipe(Effect.map(Option.getOrUndefined));
+    return project?.workspaceRoot;
+  });
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -516,29 +552,34 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const local = yield* vcsStatusBroadcaster.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("failed to refresh local git status after turn completion", {
+    const identity = yield* vcsDriverRegistry.resolve({ cwd: sessionRuntime.value.cwd });
+    yield* checkoutMutationCoordinator.withLease(
+      identity.repository.rootPath,
+      Effect.gen(function* () {
+        const local = yield* vcsStatusBroadcaster.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to refresh local git status after turn completion", {
+              threadId: event.threadId,
+              turnId: event.turnId ?? null,
+              cwd: sessionRuntime.value.cwd,
+              detail: error.message,
+            }).pipe(Effect.as(null)),
+          ),
+        );
+        if (local === null) return;
+        yield* followWorktreeBranchDrift({
           threadId: event.threadId,
-          turnId: event.turnId ?? null,
           cwd: sessionRuntime.value.cwd,
-          detail: error.message,
-        }).pipe(Effect.as(null)),
-      ),
+          local,
+        });
+        yield* refreshPullRequestAfterTurn({
+          threadId: event.threadId,
+          turnId: toTurnId(event.turnId),
+          cwd: sessionRuntime.value.cwd,
+          local,
+        });
+      }),
     );
-    if (local !== null) {
-      yield* followWorktreeBranchDrift({
-        threadId: event.threadId,
-        cwd: sessionRuntime.value.cwd,
-        local,
-      });
-      yield* refreshPullRequestAfterTurn({
-        threadId: event.threadId,
-        turnId: toTurnId(event.turnId),
-        cwd: sessionRuntime.value.cwd,
-        local,
-      });
-    }
   });
 
   // Retry a missing PR after the agent finishes its push and PR creation.
@@ -591,34 +632,65 @@ const make = Effect.gen(function* () {
       const thread = yield* projectionSnapshotQuery
         .getThreadShellById(input.threadId)
         .pipe(Effect.map(Option.getOrUndefined));
-      if (
-        !thread ||
-        thread.branch === null ||
-        thread.branch === checkedOutBranch ||
-        thread.worktreePath === null ||
-        thread.worktreePath !== input.cwd
-      ) {
+      if (!thread) return;
+
+      const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+      const checkoutIdentity = yield* vcsDriverRegistry.resolve({ cwd: input.cwd });
+      const checkoutThreads = yield* Effect.filter(shell.threads, (candidate) => {
+        return threadCheckoutCwd(candidate).pipe(
+          Effect.flatMap((cwd) =>
+            cwd
+              ? vcsDriverRegistry
+                  .resolve({ cwd })
+                  .pipe(
+                    Effect.map(
+                      (identity) =>
+                        identity.repository.rootPath === checkoutIdentity.repository.rootPath,
+                    ),
+                  )
+              : Effect.succeed(false),
+          ),
+          Effect.orElseSucceed(() => false),
+        );
+      });
+      const busy = checkoutThreads.some((candidate) => {
+        // The projection persists a requested turn as a starting session before
+        // provider activation assigns activeTurnId.
+        return candidate.session?.activeTurnId != null || candidate.session?.status === "starting";
+      });
+      if (busy) {
         return;
       }
 
-      const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-      const worktreeIsShared = shell.threads.some(
-        (other) => other.id !== thread.id && other.worktreePath === thread.worktreePath,
-      );
-      if (worktreeIsShared) {
-        return;
+      if (Option.isSome(zmuxSessionBinder)) {
+        const reconciliation = yield* zmuxSessionBinder.value.reconcileExisting(input.cwd);
+        if (reconciliation.status === "failed") {
+          yield* Effect.logWarning("worktree branch drift could not reconcile managed session", {
+            cwd: input.cwd,
+            detail: reconciliation.notice.detail,
+          });
+          return;
+        }
       }
 
       // expectedBranch makes this a compare-and-swap in the decider: if the
       // recorded branch moved between our read and the dispatch (rename,
       // concurrent drift-follow), the stale update is dropped.
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: yield* serverCommandId("worktree-branch-drift"),
-        threadId: thread.id,
-        branch: checkedOutBranch,
-        expectedBranch: thread.branch,
-      });
+      for (const candidate of checkoutThreads) {
+        // A placeholder recorded branch still adopts the real HEAD: upstream
+        // made that the rule, and the expectedBranch swap below already drops a
+        // stale update if the first-turn rename lands in between.
+        if (candidate.branch === null || candidate.branch === checkedOutBranch) {
+          continue;
+        }
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: yield* serverCommandId("worktree-branch-drift"),
+          threadId: candidate.id,
+          branch: checkedOutBranch,
+          expectedBranch: candidate.branch,
+        });
+      }
       yield* Effect.logInfo("thread branch followed worktree checkout", {
         threadId: thread.id,
         previousBranch: thread.branch,
@@ -651,6 +723,106 @@ const make = Effect.gen(function* () {
         ),
       ),
   );
+
+  const watchCheckoutHead = Effect.fn("watchCheckoutHead")(function* (
+    root: string,
+    cwd: string,
+    threadId: ThreadId,
+  ) {
+    if (watchedCheckoutRoots.has(root)) return;
+    const gitDirResult = yield* processRunner.run({
+      command: "git",
+      args: ["-C", root, "rev-parse", "--git-dir"],
+      cwd: root,
+      timeout: Duration.seconds(5),
+    });
+    if (gitDirResult.code !== 0 || gitDirResult.timedOut) return;
+    const rawGitDir = gitDirResult.stdout.trim();
+    if (!rawGitDir) return;
+    const gitDir = path.resolve(root, rawGitDir);
+    const ready = yield* Deferred.make<boolean>();
+    const token = {};
+    const entry = { cwd, threadId, token } as {
+      readonly cwd: string;
+      readonly threadId: ThreadId;
+      readonly token: object;
+      fiber?: Fiber.Fiber<void, never>;
+    };
+    watchedCheckoutRoots.set(root, entry);
+    const fiber = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const changes = yield* Queue.unbounded<void>();
+        const watcher = yield* Effect.acquireRelease(
+          Effect.try(() =>
+            watchDirectory(gitDir, (_event, filename) => {
+              if (filename === null || path.basename(filename.toString()) === "HEAD") {
+                Queue.offerUnsafe(changes, undefined);
+              }
+            }),
+          ),
+          (watcher) => Effect.sync(() => watcher.close()),
+        );
+        watcher.on("error", () => Effect.runFork(Queue.shutdown(changes)));
+        yield* Deferred.succeed(ready, true);
+        yield* Stream.fromQueue(changes).pipe(
+          Stream.debounce(Duration.millis(75)),
+          Stream.runForEach(() =>
+            checkoutMutationCoordinator
+              .withLease(
+                root,
+                Effect.gen(function* () {
+                  const local = yield* vcsStatusBroadcaster.refreshLocalStatus(cwd);
+                  yield* followWorktreeBranchDrift({ threadId, cwd, local });
+                }),
+              )
+              .pipe(Effect.ignoreCause({ log: true })),
+          ),
+        );
+      }),
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Deferred.succeed(ready, false).pipe(Effect.andThen(Effect.failCause(cause))),
+      ),
+      Effect.ignoreCause({ log: true }),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (watchedCheckoutRoots.get(root)?.token === token) watchedCheckoutRoots.delete(root);
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
+    );
+    entry.fiber = fiber;
+    const acquired = yield* Deferred.await(ready);
+    if (!acquired && watchedCheckoutRoots.get(root)?.token === token) {
+      watchedCheckoutRoots.delete(root);
+    }
+  });
+
+  const syncCheckoutHeadWatchers = Effect.fn("syncCheckoutHeadWatchers")(function* () {
+    const shell = yield* projectionSnapshotQuery.getShellSnapshot();
+    const desired = new Map<string, { readonly cwd: string; readonly threadId: ThreadId }>();
+    yield* Effect.forEach(shell.threads, (thread) =>
+      Effect.gen(function* () {
+        const cwd = yield* threadCheckoutCwd(thread);
+        if (!cwd) return;
+        const identity = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.option);
+        if (Option.isSome(identity) && !desired.has(identity.value.repository.rootPath)) {
+          desired.set(identity.value.repository.rootPath, { cwd, threadId: thread.id });
+        }
+      }),
+    );
+    for (const [root, watched] of watchedCheckoutRoots) {
+      const target = desired.get(root);
+      if (target?.cwd === watched.cwd && target.threadId === watched.threadId) continue;
+      watchedCheckoutRoots.delete(root);
+      if (watched.fiber) yield* Fiber.interrupt(watched.fiber);
+    }
+    yield* Effect.forEach(
+      desired,
+      ([root, target]) => watchCheckoutHead(root, target.cwd, target.threadId),
+      { discard: true },
+    );
+  });
 
   const ensurePreTurnBaselineFromDomainTurnStart = Effect.fn(
     "ensurePreTurnBaselineFromDomainTurnStart",
@@ -1021,18 +1193,30 @@ const make = Effect.gen(function* () {
     );
 
   const worker = yield* makeDrainableWorker(processInputSafely);
+  const watcherWorker = yield* makeDrainableWorker(() =>
+    syncCheckoutHeadWatchers().pipe(Effect.ignoreCause({ log: true })),
+  );
 
   const start: CheckpointReactorShape["start"] = Effect.fn("start")(function* () {
+    yield* syncCheckoutHeadWatchers().pipe(Effect.ignoreCause({ log: true }));
     yield* forkParked(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
+        const topologyChanged =
+          event.type === "project.created" ||
+          event.type === "project.deleted" ||
+          (event.type === "project.meta-updated" && event.payload.workspaceRoot !== undefined) ||
+          event.type === "thread.created" ||
+          event.type === "thread.deleted" ||
+          (event.type === "thread.meta-updated" && event.payload.worktreePath !== undefined);
+        const syncWatchers = topologyChanged ? watcherWorker.enqueue(undefined) : Effect.void;
         if (
           event.type !== "thread.turn-start-requested" &&
           event.type !== "thread.message-sent" &&
           event.type !== "thread.checkpoint-revert-requested"
         ) {
-          return Effect.void;
+          return syncWatchers;
         }
-        return worker.enqueue({ source: "domain", event });
+        return worker.enqueue({ source: "domain", event }).pipe(Effect.andThen(syncWatchers));
       }),
     );
 
@@ -1053,11 +1237,13 @@ const make = Effect.gen(function* () {
 
   return {
     start,
-    drain: worker.drain.pipe(
-      Effect.andThen(statusRefreshWorker.drain),
-      Effect.andThen(entryRefreshWorker.drain),
+    drain: Effect.all(
+      [worker.drain, statusRefreshWorker.drain, entryRefreshWorker.drain, watcherWorker.drain],
+      { discard: true },
     ),
   } satisfies CheckpointReactorShape;
 });
+
+const make = makeCheckpointReactor();
 
 export const CheckpointReactorLive = Layer.effect(CheckpointReactor, make);
