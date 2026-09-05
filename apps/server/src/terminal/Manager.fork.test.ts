@@ -73,6 +73,51 @@ it.layer(
       });
     }),
   );
+  it.effect("isolates viewer attachments that share a logical terminal", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const firstInput = openInput({ attachmentId: "device-a" });
+      const secondInput = openInput({ attachmentId: "device-b" });
+      yield* manager.open(firstInput);
+      yield* manager.open(secondInput);
+      const first = ptyAdapter.processes[0];
+      const second = ptyAdapter.processes[1];
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      if (!first || !second) return;
+      yield* manager.write({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+        data: "first\n",
+      });
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-b",
+        cols: 132,
+        rows: 40,
+      });
+      first.emitData("first-history\n");
+      second.emitData("second-history\n");
+      expect(first.writes).toEqual(["first\n"]);
+      expect(second.resizeCalls).toEqual([{ cols: 132, rows: 40 }]);
+      yield* manager.close({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+      });
+      yield* manager.write({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-b",
+        data: "still-open\n",
+      });
+      expect(second.writes).toEqual(["still-open\n"]);
+      expect((yield* manager.open(firstInput)).history).toBe("first-history\n");
+      expect((yield* manager.open(secondInput)).history).toBe("second-history\n");
+    }),
+  );
   it.effect("resolves and attaches zmux mode without inherited tmux context", () =>
     Effect.gen(function* () {
       const processRunner = new FakeProcessRunner(
