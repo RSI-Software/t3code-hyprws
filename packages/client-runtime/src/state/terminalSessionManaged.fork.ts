@@ -2,6 +2,14 @@ import type { TerminalAttachStreamEvent, TerminalSessionSnapshot } from "@t3tool
 
 import type { TerminalBufferState, TerminalGrid } from "./terminalSession.ts";
 
+export function terminalAttachmentInputFork<Input>(
+  input: Input,
+  attachment: { readonly attachmentId?: string },
+) {
+  if (attachment.attachmentId === undefined) return {};
+  return { input: { ...input, ...attachment } };
+}
+
 export function snapshotStatus(snapshot: TerminalSessionSnapshot) {
   return snapshot.status === "running" && snapshot.attachmentStatus === "suspended"
     ? { status: "suspended" as const }
