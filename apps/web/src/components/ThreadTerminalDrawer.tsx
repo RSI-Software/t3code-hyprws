@@ -189,6 +189,16 @@ export function writeTerminalOutputUpdate(
   }
 }
 
+export function terminalOutputCursorForLifecycle(
+  cursor: TerminalOutputCursor,
+  previousLifecycleVersion: number,
+  currentLifecycleVersion: number,
+): TerminalOutputCursor {
+  return previousLifecycleVersion === currentLifecycleVersion
+    ? cursor
+    : INITIAL_TERMINAL_OUTPUT_CURSOR;
+}
+
 function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor {
   if (typeof document === "undefined") return fallback;
 
@@ -560,11 +570,13 @@ export function TerminalViewport({
     },
   );
   const terminalVersion = terminalSession.version;
+  const terminalLifecycleVersion = terminalSession.lifecycleVersion;
   const previousSessionRef = useRef({
     output: terminalOutput,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   });
   const latestSessionRef = useRef(previousSessionRef.current);
   latestSessionRef.current = {
@@ -572,6 +584,7 @@ export function TerminalViewport({
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   };
 
   useEffect(() => {
@@ -1019,6 +1032,7 @@ export function TerminalViewport({
       error: terminalError,
       status: terminalStatus,
       version: terminalVersion,
+      lifecycleVersion: terminalLifecycleVersion,
     };
     if (!terminal) {
       previousSessionRef.current = current;
@@ -1027,12 +1041,27 @@ export function TerminalViewport({
 
     const previous = previousSessionRef.current;
     synchronizeTerminalStatus(terminal, current.status);
-    if (current.version === previous.version && current.output === previous.output) {
+    if (
+      current.lifecycleVersion === previous.lifecycleVersion &&
+      current.version === previous.version &&
+      current.output === previous.output
+    ) {
       return;
     }
 
-    const outputUpdate = readTerminalOutputUpdate(current.output, outputCursorRef.current);
-    writeTerminalOutputUpdate(terminal, outputUpdate);
+    const outputUpdate = readTerminalOutputUpdate(
+      current.output,
+      terminalOutputCursorForLifecycle(
+        outputCursorRef.current,
+        previous.lifecycleVersion,
+        current.lifecycleVersion,
+      ),
+    );
+    if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
+      terminal.resetSession(outputUpdate.data);
+    } else {
+      writeTerminalOutputUpdate(terminal, outputUpdate);
+    }
     outputCursorRef.current = outputUpdate.cursor;
     terminal.clearSelection();
 
@@ -1041,7 +1070,7 @@ export function TerminalViewport({
     }
 
     previousSessionRef.current = current;
-  }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
+  }, [terminalOutput, terminalError, terminalStatus, terminalVersion, terminalLifecycleVersion]);
 
   useEffect(() => {
     const wasAttached = wasAttachedRef.current;
