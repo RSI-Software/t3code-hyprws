@@ -68,6 +68,7 @@ import {
   requireSuccess,
   rootFor,
   SYNC_HELP,
+  uniqueSilentSeams,
   writeRecord,
   writeReport,
   worktreePath,
@@ -1303,7 +1304,7 @@ const unblockCheck = (
     installedHead,
     ciHead: installedHead,
     verification,
-    silentSeams: [...(report.silentSeams ?? []), ...silentSeams],
+    silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
   });
   writeReport(report);
   writeRecord(report);
