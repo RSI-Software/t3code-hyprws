@@ -130,9 +130,12 @@ authenticated.
   `HEAD`, so naming any other ref reports declarations alone. It also collects the ledger guards in
   [Fork development](./fork-development.md#ledger-guards-run-in-the-scan) — `hot-seam`,
   `upstream-test`, `footprint`, `replaced-export`, and `lockfile` — and prints each as a `WARN`
-  line. Those warnings never change
-  the exit code; `--strict` makes them fatal, and `--since <ref>` limits them to the commits after
-  that ref.
+  line. General warnings are advisory unless `--strict` makes them fatal. `--since <ref>` limits
+  warnings to later commits and makes adopted authoring guards fatal without `--strict`.
+  `--same-tree-rewrite-of <ref>` scopes a historical replay to no newly authored commits only after
+  proving the selected head has exactly the source ref's full tree. `--replay-of <ref>` does the same
+  for a rebase rehearsal, only after proving the head omits that trunk and sits on a tagged upstream
+  commit the trunk has not reached.
 - `vp run fork:sync <verb>`: Owns the human unblock state machine in one versioned external report
   (`scripts/fork-sync.ts`). `unblock-list` emits selectable targets without accepting one;
   `unblock-orient` binds the human's explicit selection; repeatable `unblock-rehearse` calls create
