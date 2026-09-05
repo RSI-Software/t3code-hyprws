@@ -44,11 +44,14 @@ import {
 import { pushResult, remoteBranchSha, restoreRemoteBranch } from "./lib/fork-rebase-push.ts";
 import {
   buildBlockedIssue,
+  censusTotals,
   inlineCode,
   type BlockedIssue,
   type RebaseStopCensus,
+  type SequentialCensusEvidence,
   type StableCandidate,
 } from "./lib/fork-rebase-issues.ts";
+import { parseForkTrailers } from "./lib/fork-trailers.ts";
 import {
   HYPRWS_REF,
   positionUpstreamReleaseTags,
@@ -211,8 +214,7 @@ export const rehearseStopCensus = (
   const cemetery = `${worktree}-files`;
   const rootGit = new SystemGit(root);
   let worktreeGit: SystemGit | null = null;
-  const conflictingCommits = new Set<string>();
-  let conflictingFileCount = 0;
+  const rows: Array<SequentialCensusEvidence["rows"][number]> = [];
   let stopCount = 0;
   let movedFileCount = 0;
   let truncatedBy: RebaseStopCensus["truncatedBy"] = null;
@@ -265,19 +267,43 @@ export const rehearseStopCensus = (
         rebase = runRebase([...rebaseArgs, "--skip"]);
         continue;
       }
-      conflictingCommits.add(rebaseHead.stdout.trim());
-      conflictingFileCount += conflictPaths.length;
       stopCount += 1;
+      const commit = rebaseHead.stdout.trim();
+      const message = worktreeGit.run(["show", "-s", "--format=%B", commit]);
+      const stagesByPath = conflictPaths.map((path) => ({
+        path,
+        stages: worktreeGit!.run(["ls-files", "--stage", "--", path]),
+      }));
+      // Observe every path before provisional continuation or a limit interrupts the stop.
+      for (const { path, stages } of stagesByPath) {
+        const base = hasStage(stages, 1);
+        const ours = hasStage(stages, 2);
+        const theirs = hasStage(stages, 3);
+        rows.push({
+          stop: stopCount,
+          commit,
+          subject: message.split("\n")[0] ?? "",
+          domain: parseForkTrailers(message).domain ?? null,
+          path,
+          kind:
+            !base && ours && theirs
+              ? "add/add"
+              : base && ours !== theirs
+                ? "modify/delete"
+                : base && ours && theirs
+                  ? "content"
+                  : "other-unmerged",
+        });
+      }
       if (stopCount >= limits.stopLimit) {
         truncatedBy = "stop-limit";
         break;
       }
-      for (const [index, path] of conflictPaths.entries()) {
+      for (const [index, { path, stages }] of stagesByPath.entries()) {
         if (remainingTime() <= 0) {
           truncatedBy = "time-limit";
           break;
         }
-        const stages = worktreeGit.run(["ls-files", "--stage", "--", path]);
         if (hasStage(stages, 3)) {
           worktreeGit.run(["checkout-index", "--force", "--stage=3", "--", path]);
         } else {
@@ -291,8 +317,17 @@ export const rehearseStopCensus = (
     }
     return {
       targetTag: target.tag,
-      conflictingForkCommitCount: conflictingCommits.size,
-      conflictingFileCount,
+      evidence: {
+        version: 1,
+        method: "sequential-rebase-stage3-provisional",
+        sourceSha: headSha,
+        baseSha,
+        targetSha: target.sha,
+        targetTag: target.tag,
+        complete: truncatedBy === null,
+        rows,
+      },
+      ...censusTotals(rows),
       truncated: truncatedBy !== null,
       truncatedBy,
       stopLimit: limits.stopLimit,
@@ -324,7 +359,7 @@ const blockedReport = (
   censusUnavailable: string | null,
 ): BlockedIssue | null => {
   if (plan.feasibility.ffBoundary.firstConflict === null) return null;
-  if (census?.conflictingForkCommitCount === 0) return null;
+  if (census?.conflictingForkCommitCount === 0 && !census.truncated) return null;
   return buildBlockedIssue(plan, census, censusUnavailable);
 };
 
@@ -354,7 +389,7 @@ const decideByCensus = (
     const result = census(root, plan.oldSha, plan.baseSha, plan.censusTarget);
     if (result.truncated) {
       return {
-        census: null,
+        census: result,
         censusUnavailableReason: `sequential census did not complete before its ${result.truncatedBy ?? "unknown"} limit`,
       };
     }
@@ -368,7 +403,10 @@ const postAdvanceBlockedPlan = (
   git: FeasibilityGit,
   plan: AutoRebasePlan,
   newSha: string,
-): Pick<AutoRebasePlan, "target" | "newestTagBeyondWindow" | "feasibility"> => {
+): Pick<
+  AutoRebasePlan,
+  "target" | "newestTagBeyondWindow" | "feasibility" | "oldSha" | "baseSha" | "horizon"
+> => {
   if (plan.target === null) throw new Error("cannot refresh a blocked plan without a target");
   const baseSha = plan.target.sha;
   if (plan.censusTarget === null) {
@@ -379,6 +417,9 @@ const postAdvanceBlockedPlan = (
     git.run(["rev-list", "--first-parent", "--reverse", `${baseSha}..${plan.censusTarget.sha}`]),
   );
   return {
+    oldSha: newSha,
+    baseSha,
+    horizon: plan.censusTarget,
     target: plan.target,
     newestTagBeyondWindow: selectNewestTag(
       positionUpstreamReleaseTags(git, [baseSha, ...upstreamCommits]).filter(
@@ -407,7 +448,9 @@ export const executeAutoRebase = (
   const censusRunner = hooks.rehearseStopCensus ?? rehearseStopCensus;
   const pairwiseFirstConflict = plan.feasibility.ffBoundary.firstConflict;
   const { census, censusUnavailableReason } = decideByCensus(root, plan, censusRunner);
-  const censusConflictCount = census?.conflictingForkCommitCount ?? null;
+  const censusConflictCount = census?.truncated
+    ? null
+    : (census?.conflictingForkCommitCount ?? null);
   const target = censusConflictCount === 0 ? plan.censusTarget : plan.target;
   const decidedPlan = { ...plan, target };
   const decision = { pairwiseFirstConflict, census, censusUnavailableReason };
