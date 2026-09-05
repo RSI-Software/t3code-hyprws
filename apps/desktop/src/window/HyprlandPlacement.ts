@@ -19,6 +19,7 @@ import * as Option from "effect/Option";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import {
   formatClearWorkspaceWindowRule,
+  formatMoveToWorkspaceRequest,
   formatSuppressActivationWindowRule,
   formatWorkspaceArgument,
   formatWorkspaceWindowRule,
@@ -163,8 +164,9 @@ export const make = (options: {
     ) {
       const address = addressesByKey.get(key);
       if (!isAvailable || address === undefined) return;
+      const grammar = yield* resolveWindowRuleGrammar();
       const target = formatWorkspaceArgument(workspace);
-      yield* request(`/dispatch movetoworkspacesilent ${target},address:${address}`);
+      yield* request(formatMoveToWorkspaceRequest(workspace, address, grammar));
       yield* logPlacementDebug("window returned to workspace", { key, workspace: target });
     });
 

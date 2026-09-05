@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   formatClearWorkspaceWindowRule,
+  formatMoveToWorkspaceRequest,
   formatSuppressActivationWindowRule,
   formatWindowRuleTitleMatcher,
   formatWorkspaceArgument,
@@ -61,6 +62,21 @@ describe("hyprland", () => {
     assert.equal(formatWorkspaceArgument({ id: 3, name: "3" }), "3");
     assert.equal(formatWorkspaceArgument({ id: 7, name: "code" }), "name:code");
     assert.equal(formatWorkspaceArgument({ id: -98, name: "special:magic" }), "special:magic");
+  });
+
+  it("uses the compositor grammar for silent address-scoped workspace moves", () => {
+    assert.equal(
+      formatMoveToWorkspaceRequest({ id: 8, name: "8" }, "0xabc"),
+      "/dispatch movetoworkspacesilent 8,address:0xabc",
+    );
+    assert.equal(
+      formatMoveToWorkspaceRequest({ id: 8, name: "8" }, "0xabc", "lua"),
+      '/dispatch hl.dsp.window.move({workspace="8",follow=false,window="address:0xabc"})',
+    );
+    assert.equal(
+      formatMoveToWorkspaceRequest({ id: 7, name: "code" }, "0xabc", "lua"),
+      '/dispatch hl.dsp.window.move({workspace="name:code",follow=false,window="address:0xabc"})',
+    );
   });
 
   it("formats exact map-time workspace rules and rejects unsafe titles", () => {

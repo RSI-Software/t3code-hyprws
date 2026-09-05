@@ -106,6 +106,18 @@ export function formatWorkspaceArgument(workspace: HyprlandWorkspaceRef): string
   return workspace.name.length > 0 ? `name:${workspace.name}` : String(workspace.id);
 }
 
+export function formatMoveToWorkspaceRequest(
+  workspace: HyprlandWorkspaceRef,
+  address: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
+): string {
+  const target = formatWorkspaceArgument(workspace);
+  if (grammar === "legacy") {
+    return `/dispatch movetoworkspacesilent ${target},address:${address}`;
+  }
+  return `/dispatch hl.dsp.window.move({workspace=${formatLuaString(target)},follow=false,window=${formatLuaString(`address:${address}`)}})`;
+}
+
 const escapeWindowRuleRegex = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
