@@ -345,6 +345,30 @@ it.layer(
       });
     }),
   );
+  it.effect("accepts a high-expansion wide redraw before the readiness receipt", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "wide-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      const redraw = "x".repeat(400_000);
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input, redraw));
+
+      const moved = yield* manager.open(
+        openInput({ cwd: destination, worktreePath: destination, cols: 434, rows: 15 }),
+      );
+
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      expect(ptyAdapter.spawnInputs[1]).toMatchObject({ cols: 434, rows: 15 });
+      expect(moved.history).toBe(redraw);
+    }),
+  );
   it.effect("times out a silent managed retarget without replacing the viewer", () =>
     Effect.gen(function* () {
       const processRunner = resolvedZmuxProcessRunner();
@@ -435,14 +459,24 @@ it.layer(
       yield* fileSystem.makeDirectory(destination, { recursive: true });
       const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
       const sourceProcess = ptyAdapter.processes[0];
-      ptyAdapter.spawnInitialEvents.push({ type: "data", data: "x".repeat(64 * 1024 + 1) });
+      ptyAdapter.spawnInitialEvents.push({
+        type: "data",
+        data: "x".repeat(4 * 1024 * 1024 + 1),
+      });
 
       const error = yield* manager
-        .open(openInput({ cwd: destination, worktreePath: destination }))
+        .open(
+          openInput({
+            cwd: destination,
+            worktreePath: destination,
+            cols: 1_000,
+            rows: 500,
+          }),
+        )
         .pipe(Effect.flip);
       expect(error).toMatchObject({
         _tag: "TerminalManagedRetargetError",
-        reason: "invalid-protocol",
+        reason: "readiness-overflow",
       });
       expect(sourceProcess?.killSignals).toEqual([]);
       expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
@@ -481,6 +515,47 @@ it.layer(
         cwd: original.cwd,
         worktreePath: original.worktreePath,
         pid: original.pid,
+      });
+    }),
+  );
+  it.effect("rejects post-receipt overflow before reservation and preserves the viewer", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetCommitBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "post-receipt-overflow-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      const original = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        Effect.flip(manager.open(openInput({ cwd: destination, worktreePath: destination }))),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      ptyAdapter.processes[1]?.emitData("x".repeat(512 * 1024 + 1));
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      const error = yield* Fiber.join(move);
+
+      expect(error).toMatchObject({
+        _tag: "TerminalManagedRetargetError",
+        reason: "readiness-overflow",
+      });
+      expect(sourceProcess?.killSignals).toEqual([]);
+      expect(ptyAdapter.processes[1]?.killSignals[0]).toBe("SIGTERM");
+      const preserved = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      expect(preserved).toMatchObject({
+        cwd: original.cwd,
+        worktreePath: original.worktreePath,
+        pid: original.pid,
+        history: original.history,
       });
     }),
   );
@@ -564,6 +639,43 @@ it.layer(
         status: "running",
       });
       expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+    }),
+  );
+  it.effect("replays post-receipt overflow losslessly after reservation", () =>
+    Effect.gen(function* () {
+      const processRunner = resolvedZmuxProcessRunner();
+      const barrierEntered = yield* Deferred.make<void>();
+      const releaseBarrier = yield* Deferred.make<void>();
+      const { manager, ptyAdapter, baseDir, join } = yield* createManager(50, {
+        terminalSessionMode: "zmux",
+        managedRetargetAdoptionBarrier: Deferred.succeed(barrierEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseBarrier)),
+        ),
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+      const fileSystem = yield* FileSystem.FileSystem;
+      const destination = join(baseDir, "reserved-overflow-destination");
+      yield* fileSystem.makeDirectory(destination, { recursive: true });
+      yield* manager.open(openInput({ worktreePath: process.cwd() }));
+      const sourceProcess = ptyAdapter.processes[0];
+      ptyAdapter.spawnInitialEvents.push((input) => managedReadyEvent(input));
+      const move = yield* Effect.forkChild(
+        manager.open(openInput({ cwd: destination, worktreePath: destination })),
+        { startImmediately: true },
+      );
+      yield* Deferred.await(barrierEntered);
+      const adoptionOutput = "x".repeat(512 * 1024 + 1);
+      ptyAdapter.processes[1]?.emitData(adoptionOutput);
+      yield* Deferred.succeed(releaseBarrier, undefined);
+      const moved = yield* Fiber.join(move);
+
+      expect(sourceProcess?.killSignals[0]).toBe("SIGTERM");
+      expect(ptyAdapter.processes[1]?.killSignals).toEqual([]);
+      expect(moved).toMatchObject({
+        cwd: destination,
+        worktreePath: destination,
+        pid: ptyAdapter.processes[1]?.pid,
+        history: adoptionOutput,
+      });
     }),
   );
   it.effect("suspends an abandoned managed open at its first-attach deadline", () =>
