@@ -134,6 +134,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
@@ -271,6 +272,7 @@ const ZmuxSessionBinderLayerLive = ZmuxSessionBinder.layer.pipe(
   Layer.provide(ProcessRunner.layer),
   Layer.provideMerge(layerServerSettings),
 );
+const CheckoutMutationCoordinatorLayerLive = CheckoutMutationCoordinator.layer;
 const WorktrunkHookRunnerLayerLive = WorktrunkHookRunner.layer.pipe(
   Layer.provide(ProcessRunner.layer),
 );
@@ -511,6 +513,7 @@ const layerTerminal = TerminalManager.layer.pipe(
   Layer.provide(layerPortScanner),
   Layer.provide(layerNativeTelemetry),
   Layer.provide(layerServerSettings),
+  Layer.provide(ZmuxSessionBinderLayerLive),
 );
 
 const layerPreview = Layer.empty.pipe(
@@ -790,6 +793,7 @@ const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(DirectEndpoints.layer),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   Layer.provide(NetService.layer),
+  Layer.provideMerge(CheckoutMutationCoordinatorLayerLive),
 );
 
 const layerCommandReadiness = HttpRouter.middleware(
@@ -1249,6 +1253,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(layerHttpServer),
       Layer.provide(layerApplicationObservability),
       Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provide(CheckoutMutationCoordinatorLayerLive),
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(AgentScopeLive.layer),
       Layer.provideMerge(layerPlatformServices),

@@ -20,6 +20,7 @@ import {
 import {
   type InterruptThreadTurnInput,
   type UpdateThreadMetadataInput,
+  type MoveThreadCheckoutInput,
   archiveThread,
   closeGuestShare,
   resolveGuestMessage,
@@ -36,6 +37,7 @@ import {
   resumeThreadQueue,
   retryWorkspacePreparation,
   linkThreadPullRequest,
+  moveThreadCheckout,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -250,6 +252,12 @@ export function createThreadEnvironmentAtoms<R, E>(
       label: "environment-data:commands:thread:set-model-selection",
       execute: (input: UpdateThreadMetadataInput & { readonly modelSelection: ModelSelection }) =>
         updateThreadMetadata(input),
+      scheduler,
+      concurrency,
+    }),
+    moveCheckout: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:move-checkout",
+      execute: (input: MoveThreadCheckoutInput) => moveThreadCheckout(input),
       scheduler,
       concurrency,
     }),
