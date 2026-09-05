@@ -47,8 +47,8 @@ import {
   makePendingCodexProvider,
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
-  withCodexAgentOptions,
 } from "../CodexProvider.ts";
+import { makeCodexAgentOptionsDecorator } from "../Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
 import { resolveCodexLaunchArgs } from "../codexLaunchArgs.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
@@ -79,7 +79,6 @@ import * as CodexInstallation from "../CodexInstallation.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { discoverCodexAgents } from "./CodexAgents.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -220,6 +219,11 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
         ),
       );
 
+      const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator({
+        homePath: effectiveConfig.homePath,
+        environment: processEnv,
+      }); // fork-hook: custom-agents/codex-agent-options-decorator
+
       // Build a managed snapshot whose settings never change — mutations come
       // in as instance rebuilds from the registry rather than in-place
       // updates. Pre-provide `ChildProcessSpawner` so the check fits
@@ -230,15 +234,15 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
       const checkProvider = modelCatalog.refreshInBackground.pipe(
         Effect.andThen(
           Effect.zipWith(
-            checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+            withCodexAgentSelection(
+              checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+            ),
             currentCatalog,
             (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
             { concurrent: true },
           ),
         ),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, pathService),
       );
       const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CodexSettings>>({
