@@ -1,7 +1,8 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { allEnvironmentShellsBootstrappedAtom, environmentShellBootstrappedAtom } from "./shell";
+import { allEnvironmentShellsBootstrappedAtom } from "./shell";
+import { environmentShellBootstrappedAtom } from "./windowProjectBootstrap.fork";
 import { githubIssueShellBootstrappedAtom } from "./githubIssues";
 
 describe("githubIssueShellBootstrappedAtom", () => {
