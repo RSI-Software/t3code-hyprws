@@ -1,11 +1,23 @@
 import { DEFAULT_TERMINAL_ID, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
+import {
+  boundedTerminalAttachmentId,
+  checkoutMoveExpectedRoot,
+  isCheckoutMoveInFlight,
+  isStaleCheckoutMoveRejection,
+  presentCheckoutMove,
+  shouldFollowCommittedCheckout,
+} from "@t3tools/client-runtime/state/checkout-move";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { MenuAction } from "@react-native-menu/menu";
 import { SymbolView } from "../../components/AppSymbol";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Alert, Platform, Pressable, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Schema from "effect/Schema";
 import {
@@ -28,6 +40,7 @@ import { LoadingScreen } from "../../components/LoadingScreen";
 import { environmentCatalog } from "../../connection/catalog";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { terminalEnvironment } from "../../state/terminal";
+import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useServerConfigs } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
@@ -76,6 +89,17 @@ import {
 } from "./terminalInput";
 import { createTerminalPasteSession } from "./terminalPaste";
 import { cacheTerminalGridSize, getCachedTerminalGridSize } from "./terminalUiState";
+import {
+  loadOrCreateAgentAwarenessDeviceId,
+  loadPreferences,
+  updatePreferences,
+} from "../../persistence/imperative";
+import {
+  readTerminalCheckoutMode,
+  terminalCheckoutModeKey,
+  updateTerminalCheckoutMode,
+  type TerminalCheckoutMode,
+} from "./terminalCheckoutMode";
 
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
@@ -108,6 +132,10 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
   }
 
   return value ?? null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "An unexpected error occurred.";
 }
 
 function inferHostPlatform(environmentLabel: string | null): HostPlatform {
@@ -160,6 +188,9 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const clearTerminal = useAtomCommand(terminalEnvironment.clear, "terminal clear");
   const closeTerminal = useAtomCommand(terminalEnvironment.close, "terminal close");
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
+    reportFailure: false,
+  });
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const { state: workspaceState } = useWorkspaceState();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
@@ -177,6 +208,90 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
   const requestedTerminalId = firstRouteParam(params.terminalId);
   const terminalId = requestedTerminalId ?? DEFAULT_TERMINAL_ID;
+  const [terminalSetupAttempt, setTerminalSetupAttempt] = useState(0);
+  const [terminalDeviceState, setTerminalDeviceState] = useState<{
+    readonly id: string | null;
+    readonly error: string | null;
+  }>({ id: null, error: null });
+  useEffect(() => {
+    let active = true;
+    void loadOrCreateAgentAwarenessDeviceId()
+      .then((deviceId) => {
+        if (active) setTerminalDeviceState({ id: deviceId, error: null });
+      })
+      .catch((error: unknown) => {
+        if (active) setTerminalDeviceState({ id: null, error: errorMessage(error) });
+      });
+    return () => {
+      active = false;
+    };
+  }, [terminalSetupAttempt]);
+  const terminalDeviceId = terminalDeviceState.id;
+  const attachmentId =
+    terminalDeviceId === null ? null : boundedTerminalAttachmentId(terminalDeviceId, terminalId);
+  const checkoutModeKey = terminalCheckoutModeKey({
+    environmentId: routeEnvironmentIdRaw ?? "",
+    threadId: routeThreadIdRaw ?? "",
+    terminalId,
+  });
+  const [checkoutModeState, setCheckoutModeState] = useState<{
+    readonly key: string;
+    readonly mode: TerminalCheckoutMode;
+    readonly resolved: boolean;
+    readonly error: string | null;
+  }>({ key: checkoutModeKey, mode: "follow", resolved: false, error: null });
+  const checkoutMode =
+    checkoutModeState.key === checkoutModeKey ? checkoutModeState.mode : "follow";
+  const hasResolvedCheckoutMode =
+    checkoutModeState.key === checkoutModeKey && checkoutModeState.resolved;
+  const checkoutMovePresentation = presentCheckoutMove(selectedThread?.checkoutMove);
+  const checkoutMoveInFlight = isCheckoutMoveInFlight(selectedThread?.checkoutMove);
+  const [checkoutMoveSubmission, setCheckoutMoveSubmission] = useState<{
+    readonly baseRequestId: string | null;
+  } | null>(null);
+  const [staleUndoRequestId, setStaleUndoRequestId] = useState<string | null>(null);
+  const checkoutMoveAwaitingProjection =
+    checkoutMoveSubmission !== null &&
+    (selectedThread?.checkoutMove?.requestId ?? null) === checkoutMoveSubmission.baseRequestId;
+  const checkoutMoveControlsLocked = checkoutMoveInFlight || checkoutMoveAwaitingProjection;
+  const displayedCheckoutMove = checkoutMoveAwaitingProjection
+    ? {
+        action: null,
+        inFlight: true,
+        label: "Requesting checkout move…",
+        detail: "Waiting for the environment to accept and project the checkout move.",
+      }
+    : checkoutMovePresentation;
+  const undoUnavailable =
+    selectedThread?.checkoutMove?.status === "committed" &&
+    staleUndoRequestId === selectedThread.checkoutMove.requestId;
+  useEffect(() => {
+    let active = true;
+    void loadPreferences()
+      .then((preferences) => {
+        if (active) {
+          setCheckoutModeState({
+            key: checkoutModeKey,
+            mode: readTerminalCheckoutMode(preferences, checkoutModeKey),
+            resolved: true,
+            error: null,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setCheckoutModeState({
+            key: checkoutModeKey,
+            mode: "follow",
+            resolved: false,
+            error: errorMessage(error),
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [checkoutModeKey, terminalSetupAttempt]);
   const {
     isReady: hasResolvedFontPreference,
     appearance,
@@ -197,13 +312,24 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     environmentId: selectedThread?.environmentId ?? null,
     threadId: selectedThread?.id ?? null,
   });
+  const localKnownSessions = useMemo(
+    () =>
+      terminalDeviceId === null
+        ? []
+        : knownSessions.filter(
+            (session) =>
+              session.target.attachmentId ===
+              boundedTerminalAttachmentId(terminalDeviceId, session.target.terminalId),
+          ),
+    [knownSessions, terminalDeviceId],
+  );
   const runningSession = useMemo(
-    () => pickRunningTerminalSessionForBootstrap(knownSessions),
-    [knownSessions],
+    () => pickRunningTerminalSessionForBootstrap(localKnownSessions),
+    [localKnownSessions],
   );
   const activeKnownSession = useMemo(
-    () => knownSessions.find((session) => session.target.terminalId === terminalId) ?? null,
-    [knownSessions, terminalId],
+    () => localKnownSessions.find((session) => session.target.terminalId === terminalId) ?? null,
+    [localKnownSessions, terminalId],
   );
   const launchTarget = useMemo(
     () =>
@@ -216,8 +342,12 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         : null,
     [selectedThread, terminalId],
   );
+  const followedCheckoutKey =
+    hasResolvedCheckoutMode && checkoutMode === "follow"
+      ? (selectedThread?.worktreePath ?? selectedThreadProject?.workspaceRoot ?? "")
+      : "pinned";
   const launchTargetKey = launchTarget
-    ? `${launchTarget.environmentId}:${launchTarget.threadId}:${launchTarget.terminalId}`
+    ? `${launchTarget.environmentId}:${launchTarget.threadId}:${launchTarget.terminalId}:${attachmentId ?? "pending"}:${followedCheckoutKey}`
     : null;
   const [pendingLaunchEntry, setPendingLaunchEntry] = useState<{
     readonly key: string | null;
@@ -274,15 +404,24 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         worktreePath: pendingLaunch.worktreePath,
       };
     }
+    const followsCommittedCheckout =
+      hasResolvedCheckoutMode &&
+      shouldFollowCommittedCheckout({ mode: checkoutMode, move: selectedThread.checkoutMove });
     return resolveTerminalOpenLocation({
-      terminalLocation: activeKnownSession?.state.summary ?? null,
-      activeSessionLocation: activeKnownSession?.state.summary ?? null,
+      terminalLocation: followsCommittedCheckout
+        ? null
+        : (activeKnownSession?.state.summary ?? null),
+      activeSessionLocation: followsCommittedCheckout
+        ? null
+        : (activeKnownSession?.state.summary ?? null),
       workspaceRoot: selectedThreadProject.workspaceRoot,
       threadShellWorktreePath: selectedThread.worktreePath ?? null,
       threadDetailWorktreePath: selectedThreadDetail?.worktreePath ?? null,
     });
   }, [
     activeKnownSession?.state.summary,
+    checkoutMode,
+    hasResolvedCheckoutMode,
     pendingLaunch,
     selectedThread,
     selectedThreadDetail?.worktreePath,
@@ -303,10 +442,13 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       hasResolvedFontPreference &&
       hasMeasuredSurface &&
       isEnvironmentReady &&
-      !shouldRedirectToRunningTerminal
+      !shouldRedirectToRunningTerminal &&
+      attachmentId !== null &&
+      hasResolvedCheckoutMode
         ? {
             threadId: selectedThread.id,
             terminalId,
+            attachmentId,
             cwd: launchLocation.cwd,
             worktreePath: launchLocation.worktreePath,
             cols: initialAttachGridSize.cols,
@@ -326,6 +468,8 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       selectedThread,
       shouldRedirectToRunningTerminal,
       terminalId,
+      attachmentId,
+      hasResolvedCheckoutMode,
     ],
   );
   const terminal = useAttachedTerminalSession({
@@ -384,6 +528,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       input: {
         threadId: selectedThread.id,
         terminalId,
+        ...(attachmentId ? { attachmentId } : {}),
         cwd: terminalAttachInput.cwd,
         worktreePath: terminalAttachInput.worktreePath,
         cols: terminalAttachInput.cols,
@@ -397,6 +542,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       }
     });
   }, [
+    attachmentId,
     isRunning,
     openTerminal,
     selectedThread,
@@ -474,7 +620,9 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const usesNativeHeaderGlass = Platform.OS === "ios";
   const pendingModifier =
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
-  const headerSubtitle = selectedThreadProject?.title ?? "";
+  const headerSubtitle = [selectedThreadProject?.title, displayedCheckoutMove?.label]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
   const terminalToolbarActions = useMemo<ReadonlyArray<TerminalToolbarAction>>(() => {
     const modifierActions: ReadonlyArray<TerminalToolbarAction> =
       hostPlatform === "mac"
@@ -529,7 +677,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
   const terminalMenuSessions = useMemo<ReadonlyArray<TerminalMenuSession>>(
     () =>
       buildTerminalMenuSessions({
-        knownSessions,
+        knownSessions: localKnownSessions,
         workspaceRoot: selectedThreadProject?.workspaceRoot ?? null,
         currentSession: {
           terminalId,
@@ -542,7 +690,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       }),
     [
       cwd,
-      knownSessions,
+      localKnownSessions,
       selectedThreadProject?.workspaceRoot,
       terminal.hasRunningSubprocess,
       terminal.summary,
@@ -625,10 +773,12 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       input: {
         threadId: selectedThread.id,
         terminalId,
+        ...(attachmentId ? { attachmentId } : {}),
         data: initialInput,
       },
     });
   }, [
+    attachmentId,
     launchTargetKey,
     pendingLaunch?.initialInput,
     selectedThread,
@@ -709,12 +859,13 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         input: {
           threadId: selectedThread.id,
           terminalId,
+          ...(attachmentId ? { attachmentId } : {}),
           data,
         },
       });
       return result._tag === "Success";
     },
-    [isRunning, selectedThread, terminalId, writeTerminal],
+    [attachmentId, isRunning, selectedThread, terminalId, writeTerminal],
   );
 
   const pasteSessionRef = useRef<ReturnType<typeof createTerminalPasteSession> | null>(null);
@@ -810,12 +961,14 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         input: {
           threadId: selectedThread.id,
           terminalId,
+          ...(attachmentId ? { attachmentId } : {}),
           cols: size.cols,
           rows: size.rows,
         },
       });
     },
     [
+      attachmentId,
       isRunning,
       lastGridSize.cols,
       lastGridSize.rows,
@@ -913,6 +1066,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         input: {
           threadId: selectedThread.id,
           terminalId,
+          ...(attachmentId ? { attachmentId } : {}),
         },
       });
     }
@@ -924,6 +1078,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     // they never land on the dead session.
     pendingExitNavigationRef.current = terminalKey;
   }, [
+    attachmentId,
     closeTerminal,
     isRunning,
     navigateAwayAfterExit,
@@ -972,6 +1127,117 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     setTerminalFontSize(stepTerminalFontSize(fontSize, 1));
   }, [fontSize, setTerminalFontSize]);
 
+  const handleToggleCheckoutMode = useCallback(() => {
+    if (checkoutMoveControlsLocked) return;
+    const previousMode = checkoutMode;
+    const nextMode = checkoutMode === "pin" ? "follow" : "pin";
+    setCheckoutModeState({ key: checkoutModeKey, mode: nextMode, resolved: true, error: null });
+    void (async () => {
+      try {
+        await updatePreferences((preferences) =>
+          updateTerminalCheckoutMode(preferences, checkoutModeKey, nextMode),
+        );
+      } catch (error) {
+        setCheckoutModeState((current) =>
+          current.key === checkoutModeKey && current.mode === nextMode
+            ? { key: checkoutModeKey, mode: previousMode, resolved: true, error: null }
+            : current,
+        );
+        Alert.alert("Could not save terminal checkout mode", errorMessage(error));
+        return;
+      }
+      if (
+        nextMode !== "follow" ||
+        !selectedThread ||
+        !selectedThreadProject ||
+        attachmentId === null
+      )
+        return;
+      const cwd = selectedThread.worktreePath ?? selectedThreadProject.workspaceRoot;
+      const result = await openTerminal({
+        environmentId: selectedThread.environmentId,
+        input: {
+          threadId: selectedThread.id,
+          terminalId,
+          attachmentId,
+          cwd,
+          worktreePath: selectedThread.worktreePath,
+          cols: lastGridSize.cols,
+          rows: lastGridSize.rows,
+        },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        Alert.alert(
+          "Could not follow thread checkout",
+          errorMessage(squashAtomCommandFailure(result)),
+        );
+      }
+    })();
+  }, [
+    attachmentId,
+    checkoutMode,
+    checkoutModeKey,
+    checkoutMoveControlsLocked,
+    lastGridSize.cols,
+    lastGridSize.rows,
+    openTerminal,
+    selectedThread,
+    selectedThreadProject,
+    terminalId,
+  ]);
+
+  const handleCheckoutMoveAction = useCallback(() => {
+    const move = selectedThread?.checkoutMove;
+    const action = checkoutMovePresentation?.action;
+    if (!move || !action || checkoutMoveControlsLocked) return;
+    if (action === "undo" && undoUnavailable) {
+      Alert.alert(
+        "Undo unavailable",
+        "The physical checkout changed after this move. Start a new move to return.",
+      );
+      return;
+    }
+    setCheckoutMoveSubmission({ baseRequestId: move.requestId });
+    void moveThreadCheckout({
+      environmentId: selectedThread.environmentId,
+      input: {
+        threadId: selectedThread.id,
+        requestedPath: action === "undo" ? move.source.checkoutRoot : move.requestedPath,
+        expectedCheckoutRoot: checkoutMoveExpectedRoot(move),
+        ...(action === "undo" ? { reverseOfRequestId: move.requestId } : {}),
+      },
+    })
+      .then((result) => {
+        if (result._tag !== "Failure") return;
+        setCheckoutMoveSubmission(null);
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        const staleUndo = action === "undo" && isStaleCheckoutMoveRejection(errorMessage(error));
+        if (staleUndo) setStaleUndoRequestId(move.requestId);
+        Alert.alert(
+          staleUndo
+            ? "Checkout move can no longer be undone"
+            : action === "undo"
+              ? "Could not undo checkout move"
+              : "Could not retry checkout move",
+          errorMessage(error),
+        );
+      })
+      .catch((error: unknown) => {
+        setCheckoutMoveSubmission(null);
+        Alert.alert(
+          action === "undo" ? "Could not undo checkout move" : "Could not retry checkout move",
+          errorMessage(error),
+        );
+      });
+  }, [
+    checkoutMoveControlsLocked,
+    checkoutMovePresentation?.action,
+    moveThreadCheckout,
+    selectedThread,
+    undoUnavailable,
+  ]);
+
   // Android mirror of the iOS NativeHeaderToolbar terminal menu below: text
   // size, session switching, and "Open new terminal", rendered through the
   // token-styled anchored menu (the native header items are iOS-only).
@@ -993,6 +1259,25 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
           },
         ],
       },
+      ...(displayedCheckoutMove
+        ? [
+            {
+              id: "checkout-move",
+              title: undoUnavailable
+                ? "Undo unavailable: checkout changed"
+                : displayedCheckoutMove.label,
+              subtitle: undoUnavailable
+                ? "Start a new move to return to the previous checkout."
+                : displayedCheckoutMove.detail,
+              attributes:
+                displayedCheckoutMove.action === null ||
+                checkoutMoveControlsLocked ||
+                undoUnavailable
+                  ? ({ disabled: true } as const)
+                  : undefined,
+            } satisfies MenuAction,
+          ]
+        : []),
       ...terminalMenuSessions.map((session): MenuAction => ({
         id: `terminal-session:${session.terminalId}`,
         title: session.displayLabel,
@@ -1002,13 +1287,28 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         state: session.terminalId === terminalId ? ("on" as const) : undefined,
       })),
       {
+        id: "checkout-mode",
+        title: checkoutMode === "pin" ? "Follow thread checkout" : "Pin to this checkout",
+        state: checkoutMode === "pin" ? ("on" as const) : undefined,
+        attributes: checkoutMoveControlsLocked ? { disabled: true } : undefined,
+      },
+      {
         id: "terminal-new",
         title: "Open new terminal",
         image: "plus",
         subtitle: `Start another shell in ${basename(selectedThreadProject?.workspaceRoot ?? null) ?? "this workspace"}`,
       },
     ],
-    [fontSize, selectedThreadProject?.workspaceRoot, terminalId, terminalMenuSessions],
+    [
+      checkoutMode,
+      checkoutMoveControlsLocked,
+      displayedCheckoutMove,
+      fontSize,
+      selectedThreadProject?.workspaceRoot,
+      terminalId,
+      terminalMenuSessions,
+      undoUnavailable,
+    ],
   );
 
   const handleAndroidTerminalMenuAction = useCallback(
@@ -1026,11 +1326,26 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         handleOpenNewTerminal();
         return;
       }
+      if (id === "checkout-mode") {
+        handleToggleCheckoutMode();
+        return;
+      }
+      if (id === "checkout-move") {
+        handleCheckoutMoveAction();
+        return;
+      }
       if (id.startsWith("terminal-session:")) {
         handleSelectTerminal(id.slice("terminal-session:".length));
       }
     },
-    [handleDecreaseFontSize, handleIncreaseFontSize, handleOpenNewTerminal, handleSelectTerminal],
+    [
+      handleDecreaseFontSize,
+      handleIncreaseFontSize,
+      handleCheckoutMoveAction,
+      handleOpenNewTerminal,
+      handleSelectTerminal,
+      handleToggleCheckoutMode,
+    ],
   );
 
   const handleClearTerminal = useCallback(() => {
@@ -1044,9 +1359,10 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       input: {
         threadId: selectedThread.id,
         terminalId,
+        ...(attachmentId ? { attachmentId } : {}),
       },
     });
-  }, [clearTerminal, selectedThread, terminalId]);
+  }, [attachmentId, clearTerminal, selectedThread, terminalId]);
 
   const handleToolbarActionPress = useCallback(
     (action: TerminalToolbarAction) => {
@@ -1090,6 +1406,11 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       void retryEnvironment(routeEnvironmentId);
     }
   }, [retryEnvironment, routeEnvironmentId]);
+  const handleRetryTerminalSetup = useCallback(() => {
+    setTerminalDeviceState({ id: null, error: null });
+    setCheckoutModeState({ key: checkoutModeKey, mode: "follow", resolved: false, error: null });
+    setTerminalSetupAttempt((attempt) => attempt + 1);
+  }, [checkoutModeKey]);
 
   if (!selectedThread) {
     if (workspaceState.isLoadingConnections) {
@@ -1115,6 +1436,26 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
         />
       </View>
     );
+  }
+
+  const terminalSetupError =
+    terminalDeviceState.error ??
+    (checkoutModeState.key === checkoutModeKey ? checkoutModeState.error : null);
+  if (terminalSetupError !== null) {
+    return (
+      <View className="flex-1 justify-center bg-screen px-5">
+        <EmptyState
+          title="Terminal preferences unavailable"
+          detail={terminalSetupError}
+          actionLabel="Try again"
+          onAction={handleRetryTerminalSetup}
+        />
+      </View>
+    );
+  }
+
+  if (terminalDeviceId === null || !hasResolvedCheckoutMode) {
+    return <LoadingScreen message="Opening terminal…" />;
   }
 
   if (!environment.isReady && environment.presentation === null) {
@@ -1214,6 +1555,41 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
                 <NativeHeaderToolbar.Label>{`A+ ${Math.min(MAX_TERMINAL_FONT_SIZE, fontSize + TERMINAL_FONT_SIZE_STEP).toFixed(1)} pt`}</NativeHeaderToolbar.Label>
               </NativeHeaderToolbar.MenuAction>
             </NativeHeaderToolbar.Menu>
+            {displayedCheckoutMove ? (
+              <NativeHeaderToolbar.MenuAction
+                icon={
+                  displayedCheckoutMove.action === "undo"
+                    ? "arrow.uturn.backward"
+                    : "arrow.clockwise"
+                }
+                onPress={handleCheckoutMoveAction}
+                disabled={
+                  displayedCheckoutMove.action === null ||
+                  checkoutMoveControlsLocked ||
+                  undoUnavailable
+                }
+                subtitle={
+                  undoUnavailable
+                    ? "The physical checkout changed after this move."
+                    : displayedCheckoutMove.detail
+                }
+              >
+                <NativeHeaderToolbar.Label>
+                  {undoUnavailable
+                    ? "Undo unavailable: checkout changed"
+                    : displayedCheckoutMove.label}
+                </NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            ) : null}
+            <NativeHeaderToolbar.MenuAction
+              icon={checkoutMode === "pin" ? "pin.fill" : "pin"}
+              onPress={handleToggleCheckoutMode}
+              disabled={checkoutMoveControlsLocked}
+            >
+              <NativeHeaderToolbar.Label>
+                {checkoutMode === "pin" ? "Follow thread checkout" : "Pin to this checkout"}
+              </NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
             {terminalMenuSessions.map((session) => (
               <NativeHeaderToolbar.MenuAction
                 key={session.terminalId}
