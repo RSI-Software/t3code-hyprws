@@ -10,6 +10,11 @@ import {
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY, isNightlyUpstreamTag } from "./lib/fork-policy.ts";
+import {
+  rewriteArchiveRef,
+  validateRewriteArchiveBinding,
+  type RewriteArchiveBinding,
+} from "./lib/fork-rewrite-archive.ts";
 
 export const REPOSITORY = FORK_REPOSITORY;
 export const BLOCK_LABEL = "rebase-blocked";
@@ -39,6 +44,8 @@ export interface RewriteBinding {
     readonly result: string;
   };
   readonly outcomeTarget?: import("./lib/fork-sync-outcomes.ts").OutcomeTarget;
+  /** Immutable old-trunk retention bound into the reviewed rewrite record. */
+  readonly archive?: RewriteArchiveBinding;
   readonly from: string;
   readonly fromSha: string;
   readonly fromShort: string;
@@ -532,6 +539,15 @@ export const validateReport = (value: unknown): SyncReport => {
       (publication.commit !== undefined && !FULL_SHA.test(publication.commit)))
   )
     throw new Error("report rerere publication is invalid");
+  const rewrite = report.rewrite;
+  const archive = rewrite?.archive;
+  if (archive !== undefined) {
+    if (report.kind !== "rewrite" || report.source === undefined || rewrite === undefined)
+      throw new Error("rewrite archive has no rewrite source binding");
+    validateRewriteArchiveBinding(archive, report.source.expectedOld);
+    if (archive.ref !== rewriteArchiveRef(rewrite.originSha))
+      throw new Error("rewrite archive does not match rewrite origin");
+  }
   return report as SyncReport;
 };
 
@@ -573,6 +589,7 @@ const renderRewriteProofs = (rewrite: RewriteBinding): ReadonlyArray<string> => 
 
 const renderRewriteRecord = (report: SyncReport): string => {
   const rw = report.rewrite!;
+  const archive = rw.archive;
   const lane = report.lane;
   const rewriteLease = `Lease: report leased at \`${rw.originSha}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
   const rewriteGate =
@@ -590,6 +607,17 @@ const renderRewriteRecord = (report: SyncReport): string => {
     `- Rehearsal branch: \`${lane?.branch ?? "absent"}\``,
     `- Rebased head: \`${report.rebasedHead ?? report.rewrite?.fromSha ?? "absent"}\``,
     `- Stack size: \`${report.stackSize ?? 0}\` fork commits`,
+    "",
+    "## Pre-rewrite archive",
+    "",
+    ...(archive === undefined
+      ? ["Missing. Restart with `rewrite-rehearse` before publication."]
+      : [
+          `- Ref: \`${archive.ref}\``,
+          `- SHA: \`${archive.sha}\``,
+          "- Verification: `unblock-apply` creates this ref with a missing-ref lease (or accepts the same SHA on retry) and reads the exact SHA back before publishing this record.",
+          "- Failure retention: if the later trunk lease fails, this archive remains as failed-attempt evidence.",
+        ]),
     "",
     ...renderRewriteProofs(rw),
     ...(rw.build === undefined

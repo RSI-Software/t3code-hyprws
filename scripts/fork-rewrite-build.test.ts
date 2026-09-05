@@ -208,15 +208,31 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         git(root, ["checkout", "--quiet", "--detach", receipt.result]);
         const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
         let reviewer = false,
-          movedMarker = false;
+          movedMarker = false,
+          archiveSha: string | null = null,
+          rejectTrunkPush = false;
         const blocker = "f".repeat(40);
+        const archiveRef = `refs/heads/archive/hyprws-pre-rewrite-${manifest.source.slice(0, 12)}`;
         const runner: CommandRunner = {
           run(command, args, cwd, input, env) {
             calls.push({ command, args });
             const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
             if (command === "git") {
-              if (args.includes("push")) return ok();
-              if (args.includes("ls-remote")) return ok(`${receipt.result}\t${args.at(-1)}\n`);
+              if (args.includes("push")) {
+                if (args.includes(`${manifest.source}:${archiveRef}`)) {
+                  archiveSha = manifest.source;
+                  return ok();
+                }
+                if (args.includes("HEAD:refs/heads/hyprws") && rejectTrunkPush)
+                  return { status: 1, stdout: "", stderr: "fixture trunk lease rejected" };
+                return ok();
+              }
+              if (args.includes("ls-remote")) {
+                const ref = args.at(-1);
+                if (ref === archiveRef)
+                  return ok(archiveSha === null ? "" : `${archiveSha}\t${archiveRef}\n`);
+                return ok(`${receipt.result}\t${ref}\n`);
+              }
               const result = NodeChildProcess.spawnSync(command, [...args], {
                 cwd,
                 input,
@@ -416,17 +432,86 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           /stale/,
         );
         yield* fs.writeFileString(reviewed.recordPath, originalRecord);
+        const applyCallStart = calls.length;
+        rejectTrunkPush = true;
+        assert.throws(
+          () =>
+            execute(
+              ["unblock-apply", "--report", reviewed.reportPath, "--record", reviewed.recordPath],
+              root,
+              runner,
+            ),
+          new RegExp(
+            `rewrite archive ${archiveRef}@${manifest.source} retained as failed-attempt evidence`,
+          ),
+        );
+        const failed = readReport(reviewed.reportPath);
+        assert.strictEqual(failed.stage, "checked");
+        assert.deepStrictEqual(failed.rewrite?.archive, {
+          ref: archiveRef,
+          sha: manifest.source,
+          verification: { observedSha: manifest.source, trunkOutcome: "failed" },
+        });
+        assert.strictEqual(
+          failed.recordCommentUrl,
+          "https://example.test/issues/568#issuecomment-1",
+        );
+        const firstApplyCalls = calls.slice(applyCallStart);
+        const archivePush = firstApplyCalls.findIndex(
+          ({ command, args }) =>
+            command === "git" && args.includes(`${manifest.source}:${archiveRef}`),
+        );
+        const archiveReadback = firstApplyCalls.findIndex(
+          ({ command, args }, index) =>
+            index > archivePush && command === "git" && args.at(-1) === archiveRef,
+        );
+        const rejectedTrunkPush = firstApplyCalls.findIndex(
+          ({ command, args }) => command === "git" && args.includes("HEAD:refs/heads/hyprws"),
+        );
+        assert.isAtLeast(archivePush, 0);
+        assert.isAbove(archiveReadback, archivePush);
+        assert.isAbove(rejectedTrunkPush, archiveReadback);
+        assert.lengthOf(
+          calls.filter(
+            ({ command, args }) =>
+              command === "gh" &&
+              args[0] === "issue" &&
+              args[1] === "comment" &&
+              args.includes("--body-file"),
+          ),
+          1,
+        );
+
+        rejectTrunkPush = false;
         const applied = execute(
           ["unblock-apply", "--report", reviewed.reportPath, "--record", reviewed.recordPath],
           root,
           runner,
         );
         assert.strictEqual(applied.stage, "applied");
+        assert.strictEqual(applied.rewrite?.archive?.verification?.trunkOutcome, "applied");
+        assert.lengthOf(
+          calls.filter(
+            ({ command, args }) =>
+              command === "gh" &&
+              args[0] === "issue" &&
+              args[1] === "comment" &&
+              args.includes("--body-file"),
+          ),
+          1,
+        );
+        assert.lengthOf(
+          calls.filter(
+            ({ command, args }) =>
+              command === "git" && args.includes(`${manifest.source}:${archiveRef}`),
+          ),
+          1,
+        );
         const pushes = calls.filter(
           (call) => call.command === "git" && call.args.includes(`HEAD:refs/heads/hyprws`),
         );
-        assert.lengthOf(pushes, 1);
-        assert.include(pushes[0]!.args, `--force-with-lease=refs/heads/hyprws:${manifest.source}`);
+        assert.lengthOf(pushes, 2);
+        assert.include(pushes[1]!.args, `--force-with-lease=refs/heads/hyprws:${manifest.source}`);
         execute(
           ["unblock-apply", "--report", applied.reportPath, "--record", applied.recordPath],
           root,
@@ -436,7 +521,7 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           calls.filter(
             (call) => call.command === "git" && call.args.includes(`HEAD:refs/heads/hyprws`),
           ),
-          1,
+          2,
         );
         const receipts = syncOutcomeReceipts(applied, "rewrite/1");
         assert.deepStrictEqual(receipts[0], declaration);

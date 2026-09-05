@@ -83,6 +83,14 @@ Check/apply failures and pending cache publication stay visible. The builder/pre
 carry attempt. A same-base apply does not resolve the upstream blocker: start a fresh tagged walk
 for the upstream replay, and keep its comparable seam and distribution proof separate.
 
+`rewrite-rehearse` also binds the old trunk to
+`archive/hyprws-pre-rewrite-<12-char expected-old>`. Rewrite-kind `unblock-apply` creates that branch
+with an explicit missing-ref lease, or accepts a retry only when the remote ref already equals the
+full expected-old SHA. It reads the remote SHA back and retains the binding and trunk outcome in the
+external report. The reviewed record names the same immutable ref and SHA. This happens before the
+record is posted or `hyprws` is changed; a rejected trunk lease retains the archive and marks it as
+failed-attempt evidence. The rewrite never moves `hyprws-previous`.
+
 ## Model
 
 `hyprws` is the single fork trunk. The bot scans only through the newest stable or nightly upstream
@@ -131,13 +139,14 @@ currently registered—add one only with its deterministic generator and an upda
 
 Do not create, move, delete, or force-push these refs by hand:
 
-| Ref                     | Meaning                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `hyprws-previous`       | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite.   |
-| `hyprws-next`           | The verified candidate stack published while the repository is in candidate mode.   |
-| `release/vX.Y.Z-hyprws` | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.               |
-| `refs/fork/churn`       | The churn ledger: one orphan history holding `fork-churn.json`, one entry per walk. |
-| `refs/fork/rerere`      | The shared `.git/rr-cache`, so a carried walk replays what earlier walks resolved.  |
+| Ref                                                 | Meaning                                                                             |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `hyprws-previous`                                   | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite.   |
+| `hyprws-next`                                       | The verified candidate stack published while the repository is in candidate mode.   |
+| `release/vX.Y.Z-hyprws`                             | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.               |
+| `archive/hyprws-pre-rewrite-<12-char expected-old>` | The create-only old trunk retained before a same-base historical rewrite.           |
+| `refs/fork/churn`                                   | The churn ledger: one orphan history holding `fork-churn.json`, one entry per walk. |
+| `refs/fork/rerere`                                  | The shared `.git/rr-cache`, so a carried walk replays what earlier walks resolved.  |
 
 The `refs/fork/*` family is append-only and is never rebased, so a walk's data never enters the
 fork series and no rebase has to carry it. Read one without a checkout:
@@ -736,13 +745,15 @@ word for every decision and stops; its recommendation is never recorded as the h
    `expected_old`, installed/CI head, and rehearsal branch to a distinct Claude Opus session. A
    withheld review is durable and cannot apply. A non-nightly judgement path retains its recorded
    human decision boundary.
-6. After the required sign-off, `unblock-apply` calls `fork:sync-gate`, refuses a lane moved since
-   the CI verdict, posts the external record, snapshots every stable upstream tag the apply crosses,
+6. After the required sign-off, `unblock-apply` calls `fork:sync-gate` and refuses a lane moved since
+   the CI verdict. For a historical rewrite it then creates and reads back the bound old-trunk
+   archive. It posts the external record, snapshots every stable upstream tag the apply crosses,
    performs the expected-old leased apply, announces the snapshots as candidate issues, and deletes
    the remote rehearsal branch. Snapshots go up before the trunk, in the bot's own order, because a
-   create-only branch stands on its own. A failed announcement prints the snapshot branches and never
-   voids the apply; open those candidate issues by hand, because the bot will not see those tags
-   again.
+   create-only branch stands on its own. A rejected rewrite trunk lease leaves the archive retained
+   and marks the external report as failed-attempt evidence. A failed announcement prints the
+   snapshot branches and never voids the apply; open those candidate issues by hand, because the bot
+   will not see those tags again.
 
 Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
 variable carries gate state. The script also renders and validates the Markdown record schema. Its
