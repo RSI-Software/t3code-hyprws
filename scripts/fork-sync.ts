@@ -5,6 +5,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import { captureSyncOutcome } from "./fork-churn-outcomes.ts";
 
 import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
@@ -1894,7 +1895,13 @@ const captureStdout = <T>(effect: () => T): { readonly output: string; readonly 
   }
 };
 
-class AutoStop extends Error {}
+class AutoStop extends Error {
+  readonly reportPath: string;
+  constructor(reportPath: string) {
+    super("walk stopped at a retained conflict");
+    this.reportPath = reportPath;
+  }
+}
 class AutoBotRefusal extends Error {
   readonly reportPath: string;
 
@@ -1922,7 +1929,7 @@ const stopAuto = (surface: string, reportPath: string): never => {
   process.stdout.write(
     `${surface.trimEnd()}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${reportPath}\n`,
   );
-  throw new AutoStop();
+  throw new AutoStop(reportPath);
 };
 
 const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): SyncReport => {
@@ -3049,10 +3056,19 @@ export const run = (
     process.stdout.write(SYNC_HELP);
     return 0;
   }
+  let completedReport: SyncReport | null = null;
+  let outcomeReportPath = argv[argv.indexOf("--report") + 1];
+  if (!argv.includes("--report")) outcomeReportPath = undefined;
   try {
-    execute(argv, cwd, runner);
+    completedReport = execute(argv, cwd, runner);
     return 0;
   } catch (error) {
+    if (
+      error instanceof AutoFailure ||
+      error instanceof AutoBotRefusal ||
+      error instanceof AutoStop
+    )
+      outcomeReportPath = error.reportPath;
     if (error instanceof AutoStop) return 2;
     if (error instanceof AutoBotRefusal) {
       process.stderr.write(
@@ -3080,6 +3096,19 @@ export const run = (
     }
     process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
+  } finally {
+    if (argv[0]?.startsWith("unblock-")) {
+      const path = completedReport?.reportPath ?? outcomeReportPath;
+      if (path && NodeFS.existsSync(path)) {
+        try {
+          captureSyncOutcome(readReport(path));
+        } catch (error) {
+          process.stderr.write(
+            `outcome capture failed: ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        }
+      }
+    }
   }
 };
 

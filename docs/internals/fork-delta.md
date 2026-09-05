@@ -626,6 +626,11 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-upstream-sync.yml`.
+- `scripts/fork-churn.ts outcome`, its focused receipt collector and pure outcome model retain
+  eligible targets and immutable attempts through exact-SHA apply and distribution. The v3
+  ledger preserves legacy walks and seam records; always-run sync/release collectors retain
+  failures, and release recovery reuses the applied target. Evidence consistency guards refuse
+  changed terminal receipts, unreviewed tag aliases, and incomplete distribution success.
 - The bot-first sync model, bot-owned refs, human unblock, and stable-cut procedures in the
   [fork sync runbook](../operations/fork-sync.md) and repo-local
   [`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill.

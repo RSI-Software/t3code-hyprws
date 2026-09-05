@@ -33,6 +33,7 @@ import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
+import { runOutcome } from "./fork-churn-outcomes.ts";
 
 export {
   censusChurn,
@@ -494,7 +495,19 @@ export const commentRestId = (url: string): string => {
 const report = (args: ReadonlyArray<string>, root: string): number => {
   const options = parseOptions(args);
   for (const option of options.keys())
-    if (option !== "--issue") throw new UsageError(`unknown option: ${option}`);
+    if (option !== "--issue" && option !== "--receipt")
+      throw new UsageError(`unknown option: ${option}`);
+  const receiptPath = options.get("--receipt");
+  const receipt = (publication: string, policy: string, url?: string) => {
+    if (receiptPath === undefined) return;
+    const path = NodePath.resolve(root, receiptPath);
+    NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
+    NodeFS.writeFileSync(
+      path,
+      `${JSON.stringify({ publication, policy, ...(url ? { url } : {}) })}\n`,
+    );
+  };
+  receipt("not-attempted", "not-attempted");
   const explicit = options.get("--issue");
   const issue = explicit === undefined ? blockedIssueNumber(root) : Number(explicit);
   if (issue === null) {
@@ -530,24 +543,31 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     "churn.md",
   );
   NodeFS.writeFileSync(bodyPath, body);
-  const url = runCommandText(
-    "gh",
-    existing === undefined
-      ? ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", bodyPath]
-      : [
-          "api",
-          "--method",
-          "PATCH",
-          `repos/${FORK_REPOSITORY}/issues/comments/${commentRestId(existing.url)}`,
-          "--field",
-          `body=@${bodyPath}`,
-          "--jq",
-          ".html_url",
-        ],
-    { cwd: root },
-  ).trim();
+  let url: string;
+  try {
+    url = runCommandText(
+      "gh",
+      existing === undefined
+        ? ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", bodyPath]
+        : [
+            "api",
+            "--method",
+            "PATCH",
+            `repos/${FORK_REPOSITORY}/issues/comments/${commentRestId(existing.url)}`,
+            "--field",
+            `body=@${bodyPath}`,
+            "--jq",
+            ".html_url",
+          ],
+      { cwd: root },
+    ).trim();
+  } catch (error) {
+    receipt("failed", "not-attempted");
+    throw error;
+  }
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
   const failures = blockingSeamLines(churn);
+  receipt("succeeded", failures.length === 0 ? "succeeded" : "failed", url);
   if (failures.length === 0) return 0;
   process.stderr.write(
     `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
@@ -665,10 +685,18 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
 };
 
 const USAGE =
-  "usage: fork-churn append <options> | record --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
+  "usage: fork-churn append <options> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push]";
 
-const HELP = `Record and report fork rebase observations, repairs and verification.
+const HELP = `Record fork rebase evidence and target outcomes through distribution.
 ${USAGE}
+
+outcome imports immutable {version:1, receipts:[...]} evidence. Alternatively,
+--auto-report PATH collects planner/result evidence with optional --report-receipt PATH;
+--sync-report PATH collects a retained sync report and its local outcome sidecar.
+--release collects FORK_RELEASE_NEEDS job results and verifies GitHub tag/assets.
+FORK_OUTCOME_EXPORT retains an importable bundle before ledger publication.
+Eligibility is declared independently of bot mode. Missing stages never imply success.
+Output is JSON with retained outcomes, resume action and explicitly eligible streaks.
 
 record --input PATH imports a reviewed {version:1, records:[...]} bundle.
 It validates content digests and frozen evidence; it does not execute guard commands.
@@ -684,7 +712,9 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
   try {
     if (
       (argv.length === 1 && ["--help", "-h"].includes(argv[0]!)) ||
-      (argv.length === 2 && argv[0] === "record" && ["--help", "-h"].includes(argv[1]!))
+      (argv.length === 2 &&
+        ["record", "outcome"].includes(argv[0]!) &&
+        ["--help", "-h"].includes(argv[1]!))
     ) {
       process.stdout.write(HELP);
       return 0;
@@ -696,6 +726,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
       append(args, root);
       return 0;
     }
+    if (verb === "outcome") return runOutcome(args, root);
     if (verb === "report") return report(args, root);
     if (verb === "seed") return seed(args, root);
     if (verb === "migrate-subjects") return migrateSubjects(args, root);
