@@ -33,7 +33,7 @@ import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
-import { runOutcome } from "./fork-churn-outcomes.ts";
+import { canonicalizeOutcomeReceiptsForRoot, runOutcome } from "./fork-churn-outcomes.ts";
 import {
   readLessonEvidence,
   lessonAssessmentUnavailable,
@@ -654,9 +654,10 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
     throw new Error(`${CHURN_REF} already exists; it is seeded once and appended to after that`);
   const source = parseChurnState(NodeFS.readFileSync(from, "utf8"));
   const entries = enrichLedgerForRoot(root, source.walks);
+  const outcomes = canonicalizeOutcomeReceiptsForRoot(root, source.outcomes);
   const commit = writeChurnState(
     root,
-    { ...source, walks: entries },
+    { ...source, walks: entries, outcomes },
     `churn: seed from ${NodePath.relative(root, from)}`,
   );
   if (push) pushBotRef(root, CHURN_REF);

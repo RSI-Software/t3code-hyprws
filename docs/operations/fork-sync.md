@@ -270,6 +270,10 @@ ledger publication. Workflow artifacts retain raw reports and outcome bundles fo
 On a stale ledger lease, publication refuses and restores its previous local ref; fetch the
 current `refs/fork/churn` and re-import the retained bundle. Never replace the ledger with an
 older artifact. Duplicate deliveries add nothing; conflicting evidence refuses with exit 1.
+Seeding the ledger and every outcome write group targets by upstream commit ancestry from oldest to newest while
+preserving declaration order inside each target. A reviewed historical import therefore migrates
+an older appended target into its original position. Missing or incomparable target commits refuse
+instead of silently changing streak chronology; fetch upstream tags and `main` before a manual import.
 
 An input bundle is `{ "version": 1, "receipts": [...] }`, ordered target, attempt, then
 stage evidence. Targets declare `target: {tag, sha}`, `eligible`, and `reason`. Attempts
@@ -298,7 +302,7 @@ rerere, and cache-export receipts. Direct clean replays explicitly mark the cach
 `not-attempted` with `notApplicableReason: "direct-clean-rebase"`; absent receipts or
 unexplained non-attempts cannot qualify. Attempts with incomplete stage evidence never
 silently preserve the streak. `distributed` is a separate eligible-target streak. Raw blocked
-and rewritten targets stay in that order. Missing historical evidence never counts as
+and rewritten targets stay in canonical upstream ancestry order. Missing historical evidence never counts as
 success; reviewed historical imports must name their evidence or remain unknown. A release
 that stops before identifying any checkout retains raw workflow evidence instead of
 inventing a target binding. The importer validates evidence consistency; manual input is an
