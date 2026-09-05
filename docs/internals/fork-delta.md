@@ -114,7 +114,15 @@ Fork-Upstreamable: yes
 | `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
 
 `vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
-On a pull request, fork CI also runs `vp run fork:delta --check --squash-body <file>` against the pull-request body, because that body becomes the squash commit's message; a body that does not end with the trailer block fails the required check before it can land untagged.
+On a pull request, fork CI also runs
+`vp run fork:delta --check --base origin/hyprws --head <head-sha> --squash-body <file>`.
+Squash-body mode requires both refs explicitly. It resolves their merge base and compares that tree
+with the exact pull-request head, so changes that landed independently on the live base do not count
+as changes in the prospective squash. It validates those findings against the final trailer
+paragraph in the pull-request body because that paragraph becomes the squash commit's trailers. A
+review trailer carried only by an individual branch commit does not survive the squash and cannot
+satisfy this check. Historical baseline entries never exempt a new pull request; every new wire
+exception needs its own reviewed body trailer.
 A rebase preserves trailers, so the log stays queryable after every sync.
 
 [`fork-wire-baseline.md`](./fork-wire-baseline.md) records wire findings that shipped before this
@@ -130,6 +138,8 @@ should be deleted during normal maintenance.
 - adds a member to an existing exported `Schema.Literals` binding;
 - adds a required field to an existing exported `Schema.Struct` binding;
 - removes or renames a field in an existing exported `Schema.Struct` binding;
+- removes or renames an exported schema, or changes it between `Schema.Literals` and
+  `Schema.Struct`;
 - changes `packages/contracts/src/ipc.ts`, unless its only extracted changes add optional fields.
 
 A struct field is optional when its value expression uses `Schema.optional`, `Schema.optionalKey`,

@@ -88,6 +88,36 @@ it("reports a renamed field as a removal", () => {
   );
 });
 
+it("refuses a renamed literals schema even when the replacement adds a member", () => {
+  assert.deepStrictEqual(
+    changes(
+      'export const Mode = Schema.Literals(["local", "remote"])',
+      'export const ForkMode = Schema.Literals(["local", "remote", "fork"])',
+    ),
+    ["Mode: schema removed or renamed"],
+  );
+});
+
+it("refuses a renamed struct even when the replacement adds a required field", () => {
+  assert.deepStrictEqual(
+    changes(
+      "export const Project = Schema.Struct({ id: Schema.String })",
+      "export const ForkProject = Schema.Struct({ id: Schema.String, forkMode: Schema.String })",
+    ),
+    ["Project: schema removed or renamed"],
+  );
+});
+
+it("refuses changing the kind of an exported schema", () => {
+  assert.deepStrictEqual(
+    changes(
+      'export const Mode = Schema.Literals(["local"])',
+      "export const Mode = Schema.Struct({ value: Schema.String })",
+    ),
+    ["Mode: schema kind changed"],
+  );
+});
+
 it("allows every supported optional or defaulted sibling field form", () => {
   for (const value of [
     "Schema.optional(Schema.String)",
@@ -107,7 +137,7 @@ it("allows every supported optional or defaulted sibling field form", () => {
   }
 });
 
-it("allows a brand-new exported schema", () => {
+it("continues to allow a brand-new exported schema", () => {
   assert.deepStrictEqual(changes("", 'export const ForkMode = Schema.Literals(["fork"])'), []);
 });
 
