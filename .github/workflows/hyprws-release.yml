@@ -414,7 +414,6 @@ jobs:
     timeout-minutes: 10
     env:
       FORK_RELEASE_NEEDS: ${{ toJSON(needs) }}
-      FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-release-outcome-receipts.json
     steps:
       - name: Checkout receipt collector
         uses: actions/checkout@v6
@@ -430,6 +429,7 @@ jobs:
 
       - name: Retain release outcome
         env:
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-release-outcome-receipts.json
           GH_TOKEN: ${{ github.token }}
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
