@@ -12,6 +12,7 @@ import * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ProcessRunner from "../processRunner.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
@@ -182,6 +183,7 @@ export interface CreateManagerOptions {
   maxRetainedInactiveSessions?: number;
   ptyAdapter?: FakePtyAdapter;
   terminalSessionMode?: "shell" | "zmux";
+  ensureZmuxSession?: ZmuxSessionBinder.ZmuxSessionBinder["Service"]["ensure"];
 }
 export interface ManagerFixture {
   readonly baseDir: string;
@@ -231,6 +233,9 @@ export const createManager = (
           : {}),
         ...(options.terminalSessionMode !== undefined
           ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
+          : {}),
+        ...(options.ensureZmuxSession !== undefined
+          ? { ensureZmuxSession: options.ensureZmuxSession }
           : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
