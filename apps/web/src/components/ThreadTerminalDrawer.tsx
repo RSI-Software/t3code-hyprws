@@ -12,6 +12,7 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import {
   Plus,
+  Pin,
   Square,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -81,6 +82,7 @@ import { useAttachedTerminalSession } from "../state/terminalSessions";
 import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
+import { terminalAttachmentId } from "../terminalAttachmentIdentity";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
@@ -187,6 +189,16 @@ export function writeTerminalOutputUpdate(
   } else if (update.type === "append") {
     terminal.write(update.data);
   }
+}
+
+export function terminalOutputCursorForLifecycle(
+  cursor: TerminalOutputCursor,
+  previousLifecycleVersion: number,
+  currentLifecycleVersion: number,
+): TerminalOutputCursor {
+  return previousLifecycleVersion === currentLifecycleVersion
+    ? cursor
+    : INITIAL_TERMINAL_OUTPUT_CURSOR;
 }
 
 function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor {
@@ -452,6 +464,7 @@ export function TerminalViewport({
   const terminalRef = useRef<GhosttyTerminalSurface | null>(null);
   const visibleRef = useRef(visible);
   const environmentId = threadRef.environmentId;
+  const attachmentId = useMemo(() => terminalAttachmentId(terminalId), [terminalId]);
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
     environmentId,
@@ -467,6 +480,12 @@ export function TerminalViewport({
   const runTerminalResize = useAtomCommand(terminalEnvironment.resize, {
     reportFailure: false,
   });
+  const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
+    reportFailure: false,
+  });
+  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const launchIdentity = `${attachmentId}\0${cwd}\0${worktreePath ?? ""}\0${runtimeEnvKey}`;
+  const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
@@ -480,7 +499,19 @@ export function TerminalViewport({
   // cannot be mistaken for the active flow.
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
-  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const retargetTerminal = useEffectEvent(() =>
+    runTerminalOpen({
+      environmentId,
+      input: {
+        threadId,
+        terminalId,
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      },
+    }),
+  );
   const handleSessionExited = useEffectEvent(() => {
     onSessionExited();
   });
@@ -488,7 +519,17 @@ export function TerminalViewport({
     onAddTerminalContext?.(selection);
   });
   const canAddSelectionToChat = useEffectEvent(() => onAddTerminalContext !== undefined);
-  const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const resolveTerminalPath = useEffectEvent((target: string) =>
+    resolvePathLinkTarget(target, cwd),
+  );
+  const openTerminalPreview = useEffectEvent(
+    (url: string, fallbackToBrowser: () => void, forceBrowser: boolean) =>
+      openTerminalLinkInPreview({ url, threadRef, openPreview, fallbackToBrowser, forceBrowser }),
+  );
+  const readTerminalContextIdentity = useEffectEvent(() => ({
+    terminalId,
+    terminalLabel,
+  }));
   const terminalFontFamily = useClientSettings((settings) =>
     resolveTerminalFontPreference({
       advanced: advancedTypography,
@@ -509,6 +550,7 @@ export function TerminalViewport({
     terminal: {
       threadId,
       terminalId,
+      attachmentId,
       cwd,
       ...(worktreePath !== undefined ? { worktreePath } : {}),
       ...(runtimeEnv ? { env: runtimeEnv } : {}),
@@ -516,16 +558,21 @@ export function TerminalViewport({
     },
     enabled: attached,
   });
+  useEffect(() => {
+    if (launchIdentityRef.current === launchIdentity || !attached) return;
+    launchIdentityRef.current = launchIdentity;
+    void retargetTerminal();
+  }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
-      input: { threadId, terminalId, data },
+      input: { threadId, terminalId, attachmentId, data },
     }),
   );
   const resizeTerminal = useEffectEvent((cols: number, rows: number) =>
     runTerminalResize({
       environmentId,
-      input: { threadId, terminalId, cols, rows },
+      input: { threadId, terminalId, attachmentId, cols, rows },
     }),
   );
   const terminalOutput = terminalSession.output;
@@ -551,11 +598,13 @@ export function TerminalViewport({
     },
   );
   const terminalVersion = terminalSession.version;
+  const terminalLifecycleVersion = terminalSession.lifecycleVersion;
   const previousSessionRef = useRef({
     output: terminalOutput,
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   });
   const latestSessionRef = useRef(previousSessionRef.current);
   latestSessionRef.current = {
@@ -563,6 +612,7 @@ export function TerminalViewport({
     error: terminalError,
     status: terminalStatus,
     version: terminalVersion,
+    lifecycleVersion: terminalLifecycleVersion,
   };
 
   useEffect(() => {
@@ -581,6 +631,8 @@ export function TerminalViewport({
     void terminalRef.current?.setFont(terminalFontOptions(terminalFontFamily, terminalFontSize));
   }, [terminalFontFamily, terminalFontSize]);
 
+  // Checkout retargets replace the PTY launch context, not the viewer. Keep the
+  // WASM surface alive and read changing callback data through Effect Events.
   useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
@@ -682,6 +734,7 @@ export function TerminalViewport({
           return null;
         }
         const selectionText = activeTerminal.getSelection();
+        const terminalContextIdentity = readTerminalContextIdentity();
         const selectionPosition = activeTerminal.getSelectionPosition();
         const normalizedText = selectionText.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
         if (!selectionPosition || normalizedText.length === 0) {
@@ -699,8 +752,8 @@ export function TerminalViewport({
           position,
           clipboardText: selectionText,
           selection: {
-            terminalId,
-            terminalLabel: readTerminalLabel(),
+            terminalId: terminalContextIdentity.terminalId,
+            terminalLabel: terminalContextIdentity.terminalLabel,
             lineStart,
             lineEnd,
             text: normalizedText,
@@ -898,13 +951,11 @@ export function TerminalViewport({
               );
             });
           };
-          void openTerminalLinkInPreview({
-            url: text,
-            threadRef,
-            openPreview,
+          void openTerminalPreview(
+            text,
             fallbackToBrowser,
-            forceBrowser: event.metaKey || event.ctrlKey,
-          }).catch((error: unknown) => {
+            event.metaKey || event.ctrlKey,
+          ).catch((error: unknown) => {
             toastManager.add(
               stackedThreadToast({
                 type: "error",
@@ -915,7 +966,7 @@ export function TerminalViewport({
           });
           return;
         }
-        const target = resolvePathLinkTarget(text, cwd);
+        const target = resolveTerminalPath(text);
         void (async () => {
           const result = await openTerminalPath(target);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
@@ -1021,7 +1072,7 @@ export function TerminalViewport({
       teardown?.();
       if (hadFocus && mount.isConnected) mount.focus({ preventScroll: true });
     };
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, []);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1030,6 +1081,7 @@ export function TerminalViewport({
       error: terminalError,
       status: terminalStatus,
       version: terminalVersion,
+      lifecycleVersion: terminalLifecycleVersion,
     };
     if (!terminal) {
       previousSessionRef.current = current;
@@ -1038,12 +1090,27 @@ export function TerminalViewport({
 
     const previous = previousSessionRef.current;
     synchronizeTerminalStatus(terminal, current.status);
-    if (current.version === previous.version && current.output === previous.output) {
+    if (
+      current.lifecycleVersion === previous.lifecycleVersion &&
+      current.version === previous.version &&
+      current.output === previous.output
+    ) {
       return;
     }
 
-    const outputUpdate = readTerminalOutputUpdate(current.output, outputCursorRef.current);
-    writeTerminalOutputUpdate(terminal, outputUpdate);
+    const outputUpdate = readTerminalOutputUpdate(
+      current.output,
+      terminalOutputCursorForLifecycle(
+        outputCursorRef.current,
+        previous.lifecycleVersion,
+        current.lifecycleVersion,
+      ),
+    );
+    if (current.lifecycleVersion !== previous.lifecycleVersion && outputUpdate.type === "reset") {
+      terminal.resetSession(outputUpdate.data);
+    } else {
+      writeTerminalOutputUpdate(terminal, outputUpdate);
+    }
     outputCursorRef.current = outputUpdate.cursor;
     terminal.clearSelection();
 
@@ -1052,7 +1119,7 @@ export function TerminalViewport({
     }
 
     previousSessionRef.current = current;
-  }, [terminalOutput, terminalError, terminalStatus, terminalVersion]);
+  }, [terminalOutput, terminalError, terminalStatus, terminalVersion, terminalLifecycleVersion]);
 
   useEffect(() => {
     const wasAttached = wasAttachedRef.current;
@@ -1179,21 +1246,39 @@ interface ThreadTerminalDrawerProps {
   terminalLabelsById?: ReadonlyMap<string, string>;
   /** Prefer per-session launch locations when the server already knows a terminal. */
   terminalLaunchLocationsById?: ReadonlyMap<string, TerminalLaunchLocation>;
+  checkoutModeByTerminalId?: Readonly<Record<string, "follow" | "pin">>;
+  checkoutModeChangeDisabled?: boolean;
+  onCheckoutModeChange?: (terminalId: string, mode: "follow" | "pin") => void;
 }
 
 interface TerminalActionButtonProps {
   label: string;
   className: string;
   onClick: () => void;
+  disabled?: boolean | undefined;
   children: ReactNode;
 }
 
-function TerminalActionButton({ label, className, onClick, children }: TerminalActionButtonProps) {
+function TerminalActionButton({
+  label,
+  className,
+  onClick,
+  disabled,
+  children,
+}: TerminalActionButtonProps) {
   return (
     <Popover>
       <PopoverTrigger
         openOnHover
-        render={<button type="button" className={className} onClick={onClick} aria-label={label} />}
+        render={
+          <button
+            type="button"
+            className={className}
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={label}
+          />
+        }
       >
         {children}
       </PopoverTrigger>
@@ -1238,6 +1323,9 @@ export default function ThreadTerminalDrawer({
   keybindings,
   terminalLabelsById,
   terminalLaunchLocationsById,
+  checkoutModeByTerminalId,
+  checkoutModeChangeDisabled,
+  onCheckoutModeChange,
 }: ThreadTerminalDrawerProps) {
   const isPanel = mode === "panel";
   const windowDemanded = useWindowDemand();
@@ -1634,6 +1722,31 @@ export default function ThreadTerminalDrawer({
               label={splitTerminalVerticalActionLabel}
             >
               <SquareSplitVertical className="size-3.25" />
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
+              className={cn(
+                "p-1 transition-colors hover:bg-accent",
+                checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
+                  ? "text-amber-500"
+                  : "text-foreground/90",
+              )}
+              onClick={() =>
+                onCheckoutModeChange?.(
+                  resolvedActiveTerminalId,
+                  checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin" ? "follow" : "pin",
+                )
+              }
+              disabled={checkoutModeChangeDisabled}
+              label={
+                checkoutModeChangeDisabled
+                  ? "Checkout mode is locked while the thread is moving"
+                  : checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
+                    ? "Follow thread checkout"
+                    : "Pin terminal checkout"
+              }
+            >
+              <Pin className="size-3.25" />
             </TerminalActionButton>
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
