@@ -12,6 +12,7 @@ import { readChurnState, writeChurnState } from "./fork-churn-ledger.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
+  canonicalizeOutcomeReceipts,
   requireOutcomeReceipts,
   summarizeOutcomes,
   outcomeStreak,
@@ -19,6 +20,7 @@ import {
   type OutcomeReceipt,
   type OutcomeStageReceipt,
   type OutcomeStatus,
+  type OutcomeTarget,
 } from "./lib/fork-sync-outcomes.ts";
 
 const runUrl = () =>
@@ -365,6 +367,29 @@ export const captureSyncOutcome = (report: SyncReport, phase?: string, failure?:
   saveBundle(path, [...previous, ...receipts]);
 };
 
+const targetIsAncestor = (root: string, ancestor: string, descendant: string): boolean => {
+  const result = runCommand("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    cwd: root,
+  });
+  if (result.error !== undefined || (result.status !== 0 && result.status !== 1))
+    throw new Error(`could not compare outcome target ancestry: ${ancestor} -> ${descendant}`);
+  return result.status === 0;
+};
+
+const compareOutcomeTargets = (root: string) => (left: OutcomeTarget, right: OutcomeTarget) => {
+  if (left.target.sha === right.target.sha) return 0;
+  if (targetIsAncestor(root, left.target.sha, right.target.sha)) return -1;
+  if (targetIsAncestor(root, right.target.sha, left.target.sha)) return 1;
+  throw new Error(
+    `outcome targets are not on one ancestry chain: ${left.target.tag} and ${right.target.tag}`,
+  );
+};
+
+export const canonicalizeOutcomeReceiptsForRoot = (
+  root: string,
+  value: unknown,
+): ReadonlyArray<OutcomeReceipt> => canonicalizeOutcomeReceipts(value, compareOutcomeTargets(root));
+
 export const recordOutcomes = (
   root: string,
   incoming: ReadonlyArray<OutcomeReceipt>,
@@ -373,12 +398,16 @@ export const recordOutcomes = (
   const expectedOld = resolveBotRef(root, CHURN_REF);
   if (expectedOld === null) throw new Error("seed the churn ledger before recording outcomes");
   const state = readChurnState(root);
-  const outcomes = requireOutcomeReceipts([...state.outcomes, ...incoming]);
+  const outcomes = canonicalizeOutcomeReceiptsForRoot(root, [...state.outcomes, ...incoming]);
   const added = outcomes.length - state.outcomes.length;
-  const commit =
-    added === 0
-      ? expectedOld
-      : writeChurnState(root, { ...state, outcomes }, "churn: record target outcomes");
+  const changed = JSON.stringify(outcomes) !== JSON.stringify(state.outcomes);
+  const commit = !changed
+    ? expectedOld
+    : writeChurnState(
+        root,
+        { ...state, outcomes },
+        added === 0 ? "churn: order target outcomes" : "churn: record target outcomes",
+      );
   if (push) {
     try {
       pushBotRefWithLease(root, CHURN_REF, expectedOld);

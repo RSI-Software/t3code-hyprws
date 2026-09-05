@@ -331,6 +331,49 @@ export const requireOutcomeReceipts = (value: unknown): ReadonlyArray<OutcomeRec
   return [...receipts.values()];
 };
 
+const targetSha = (receipt: OutcomeReceipt): string =>
+  receipt.kind === "target" ? receipt.target.sha : receipt.targetSha;
+
+/**
+ * Keep each target's validated receipt history intact while placing target groups in their
+ * authoritative upstream order. The caller owns that order because only a Git-aware boundary can
+ * distinguish tag creation order from commit ancestry.
+ */
+export const canonicalizeOutcomeReceipts = (
+  value: unknown,
+  compareTargets: (left: OutcomeTarget, right: OutcomeTarget) => number,
+): ReadonlyArray<OutcomeReceipt> => {
+  const receipts = requireOutcomeReceipts(value);
+  const declaredTargets = receipts.filter(
+    (receipt): receipt is OutcomeTarget => receipt.kind === "target",
+  );
+  const comparisons = new Map<OutcomeTarget, Map<OutcomeTarget, number>>();
+  for (const [index, left] of declaredTargets.entries()) {
+    for (const right of declaredTargets.slice(index + 1)) {
+      const order = Math.sign(compareTargets(left, right));
+      if (order === 0 || !Number.isFinite(order))
+        throw new Error(
+          `outcome targets do not have one strict order: ${left.target.tag} and ${right.target.tag}`,
+        );
+      comparisons.set(left, new Map([...(comparisons.get(left) ?? []), [right, order]]));
+      comparisons.set(right, new Map([...(comparisons.get(right) ?? []), [left, -order]]));
+    }
+  }
+  const targets = declaredTargets.toSorted((left, right) => {
+    if (left === right) return 0;
+    const order = comparisons.get(left)?.get(right);
+    if (order === undefined) throw new Error("outcome target comparison is missing");
+    return order;
+  });
+  const rank = new Map(targets.map((target, index) => [target.target.sha, index]));
+  const receiptRank = (receipt: OutcomeReceipt): number => {
+    const value = rank.get(targetSha(receipt));
+    if (value === undefined) throw new Error("outcome receipt has no target rank");
+    return value;
+  };
+  return receipts.toSorted((left, right) => receiptRank(left) - receiptRank(right));
+};
+
 export const summarizeOutcomes = (receipts: ReadonlyArray<OutcomeReceipt>) => {
   const targets = receipts.filter((receipt): receipt is OutcomeTarget => receipt.kind === "target");
   return targets.map((target) => {
@@ -427,7 +470,7 @@ export const summarizeOutcomes = (receipts: ReadonlyArray<OutcomeReceipt>) => {
   });
 };
 
-/** Raw eligible order includes blocked and rewritten targets; exclusion never changes old rows. */
+/** Canonical eligible order includes blocked and rewritten targets; exclusion never changes rows. */
 export const outcomeStreak = (receipts: ReadonlyArray<OutcomeReceipt>) => {
   const eligible = summarizeOutcomes(receipts).filter((row) => row.eligible);
   let noAgentCarry = 0;
