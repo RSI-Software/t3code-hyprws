@@ -7,7 +7,7 @@ import type { AutoRebaseOptions, AutoRebaseResult } from "./fork-auto-rebase.ts"
 import type { SyncReport } from "./fork-sync-state.ts";
 import { readReport } from "./fork-sync-state.ts";
 import { runCommandText, runCommand } from "./lib/fork-command.ts";
-import { CHURN_REF, pushBotRefWithLease, resolveBotRef } from "./lib/fork-bot-refs.ts";
+import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
 import { readChurnState, writeChurnState } from "./fork-churn-ledger.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { UsageError } from "./lib/fork-cli.ts";
@@ -395,28 +395,22 @@ export const recordOutcomes = (
   incoming: ReadonlyArray<OutcomeReceipt>,
   push: boolean,
 ): number => {
-  const expectedOld = resolveBotRef(root, CHURN_REF);
-  if (expectedOld === null) throw new Error("seed the churn ledger before recording outcomes");
+  // Start from what origin publishes, so an existing checkout appends to a ledger another
+  // writer already advanced instead of leasing a stale head (#631).
+  const lease = acquireBotRefLease(root, CHURN_REF, push);
+  if (lease === null) throw new Error("seed the churn ledger before recording outcomes");
   const state = readChurnState(root);
   const outcomes = canonicalizeOutcomeReceiptsForRoot(root, [...state.outcomes, ...incoming]);
   const added = outcomes.length - state.outcomes.length;
   const changed = JSON.stringify(outcomes) !== JSON.stringify(state.outcomes);
   const commit = !changed
-    ? expectedOld
+    ? lease.base
     : writeChurnState(
         root,
         { ...state, outcomes },
         added === 0 ? "churn: order target outcomes" : "churn: record target outcomes",
       );
-  if (push) {
-    try {
-      pushBotRefWithLease(root, CHURN_REF, expectedOld);
-    } catch (error) {
-      if (commit !== expectedOld)
-        runCommandText("git", ["update-ref", CHURN_REF, expectedOld, commit], { cwd: root });
-      throw error;
-    }
-  }
+  if (push) publishBotRefLease(root, lease, commit);
   process.stdout.write(
     `${JSON.stringify({ added, commit, ...outcomeStreak(outcomes) }, null, 2)}\n`,
   );
