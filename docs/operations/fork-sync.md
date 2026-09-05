@@ -83,6 +83,10 @@ ref, exact commit SHA and `current`, `stale`, `offline` or `unavailable` freshne
 check origin before and after reading immutable objects. A moving remote never reports current.
 Fetching a missing object does not move a local bot ref, ordinary branch or `FETCH_HEAD`.
 `--offline` performs no fetch or remote query and explicitly reports retained local evidence.
+The live `fork:churn report` uses the same immutable-current reader once for both walks and seam
+records, and includes its SHA/freshness in the published section. Local append/record writers and
+the intentionally frozen tracked mirror retain their local-ref behavior; a guidance read does not
+overwrite unpushed local evidence.
 SHA and ordinary branch arguments are refused before Git runs; inspect an immutable snapshot
 directly with `git show <full-sha>:fork-churn.json` instead.
 
@@ -92,8 +96,20 @@ carry preferred boundary guidance where a reviewed mapping exists. Unmapped less
 visible and unresolved. Mappings name exact integration paths and the reviewed policy within
 each path, not ownership of every change in that file. Provider agent metadata guidance does
 not cover startup, resume, child-work results or launcher environment behavior. Neither absence,
-a boundary recommendation nor a recorded guard proves
-repair; comparable repair receipts still own that verdict. Outcome records are left untouched.
+a boundary recommendation nor a recorded guard proves repair. Guidance uses `assessSeams` to show
+observed, unverified, verified, regressed or unobserved status from comparable receipts. Policy
+references include closed historical issues; they do not claim a live assignment. Outcome records
+are left untouched.
+
+A walk and its frozen copy share one immutable observation identity. A single new census path
+stays in the inventory without creating a hot-seam warning; distinct repeated observations can
+warn. Exact file-local test harness deferrals keep their documented integration placement, while
+fork-owned tests do not receive generic sibling advice.
+
+For a newer ledger schema, compatible known fields remain visible with an explicit partial-reader
+notice. Repair assessment is unavailable until the schema is understood. Authoring guidance keeps
+the original inventory; the live report publishes that limitation and returns an unavailable policy
+verdict rather than inferring a pass from missing evidence.
 
 The v3 ledger keeps `walks`, immutable `seamRecords`, and target `outcomes` in the same
 `fork-churn.json`. Legacy arrays and v2 envelopes remain readable; every writer preserves

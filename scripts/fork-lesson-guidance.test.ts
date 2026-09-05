@@ -13,7 +13,10 @@ import {
   resolveLessonSource,
   renderLessonGuidance,
   preferredLessonBoundary,
+  lessonHotSeams,
+  lessonObservations,
 } from "./fork-lesson-guidance.ts";
+import type { ChurnEntry, CensusSnapshot } from "./fork-churn-ledger.ts";
 import {
   CHURN_REF,
   CHURN_LEDGER_FILE,
@@ -31,6 +34,154 @@ const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeSync = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const empty = '{"version":2,"walks":[],"seamRecords":[]}';
 const ok = (stdout = ""): CommandResult => ({ status: 0, stdout, stderr: "" });
+
+it("deduplicates frozen copies of legacy censuses without creating single-occurrence hot warnings", () => {
+  const file = {
+    path: "apps/web/src/state/shell.ts",
+    subject: "bootstrap physical window",
+    commit: A,
+    domain: "project-windows",
+    hunks: null,
+  };
+  const snapshot: CensusSnapshot = { tag: "v1", fixedAt: B, files: [file] };
+  const walk: ChurnEntry = {
+    tag: "v1",
+    before: A,
+    after: B,
+    recordUrl: "https://example.test/walk",
+    conflicts: [],
+    decisions: [],
+    censusFiles: [file],
+  };
+  const record = seamRecord(freezeObservation(snapshot));
+  const evidence = { walks: [walk], seamRecords: [record] };
+  assert.strictEqual(lessonObservations(evidence).size, 1);
+  assert.strictEqual(
+    lessonInventory(evidence).find((row) => row.path === file.path)?.observations,
+    1,
+  );
+  assert.isFalse(lessonHotSeams(evidence).has(file.path));
+  const next = seamRecord(freezeObservation({ ...snapshot, tag: "v2" }));
+  assert.strictEqual(
+    lessonHotSeams({ ...evidence, seamRecords: [record, next] }).get(file.path)?.walkCount,
+    2,
+  );
+});
+
+it("renders assessed repair states instead of presenting a guard name as verification", () => {
+  const file = {
+    path: "apps/web/src/state/shell.ts",
+    subject: "bootstrap physical window",
+    commit: A,
+    domain: "project-windows",
+    hunks: null,
+  };
+  const observation = (sourceSha: string, present: boolean) =>
+    seamRecord(
+      freezeObservation({
+        tag: "v1",
+        fixedAt: null,
+        files: present ? [file] : [],
+        censusEvidence: {
+          version: 1,
+          method: "sequential-rebase-stage3-provisional",
+          sourceSha,
+          baseSha: "d".repeat(40),
+          targetSha: C,
+          targetTag: "v1",
+          complete: true,
+          rows: present ? [{ stop: 1, ...file, kind: "content" }] : [],
+        },
+      }),
+    );
+  const before = observation(A, true),
+    clear = observation(B, false),
+    returned = observation(C, true);
+  const attestation = { actor: "maintainer", evidenceUrl: "https://example.test/review" };
+  const repair = seamRecord({
+    kind: "repair",
+    before: { observation: before.id, row: 0 },
+    changeSha: B,
+    guard: "physical-bootstrap",
+    attestation,
+  } as const);
+  const verified = seamRecord({
+    kind: "verification",
+    repair: repair.id,
+    after: clear.id,
+    guardProof: {
+      sourceSha: B,
+      command: "vp test run bootstrap.fork.test.ts",
+      exitCode: 0,
+      output: "1 passed",
+    },
+    attestation,
+  } as const);
+  for (const [records, status] of [
+    [[before, repair], "repair-unverified"],
+    [[before, clear], "not-observed"],
+    [[before, clear, repair, verified], "verified-repaired"],
+    [[before, clear, repair, verified, returned], "regressed"],
+  ] as const) {
+    const evidence = { walks: [], seamRecords: records };
+    const output = renderLessonGuidance(
+      { ref: CHURN_REF, sha: A, remoteSha: A, freshness: "current", detail: "fixture", raw: null },
+      evidence,
+    );
+    assert.include(output, `evidence: ${status}`);
+    assert.notInclude(output, "(owner ");
+    assert.include(output, "policy reference #535; issue status is not inferred");
+  }
+});
+
+it("projects future compatible fields explicitly without claiming complete schema or repair support", () => {
+  const known = seamRecord(
+    freezeObservation({
+      tag: "future",
+      fixedAt: null,
+      files: [
+        { path: "new-seam.ts", subject: "new seam", commit: A, domain: "fork-meta", hunks: null },
+      ],
+    }),
+  );
+  const projected = readLessonEvidence(
+    encodeSync({ version: 4, walks: [], seamRecords: [known], futureField: true }),
+  );
+  assert.strictEqual(
+    lessonInventory(projected).find((row) => row.path === "new-seam.ts")?.observations,
+    1,
+  );
+  assert.include(projected.notices?.[0] ?? "", "newer than this reader");
+  assert.strictEqual(
+    lessonInventory(projected)[0]?.assessmentUnavailable,
+    "newer schema is only partially understood",
+  );
+  const incompatible = readLessonEvidence(
+    encodeSync({ version: 4, walks: { changed: true }, seamRecords: [{ kind: "new-evidence" }] }),
+  );
+  assert.strictEqual(lessonInventory(incompatible).length, ORIGINAL_LESSON_PATHS.length);
+  assert.lengthOf(incompatible.notices ?? [], 3);
+});
+
+it("keeps exact test deferrals and fork-owned tests out of generic sibling advice", () => {
+  for (const path of [
+    "apps/desktop/src/window/DesktopWindow.test.ts",
+    "apps/server/src/server.test.ts",
+  ])
+    assert.include(
+      preferredLessonBoundary(path)?.boundary ?? "",
+      "exact file-local harness deferral",
+    );
+  assert.strictEqual(
+    preferredLessonBoundary("apps/web/src/state/terminalSessions.test.ts")?.owner,
+    582,
+  );
+  assert.strictEqual(
+    preferredLessonBoundary("apps/web/src/state/terminalAttachmentRetention.fork.test.ts"),
+    undefined,
+  );
+  assert.strictEqual(preferredLessonBoundary("apps/server/src/unreviewed.test.ts"), undefined);
+});
 
 it("routes retained hot paths to their reviewed issue scope and implementation boundary", () => {
   const cases = [
@@ -344,7 +495,7 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
         assert.strictEqual(fresh.status, 0, fresh.stderr);
         assert.include(fresh.stdout, `at ${next}; freshness=current`);
         assert.include(fresh.stdout, "terminalAttachmentRetention.fork.ts");
-        assert.include(fresh.stdout, "advisory");
+        assert.include(fresh.stdout, "1 retained observation(s)");
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         assert.strictEqual(
           (yield* fs.exists(fetchHeadPath)) ? yield* fs.readFileString(fetchHeadPath) : null,
@@ -354,6 +505,64 @@ it.layer(NodeServices.layer)("live lesson authoring CLI", (it) => {
           git(consumer, ["for-each-ref", "--format=%(refname)", "refs/heads"]),
           "refs/heads/fixture",
         );
+        // The published review section must use the same current immutable source,
+        // without refreshing the retained writer ref as a side effect.
+        const reportBin = NodePath.join(root, "report-bin");
+        const reportBodyPath = NodePath.join(root, "published-report.md");
+        yield* fs.makeDirectory(reportBin);
+        const fakeGh = NodePath.join(reportBin, "gh");
+        yield* fs.writeFileString(
+          fakeGh,
+          `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "issue" && args[1] === "view") process.stdout.write(process.env.LESSON_ISSUE_FIXTURE);
+else if (args[0] === "issue" && args[1] === "comment") {
+  fs.writeFileSync(process.env.LESSON_PUBLISHED_FIXTURE, fs.readFileSync(args[args.indexOf("--body-file") + 1]));
+  process.stdout.write("https://example.test/issues/1#issuecomment-1");
+} else process.exitCode = 2;
+`,
+        );
+        yield* fs.chmod(fakeGh, 0o755);
+        const issueFixture = yield* encode({
+          body: `## Sequential rebase census\n\nA throwaway rebase rehearsal to \`v2\` found one conflict.\n\n| File | Hunks | Fork commit | Domain |\n| --- | ---: | --- | --- |\n| \`${source}\` | 1 | \`${base.slice(0, 7)} new terminal seam\` | fork-meta |`,
+          comments: [],
+        });
+        const publishReport = () =>
+          NodeChildProcess.spawnSync(
+            process.execPath,
+            [NodePath.join(import.meta.dirname, "fork-churn.ts"), "report", "--issue", "1"],
+            {
+              cwd: consumer,
+              encoding: "utf8",
+              env: {
+                ...process.env,
+                PATH: `${reportBin}:${process.env.PATH ?? ""}`,
+                LESSON_ISSUE_FIXTURE: issueFixture,
+                LESSON_PUBLISHED_FIXTURE: reportBodyPath,
+              },
+            },
+          );
+        const report = publishReport();
+        assert.strictEqual(report.status, 0, report.stderr);
+        const published = yield* fs.readFileString(reportBodyPath);
+        assert.include(published, `at ${next}; freshness=current`);
+        assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
+        const future = writeBotRefFile(
+          publisher,
+          CHURN_REF,
+          CHURN_LEDGER_FILE,
+          yield* encode({ version: 4, walks: [], seamRecords: [observation], futureField: true }),
+          "future lesson schema",
+        );
+        git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);
+        const futureReport = publishReport();
+        assert.strictEqual(futureReport.status, 1);
+        const unavailable = yield* fs.readFileString(reportBodyPath);
+        assert.include(unavailable, `at ${future}; freshness=current`);
+        assert.include(unavailable, "Lesson assessment unavailable");
+        assert.include(futureReport.stderr, "does not establish a policy pass");
+        assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
         const offline = scan("--offline");
         assert.strictEqual(offline.status, 0, offline.stderr);
         assert.include(offline.stdout, `at ${first}; freshness=offline`);

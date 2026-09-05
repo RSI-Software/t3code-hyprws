@@ -1,6 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off - Read-only Git evidence for standalone authoring scans.
 import { parseLedger, hotSeams, type ChurnEntry } from "./fork-churn-ledger.ts";
-import { requireSeamRecords, type SeamRecord } from "./lib/fork-churn-seams.ts";
+import {
+  assessSeams,
+  freezeObservation,
+  seamRecord,
+  requireSeamRecords,
+  type CensusSnapshot,
+  type SeamAssessment,
+  type SeamRecord,
+} from "./lib/fork-churn-seams.ts";
 import { CHURN_LEDGER_FILE, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
 
@@ -34,6 +42,7 @@ export const ORIGINAL_LESSON_PATHS = [
 export interface LessonEvidence {
   readonly walks: ReadonlyArray<ChurnEntry>;
   readonly seamRecords: ReadonlyArray<SeamRecord>;
+  readonly notices?: ReadonlyArray<string>;
 }
 
 /** Read-only projection: outcome records in v3 belong to outcome accounting, never this writer. */
@@ -42,8 +51,34 @@ export const readLessonEvidence = (raw: string): LessonEvidence => {
   if (Array.isArray(parsed)) return { walks: parseLedger(raw), seamRecords: [] };
   if (typeof parsed !== "object" || parsed === null) throw new Error("invalid lesson ledger");
   const value = parsed as Record<string, unknown>;
-  if (value.version !== 2 && value.version !== 3)
+  if (
+    typeof value.version !== "number" ||
+    !Number.isSafeInteger(value.version) ||
+    value.version < 2
+  )
     throw new Error("unsupported lesson ledger version");
+  if (value.version > 3) {
+    const notices = [
+      `Lesson schema v${value.version} is newer than this reader; only compatible known fields are projected, never complete schema support.`,
+    ];
+    let walks: ReadonlyArray<ChurnEntry> = [];
+    let seamRecords: ReadonlyArray<SeamRecord> = [];
+    try {
+      walks = parseLedger(JSON.stringify(value.walks));
+    } catch {
+      notices.push(
+        "Walk fields are incompatible; original inventory remains visible but current walk guidance is unavailable.",
+      );
+    }
+    try {
+      seamRecords = requireSeamRecords(value.seamRecords);
+    } catch {
+      notices.push(
+        "Seam fields are incompatible; repair assessment is unavailable, never verified by omission.",
+      );
+    }
+    return { walks, seamRecords, notices };
+  }
   return {
     walks: parseLedger(JSON.stringify(value.walks)),
     seamRecords: requireSeamRecords(value.seamRecords),
@@ -242,6 +277,12 @@ const boundaries: ReadonlyArray<{
     owner: 535,
   },
   {
+    paths: ["apps/web/src/state/shell.ts"],
+    boundary:
+      "physical project-window bootstrap only: apps/web/src/state/windowProjectBootstrap.fork.ts; retain upstream shell orchestration",
+    owner: 535,
+  },
+  {
     paths: [
       ".github/workflows/ci.yml",
       ".github/workflows/release.yml",
@@ -263,7 +304,22 @@ const boundaries: ReadonlyArray<{
 export const preferredLessonBoundary = (path: string) => {
   const scoped = boundaries.find((entry) => entry.paths.includes(path));
   if (scoped) return scoped;
-  if (/\.test\.tsx?$/.test(path))
+  if (path === "apps/web/src/state/terminalSessions.test.ts")
+    return {
+      boundary:
+        "terminal indexing and attachment coverage: preserve upstream metadata tests and use terminalAttachmentRetention.fork.test.ts for fork retention behavior",
+      owner: 582,
+    };
+  if (
+    path === "apps/desktop/src/window/DesktopWindow.test.ts" ||
+    path === "apps/server/src/server.test.ts"
+  )
+    return {
+      boundary:
+        "exact file-local harness deferral: retain the documented integration cases here; do not import the upstream test module into a sibling",
+      owner: 448,
+    };
+  if (UPSTREAM_TEST_LESSON_PATHS.has(path))
     return {
       boundary:
         "new fork-specific test cases only: use a fork-owned *.fork.test.ts(x) sibling and preserve target-tree upstream tests",
@@ -272,43 +328,90 @@ export const preferredLessonBoundary = (path: string) => {
   return undefined;
 };
 
+const UPSTREAM_TEST_LESSON_PATHS = new Set([
+  "apps/web/src/components/ChatView.logic.test.ts",
+  "apps/desktop/src/settings/DesktopClientSettings.test.ts",
+  "apps/server/src/git/GitManager.test.ts",
+  "apps/web/src/components/settings/settingsSearch.test.ts",
+  "packages/contracts/src/settings.test.ts",
+  "apps/desktop/src/preview/Manager.test.ts",
+  "apps/desktop/src/updates/DesktopUpdates.test.ts",
+  "apps/server/src/provider/Layers/ProviderService.test.ts",
+  "apps/server/src/provider/Layers/ClaudeAdapter.test.ts",
+  "apps/web/src/composerDraftStore.test.ts",
+  "apps/server/src/pullRequest/GitHubPullRequestCli.test.ts",
+  "apps/web/src/components/ThreadTerminalDrawer.test.ts",
+]);
+
+const walkSnapshot = (walk: ChurnEntry): CensusSnapshot => ({
+  tag: walk.tag,
+  fixedAt: walk.after,
+  files: walk.censusFiles,
+  ...(walk.censusEvidence === undefined ? {} : { censusEvidence: walk.censusEvidence }),
+});
+
+/** Frozen copies of an existing walk are the same observation, not another recurrence. */
+export const lessonObservations = (
+  evidence: LessonEvidence,
+): ReadonlyMap<string, CensusSnapshot> => {
+  const observations = new Map<string, CensusSnapshot>();
+  for (const walk of evidence.walks) {
+    const snapshot = walkSnapshot(walk);
+    observations.set(seamRecord(freezeObservation(snapshot)).id, snapshot);
+  }
+  for (const record of evidence.seamRecords)
+    if (record.kind === "observation") {
+      observations.set(record.id, {
+        tag: record.tag,
+        fixedAt: null,
+        files: record.files,
+        ...(record.evidence === null ? {} : { censusEvidence: record.evidence }),
+      });
+    }
+  return observations;
+};
+
 export const lessonInventory = (evidence: LessonEvidence) => {
   const paths = new Map<
     string,
-    { original: boolean; observations: Set<string>; repairs: Set<string> }
+    { original: boolean; observations: Set<string>; assessments: Array<SeamAssessment> }
   >();
   const add = (path: string, observation?: string) => {
     const row = paths.get(path) ?? {
       original: false,
       observations: new Set<string>(),
-      repairs: new Set<string>(),
+      assessments: [],
     };
     if (observation) row.observations.add(observation);
     paths.set(path, row);
     return row;
   };
   for (const path of ORIGINAL_LESSON_PATHS) add(path).original = true;
+  const observations = lessonObservations(evidence);
   for (const walk of evidence.walks) {
-    for (const file of walk.censusFiles) add(file.path, walk.tag);
-    for (const file of walk.conflicts) add(file.path, walk.tag);
+    const id = seamRecord(freezeObservation(walkSnapshot(walk))).id;
+    for (const file of walk.conflicts) add(file.path, id);
   }
-  for (const record of evidence.seamRecords) {
-    if (record.kind === "observation") for (const file of record.files) add(file.path, record.id);
-    if (record.kind === "repair") {
-      const before = evidence.seamRecords.find((row) => row.id === record.before.observation);
-      if (before?.kind === "observation") {
-        const file = before.files[record.before.row];
-        if (file) add(file.path).repairs.add(record.guard);
-      }
-    }
-  }
+  for (const [id, observation] of observations)
+    for (const file of observation.files) add(file.path, id);
+  const snapshots = [...observations.values()];
+  const assessable =
+    evidence.notices === undefined &&
+    snapshots.every((snapshot) => snapshot.files.every((file) => file.subject !== undefined));
+  const assessments = assessable ? assessSeams(snapshots, evidence.seamRecords) : [];
+  for (const assessment of assessments) add(assessment.path).assessments.push(assessment);
   return [...paths]
     .toSorted(([left], [right]) => left.localeCompare(right))
-    .map(([path, evidence]) => ({
+    .map(([path, row]) => ({
       path,
-      original: evidence.original,
-      observations: evidence.observations.size,
-      guards: [...evidence.repairs],
+      original: row.original,
+      observations: row.observations.size,
+      assessments: row.assessments,
+      assessmentUnavailable: assessable
+        ? null
+        : evidence.notices !== undefined
+          ? "newer schema is only partially understood"
+          : "retained census subjects need enrichment",
       preferred: preferredLessonBoundary(path),
     }));
 };
@@ -321,26 +424,32 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
     ]),
   );
   const observed = new Map<string, number>();
-  for (const record of evidence.seamRecords)
-    if (record.kind === "observation") {
-      for (const path of new Set(record.files.map((file) => file.path)))
-        observed.set(path, (observed.get(path) ?? 0) + 1);
-    }
+  for (const record of lessonObservations(evidence).values()) {
+    for (const path of new Set(record.files.map((file) => file.path)))
+      observed.set(path, (observed.get(path) ?? 0) + 1);
+  }
   for (const [path, count] of observed)
-    if (!seams.has(path))
-      seams.set(path, { walkCount: count, worstClass: "retained census observation" });
+    if (count > 1 && !seams.has(path))
+      seams.set(path, { walkCount: count, worstClass: "repeated retained census observation" });
   return seams;
 };
+
+export const renderLessonSource = (source: LessonSource, evidence: LessonEvidence): string =>
+  [
+    `Lesson evidence: ${source.ref} at ${source.sha ?? "unknown"}; freshness=${source.freshness}; origin=${source.remoteSha ?? "unknown"}`,
+    `  ${source.detail}`,
+    ...(evidence.notices ?? []).map((notice) => `  ${notice}`),
+  ].join("\n");
 
 export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvidence): string => {
   const rows = lessonInventory(evidence);
   return [
-    `Lesson evidence: ${source.ref} at ${source.sha ?? "unknown"}; freshness=${source.freshness}; origin=${source.remoteSha ?? "unknown"}`,
-    `  ${source.detail}`,
+    renderLessonSource(source, evidence),
     `Lesson inventory: ${rows.length} paths; ${rows.filter((row) => row.original).length} original paths retained. Presence, absence and named guards do not prove repair.`,
+    "Policy references include closed historical issues; they identify reviewed scope, not a live assignment or current issue status.",
     ...rows.map(
       (row) =>
-        `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (owner ${row.preferred.owner})` : "unresolved: no reviewed preferred boundary; retain this lesson for owner review"}${row.guards.length ? `; recorded guards: ${row.guards.join(", ")}` : "; no repair guard attested"}`,
+        `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
     ),
     "",
   ].join("\n");

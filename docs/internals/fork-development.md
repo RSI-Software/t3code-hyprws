@@ -342,7 +342,7 @@ again.
 
 `vp run fork:scan` collects them over the fork stack:
 
-- `hot-seam`: the commit edits a retained ledger hot seam or frozen census observation. Read the
+- `hot-seam`: the commit edits a retained ledger hot seam or a path repeated across distinct census observations. Read the
   scan's current lesson inventory and preferred boundary before adding to it. The inventory keeps
   every original [Fork churn](./fork-churn.md) path, including unmapped and unresolved lessons;
   a missing path in a later snapshot or a named guard does not prove a historical repair.

@@ -34,6 +34,11 @@ import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 import { runOutcome } from "./fork-churn-outcomes.ts";
+import {
+  readLessonEvidence,
+  resolveLessonSource,
+  renderLessonSource,
+} from "./fork-lesson-guidance.ts";
 
 export {
   censusChurn,
@@ -79,8 +84,10 @@ const subjectlessCensusCommits = (entries: ReadonlyArray<ChurnEntry>): ReadonlyA
     ),
   ].toSorted();
 
-const readDurableLedger = (root: string): ReadonlyArray<ChurnEntry> => {
-  const entries = readChurnLedger(root);
+const readDurableLedger = (
+  root: string,
+  entries = readChurnLedger(root),
+): ReadonlyArray<ChurnEntry> => {
   const missing = subjectlessCensusCommits(entries);
   if (missing.length > 0)
     throw new Error(
@@ -524,7 +531,13 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     ),
   ) as IssueComments;
   const existing = view.comments.findLast((comment) => comment.body.includes(CHURN_MARKER));
-  const entries = readDurableLedger(root);
+  // A report reads one immutable snapshot; fetching current guidance must not move
+  // the retained ref used by local append/record writers.
+  const source = resolveLessonSource(root, CHURN_REF, false);
+  if (source.raw === null)
+    throw new Error(`${CHURN_REF} lesson evidence is unavailable: ${source.detail}`);
+  const lessons = readLessonEvidence(source.raw);
+  const entries = readDurableLedger(root, lessons.walks);
   const currentCensus = {
     tag: parseCensusTag(view.body),
     fixedAt: null,
@@ -535,9 +548,13 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
           censusEvidence: parseSequentialCensusEvidence(view.body)!,
         }),
   } as const;
-  const records = readChurnState(root).seamRecords;
-  const churn = censusChurn(entries, currentCensus, records);
-  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus, records);
+  const records = lessons.seamRecords;
+  const churn = lessons.notices === undefined ? censusChurn(entries, currentCensus, records) : null;
+  const section =
+    churn === null
+      ? `${CHURN_MARKER}\n## Churn\n\nLesson assessment unavailable: this reader does not fully understand the published ledger schema. No repair or policy pass is inferred.\n`
+      : renderChurnSection(entries, existing?.body ?? null, currentCensus, records);
+  const body = `${section}\n\n\`\`\`text\n${renderLessonSource(source, lessons)}\n\`\`\`\n`;
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
     "churn.md",
@@ -566,6 +583,12 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     throw error;
   }
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
+  if (churn === null) {
+    process.stderr.write(
+      "Lesson assessment unavailable for the newer ledger schema; the published report does not establish a policy pass.\n",
+    );
+    return 1;
+  }
   const failures = blockingSeamLines(churn);
   receipt("succeeded", failures.length === 0 ? "succeeded" : "failed", url);
   if (failures.length === 0) return 0;
@@ -702,6 +725,8 @@ record --input PATH imports a reviewed {version:1, records:[...]} bundle.
 It validates content digests and frozen evidence; it does not execute guard commands.
 --push publishes the bot-owned ref with an expected-old lease.
 report writes the GitHub churn comment and reports unresolved failures.
+It reads one current immutable lesson source and reports its SHA/freshness without moving local refs.
+Newer schemas publish an unavailable assessment and exit 1; no policy pass is inferred.
 render writes the local mirror; --check compares without writing.
 seed initializes the ledger; append records a completed walk.
 Exit: 0 complete, 1 runtime/evidence failure or blocking seam, 2 invalid arguments.
