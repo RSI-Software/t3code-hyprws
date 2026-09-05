@@ -11,6 +11,26 @@ const scanScript = NodePath.join(import.meta.dirname, "fork-scan.ts");
 const encodeFixtureJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const authoringCases = [
   {
+    name: "spawn target resolution",
+    sourcePath: "apps/web/src/components/chat/MessagesTimeline.tsx",
+    inlineImplementation:
+      'import { resolveAgentSpawnOpenTarget } from "./AgentSpawnCta.logic";\nconst openTarget = resolveAgentSpawnOpenTarget(input);',
+    forkPath: "apps/web/src/components/chat/AgentSpawnNavigation.ts",
+    integrationCall: "const onOpenAgents = createAgentSpawnOpenHandler(input);",
+    rule: "agent-spawn-navigation",
+    domain: "custom-agents",
+  },
+  {
+    name: "spawn click target selection",
+    sourcePath: "apps/web/src/components/chat/MessagesTimeline.tsx",
+    inlineImplementation:
+      "const onClick = () => onOpenAgents(openTarget.selectedAgentId, openTarget.rosterFocusAgentId);",
+    forkPath: "apps/web/src/components/chat/AgentSpawnNavigation.ts",
+    integrationCall: "const onOpenAgents = createAgentSpawnOpenHandler(input);",
+    rule: "agent-spawn-navigation",
+    domain: "custom-agents",
+  },
+  {
     name: "terminal attachment",
     sourcePath: "apps/web/src/state/terminalSessions.ts",
     inlineImplementation: "const [retained, setRetained] = useState(initial);",
