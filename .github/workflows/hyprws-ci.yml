@@ -60,12 +60,29 @@ jobs:
       # carry. On a pull request, inspect the branch head rather than the
       # synthetic merge commit, which has no trailers.
       - name: Fork ledger
+        id: fork_ledger
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
+          BASE=$(git merge-base upstream/main "$HEAD_SHA")
+          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
+          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
+            SINCE="$HEAD_SHA^"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+
+      # Pin to the fork's own base: enforce adopted authoring boundaries without
+      # blaming this head for unrelated changes landing on live upstream/main.
+      - name: Fork authoring guards
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ steps.fork_ledger.outputs.base }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
+        run: vp run fork:scan --head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck
 
       # A rebase scan is what the next sync reads before trusting an automerge,
       # so a domain that changes a file upstream is changing too has to name it
@@ -75,19 +92,16 @@ jobs:
       # not the fault of the pull request under test. The blocking run is gates 3
       # and 4 of the fork-sync skill, which scan against the new target tag while
       # the fork still sits on the old one.
-      - name: Fork rebase scans (advisory)
+      - name: Live upstream rebase scan (advisory)
         continue-on-error: true
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
         run: |
           # Ledger guards warn about authoring shapes the whole fork stack
           # already carries, so scope them to the commits this branch adds.
           # `--since` only narrows the warnings; the scan verdict still covers
           # every domain.
-          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
-          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
-            SINCE="$HEAD_SHA^"
-          fi
           vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck
 
       - name: Ensure Electron runtime is installed
