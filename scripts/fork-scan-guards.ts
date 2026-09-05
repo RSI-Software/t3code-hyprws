@@ -29,7 +29,8 @@ export type ScanWarningRule =
   | "provider-agent-boundary"
   | "lockfile"
   | "sidebar-physical-scope"
-  | "terminal-attachment-boundary";
+  | "terminal-attachment-boundary"
+  | "thread-route-navigation";
 
 // Adopted boundaries are enforced on the commits an authoring scan selects.
 // Historical inventory remains advisory so its original patches can be repaired
@@ -38,6 +39,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "terminal-attachment-boundary",
   "provider-agent-boundary",
   "sidebar-physical-scope",
+  "thread-route-navigation",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -49,6 +51,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "sidebar-physical-scope",
   "lockfile",
   "terminal-attachment-boundary",
+  "thread-route-navigation",
 ];
 
 export interface ScanWarning {
@@ -84,6 +87,7 @@ export interface CommitPatch {
   readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
+  readonly threadRouteNavigationAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -136,6 +140,18 @@ const TERMINAL_ATTACHMENT_STATE =
 const PROVIDER_AGENT_SOURCE = /^apps\/server\/src\/provider\/Layers\/(?:Claude|Codex)Provider\.ts$/;
 const PROVIDER_AGENT_DECLARATION =
   /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+(?:parseClaudeInitializationAgents|withClaudeAgentOptions|withCodexAgentOptions)\b/;
+const THREAD_NAVIGATION_SOURCES = new Set([
+  "apps/web/src/components/ChatView.tsx",
+  "apps/web/src/components/CommandPalette.tsx",
+  "apps/web/src/hooks/useHandleNewThread.ts",
+]);
+// Added import blocks may span lines. Calls through threadRouteNavigation stay
+// valid, including execution-time reads of current params after async work.
+const THREAD_NAVIGATION_IMPORT =
+  /\bimport\s*\{[^}]*\bresolveThreadRouteFamily\b[^}]*\}\s*from\s*["'](?:\.\.\/)+threadRoutes(?:\.ts)?["']/;
+const THREAD_NAVIGATION_SELECTION =
+  /\bselect\s*:\s*(?:\([^)]*\)|\w+)\s*=>\s*(?:\{\s*return\s+)?resolveThreadRouteFamily\s*\(/;
+const THREAD_NAVIGATION_DECLARATION = /\b(?:function|const|let)\s+resolveThreadRouteFamily\b/;
 
 const diffPath = (value: string): string | null => {
   const target = value.trim();
@@ -154,6 +170,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
+    const navigationAdditions = new Map<string, Array<string>>();
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -191,6 +208,11 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
+      if (added && THREAD_NAVIGATION_SOURCES.has(path) && !/^\s*(?:\/\/|\/\*|\*)/.test(content)) {
+        const additions = navigationAdditions.get(path) ?? [];
+        additions.push(content);
+        navigationAdditions.set(path, additions);
+      }
       if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
         terminalAttachmentStateAdded = true;
       if (added && PROVIDER_AGENT_SOURCE.test(path) && PROVIDER_AGENT_DECLARATION.test(content)) {
@@ -219,6 +241,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
     }
     flushTestBlockHunk();
+    const threadRouteNavigationAdded = [...navigationAdditions.values()].some((lines) => {
+      const added = lines.join("\n");
+      return (
+        THREAD_NAVIGATION_IMPORT.test(added) ||
+        THREAD_NAVIGATION_SELECTION.test(added) ||
+        THREAD_NAVIGATION_DECLARATION.test(added)
+      );
+    });
     patches.set(sha, {
       removedExports,
       addedExports,
@@ -226,6 +256,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
+      ...(threadRouteNavigationAdded ? { threadRouteNavigationAdded: true } : {}),
     });
   }
   return patches;
@@ -292,6 +323,13 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "provider-agent-boundary",
         "ClaudeProvider.ts/CodexProvider.ts gains fork agent normalization or model-option implementation; keep it in the provider-specific *AgentOptions.fork.ts sibling and retain only the integration call",
+      );
+    }
+
+    if (patch.threadRouteNavigationAdded) {
+      warn(
+        "thread-route-navigation",
+        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts gains direct route-family policy; use lib/threadRouteNavigation and retain execution-time parameter reads at navigation sites",
       );
     }
 
