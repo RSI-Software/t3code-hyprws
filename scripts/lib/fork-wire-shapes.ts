@@ -266,7 +266,7 @@ export const extractWireShapes = (source: string): ReadonlyArray<WireShape> => {
     const name = match[1];
     if (name === undefined) continue;
     const tail = source.slice(binding.lastIndex);
-    const call = /^\s*Schema\.(Literals|Struct)\s*\(\s*([\[{])/.exec(tail);
+    const call = /^\s*Schema\.(Literals|Struct)\s*\(\s*([[{])/.exec(tail);
     if (call === null) continue;
     const kind = call[1];
     const opening = kind === "Literals" ? "[" : "{";
@@ -380,6 +380,22 @@ export const compareWireShapes = (
       case "field-removed":
         return [
           { schema: change.schema, change: `field removed: ${change.key}`, hint: REVIEW_HINT },
+        ];
+      case "schema-removed":
+        return [
+          {
+            schema: change.schema,
+            change: "schema removed or renamed",
+            hint: REVIEW_HINT,
+          },
+        ];
+      case "schema-kind-changed":
+        return [
+          {
+            schema: change.schema,
+            change: "schema kind changed",
+            hint: REVIEW_HINT,
+          },
         ];
       default:
         return [];

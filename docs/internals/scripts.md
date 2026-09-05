@@ -101,8 +101,10 @@ authenticated.
   `Fork-Tier` trailer (`scripts/fork-delta.ts`), omitting subjects recorded under Retired in the fork
   ledger. `--check` exits 1 when a commit has invalid trailers or a retired subject is still present;
   `--json` emits the active ledger for tooling. `--domain <name> --shas` prints one domain's SHAs in
-  stack order for `git cherry-pick` onto upstream. `--check --squash-body <file>` verifies a
-  pull-request body ends with the trailer block its squash commit will inherit.
+  stack order for `git cherry-pick` onto upstream. With `--check`, `--squash-body <file>` requires
+  explicit `--base` and `--head` refs, compares their merge base with the prospective squash head for
+  shipped wire changes, and verifies the pull-request body ends with the trailer block that squash
+  commit needs.
 - `vp run fork:preflight`: Checks the preconditions the fork-sync gates depend on and names each
   unmet one (`scripts/fork-preflight.ts`): `rerere.enabled`, the `origin` and `upstream` remotes, a
   freshly fetched `origin/hyprws`, a `main` mirror level with `upstream/main`, and installed

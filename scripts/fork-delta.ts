@@ -208,6 +208,22 @@ export const buildLedger = (
   };
 };
 
+export const buildSquashLedger = (
+  base: string,
+  head: string,
+  body: string,
+  wireFindings: ReadonlyArray<WireShapeFinding>,
+): ForkLedger => {
+  const commit = parseSquashBody("pull-request body", body);
+  return buildLedger(
+    base,
+    head,
+    [commit],
+    EMPTY_RETIREMENT_LEDGER,
+    new Map([[commit.sha, wireFindings]]),
+  );
+};
+
 // Narrows the ledger to one domain so its commits can be extracted as a unit.
 // Returns null when no fork commit carries that domain.
 export const selectDomain = (ledger: ForkLedger, domain: string): ForkLedger | null => {
@@ -336,6 +352,62 @@ const readRevisionPath = Effect.fn("readForkWireRevisionPath")(function* (
   return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
 });
 
+const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
+  base: string,
+  head: string,
+  cwd: string,
+) {
+  const result = yield* runGit(["merge-base", base, head], cwd);
+  const mergeBase = result.stdout.trim();
+  if (result.exitCode !== 0 || mergeBase.length === 0) {
+    return yield* new ForkLogExitError({
+      exitCode: result.exitCode === 0 ? 1 : result.exitCode,
+      stderr: result.stderr || `no merge base between ${base} and ${head}`,
+    });
+  }
+  return mergeBase;
+});
+
+export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindingsBetween")(
+  function* (base: string, head: string, cwd = process.cwd()) {
+    const mergeBase = yield* resolveMergeBase(base, head, cwd);
+    const changed = yield* runGit(
+      ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
+      cwd,
+    );
+    if (changed.exitCode !== 0) {
+      return yield* new ForkLogExitError({
+        exitCode: changed.exitCode,
+        stderr: changed.stderr,
+      });
+    }
+    const paths = [
+      ...new Set(
+        changed.stdout
+          .split("\n")
+          .map((path) => path.trim())
+          .filter((path) => path.startsWith("packages/contracts/src/")),
+      ),
+    ];
+    const findings = yield* Effect.forEach(
+      paths,
+      (path) =>
+        Effect.gen(function* () {
+          const [before, after] = yield* Effect.all(
+            [
+              readRevisionPath(`${mergeBase}:${path}`, cwd),
+              readRevisionPath(`${head}:${path}`, cwd),
+            ],
+            { concurrency: "unbounded" },
+          );
+          return compareWireShapes(before, after, path);
+        }),
+      { concurrency: 4 },
+    );
+    return findings.flat();
+  },
+);
+
 export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(function* (
   commits: ReadonlyArray<ForkCommit>,
   cwd = process.cwd(),
@@ -347,36 +419,8 @@ export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(fu
         if (isReviewedWireTrailer(commit.wireReviewed)) {
           return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
         }
-        const changed = yield* runGit(
-          ["show", "--name-only", "--format=", commit.sha, "--", "packages/contracts/src"],
-          cwd,
-        );
-        if (changed.exitCode !== 0) {
-          return yield* new ForkLogExitError({
-            exitCode: changed.exitCode,
-            stderr: changed.stderr,
-          });
-        }
-        const paths = changed.stdout
-          .split("\n")
-          .map((path) => path.trim())
-          .filter((path) => path.startsWith("packages/contracts/src/"));
-        const findings = yield* Effect.forEach(
-          paths,
-          (path) =>
-            Effect.gen(function* () {
-              const [before, after] = yield* Effect.all(
-                [
-                  readRevisionPath(`${commit.sha}^:${path}`, cwd),
-                  readRevisionPath(`${commit.sha}:${path}`, cwd),
-                ],
-                { concurrency: "unbounded" },
-              );
-              return compareWireShapes(before, after, path);
-            }),
-          { concurrency: 4 },
-        );
-        return [commit.sha, findings.flat() as ReadonlyArray<WireShapeFinding>] as const;
+        const findings = yield* collectWireShapeFindingsBetween(`${commit.sha}^`, commit.sha, cwd);
+        return [commit.sha, findings] as const;
       }),
     { concurrency: 4 },
   );
@@ -387,12 +431,16 @@ const command = Command.make(
   "fork-delta",
   {
     base: Flag.string("base").pipe(
-      Flag.withDescription("Upstream ref the fork stack sits on."),
-      Flag.withDefault("upstream/main"),
+      Flag.withDescription(
+        "Base ref; defaults to upstream/main except --squash-body requires it explicitly.",
+      ),
+      Flag.optional,
     ),
     head: Flag.string("head").pipe(
-      Flag.withDescription("Fork ref to inventory."),
-      Flag.withDefault("HEAD"),
+      Flag.withDescription(
+        "Head ref; defaults to HEAD except --squash-body requires it explicitly.",
+      ),
+      Flag.optional,
     ),
     check: Flag.boolean("check").pipe(
       Flag.withDescription(
@@ -416,7 +464,7 @@ const command = Command.make(
     ),
     squashBody: Flag.string("squash-body").pipe(
       Flag.withDescription(
-        "With --check, verify a pull-request body file ends with the trailer block its squash commit needs.",
+        "With --check, verify the base-to-head squash and the pull-request body's final trailer block.",
       ),
       Flag.optional,
     ),
@@ -424,20 +472,34 @@ const command = Command.make(
   ({ base, head, check, json, domain, shas, squashBody }) =>
     Effect.gen(function* () {
       if (Option.isSome(squashBody)) {
+        const missingRefs = [
+          ...(Option.isNone(base) ? ["--base"] : []),
+          ...(Option.isNone(head) ? ["--head"] : []),
+        ];
+        if (missingRefs.length > 0) {
+          process.stderr.write(
+            `failed: --squash-body requires explicit ${missingRefs.join(" and ")}\n`,
+          );
+          process.exitCode = 2;
+          return;
+        }
+        const squashBase = Option.getOrThrow(base);
+        const squashHead = Option.getOrThrow(head);
         const fileSystem = yield* FileSystem.FileSystem;
         const body = yield* fileSystem.readFileString(squashBody.value);
-        const findings = collectFindings([parseSquashBody("pull-request body", body)]);
-        for (const finding of findings) {
+        const wireFindings = yield* collectWireShapeFindingsBetween(squashBase, squashHead);
+        const ledger = buildSquashLedger(squashBase, squashHead, body, wireFindings);
+        for (const finding of ledger.findings) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
         }
-        if (findings.length > 0) {
+        if (ledger.findings.length > 0) {
           process.stderr.write(
-            `failed: the squash commit would land without a valid trailer block; end the body with Fork-Domain and Fork-Tier (docs/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
         }
-        process.stdout.write("ok: squash body carries its fork trailers\n");
+        process.stdout.write("ok: prospective squash carries its fork trailers and wire review\n");
         return;
       }
       const fileSystem = yield* FileSystem.FileSystem;
@@ -445,9 +507,18 @@ const command = Command.make(
       const wireBaseline = parseForkWireBaseline(
         yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
       );
-      const commits = yield* readForkLog(base, head);
+      const resolvedBase = Option.getOrElse(base, () => "upstream/main");
+      const resolvedHead = Option.getOrElse(head, () => "HEAD");
+      const commits = yield* readForkLog(resolvedBase, resolvedHead);
       const wireFindings = yield* collectWireShapeFindings(commits);
-      const full = buildLedger(base, head, commits, retirementLedger, wireFindings, wireBaseline);
+      const full = buildLedger(
+        resolvedBase,
+        resolvedHead,
+        commits,
+        retirementLedger,
+        wireFindings,
+        wireBaseline,
+      );
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");
