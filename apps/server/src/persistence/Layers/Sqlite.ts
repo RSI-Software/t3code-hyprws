@@ -5,6 +5,7 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
+import { repairStaleForkMigrationRow, ensureForkSchema } from "../ForkSchema.ts";
 import { runMigrations } from "../Migrations.ts";
 import { ServerConfig } from "../../config.ts";
 
@@ -37,7 +38,9 @@ const setup = Layer.effectDiscard(
     yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
     yield* sql`PRAGMA journal_mode = WAL;`;
+    yield* repairStaleForkMigrationRow();
     yield* runMigrations();
+    yield* ensureForkSchema();
   }),
 );
 
