@@ -599,6 +599,30 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       assert.include(posted, item.status);
       if (item.records.length === 0) assert.notInclude(posted, "was fixed at");
     }
+    // A completed walk with the same tag and provenance as its frozen snapshot
+    // anchors the histories and preserves the verified report policy pass.
+    writeChurnState(
+      root,
+      {
+        version: 3,
+        walks: [walk(clear.tag, snapshot(B, []))],
+        seamRecords: records,
+        outcomes: [],
+      },
+      "anchored mixed chronology",
+    );
+    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
+    const anchoredReceipt = NodePath.join(root, "anchored-receipt.json");
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", anchoredReceipt], root), 0);
+    assert.include(
+      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
+      "verified-repaired",
+    );
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(anchoredReceipt, "utf8")), {
+      publication: "succeeded",
+      policy: "succeeded",
+      url: "https://example.test/comment",
+    });
     // The verified frozen repair cannot order an unanchored completed walk.
     writeChurnState(
       root,

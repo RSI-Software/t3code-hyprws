@@ -408,6 +408,9 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
     (issueView.body.trim() === record.trim() ? issueView.url : undefined);
   if (recordUrl === undefined)
     throw new Error(`record does not match issue ${issue} body or comments`);
+  const censusEvidence = parseSequentialCensusEvidence(issueView.body);
+  if (censusEvidence !== null && censusEvidence.targetTag !== tag)
+    throw new Error(`--tag ${tag} does not match census targetTag ${censusEvidence.targetTag}`);
   const conflicts = parsed.conflicts.map(
     ({ path, commit, subject, domain, class: klass, resolution, decidedBy }) => ({
       path,
@@ -430,11 +433,7 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
       conflicts,
       decisions: parsed.decisions,
       censusFiles: parseCensusFiles(issueView.body),
-      ...(parseSequentialCensusEvidence(issueView.body) === null
-        ? {}
-        : {
-            censusEvidence: parseSequentialCensusEvidence(issueView.body)!,
-          }),
+      ...(censusEvidence === null ? {} : { censusEvidence }),
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
       ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
     },

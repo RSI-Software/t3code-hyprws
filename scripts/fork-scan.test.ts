@@ -321,7 +321,10 @@ it("carries ledger guard warnings into the report without changing the scan verd
         patchesBySha: new Map(),
         upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx"]),
         hotSeams: new Map([
-          ["apps/web/src/components/ChatView.tsx", { walkCount: 3, worstClass: "seam-moved" }],
+          [
+            "apps/web/src/components/ChatView.tsx",
+            { walkCount: 3, worstClass: "seam-moved", countUnit: "conflict walk(s)" },
+          ],
         ]),
       },
     }),
