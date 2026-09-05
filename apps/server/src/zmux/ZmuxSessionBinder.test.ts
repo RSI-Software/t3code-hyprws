@@ -43,6 +43,8 @@ const resolveJson = JSON.stringify({
   match: "worktree",
   tmuxName: "t3code__feat_test",
   nativeId: "$42",
+  serverId: "123:456",
+  createdAt: 789,
   state: "live",
   binding: {
     branch: "feat/test",
@@ -179,7 +181,10 @@ describe("ZmuxSessionBinder", () => {
     return Effect.gen(function* () {
       const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
       const resolved = yield* binder.resolve("/repo/wt");
-      const unbound = yield* binder.unbind("/repo/wt");
+      const prepared = yield* binder.prepareUnbind("/repo/wt");
+      assert.equal(prepared.status, "prepared");
+      if (prepared.status !== "prepared") return;
+      const unbound = yield* binder.unbind(prepared.identity);
 
       assert.deepStrictEqual(resolved, {
         status: "resolved",
@@ -187,6 +192,8 @@ describe("ZmuxSessionBinder", () => {
         match: "worktree",
         tmuxName: "t3code__feat_test",
         nativeId: "$42",
+        serverId: "123:456",
+        createdAt: 789,
         state: "live",
         binding: {
           branch: "feat/test",
@@ -202,9 +209,92 @@ describe("ZmuxSessionBinder", () => {
         [
           ["session", "resolve", "--cwd", "/repo/wt", "--json"],
           ["session", "resolve", "--cwd", "/repo/wt", "--json"],
-          ["session", "kill", "t3code/feat/test"],
+          [
+            "session",
+            "kill",
+            "t3code/feat/test",
+            "--if-session-id",
+            "$42",
+            "--if-server-id",
+            "123:456",
+            "--if-created-at",
+            "789",
+            "--json",
+          ],
         ],
       );
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
+  it.effect("refuses cleanup preparation without the complete native generation", () => {
+    const run = vi.fn(() =>
+      Effect.succeed({
+        ...successfulOutput,
+        stdout: JSON.stringify({ ...JSON.parse(resolveJson), serverId: undefined }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const prepared = yield* binder.prepareUnbind("/repo/wt");
+
+      assert.equal(prepared.status, "failed");
+      assert.equal(run.mock.calls.length, 1);
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
+  it.effect("accepts a restorable resolve DTO and preserves its durable record", () => {
+    const run = vi.fn(() =>
+      Effect.succeed({
+        ...successfulOutput,
+        stdout: JSON.stringify({
+          ...JSON.parse(resolveJson),
+          tmuxName: null,
+          nativeId: null,
+          serverId: null,
+          createdAt: null,
+          state: "restorable",
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const resolved = yield* binder.resolve("/repo/wt");
+      const prepared = yield* binder.prepareUnbind("/repo/wt");
+
+      assert.equal(resolved.status, "resolved");
+      assert.equal(prepared.status, "failed");
+      if (prepared.status !== "failed") return;
+      assert.match(prepared.notice.detail, /processes and durable record will be preserved/);
+      assert.match(prepared.notice.detail, /zmux tabs 't3code\/feat\/test'/);
+      assert.equal(prepared.notice.detail.includes("session kill"), false);
+    }).pipe(Effect.provide(makeLayer(run)));
+  });
+
+  it.effect("returns the zmux refusal without duplicating recovery guidance", () => {
+    const run = vi.fn(() =>
+      Effect.succeed({
+        ...successfulOutput,
+        code: ChildProcessSpawner.ExitCode(1),
+        stdout: JSON.stringify({
+          errors: [{ code: "shared_view", message: "session has shared viewers" }],
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
+      const result = yield* binder.unbind({
+        target: "t3code/feat'test",
+        nativeId: "$42",
+        serverId: "123:456",
+        createdAt: 789,
+      });
+
+      assert.equal(result.status, "failed");
+      if (result.status !== "failed") return;
+      assert.equal(result.notice.detail, "shared_view: session has shared viewers");
     }).pipe(Effect.provide(makeLayer(run)));
   });
 
