@@ -12,6 +12,7 @@ import * as Scope from "effect/Scope";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ProcessRunner from "../processRunner.ts";
+import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
@@ -27,9 +28,23 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
   resizeFailure: unknown | undefined;
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: PtyAdapter.PtyExitEvent) => void>();
+  private readonly initialEvent:
+    | { readonly type: "data"; readonly data: string }
+    | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent }
+    | undefined;
   killed = false;
-  constructor(pid: number) {
+  private initialEventDelivered = false;
+  private readonly listeningSignal = Promise.withResolvers<void>();
+  /** Resolves once the manager has attached both data and exit listeners. */
+  readonly listening = this.listeningSignal.promise;
+  constructor(
+    pid: number,
+    initialEvent?:
+      | { readonly type: "data"; readonly data: string }
+      | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent },
+  ) {
     this.pid = pid;
+    this.initialEvent = initialEvent;
   }
   write(data: string): void {
     if (this.writeFailure !== undefined) {
@@ -49,12 +64,22 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
   }
   onData(callback: (data: string) => void): () => void {
     this.dataListeners.add(callback);
+    this.signalListening();
+    if (!this.initialEventDelivered && this.initialEvent?.type === "data") {
+      this.initialEventDelivered = true;
+      callback(this.initialEvent.data);
+    }
     return () => {
       this.dataListeners.delete(callback);
     };
   }
   onExit(callback: (event: PtyAdapter.PtyExitEvent) => void): () => void {
     this.exitListeners.add(callback);
+    this.signalListening();
+    if (!this.initialEventDelivered && this.initialEvent?.type === "exit") {
+      this.initialEventDelivered = true;
+      callback(this.initialEvent.event);
+    }
     return () => {
       this.exitListeners.delete(callback);
     };
@@ -62,6 +87,14 @@ export class FakePtyProcess implements PtyAdapter.PtyProcess {
   emitData(data: string): void {
     for (const listener of this.dataListeners) {
       listener(data);
+    }
+  }
+  hasDataListener(): boolean {
+    return this.dataListeners.size > 0;
+  }
+  private signalListening(): void {
+    if (this.dataListeners.size > 0 && this.exitListeners.size > 0) {
+      this.listeningSignal.resolve();
     }
   }
   emitExit(event: PtyAdapter.PtyExitEvent): void {
@@ -113,7 +146,7 @@ export function resolvedZmuxProcessRunner(): FakeProcessRunner {
     Effect.succeed(
       processResult({
         stdout:
-          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","state":"live","match":"worktree"}',
+          '{"workspace":"zmux","session":"main","target":"zmux/main","tmuxName":"zws_zmux__main","nativeId":"$22","serverId":"123:456","createdAt":1700000000,"state":"live","match":"worktree"}',
       }),
     ),
   );
@@ -122,8 +155,25 @@ export class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
   readonly spawnFailures: Error[] = [];
+  readonly spawnInitialEvents: Array<
+    | { readonly type: "data"; readonly data: string }
+    | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent }
+    | ((
+        input: PtyAdapter.PtySpawnInput,
+      ) =>
+        | { readonly type: "data"; readonly data: string }
+        | { readonly type: "exit"; readonly event: PtyAdapter.PtyExitEvent })
+  > = [];
   private readonly mode: "sync" | "async";
   private nextPid = 9000;
+  private readonly spawnWaiters: Array<PromiseWithResolvers<FakePtyProcess>> = [];
+  /** Resolves with the process at `index` once it has been spawned. */
+  spawned(index: number): Promise<FakePtyProcess> {
+    const existing = this.processes[index];
+    if (existing) return Promise.resolve(existing);
+    this.spawnWaiters[index] ??= Promise.withResolvers<FakePtyProcess>();
+    return this.spawnWaiters[index].promise;
+  }
   constructor(mode: "sync" | "async" = "sync") {
     this.mode = mode;
   }
@@ -141,8 +191,13 @@ export class FakePtyAdapter {
         }),
       );
     }
-    const process = new FakePtyProcess(this.nextPid++);
+    const initialEvent = this.spawnInitialEvents.shift();
+    const process = new FakePtyProcess(
+      this.nextPid++,
+      typeof initialEvent === "function" ? initialEvent(input) : initialEvent,
+    );
     this.processes.push(process);
+    this.spawnWaiters[this.processes.length - 1]?.resolve(process);
     if (this.mode === "async") {
       return Effect.tryPromise({
         try: async () => process,
@@ -179,13 +234,18 @@ export interface CreateManagerOptions {
   processKillGraceMs?: number;
   managedAttachmentSuspendGraceMs?: number;
   managedAttachmentFirstAttachDeadlineMs?: number;
+  managedRetargetReadyDeadline?: Effect.Effect<void>;
+  managedRetargetCommitBarrier?: Effect.Effect<void>;
+  managedRetargetAdoptionBarrier?: Effect.Effect<void>;
   maxRetainedInactiveSessions?: number;
   ptyAdapter?: FakePtyAdapter;
   terminalSessionMode?: "shell" | "zmux";
+  ensureZmuxSession?: ZmuxSessionBinder.ZmuxSessionBinder["Service"]["ensure"];
 }
 export interface ManagerFixture {
   readonly baseDir: string;
   readonly logsDir: string;
+  readonly join: (...paths: ReadonlyArray<string>) => string;
   readonly ptyAdapter: FakePtyAdapter;
   readonly manager: TerminalManager.TerminalManager["Service"];
   readonly getEvents: Effect.Effect<ReadonlyArray<TerminalEvent>>;
@@ -226,11 +286,23 @@ export const createManager = (
                 options.managedAttachmentFirstAttachDeadlineMs,
             }
           : {}),
+        ...(options.managedRetargetReadyDeadline !== undefined
+          ? { managedRetargetReadyDeadline: options.managedRetargetReadyDeadline }
+          : {}),
+        ...(options.managedRetargetCommitBarrier !== undefined
+          ? { managedRetargetCommitBarrier: options.managedRetargetCommitBarrier }
+          : {}),
+        ...(options.managedRetargetAdoptionBarrier !== undefined
+          ? { managedRetargetAdoptionBarrier: options.managedRetargetAdoptionBarrier }
+          : {}),
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
           : {}),
         ...(options.terminalSessionMode !== undefined
           ? { terminalSessionMode: Effect.succeed(options.terminalSessionMode) }
+          : {}),
+        ...(options.ensureZmuxSession !== undefined
+          ? { ensureZmuxSession: options.ensureZmuxSession }
           : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
