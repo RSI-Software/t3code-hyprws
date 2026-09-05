@@ -62,18 +62,20 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
     return "FORK_OUTCOME_EXPORT must use the shared path in Retain release outcome env";
 
   const verify = workflowStep(workflow, "Verify retained release outcome");
+  const verifyLines = verify?.split("\n");
   const retainIndex = workflow.indexOf("      - name: Retain release outcome\n");
   const verifyIndex = workflow.indexOf("      - name: Verify retained release outcome\n");
   const uploadIndex = workflow.indexOf("      - name: Upload distribution evidence\n");
   if (
     verify === undefined ||
-    !verify
-      .split("\n")
-      .includes('        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"') ||
+    !verifyLines?.includes('        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"') ||
+    verifyLines.some(
+      (line) => line.startsWith("        if:") || line.startsWith("        continue-on-error:"),
+    ) ||
     retainIndex >= verifyIndex ||
     verifyIndex >= uploadIndex
   )
-    return "Verify retained release outcome must test the retained receipt is nonempty between collection and upload";
+    return "Verify retained release outcome must unconditionally test the retained receipt is nonempty between collection and upload";
 
   const upload = workflowStep(workflow, "Upload distribution evidence");
   const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
@@ -89,6 +91,19 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
   return undefined;
 };
 
+const WORKFLOW_GUARDS = new Map<
+  string,
+  { readonly fork: string; readonly problem: (workflow: string) => string | undefined }
+>([
+  [
+    RELEASE_OUTCOME_GUARD,
+    {
+      fork: ".github/workflows/hyprws-release.yml",
+      problem: releaseOutcomeExportProblem,
+    },
+  ],
+]);
+
 interface WorkflowReview {
   readonly upstream: string;
   readonly fork: string;
@@ -97,7 +112,7 @@ interface WorkflowReview {
   readonly forkBlob: string;
   readonly disposition: "adapted" | "no-change";
   readonly reason: string;
-  readonly guards?: ReadonlyArray<typeof RELEASE_OUTCOME_GUARD>;
+  readonly guards?: ReadonlyArray<string>;
 }
 
 export interface WorkflowDrift {
@@ -121,8 +136,8 @@ const object = (value: unknown): Record<string, unknown> => {
 
 export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview> => {
   const document = object(JSON.parse(raw));
-  if (document.version !== 1 || !Array.isArray(document.reviews))
-    throw new Error(`invalid ${WORKFLOW_REVIEWS_PATH}: expected version 1 and reviews`);
+  if ((document.version !== 1 && document.version !== 2) || !Array.isArray(document.reviews))
+    throw new Error(`invalid ${WORKFLOW_REVIEWS_PATH}: expected version 1 or 2 and reviews`);
   const reviews = document.reviews.map((value: unknown): WorkflowReview => {
     const row = object(value);
     for (const key of ["upstream", "fork", "upstreamCommit", "upstreamBlob", "forkBlob", "reason"])
@@ -133,13 +148,15 @@ export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview>
         throw new Error(`invalid workflow review: ${key} must be a full Git object ID`);
     if (row.disposition !== "adapted" && row.disposition !== "no-change")
       throw new Error("invalid workflow review: disposition must be adapted or no-change");
-    if (
-      row.guards !== undefined &&
-      (!Array.isArray(row.guards) ||
-        row.guards.length !== 1 ||
-        row.guards[0] !== RELEASE_OUTCOME_GUARD)
-    )
-      throw new Error(`invalid workflow review: guards must contain ${RELEASE_OUTCOME_GUARD}`);
+    if (row.guards !== undefined) {
+      if (!Array.isArray(row.guards) || row.guards.some((guard) => typeof guard !== "string"))
+        throw new Error("invalid workflow review: guards must be an array of strings");
+      if (row.guards.length !== new Set(row.guards).size)
+        throw new Error("invalid workflow review: guards must not contain duplicate IDs");
+      const unknown = row.guards.find((guard) => !WORKFLOW_GUARDS.has(guard as string));
+      if (unknown !== undefined)
+        throw new Error(`invalid workflow review: unknown guard ${unknown}`);
+    }
     return row as unknown as WorkflowReview;
   });
   const seen = new Set<string>();
@@ -150,14 +167,21 @@ export const parseWorkflowReviews = (raw: string): ReadonlyArray<WorkflowReview>
       )
     )
       throw new Error(`invalid workflow review counterpart: ${review.upstream} -> ${review.fork}`);
-    if (
-      review.guards?.includes(RELEASE_OUTCOME_GUARD) &&
-      review.fork !== ".github/workflows/hyprws-release.yml"
-    )
-      throw new Error(`${RELEASE_OUTCOME_GUARD} is only valid for the fork release workflow`);
+    for (const guard of review.guards ?? []) {
+      const registration = WORKFLOW_GUARDS.get(guard);
+      if (registration?.fork !== review.fork)
+        throw new Error(`${guard} is not valid for workflow ${review.fork}`);
+    }
     if (seen.has(review.upstream)) throw new Error(`duplicate workflow review: ${review.upstream}`);
     seen.add(review.upstream);
   }
+  if (
+    document.version === 2 &&
+    !reviews
+      .find(({ fork }) => fork === ".github/workflows/hyprws-release.yml")
+      ?.guards?.includes(RELEASE_OUTCOME_GUARD)
+  )
+    throw new Error(`workflow review version 2 requires guard ${RELEASE_OUTCOME_GUARD}`);
   return reviews;
 };
 
@@ -180,8 +204,13 @@ export const readWorkflowDrift = (
     else if (review.upstreamBlob !== upstreamBlob)
       problem = "upstream workflow changed since review";
     else if (review.forkBlob !== forkBlob) problem = "fork counterpart changed since review";
-    else if (review.guards?.includes(RELEASE_OUTCOME_GUARD))
-      problem = releaseOutcomeExportProblem(git.run(["show", `${head}:${fork}`]));
+    else
+      for (const guard of review.guards ?? []) {
+        const guardProblem = WORKFLOW_GUARDS.get(guard)?.problem;
+        if (guardProblem === undefined) continue;
+        problem = guardProblem(git.run(["show", `${head}:${fork}`]));
+        if (problem !== undefined) break;
+      }
     return { upstream, fork, upstreamBlob, forkBlob, review, problem };
   });
 };

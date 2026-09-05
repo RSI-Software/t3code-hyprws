@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "reviews": [
     {
       "upstream": ".github/workflows/ci.yml",
@@ -18,7 +18,7 @@
       "forkBlob": "c3e5852f09de60c344642a242e1f66b24b755fad",
       "disposition": "adapted",
       "guards": ["release-outcome-evidence-v1"],
-      "reason": "Libsecret and pkg-config are installed before preflight tests and Linux artifact build; ImageMagick remains installed in the build job. Keep Linux x64 AppImage-only fork releases, fork stable/nightly versioning and pruning; upstream multi-platform signing and publication do not apply. The release checkout is now recorded before dependency setup, expected assets come from the actual build, and an always-run fork outcome job verifies tag/asset publication and retains failures for release-only retry. Runner-temporary export paths stay in step scope where the runner context is valid, with one shared filename for retention and upload; an explicit verification step requires the retained receipt to be nonempty before upload, while missing upload inputs remain a hard error."
+      "reason": "Libsecret and pkg-config are installed before preflight tests and Linux artifact build; ImageMagick remains installed in the build job. Keep Linux x64 AppImage-only fork releases, fork stable/nightly versioning and pruning; upstream multi-platform signing and publication do not apply. The release checkout is now recorded before dependency setup, expected assets come from the actual build, and an always-run fork outcome job verifies tag/asset publication and retains failures for release-only retry. Runner-temporary export paths stay in step scope where the runner context is valid, with one shared filename for retention and upload; the required semantic guard keeps an unconditional nonempty receipt check between collection and upload, while missing upload inputs remain a hard error."
     }
   ]
 }

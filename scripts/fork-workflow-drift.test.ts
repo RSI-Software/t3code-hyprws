@@ -57,6 +57,7 @@ const fixture = (
     reason?: string;
     releaseWorkflow?: string;
     releaseGuard?: boolean;
+    reviewVersion?: 1 | 2;
   } = {},
 ) => {
   const reviews = WORKFLOW_COPIES.map((pair) => ({
@@ -73,7 +74,7 @@ const fixture = (
   const git = {
     run: (args: ReadonlyArray<string>): string => {
       if (args[0] === "show" && args[1] === `HEAD:${WORKFLOW_REVIEWS_PATH}`)
-        return JSON.stringify({ version: 1, reviews });
+        return JSON.stringify({ version: options.reviewVersion ?? 2, reviews });
       if (args[0] === "show" && args[1] === "HEAD:.github/workflows/hyprws-release.yml")
         return options.releaseWorkflow ?? releaseWorkflow;
       if (args[0] === "rev-parse") {
@@ -171,7 +172,7 @@ it("refuses absent, malformed, duplicate and unreasoned reviews", () => {
       args[0] === "show" ? '{"version":1,"reviews":[]}' : git.run(args),
   };
   assert.lengthOf(scanFailures(scan(missing)), 2);
-  assert.throws(() => parseWorkflowReviews('{"version":2,"reviews":[]}'));
+  assert.throws(() => parseWorkflowReviews('{"version":3,"reviews":[]}'));
   assert.throws(
     () => parseWorkflowReviews(JSON.stringify({ version: 1, reviews: [...reviews, reviews[0]] })),
     /duplicate/,
@@ -190,12 +191,30 @@ it("refuses absent, malformed, duplicate and unreasoned reviews", () => {
       ),
     /full Git/,
   );
+  const withReleaseGuards = (guards: ReadonlyArray<string>) =>
+    reviews.map((review) =>
+      review.fork === ".github/workflows/hyprws-release.yml" ? { ...review, guards } : review,
+    );
+  assert.throws(
+    () => parseWorkflowReviews(JSON.stringify({ version: 2, reviews: withReleaseGuards([]) })),
+    /version 2 requires guard/,
+  );
   assert.throws(
     () =>
       parseWorkflowReviews(
-        JSON.stringify({ version: 1, reviews: [{ ...reviews[0], guards: [] }] }),
+        JSON.stringify({ version: 2, reviews: withReleaseGuards(["unknown-guard"]) }),
       ),
-    /guards/,
+    /unknown guard/,
+  );
+  assert.throws(
+    () =>
+      parseWorkflowReviews(
+        JSON.stringify({
+          version: 2,
+          reviews: withReleaseGuards([RELEASE_OUTCOME_GUARD, RELEASE_OUTCOME_GUARD]),
+        }),
+      ),
+    /duplicate IDs/,
   );
 });
 
@@ -270,7 +289,7 @@ it("keeps the release outcome export scoped to its collector and upload path", (
         '        run: test -e "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"',
       ),
     )!,
-    /must test the retained receipt is nonempty between collection and upload/,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
   );
   assert.match(
     releaseOutcomeExportProblem(
@@ -279,7 +298,7 @@ it("keeps the release outcome export scoped to its collector and upload path", (
         "      - name: Skip retained release outcome verification",
       ),
     )!,
-    /must test the retained receipt is nonempty between collection and upload/,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
   );
   assert.match(
     releaseOutcomeExportProblem(
@@ -289,7 +308,25 @@ it("keeps the release outcome export scoped to its collector and upload path", (
       ) +
         '      - name: Verify retained release outcome\n        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"\n',
     )!,
-    /must test the retained receipt is nonempty between collection and upload/,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "      - name: Verify retained release outcome\n",
+        "      - name: Verify retained release outcome\n        if: ${{ false }}\n",
+      ),
+    )!,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "      - name: Verify retained release outcome\n",
+        "      - name: Verify retained release outcome\n        continue-on-error: true\n",
+      ),
+    )!,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
   );
 });
 
@@ -318,7 +355,12 @@ it("keeps historical workflow reviews valid before the release outcome guard mar
     fork: forkAfter,
     reviewedFork: forkAfter,
     releaseGuard: false,
+    reviewVersion: 1 as const,
     releaseWorkflow: "jobs:\n  release:\n    runs-on: ubuntu-latest\n",
   };
   assert.isEmpty(scanFailures(scan(fixture(reviewed).git)));
+});
+
+it("requires the release outcome guard marker in current workflow reviews", () => {
+  assert.throws(() => scan(fixture({ releaseGuard: false }).git), /version 2 requires guard/);
 });
