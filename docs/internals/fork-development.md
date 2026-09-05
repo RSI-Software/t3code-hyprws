@@ -32,6 +32,13 @@ remain labelled pairwise feasibility overlap; their old aggregate census counts 
 stop rows. Method changes and partial censuses break comparison continuity, so neither can prove
 a seam disappeared. A partial census remains useful evidence but cannot decide a clean replay.
 
+The churn reporter keeps unresolved path/subject/domain identities through ordinary replays.
+An absent seam is only not observed; it is never an inferred repair. Before changing a seam's
+path, subject or patch split, store its full census and reviewed aliases with `fork:churn record`.
+A repair names its change and guard, and a separate maintainer-attested verification names the
+comparable replay and guard result. Returned unresolved seams and verified regressions remain
+blocking until comparable repair evidence clears them. See [Churn ledger](../operations/fork-sync.md#churn-ledger).
+
 ## Project-window direction
 
 The unit of desktop organization is a physical project in an environment.

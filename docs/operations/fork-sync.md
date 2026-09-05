@@ -77,6 +77,59 @@ git show refs/fork/churn:fork-churn.json
 
 ### Churn ledger
 
+The v2 ledger keeps `walks` and immutable `seamRecords` in the same `fork-churn.json`.
+Legacy arrays remain readable; no migration invents repair or verification records.
+Before rewriting a named seam, freeze its full census and reviewed identity mapping:
+
+```bash
+vp run fork:churn record --input reviewed-seams.json --push
+```
+
+`record` validates and stores a maintainer-attested bundle. It does not run the guard command
+named by a verification record. Its one-line receipt reports added records and the resulting
+ref; replaying an identical bundle adds nothing. `--push` publishes with the captured old lease.
+Malformed input leaves the ref untouched.
+
+A bundle is `{ "version": 1, "records": [...] }`. Each record's `id` is the SHA-256 of
+its canonical payload; the exported `seamRecord(payload)` helper in
+`scripts/lib/fork-churn-seams.ts` produces that digest. References use record IDs and zero-based
+row indexes. Import full `observation` records before referring to their rows:
+
+- `observation`: `method`, `tag`, complete retained `files`, and `evidence` from the sequential
+  census. Legacy overlap uses `method: "legacy-pairwise-feasibility"` and `evidence: null`.
+- `mapping`: one `from: { observation, row }`, one or more `to` row references, and maintainer
+  `attestation: { actor, evidenceUrl }`. The HTTPS URL names the reviewed mapping record.
+- `repair`: a `before` row reference, exact `changeSha`, named `guard`, and attestation.
+- `verification`: `repair` record ID, `after` observation ID, attestation, and retained
+  `guardProof: { sourceSha, command, exitCode, output }`. Its source must match the frozen head.
+
+A changed target, base, method or partial replay remains non-comparable even if the recorded
+guard command passed. An attested guard failure always blocks, including across these
+measurement boundaries. The importer validates retained evidence and source binding; it does
+not execute commands or check the repair commit's ancestry.
+Existing `vp run fork:churn` and `vp run fork:churn --check` still render/check the mirror.
+
+The report extends the existing census table with explicit seam states:
+
+| State               | Meaning                                                                                       | Report exit                                          |
+| ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| observed            | Seen, with no verified repair                                                                 | 0                                                    |
+| not-observed        | Not in the latest complete census; still unresolved                                           | 0 unless already blocking                            |
+| unknown             | Partial, incompatible or stale pre-repair observation; identity remains unresolved            | Prior blocking verdict remains                       |
+| returned-unresolved | Seen again without comparable repair proof                                                    | 1                                                    |
+| repair-unverified   | Named change and guard, without comparable passing evidence                                   | 1 for failed guard; prior blocking verdict otherwise |
+| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass                  | 0                                                    |
+| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure | 1                                                    |
+
+Ordinary replays preserve the path/subject/domain observation identity despite changing SHAs.
+Reviewed mappings preserve that identity through renames, moves and splits. Mapping chains
+resolve to their original identity independently of bundle order; cycles and multiple unrelated
+roots are refused. A method change retains identity but cannot establish absence or return until
+that identity has actually been observed with the new method. A census still bound to the frozen
+pre-repair source head remains stale, rather than proving a later regression. Unknown methods,
+changed targets and absent rows never prove repair. A previous blocking verdict needs comparable
+repair verification to clear it. The full report keeps unresolved seams visible even when absent.
+
 The ledger moved off `docs/internals/fork-churn.json` onto `refs/fork/churn`. The document at
 `docs/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both
 files, along with the `docs(fork-churn): row ...` commits, at a later rebase. Seed the ref once
