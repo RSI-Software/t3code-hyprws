@@ -46,7 +46,7 @@
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "fork:delta": "node scripts/fork-delta.ts",
-    "fork:churn": "node scripts/fork-churn.ts render",
+    "fork:churn": "node scripts/fork-churn.ts",
     "fork:churn:check": "node scripts/fork-churn.ts render --check",
     "fork:uat": "node scripts/fork-uat.ts",
     "fork:preflight": "node scripts/fork-preflight.ts",

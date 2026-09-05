@@ -82,13 +82,30 @@ Legacy arrays remain readable; no migration invents repair or verification recor
 Before rewriting a named seam, freeze its full census and reviewed identity mapping:
 
 ```bash
-node scripts/fork-churn.ts record --input reviewed-seams.json --push
+vp run fork:churn record --input reviewed-seams.json --push
 ```
 
 `record` validates and stores a maintainer-attested bundle. It does not run the guard command
 named by a verification record. Its one-line receipt reports added records and the resulting
 ref; replaying an identical bundle adds nothing. `--push` publishes with the captured old lease.
 Malformed input leaves the ref untouched.
+
+A bundle is `{ "version": 1, "records": [...] }`. Each record's `id` is the SHA-256 of
+its canonical payload; the exported `seamRecord(payload)` helper in
+`scripts/lib/fork-churn-seams.ts` produces that digest. References use record IDs and zero-based
+row indexes. Import full `observation` records before referring to their rows:
+
+- `observation`: `method`, `tag`, complete retained `files`, and `evidence` from the sequential
+  census. Legacy overlap uses `method: "legacy-pairwise-feasibility"` and `evidence: null`.
+- `mapping`: one `from: { observation, row }`, one or more `to` row references, and maintainer
+  `attestation: { actor, evidenceUrl }`. The HTTPS URL names the reviewed mapping record.
+- `repair`: a `before` row reference, exact `changeSha`, named `guard`, and attestation.
+- `verification`: `repair` record ID, `after` observation ID, attestation, and retained
+  `guardProof: { sourceSha, command, exitCode, output }`. Its source must match the frozen head.
+
+A changed target, base, method or partial replay remains non-comparable even if the recorded
+guard command passed. No importer manufactures a successful check from an attestation.
+Existing `vp run fork:churn` and `vp run fork:churn --check` still render/check the mirror.
 
 The report extends the existing census table with explicit seam states:
 
