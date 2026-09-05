@@ -48,6 +48,7 @@ export interface KnownTerminalSessionTarget {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly terminalId: string;
+  readonly attachmentId?: string;
 }
 
 export interface KnownTerminalSession {
