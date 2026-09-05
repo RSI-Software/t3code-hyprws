@@ -6,9 +6,13 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
+
+const ZMUX_OPERATION_TIMEOUT = "30 seconds";
+const ZMUX_MAX_OUTPUT_BYTES = 64 * 1024;
 
 const ZmuxBindOutput = Schema.Struct({
   session: Schema.Struct({
@@ -27,6 +31,8 @@ const ZmuxBindOutput = Schema.Struct({
 });
 
 const ZmuxResolveOutput = Schema.Struct({
+  workspace: Schema.String,
+  session: Schema.String,
   target: Schema.String,
   match: Schema.String,
   tmuxName: Schema.NullOr(Schema.String),
@@ -50,9 +56,26 @@ const ZmuxFailureOutput = Schema.Struct({
   ),
 });
 
+const ZmuxEnsureOutput = Schema.Struct({
+  status: Schema.Union([
+    Schema.Literal("created"),
+    Schema.Literal("reused"),
+    Schema.Literal("restored"),
+    Schema.Literal("refused"),
+    Schema.Literal("partial_state"),
+  ]),
+  code: Schema.String,
+  workspace: Schema.String,
+  session: Schema.String,
+  target: Schema.String,
+  nativeId: Schema.NullOr(Schema.String),
+  message: Schema.optionalKey(Schema.String),
+});
+
 const decodeBindOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(ZmuxBindOutput));
 const decodeResolveOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(ZmuxResolveOutput));
 const decodeFailureOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(ZmuxFailureOutput));
+const decodeEnsureOutput = Schema.decodeUnknownEffect(Schema.fromJsonString(ZmuxEnsureOutput));
 
 export interface ZmuxSessionNotice {
   readonly summary: string;
@@ -70,10 +93,22 @@ export type ZmuxBindResult =
     }
   | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
 
+export type ZmuxEnsureResult =
+  | { readonly status: "disabled" | "unavailable" }
+  | {
+      readonly status: "ensured";
+      readonly target: string;
+      readonly workspace: string;
+      readonly session: string;
+    }
+  | { readonly status: "failed"; readonly notice: ZmuxSessionNotice };
+
 export type ZmuxResolveResult =
   | { readonly status: "disabled" | "unavailable" | "not-found" }
   | {
       readonly status: "resolved";
+      readonly workspace?: string;
+      readonly session?: string;
       readonly target: string;
       readonly match: string;
       readonly tmuxName?: string | null;
@@ -130,6 +165,10 @@ export class ZmuxSessionBinder extends Context.Service<
       worktreePath: string,
       options?: { readonly projectPath?: string },
     ) => Effect.Effect<ZmuxBindResult>;
+    readonly ensure: (
+      checkoutPath: string,
+      options?: { readonly projectPath?: string },
+    ) => Effect.Effect<ZmuxEnsureResult>;
     readonly resolve: (dir: string) => Effect.Effect<ZmuxResolveResult>;
     readonly prepareUnbind: (dir: string) => Effect.Effect<ZmuxPrepareUnbindResult>;
     readonly unbind: (identity: ZmuxUnbindIdentity) => Effect.Effect<ZmuxUnbindResult>;
@@ -173,7 +212,10 @@ function bindOutcome(output: typeof ZmuxBindOutput.Type): ZmuxBindOutcome | null
   return outcomes.length === 1 ? outcomes[0]! : null;
 }
 
-function verificationFailure(detail: string): ZmuxBindResult {
+function verificationFailure(detail: string): {
+  readonly status: "failed";
+  readonly notice: ZmuxSessionNotice;
+} {
   return {
     status: "failed",
     notice: {
@@ -207,6 +249,7 @@ export const make = Effect.gen(function* () {
   const hostEnvironment = yield* HostProcessEnvironment;
   const path = yield* Path.Path;
   const env = stripInheritedTmuxEnv(hostEnvironment);
+  const ensureSemaphore = yield* Semaphore.make(1);
 
   const enabled = serverSettings.getSettings.pipe(
     Effect.map((settings) => settings.terminalSessionMode === "zmux"),
@@ -230,9 +273,25 @@ export const make = Effect.gen(function* () {
           ...(cwd ? { cwd } : {}),
           env,
           extendEnv: false,
+          timeout: ZMUX_OPERATION_TIMEOUT,
+          maxOutputBytes: ZMUX_MAX_OUTPUT_BYTES,
+          outputMode: "truncate",
+          timeoutBehavior: "timedOutResult",
         }),
       ),
     );
+
+  const runGit = (args: ReadonlyArray<string>) =>
+    processRunner.run({
+      command: "git",
+      args,
+      env,
+      extendEnv: false,
+      timeout: ZMUX_OPERATION_TIMEOUT,
+      maxOutputBytes: ZMUX_MAX_OUTPUT_BYTES,
+      outputMode: "truncate",
+      timeoutBehavior: "timedOutResult",
+    });
 
   const unavailable = (operation: "bind" | "resolve" | "unbind", dir: string) =>
     Effect.logDebug("zmux is unavailable; skipping managed worktree session operation", {
@@ -259,6 +318,15 @@ export const make = Effect.gen(function* () {
     }
 
     const output = runResult.success;
+    if (output.timedOut) {
+      return {
+        status: "failed",
+        notice: {
+          summary: "zmux session lookup timed out",
+          detail: `zmux did not resolve ${dir} within ${ZMUX_OPERATION_TIMEOUT}`,
+        },
+      } as const;
+    }
     if (output.code !== 0) {
       return { status: "not-found" } as const;
     }
@@ -275,6 +343,8 @@ export const make = Effect.gen(function* () {
     }
     return {
       status: "resolved",
+      workspace: decoded.success.workspace,
+      session: decoded.success.session,
       target: decoded.success.target,
       match: decoded.success.match,
       tmuxName: decoded.success.tmuxName,
@@ -286,226 +356,299 @@ export const make = Effect.gen(function* () {
     } as const;
   });
 
-  const workspaceRepairNotice = (
-    detail: string,
-    workspace: string,
-    projectPath: string,
-  ): ZmuxSessionNotice => ({
-    summary: "zmux workspace root needs attention",
-    detail: `${detail}. Inspect workspace ${workspace} with \`zmux ls ${workspace}\`, resolve its conflicting bindings, then run \`zmux workspace set-root ${workspace} <project-root>\` for ${projectPath}.`,
+  const checkoutFailure = (detail: string): ZmuxEnsureResult => ({
+    status: "failed",
+    notice: {
+      summary: "Git checkout could not be verified",
+      detail,
+    },
   });
 
-  const unexpectedProjectMatchNotice = (
-    workspace: string,
-    projectPath: string,
-    match: string,
-  ): ZmuxSessionNotice => ({
-    summary: "zmux workspace root needs attention",
-    detail: `Project checkout ${projectPath} resolves as ${match}, not as the canonical workspace root. Inspect ${workspace} with \`zmux ls ${workspace}\` and resolve its conflicting bindings before retrying.`,
-  });
-
-  const repairProjectWorkspace = Effect.fn("ZmuxSessionBinder.repairProjectWorkspace")(function* (
-    workspace: string,
-    projectPath: string,
+  const inspectCheckout = Effect.fn("ZmuxSessionBinder.inspectCheckout")(function* (
+    checkoutPath: string,
   ) {
-    const repairResult = yield* run(["workspace", "set-root", workspace, projectPath]).pipe(
+    const normalizedCheckout = path.normalize(path.resolve(checkoutPath));
+    const identity = yield* runGit(["-C", normalizedCheckout, "rev-parse", "--show-toplevel"]).pipe(
       Effect.result,
     );
-    if (repairResult._tag === "Failure") {
-      if (isMissingZmux(repairResult.failure)) {
-        yield* unavailable("bind", projectPath);
+    if (identity._tag === "Failure") {
+      return checkoutFailure(`Cannot inspect ${normalizedCheckout}: ${identity.failure.message}`);
+    }
+    if (identity.success.timedOut) {
+      return checkoutFailure(`Git checkout inspection timed out for ${normalizedCheckout}`);
+    }
+    if (identity.success.code !== 0) {
+      return checkoutFailure(
+        `No Git checkout exists at ${normalizedCheckout}: ${fallbackDetail(identity.success)}`,
+      );
+    }
+    const topLevel = identity.success.stdout.trim();
+    if (!topLevel) {
+      return checkoutFailure(`Git did not return a checkout root for ${normalizedCheckout}`);
+    }
+    const normalizedTopLevel = path.normalize(path.resolve(topLevel));
+    const worktrees = yield* runGit([
+      "-C",
+      normalizedTopLevel,
+      "worktree",
+      "list",
+      "--porcelain",
+    ]).pipe(Effect.result);
+    if (
+      worktrees._tag === "Failure" ||
+      worktrees.success.timedOut ||
+      worktrees.success.code !== 0
+    ) {
+      return checkoutFailure(`Cannot inspect Git worktrees for ${normalizedTopLevel}`);
+    }
+    const canonicalWorktree = worktrees.success.stdout
+      .split("\n")
+      .find((line) => line.startsWith("worktree "))
+      ?.slice("worktree ".length)
+      .trim();
+    if (!canonicalWorktree) {
+      return checkoutFailure(`Git did not return a canonical worktree for ${normalizedTopLevel}`);
+    }
+    const head = yield* runGit(["-C", normalizedTopLevel, "symbolic-ref", "--quiet", "HEAD"]).pipe(
+      Effect.result,
+    );
+    return {
+      status: "verified",
+      checkoutPath: normalizedTopLevel,
+      projectPath: path.normalize(path.resolve(canonicalWorktree)),
+      detachedHead: head._tag === "Failure" || head.success.timedOut || head.success.code !== 0,
+    } as const;
+  });
+
+  const bindEnabled = Effect.fn("ZmuxSessionBinder.bindEnabled")(function* (
+    worktreePath: string,
+    options?: { readonly projectPath?: string },
+  ): Effect.fn.Return<ZmuxBindResult> {
+    if (options?.projectPath) {
+      const ensured = yield* ensureCheckoutEnabled(worktreePath, options.projectPath);
+      if (ensured.status !== "ensured") return ensured;
+      return { status: "bound", target: ensured.target, outcome: ensured.outcome } as const;
+    }
+    const adoptArgs = ["wt", "--adopt", worktreePath, "--yes", "--json", "--no-switch"];
+    const runResult = yield* run(adoptArgs).pipe(Effect.result);
+    if (runResult._tag === "Failure") {
+      if (isMissingZmux(runResult.failure)) {
+        yield* unavailable("bind", worktreePath);
         return { status: "unavailable" } as const;
       }
       return {
         status: "failed",
-        notice: workspaceRepairNotice(repairResult.failure.message, workspace, projectPath),
-      } as const;
-    }
-    if (repairResult.success.code !== 0) {
-      return {
-        status: "failed",
-        notice: workspaceRepairNotice(
-          yield* failureDetail(repairResult.success),
-          workspace,
-          projectPath,
-        ),
+        notice: {
+          summary: "zmux session failed to bind",
+          detail: runResult.failure.message,
+        },
       } as const;
     }
 
-    const repaired = yield* resolveEnabled(projectPath);
-    if (repaired.status === "resolved" && repaired.match === "workspace-main") {
-      return repaired;
-    }
-    if (repaired.status === "resolved") {
+    const output = runResult.success;
+    if (output.timedOut) {
       return {
         status: "failed",
-        notice: unexpectedProjectMatchNotice(workspace, projectPath, repaired.match),
+        notice: {
+          summary: "zmux session adoption timed out",
+          detail: `zmux did not adopt ${worktreePath} within ${ZMUX_OPERATION_TIMEOUT}`,
+        },
       } as const;
     }
-    if (repaired.status !== "not-found") return repaired;
-    return {
-      status: "failed",
-      notice: workspaceRepairNotice(
-        "zmux accepted the workspace root update, but the project checkout still does not resolve",
-        workspace,
-        projectPath,
-      ),
-    } as const;
-  });
-
-  const ensureProjectWorkspace = Effect.fn("ZmuxSessionBinder.ensureProjectWorkspace")(function* (
-    projectPath: string,
-  ) {
-    const existing = yield* resolveEnabled(projectPath);
-    if (existing.status === "resolved") {
-      if (existing.match === "workspace-main") return existing;
-      const separator = existing.target.lastIndexOf("/");
-      const workspace = separator === -1 ? existing.target : existing.target.slice(0, separator);
+    if (output.code !== 0) {
       return {
         status: "failed",
-        notice: unexpectedProjectMatchNotice(workspace, projectPath, existing.match),
+        notice: {
+          summary: "zmux session failed to bind",
+          detail: yield* failureDetail(output),
+        },
       } as const;
     }
-    if (existing.status !== "not-found") {
-      return existing;
+
+    const decoded = yield* decodeBindOutput(output.stdout).pipe(Effect.result);
+    if (decoded._tag === "Failure") {
+      return {
+        status: "failed",
+        notice: {
+          summary: "zmux session failed to bind",
+          detail: "zmux returned an invalid bind response",
+        },
+      } as const;
     }
 
-    const canonicalProjectPath = path.normalize(path.resolve(projectPath));
-    const workspace = path.basename(canonicalProjectPath);
-    const createResult = yield* run(["new", workspace], canonicalProjectPath).pipe(Effect.result);
-    if (createResult._tag === "Failure" && isMissingZmux(createResult.failure)) {
-      yield* unavailable("bind", canonicalProjectPath);
+    const outcome = bindOutcome(decoded.success);
+    if (outcome === null) {
+      return verificationFailure("zmux returned an invalid adoption outcome");
+    }
+
+    const resolved = yield* resolve(worktreePath);
+    if (resolved.status === "unavailable") {
       return { status: "unavailable" } as const;
     }
-
-    // `zmux new` owns an interactive attach after creating the workspace. A
-    // server-side caller has no terminal, so resolution is the authoritative
-    // success signal whether that attach returned zero or not.
-    const created = yield* resolveEnabled(canonicalProjectPath);
-    if (created.status === "resolved" && created.match === "workspace-main") {
-      return created;
+    if (resolved.status === "disabled") {
+      return { status: "disabled" } as const;
     }
-    if (created.status === "unavailable") return created;
-    if (created.status === "failed") return created;
+    if (resolved.status !== "resolved") {
+      const detail =
+        resolved.status === "failed"
+          ? resolved.notice.detail
+          : `zmux session resolve did not return the adopted session for ${worktreePath}`;
+      return verificationFailure(detail);
+    }
 
-    return yield* repairProjectWorkspace(workspace, canonicalProjectPath);
+    const expectedTarget = decoded.success.session.qualified;
+    if (resolved.match !== "worktree") {
+      return verificationFailure(
+        `expected ${worktreePath} to resolve by worktree, got ${resolved.match}`,
+      );
+    }
+    if (resolved.target !== expectedTarget) {
+      return verificationFailure(
+        `expected ${worktreePath} to resolve ${expectedTarget}, got ${resolved.target}`,
+      );
+    }
+    if (resolved.state !== "live") {
+      return verificationFailure(
+        `expected ${expectedTarget} to be live after adoption, got ${resolved.state}`,
+      );
+    }
+    if (resolved.tmuxName !== decoded.success.session.tmuxName) {
+      return verificationFailure(
+        `expected ${expectedTarget} native target ${decoded.success.session.tmuxName}, got ${resolved.tmuxName ?? "none"}`,
+      );
+    }
+    if (resolved.nativeId !== decoded.success.session.tmuxId) {
+      return verificationFailure(
+        `expected ${expectedTarget} native identity ${decoded.success.session.tmuxId}, got ${resolved.nativeId ?? "none"}`,
+      );
+    }
+    if (resolved.binding?.worktreePath !== decoded.success.worktree.path) {
+      return verificationFailure(
+        `expected ${expectedTarget} to bind ${decoded.success.worktree.path}, got ${resolved.binding?.worktreePath ?? "none"}`,
+      );
+    }
+    if (resolved.binding?.branch !== decoded.success.worktree.branch) {
+      return verificationFailure(
+        `expected ${expectedTarget} to bind branch ${decoded.success.worktree.branch}, got ${resolved.binding?.branch ?? "none"}`,
+      );
+    }
+
+    return { status: "bound", target: expectedTarget, outcome } as const;
   });
 
   const bind: ZmuxSessionBinder["Service"]["bind"] = Effect.fn("ZmuxSessionBinder.bind")(
     function* (worktreePath, options) {
-      if (!(yield* enabled)) {
-        return { status: "disabled" } as const;
-      }
+      if (!(yield* enabled)) return { status: "disabled" } as const;
+      return yield* ensureSemaphore.withPermits(1)(bindEnabled(worktreePath, options));
+    },
+  );
 
-      if (options?.projectPath) {
-        const workspace = yield* ensureProjectWorkspace(options.projectPath);
-        if (workspace.status !== "resolved") {
-          return workspace;
-        }
-      }
-
-      const runResult = yield* run([
-        "wt",
-        "--adopt",
-        worktreePath,
-        "--yes",
-        "--json",
-        "--no-switch",
-      ]).pipe(Effect.result);
-      if (runResult._tag === "Failure") {
-        if (isMissingZmux(runResult.failure)) {
-          yield* unavailable("bind", worktreePath);
-          return { status: "unavailable" } as const;
-        }
-        return {
-          status: "failed",
-          notice: {
-            summary: "zmux session failed to bind",
-            detail: runResult.failure.message,
-          },
-        } as const;
-      }
-
-      const output = runResult.success;
-      if (output.code !== 0) {
-        return {
-          status: "failed",
-          notice: {
-            summary: "zmux session failed to bind",
-            detail: yield* failureDetail(output),
-          },
-        } as const;
-      }
-
-      const decoded = yield* decodeBindOutput(output.stdout).pipe(Effect.result);
-      if (decoded._tag === "Failure") {
-        return {
-          status: "failed",
-          notice: {
-            summary: "zmux session failed to bind",
-            detail: "zmux returned an invalid bind response",
-          },
-        } as const;
-      }
-
-      const outcome = bindOutcome(decoded.success);
-      if (outcome === null) {
-        return verificationFailure("zmux returned an invalid adoption outcome");
-      }
-
-      const resolved = yield* resolve(worktreePath);
-      if (resolved.status === "unavailable") {
-        return { status: "unavailable" } as const;
-      }
-      if (resolved.status === "disabled") {
-        return { status: "disabled" } as const;
-      }
-      if (resolved.status !== "resolved") {
-        const detail =
-          resolved.status === "failed"
-            ? resolved.notice.detail
-            : `zmux session resolve did not return the adopted session for ${worktreePath}`;
-        return verificationFailure(detail);
-      }
-
-      const expectedTarget = decoded.success.session.qualified;
-      if (resolved.match !== "worktree") {
+  const ensureCheckoutEnabled = Effect.fn("ZmuxSessionBinder.ensureCheckoutEnabled")(function* (
+    checkoutPath: string,
+    projectPath: string,
+  ) {
+    const project = yield* resolveEnabled(projectPath);
+    let workspace: string;
+    if (project.status === "resolved") {
+      if (project.match !== "workspace-main" || !project.workspace) {
         return verificationFailure(
-          `expected ${worktreePath} to resolve by worktree, got ${resolved.match}`,
+          `expected ${projectPath} to resolve as a canonical workspace, got ${project.match}`,
         );
       }
-      if (resolved.target !== expectedTarget) {
-        return verificationFailure(
-          `expected ${worktreePath} to resolve ${expectedTarget}, got ${resolved.target}`,
-        );
-      }
-      if (resolved.state !== "live") {
-        return verificationFailure(
-          `expected ${expectedTarget} to be live after adoption, got ${resolved.state}`,
-        );
-      }
-      if (resolved.tmuxName !== decoded.success.session.tmuxName) {
-        return verificationFailure(
-          `expected ${expectedTarget} native target ${decoded.success.session.tmuxName}, got ${resolved.tmuxName ?? "none"}`,
-        );
-      }
-      if (resolved.nativeId !== decoded.success.session.tmuxId) {
-        return verificationFailure(
-          `expected ${expectedTarget} native identity ${decoded.success.session.tmuxId}, got ${resolved.nativeId ?? "none"}`,
-        );
-      }
-      if (resolved.binding?.worktreePath !== decoded.success.worktree.path) {
-        return verificationFailure(
-          `expected ${expectedTarget} to bind ${decoded.success.worktree.path}, got ${resolved.binding?.worktreePath ?? "none"}`,
-        );
-      }
-      if (resolved.binding?.branch !== decoded.success.worktree.branch) {
-        return verificationFailure(
-          `expected ${expectedTarget} to bind branch ${decoded.success.worktree.branch}, got ${resolved.binding?.branch ?? "none"}`,
-        );
-      }
+      workspace = project.workspace;
+    } else if (project.status === "not-found") {
+      workspace = path.basename(projectPath);
+    } else {
+      return project;
+    }
+    const outputResult = yield* run([
+      "checkout",
+      "ensure",
+      "--workspace",
+      workspace,
+      "--root",
+      projectPath,
+      "--cwd",
+      checkoutPath,
+      "--no-switch",
+      "--json",
+      "--create-workspace",
+    ]).pipe(Effect.result);
+    if (outputResult._tag === "Failure") {
+      if (isMissingZmux(outputResult.failure)) return { status: "unavailable" } as const;
+      return verificationFailure(outputResult.failure.message);
+    }
+    if (outputResult.success.timedOut) {
+      return verificationFailure(`zmux checkout ensure timed out after ${ZMUX_OPERATION_TIMEOUT}`);
+    }
+    const decoded = yield* decodeEnsureOutput(outputResult.success.stdout).pipe(Effect.result);
+    if (decoded._tag === "Failure") {
+      return verificationFailure("zmux returned an invalid checkout ensure response");
+    }
+    const ensured = decoded.success;
+    if (outputResult.success.code !== 0) {
+      return verificationFailure(
+        `${ensured.code}: ${ensured.message ?? "checkout ensure refused"}`,
+      );
+    }
+    if (
+      ensured.status !== "created" &&
+      ensured.status !== "reused" &&
+      ensured.status !== "restored"
+    ) {
+      return verificationFailure(
+        `zmux returned unexpected checkout ensure status ${ensured.status}`,
+      );
+    }
+    if (!ensured.nativeId || ensured.workspace !== workspace) {
+      return verificationFailure("zmux checkout ensure omitted the verified live identity");
+    }
+    const resolved = yield* resolveEnabled(checkoutPath);
+    if (
+      resolved.status !== "resolved" ||
+      resolved.target !== ensured.target ||
+      resolved.workspace !== ensured.workspace ||
+      resolved.session !== ensured.session ||
+      resolved.state !== "live" ||
+      resolved.nativeId !== ensured.nativeId
+    ) {
+      return verificationFailure(`zmux did not retain exact live identity ${ensured.target}`);
+    }
+    return {
+      status: "ensured",
+      target: ensured.target,
+      workspace: ensured.workspace,
+      session: ensured.session,
+      outcome: ensured.status,
+    } as const;
+  });
 
-      return { status: "bound", target: expectedTarget, outcome } as const;
+  const ensure: ZmuxSessionBinder["Service"]["ensure"] = Effect.fn("ZmuxSessionBinder.ensure")(
+    function* (checkoutPath, options) {
+      if (!(yield* enabled)) return { status: "disabled" } as const;
+      return yield* ensureSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const inspected = yield* inspectCheckout(checkoutPath);
+          if (inspected.status !== "verified") return inspected;
+          const normalizedCheckout = inspected.checkoutPath;
+          const normalizedProject = options?.projectPath
+            ? path.normalize(path.resolve(options.projectPath))
+            : inspected.projectPath;
+          if (normalizedProject !== inspected.projectPath) {
+            return checkoutFailure(
+              `${normalizedCheckout} belongs to ${inspected.projectPath}, not ${normalizedProject}`,
+            );
+          }
+          const result = yield* ensureCheckoutEnabled(normalizedCheckout, normalizedProject);
+          if (result.status !== "ensured") return result;
+          return {
+            status: "ensured",
+            target: result.target,
+            workspace: result.workspace,
+            session: result.session,
+          } as const;
+        }),
+      );
     },
   );
 
@@ -598,7 +741,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return ZmuxSessionBinder.of({ bind, resolve, prepareUnbind, unbind });
+  return ZmuxSessionBinder.of({ bind, ensure, resolve, prepareUnbind, unbind });
 });
 
 export const layer = Layer.effect(ZmuxSessionBinder, make);
