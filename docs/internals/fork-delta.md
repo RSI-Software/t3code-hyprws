@@ -731,6 +731,7 @@ operator reveal and read artifacts they deliberately created.
 - A client-local preference includes gitignored paths in workspace file listings on demand.
 - The file-tree toolbar and General settings expose the same persisted preference.
 - Mobile resolves the optional listing input through `apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts`, keeping device state and reveal/reset policy behind one fork-owned boundary while the shared routes retain their environment connection.
+- The adopted `mobile-ignored-file-listing` authoring guard rejects inline ignored-file preference or request policy in `ThreadFilesRouteScreen.tsx`. Keep the helper call and the route's environment and file-inspector gates during original-patch repair.
 - Listing ignored paths never changes repository ignore rules or weakens file-read containment.
 
 ### Retirement condition

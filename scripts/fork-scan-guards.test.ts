@@ -316,6 +316,48 @@ it("rejects handoff registration in the upstream settings registry and permits i
   }
 });
 
+it("rejects inline mobile ignored-file policy while permitting its helper and upstream route gates", () => {
+  const route = "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx";
+  const helper = "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts";
+  for (const [file, content, rejected] of [
+    [route, "+const showIgnoredFiles = preferences.value.showIgnoredFiles === true;", true],
+    [route, "+input: { cwd, includeIgnored: true },", true],
+    [route, "+input: { cwd, includeIgnored: false },", true],
+    [route, "+input: { cwd, includeIgnored },", true],
+    [route, "+const listing = useIgnoredWorkspaceFileListing(cwd);", false],
+    [
+      route,
+      "+environmentId !== null && workspaceFileListing !== null && !fileInspector.supported",
+      false,
+    ],
+    [route, "+const preferences = useAtomValue(otherPreference);", false],
+    [route, "+// includeIgnored belongs in the helper.", false],
+    [route, "-const showIgnoredFiles = preferences.value.showIgnoredFiles;", false],
+    [helper, "+return showIgnoredFiles ? { cwd, includeIgnored: true } : { cwd };", false],
+    [
+      "apps/mobile/src/features/settings/SettingsRouteScreen.tsx",
+      "+const showIgnoredFiles = preferences.showIgnoredFiles;",
+      false,
+    ],
+  ] as const) {
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(
+            "a".repeat(40),
+            [`--- a/${file}`, `+++ b/${file}`, "@@ -1 +1 @@", content].join("\n"),
+          ),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some(({ rule }) => rule === "mobile-ignored-file-listing"),
+      rejected,
+      `${file}: ${content}`,
+    );
+  }
+});
+
 it("rejects the old pull-request scope policy while permitting upstream derivation and fork adapters", () => {
   const route = "apps/web/src/routes/_chat.pull-requests.tsx";
   const filters = "apps/web/src/components/pullRequest/PullRequestListFilters.tsx";
