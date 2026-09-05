@@ -448,7 +448,9 @@ export function TerminalViewport({
   const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
     reportFailure: false,
   });
-  const launchIdentityRef = useRef(`${cwd}\0${worktreePath ?? ""}`);
+  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const launchIdentity = `${attachmentId}\0${cwd}\0${worktreePath ?? ""}\0${runtimeEnvKey}`;
+  const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
   const pendingFocusRequestRef = useRef(false);
@@ -462,14 +464,35 @@ export function TerminalViewport({
   // cannot be mistaken for the active flow.
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
-  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
+  const retargetTerminal = useEffectEvent(() =>
+    runTerminalOpen({
+      environmentId,
+      input: {
+        threadId,
+        terminalId,
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { env: runtimeEnv } : {}),
+      },
+    }),
+  );
   const handleSessionExited = useEffectEvent(() => {
     onSessionExited();
   });
   const handleAddTerminalContext = useEffectEvent((selection: TerminalContextSelection) => {
     onAddTerminalContext(selection);
   });
-  const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const resolveTerminalPath = useEffectEvent((target: string) =>
+    resolvePathLinkTarget(target, cwd),
+  );
+  const openTerminalPreview = useEffectEvent((url: string, fallbackToBrowser: () => void) =>
+    openTerminalLinkInPreview({ url, threadRef, openPreview, fallbackToBrowser }),
+  );
+  const readTerminalContextIdentity = useEffectEvent(() => ({
+    terminalId,
+    terminalLabel,
+  }));
   const terminalFontFamily = useClientSettings((settings) =>
     resolveTerminalFontPreference({
       advanced: advancedTypography,
@@ -498,31 +521,10 @@ export function TerminalViewport({
     enabled: attached,
   });
   useEffect(() => {
-    const nextIdentity = `${cwd}\0${worktreePath ?? ""}`;
-    if (launchIdentityRef.current === nextIdentity || !attached) return;
-    launchIdentityRef.current = nextIdentity;
-    void runTerminalOpen({
-      environmentId,
-      input: {
-        threadId,
-        terminalId,
-        attachmentId,
-        cwd,
-        ...(worktreePath !== undefined ? { worktreePath } : {}),
-        ...(runtimeEnv ? { env: runtimeEnv } : {}),
-      },
-    });
-  }, [
-    attached,
-    attachmentId,
-    cwd,
-    environmentId,
-    runTerminalOpen,
-    runtimeEnvKey,
-    terminalId,
-    threadId,
-    worktreePath,
-  ]);
+    if (launchIdentityRef.current === launchIdentity || !attached) return;
+    launchIdentityRef.current = launchIdentity;
+    void retargetTerminal();
+  }, [attached, launchIdentity]);
   const writeTerminal = useEffectEvent((data: string) =>
     runTerminalWrite({
       environmentId,
@@ -588,6 +590,8 @@ export function TerminalViewport({
     void terminalRef.current?.setFont(terminalFontOptions(terminalFontFamily, terminalFontSize));
   }, [terminalFontFamily, terminalFontSize]);
 
+  // Checkout retargets replace the PTY launch context, not the viewer. Keep the
+  // WASM surface alive and read changing callback data through Effect Events.
   useEffect(() => {
     const mount = containerRef.current;
     if (!mount) return;
@@ -689,6 +693,7 @@ export function TerminalViewport({
           return null;
         }
         const selectionText = activeTerminal.getSelection();
+        const terminalContextIdentity = readTerminalContextIdentity();
         const selectionPosition = activeTerminal.getSelectionPosition();
         const normalizedText = selectionText.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
         if (!selectionPosition || normalizedText.length === 0) {
@@ -706,8 +711,8 @@ export function TerminalViewport({
           position,
           clipboardText: selectionText,
           selection: {
-            terminalId,
-            terminalLabel: readTerminalLabel(),
+            terminalId: terminalContextIdentity.terminalId,
+            terminalLabel: terminalContextIdentity.terminalLabel,
             lineStart,
             lineEnd,
             text: normalizedText,
@@ -898,15 +903,10 @@ export function TerminalViewport({
               );
             });
           };
-          void openTerminalLinkInPreview({
-            url: text,
-            threadRef,
-            openPreview,
-            fallbackToBrowser,
-          });
+          void openTerminalPreview(text, fallbackToBrowser);
           return;
         }
-        const target = resolvePathLinkTarget(text, cwd);
+        const target = resolveTerminalPath(text);
         void (async () => {
           const result = await openTerminalPath(target);
           if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
@@ -1010,7 +1010,7 @@ export function TerminalViewport({
       cancelled = true;
       teardown?.();
     };
-  }, [cwd, environmentId, runtimeEnvKey, terminalId, threadId, worktreePath]);
+  }, []);
 
   useEffect(() => {
     const terminal = terminalRef.current;
