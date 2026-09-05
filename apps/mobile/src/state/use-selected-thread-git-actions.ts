@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { checkoutMoveExpectedRoot } from "@t3tools/client-runtime/state/checkout-move";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   type GitActionRequestInput,
@@ -34,6 +35,9 @@ import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitActions() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
     reportFailure: false,
   });
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
@@ -219,12 +223,20 @@ export function useSelectedThreadGitActions() {
         ? await updateThreadGitContext(input.thread, input.nextThreadState)
         : AsyncResult.success(undefined);
       branchState.refresh();
-      await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
+      if (!checkoutMoveRequested) {
+        await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
+      }
       return AsyncResult.isFailure(updateResult)
         ? AsyncResult.failure(updateResult.cause)
         : AsyncResult.success(undefined);
     },
-    [branchState, refreshSelectedThreadGitStatus, updateThreadGitContext],
+    [
+      branchState,
+      moveThreadCheckout,
+      refreshSelectedThreadGitStatus,
+      selectedThreadProject,
+      updateThreadGitContext,
+    ],
   );
 
   const onCheckoutSelectedThreadBranch = useCallback(
