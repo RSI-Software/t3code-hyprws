@@ -162,7 +162,11 @@ skip at the same released SHA preserves its earlier successful distribution.
 The JSON result reports retained attempts/stages and `resume`: `sync`, `release-only`, or
 `complete`. `noAgentCarry` counts consecutive eligible targets whose carry attempts were
 on-mode bots, automatically triggered, verified, applied, and free of blocked/unknown/
-pending/failed carry stages. `distributed` is a separate eligible-target streak. Raw blocked
+pending/failed carry stages. Every successful apply attempt must retain selection, matching verification, apply,
+rerere, and cache-export receipts. Direct clean replays explicitly mark the cache stages
+`not-attempted` with `notApplicableReason: "direct-clean-rebase"`; absent receipts or
+unexplained non-attempts cannot qualify. Attempts with incomplete stage evidence never
+silently preserve the streak. `distributed` is a separate eligible-target streak. Raw blocked
 and rewritten targets stay in that order. Missing historical evidence never counts as
 success; reviewed historical imports must name their evidence or remain unknown. A release
 that stops before identifying any checkout retains raw workflow evidence instead of

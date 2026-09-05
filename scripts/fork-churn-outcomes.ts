@@ -192,6 +192,18 @@ export const autoOutcomeReceipts = (
           : undefined,
       ),
     );
+    if (selected && result?.newSha) {
+      for (const name of ["rerere", "cache-export"] as const)
+        receipts.push({
+          ...stage(
+            attempt,
+            name,
+            "not-attempted",
+            "direct clean replay does not use the carried-walk rerere cache",
+          ),
+          notApplicableReason: "direct-clean-rebase",
+        });
+    }
     if (reporting && blocked) {
       receipts.push({
         ...stage(

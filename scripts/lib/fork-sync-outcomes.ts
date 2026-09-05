@@ -70,6 +70,7 @@ export interface OutcomeStageReceipt {
   readonly detail: string;
   readonly evidenceUrl?: string;
   readonly distribution?: DistributionEvidence;
+  readonly notApplicableReason?: "direct-clean-rebase";
 }
 export type OutcomeReceipt =
   | OutcomeTarget
@@ -202,6 +203,7 @@ export const requireOutcomeReceipt = (value: unknown): OutcomeReceipt => {
     "detail",
     "evidenceUrl",
     "distribution",
+    "notApplicableReason",
   ]);
   const receipt: OutcomeStageReceipt = {
     kind: "stage",
@@ -220,7 +222,15 @@ export const requireOutcomeReceipt = (value: unknown): OutcomeReceipt => {
     ...(row.sha === undefined ? {} : { sha: sha(row.sha) }),
     ...(row.evidenceUrl === undefined ? {} : { evidenceUrl: text(row.evidenceUrl) }),
     ...(row.distribution === undefined ? {} : { distribution: distribution(row.distribution) }),
+    ...(row.notApplicableReason === undefined
+      ? {}
+      : { notApplicableReason: choice(row.notApplicableReason, ["direct-clean-rebase"]) }),
   };
+  if (
+    receipt.notApplicableReason !== undefined &&
+    (receipt.status !== "not-attempted" || !["rerere", "cache-export"].includes(receipt.stage))
+  )
+    throw new Error("cache non-applicability requires an unattempted cache stage");
   if (
     ["verification", "apply", "release-verification", "release-build"].includes(receipt.stage) &&
     receipt.status === "succeeded" &&
@@ -350,26 +360,49 @@ export const summarizeOutcomes = (receipts: ReadonlyArray<OutcomeReceipt>) => {
     const carryStages = stages.filter((row) =>
       ["selection", "verification", "apply", "rerere", "cache-export"].includes(row.stage),
     );
-    const carryAttempts = attempts.filter((attempt) =>
-      carryStages.some((row) => row.attemptId === attempt.attemptId),
+    const carryAttempts = attempts.filter(
+      (attempt) =>
+        carryStages.some((row) => row.attemptId === attempt.attemptId) ||
+        !stages.some(
+          (row) =>
+            row.attemptId === attempt.attemptId &&
+            ["release-verification", "release-build", "distribution"].includes(row.stage),
+        ),
     );
+    const completeCarryAttempt = (id: string): boolean => {
+      const receipt = (name: OutcomeStage) =>
+        carryStages.find((row) => row.attemptId === id && row.stage === name);
+      const selection = receipt("selection"),
+        verification = receipt("verification"),
+        apply = receipt("apply");
+      if (!selection || !verification || !apply) return false;
+      if (apply.status === "not-attempted") return true;
+      if (
+        selection.status !== "succeeded" ||
+        verification.status !== "succeeded" ||
+        apply.status !== "succeeded" ||
+        verification.sha !== apply.sha
+      )
+        return false;
+      return (["rerere", "cache-export"] as const).every((name) => {
+        const cache = receipt(name);
+        return (
+          cache?.status === "succeeded" ||
+          (cache?.status === "not-attempted" && cache.notApplicableReason === "direct-clean-rebase")
+        );
+      });
+    };
     const noAgentCarry =
       applied !== undefined &&
       applyAttempt?.executor === "bot" &&
       applyAttempt.mode === "on" &&
-      stages.some(
-        (row) =>
-          row.stage === "verification" &&
-          row.attemptId === applied.attemptId &&
-          row.status === "succeeded" &&
-          row.sha === applied.sha,
-      ) &&
       carryAttempts.every(
         (row) =>
           row.executor === "bot" &&
           row.mode === "on" &&
           row.trigger !== "manual" &&
-          row.trigger !== "unknown",
+          row.trigger !== "unknown" &&
+          completeCarryAttempt(row.attemptId),
       ) &&
       !carryStages.some((row) => ["failed", "blocked", "unknown", "pending"].includes(row.status));
     const aliases = receipts.filter(

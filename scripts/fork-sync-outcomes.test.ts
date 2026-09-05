@@ -56,6 +56,8 @@ const clean: ReadonlyArray<OutcomeReceipt> = [
   stage("selection", "succeeded"),
   stage("verification", "succeeded", { sha: C }),
   stage("apply", "succeeded", { sha: C }),
+  stage("rerere", "not-attempted", { notApplicableReason: "direct-clean-rebase" }),
+  stage("cache-export", "not-attempted", { notApplicableReason: "direct-clean-rebase" }),
 ];
 const release = (overrides: Partial<Parameters<typeof releaseOutcomeReceipts>[0]> = {}) =>
   releaseOutcomeReceipts({
@@ -84,6 +86,85 @@ it("counts a verified automatic carry independently of its later distribution", 
   const distributed = requireOutcomeReceipts([...clean, ...release()]);
   assert.strictEqual(outcomeStreak(distributed).noAgentCarry, 1);
   assert.strictEqual(outcomeStreak(distributed).distributed, 1);
+});
+
+it("never counts missing required carry stages or unexplained cache non-attempts", () => {
+  for (const name of ["selection", "verification", "apply", "rerere", "cache-export"]) {
+    const partial = requireOutcomeReceipts(
+      clean.filter((row) => row.kind !== "stage" || row.stage !== name),
+    );
+    assert.strictEqual(outcomeStreak(partial).noAgentCarry, 0, `missing ${name}`);
+  }
+  const unexplained = requireOutcomeReceipts(
+    clean.map((row) => {
+      if (row.kind !== "stage" || row.notApplicableReason === undefined) return row;
+      const { notApplicableReason: _reason, ...unproven } = row;
+      return unproven;
+    }),
+  );
+  assert.strictEqual(outcomeStreak(unexplained).noAgentCarry, 0);
+  const carried = requireOutcomeReceipts(
+    clean.map((row) =>
+      row.kind === "stage" && row.notApplicableReason ? stage(row.stage, "succeeded") : row,
+    ),
+  );
+  assert.strictEqual(outcomeStreak(carried).noAgentCarry, 1);
+  const incomplete: ReadonlyArray<OutcomeReceipt> = [
+    attempt("partial"),
+    stage("selection", "succeeded", { attemptId: "partial" }),
+    stage("verification", "succeeded", { attemptId: "partial", sha: C }),
+  ];
+  for (let count = 1; count <= incomplete.length; count += 1) {
+    assert.strictEqual(
+      outcomeStreak(requireOutcomeReceipts([...clean, ...incomplete.slice(0, count)])).noAgentCarry,
+      0,
+      `partial attempt with ${count - 1} stages`,
+    );
+  }
+  const earlier = clean.filter(
+    (row) => row.kind !== "stage" || !["rerere", "cache-export"].includes(row.stage),
+  );
+  const later = clean.map((row) =>
+    row.kind === "attempt" || row.kind === "stage" ? { ...row, attemptId: "later" } : row,
+  );
+  assert.strictEqual(
+    outcomeStreak(requireOutcomeReceipts([...earlier, ...later])).noAgentCarry,
+    0,
+    "later completion cannot erase missing earlier cache evidence",
+  );
+  const earlierWrongVerification = clean.map((row) =>
+    row.kind === "stage" && row.stage === "verification" ? { ...row, sha: D } : row,
+  );
+  assert.strictEqual(
+    outcomeStreak(requireOutcomeReceipts([...earlierWrongVerification, ...later])).noAgentCarry,
+    0,
+    "every apply needs matching verification",
+  );
+});
+
+it("records direct clean replay cache non-applicability explicitly", () => {
+  const result: AutoRebaseResult = {
+    schemaVersion: 1,
+    mode: "on",
+    dryRun: false,
+    status: "advanced",
+    oldSha: B,
+    baseSha: B,
+    target: target.target,
+    newSha: C,
+    stableCandidates: [],
+    verificationDependencySetup: [],
+    decision: { pairwiseFirstConflict: null, census: null, censusUnavailableReason: null },
+    blocked: null,
+  };
+  const rows = autoOutcomeReceipts([target, attempt()], result);
+  assert.strictEqual(outcomeStreak(rows).noAgentCarry, 1);
+  for (const name of ["rerere", "cache-export"]) {
+    assert.strictEqual(
+      rows.find((row) => row.kind === "stage" && row.stage === name)?.kind,
+      "stage",
+    );
+  }
 });
 
 it("retains blocked eligible targets and mode changes without rewriting eligibility", () => {
