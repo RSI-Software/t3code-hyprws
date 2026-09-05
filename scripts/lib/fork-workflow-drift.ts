@@ -28,6 +28,18 @@ const workflowStep = (workflow: string, name: string): string | undefined => {
   return end === -1 ? following : following.slice(0, end);
 };
 
+const workflowMapping = (workflow: string, name: string, indent: number): string | undefined => {
+  const lines = workflow.split("\n");
+  const marker = `${" ".repeat(indent)}${name}:`;
+  const start = lines.findIndex((line) => line === marker || line.startsWith(`${marker} `));
+  if (start === -1) return undefined;
+  const following = lines.slice(start + 1);
+  const end = following.findIndex(
+    (line) => line.trim().length > 0 && line.length - line.trimStart().length <= indent,
+  );
+  return (end === -1 ? following : following.slice(0, end)).join("\n");
+};
+
 export const releaseOutcomeExportProblem = (workflow: string): string | undefined => {
   const outcome = workflowJob(workflow, "outcome");
   const fileDeclarations = outcome?.match(
@@ -41,18 +53,23 @@ export const releaseOutcomeExportProblem = (workflow: string): string | undefine
     return "FORK_OUTCOME_EXPORT must be declared once in the release workflow";
 
   const retain = workflowStep(workflow, "Retain release outcome");
+  const retainEnv = retain === undefined ? undefined : workflowMapping(retain, "env", 8);
   if (
-    retain === undefined ||
-    !retain.includes(`        env:\n          FORK_OUTCOME_EXPORT: ${RELEASE_OUTCOME_PATH}`)
+    retainEnv === undefined ||
+    !retainEnv.split("\n").includes(`          FORK_OUTCOME_EXPORT: ${RELEASE_OUTCOME_PATH}`)
   )
     return "FORK_OUTCOME_EXPORT must use the shared path in Retain release outcome env";
 
   const upload = workflowStep(workflow, "Upload distribution evidence");
+  const uploadWith = upload === undefined ? undefined : workflowMapping(upload, "with", 8);
+  const uploadPath = uploadWith === undefined ? undefined : workflowMapping(uploadWith, "path", 10);
   if (
-    upload === undefined ||
-    !upload.split("\n").some((line) => line.trim() === RELEASE_OUTCOME_PATH)
+    uploadPath === undefined ||
+    !uploadPath.split("\n").some((line) => line.trim() === RELEASE_OUTCOME_PATH)
   )
-    return "Upload distribution evidence must use the FORK_OUTCOME_EXPORT path";
+    return "Upload distribution evidence with.path must use the FORK_OUTCOME_EXPORT path";
+  if (!uploadWith?.split("\n").includes("          if-no-files-found: error"))
+    return "Upload distribution evidence must error when outcome files are missing";
 
   return undefined;
 };
@@ -135,6 +152,8 @@ export const readWorkflowDrift = (
     else if (review.upstreamBlob !== upstreamBlob)
       problem = "upstream workflow changed since review";
     else if (review.forkBlob !== forkBlob) problem = "fork counterpart changed since review";
+    else if (fork === ".github/workflows/hyprws-release.yml")
+      problem = releaseOutcomeExportProblem(git.run(["show", `${head}:${fork}`]));
     return { upstream, fork, upstreamBlob, forkBlob, review, problem };
   });
 };

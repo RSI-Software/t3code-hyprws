@@ -15,9 +15,9 @@
       "fork": ".github/workflows/hyprws-release.yml",
       "upstreamCommit": "d6e29dc9dee943b34d6b0d11441fa944c7bff7c9",
       "upstreamBlob": "404e4e8075cc9413d4d9b8431602822769f9f1a7",
-      "forkBlob": "e445ddc73288a4ba310d5c3c360a1481d7e67dd9",
+      "forkBlob": "b5dcf3672f785161666df4f0ad4f91e3c8268e0b",
       "disposition": "adapted",
-      "reason": "Libsecret and pkg-config are installed before preflight tests and Linux artifact build; ImageMagick remains installed in the build job. Keep Linux x64 AppImage-only fork releases, fork stable/nightly versioning and pruning; upstream multi-platform signing and publication do not apply. The release checkout is now recorded before dependency setup, expected assets come from the actual build, and an always-run fork outcome job verifies tag/asset publication and retains failures for release-only retry. Runner-temporary export paths stay in step scope where the runner context is valid, with one shared filename for retention and upload."
+      "reason": "Libsecret and pkg-config are installed before preflight tests and Linux artifact build; ImageMagick remains installed in the build job. Keep Linux x64 AppImage-only fork releases, fork stable/nightly versioning and pruning; upstream multi-platform signing and publication do not apply. The release checkout is now recorded before dependency setup, expected assets come from the actual build, and an always-run fork outcome job verifies tag/asset publication and retains failures for release-only retry. Runner-temporary export paths stay in step scope where the runner context is valid, with one shared filename for retention and upload; missing outcome evidence fails the upload step."
     }
   ]
 }

@@ -453,5 +453,5 @@ jobs:
           path: |
             ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
             ${{ runner.temp }}/fork-release-needs.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90

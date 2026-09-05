@@ -54,6 +54,7 @@ const fixture = (
     reviewedFork?: string;
     disposition?: "adapted" | "no-change";
     reason?: string;
+    releaseWorkflow?: string;
   } = {},
 ) => {
   const reviews = WORKFLOW_COPIES.map((pair) => ({
@@ -68,6 +69,8 @@ const fixture = (
     run: (args: ReadonlyArray<string>): string => {
       if (args[0] === "show" && args[1] === `HEAD:${WORKFLOW_REVIEWS_PATH}`)
         return JSON.stringify({ version: 1, reviews });
+      if (args[0] === "show" && args[1] === "HEAD:.github/workflows/hyprws-release.yml")
+        return options.releaseWorkflow ?? releaseWorkflow;
       if (args[0] === "rev-parse") {
         const [ref, path] = (args[1] ?? "").split(":");
         const pair = WORKFLOW_COPIES.find(
@@ -197,12 +200,20 @@ it("refuses provenance that names a different upstream blob", () => {
 
 it("keeps the release outcome export scoped to its collector and upload path", () => {
   assert.isUndefined(releaseOutcomeExportProblem(releaseWorkflow));
+  assert.isUndefined(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "        env:\n          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n          GH_TOKEN: ${{ github.token }}",
+        "        env:\n          GH_TOKEN: ${{ github.token }}\n          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
+      ),
+    ),
+  );
 
-  assert.match(
+  assert.strictEqual(
     releaseOutcomeExportProblem(
       releaseWorkflow.replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:"),
-    )!,
-    /declared once/,
+    ),
+    "FORK_OUTCOME_EXPORT must be declared once in the release workflow",
   );
   assert.match(
     releaseOutcomeExportProblem(
@@ -220,6 +231,42 @@ it("keeps the release outcome export scoped to its collector and upload path", (
         "            ${{ runner.temp }}/other-release-outcome.json\n",
       ),
     )!,
-    /must use the FORK_OUTCOME_EXPORT path/,
+    /with\.path must use the FORK_OUTCOME_EXPORT path/,
   );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
+        "          evidence: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
+      ),
+    )!,
+    /with\.path must use the FORK_OUTCOME_EXPORT path/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "          name: release-outcomes-${{ github.run_attempt }}\n          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n            ${{ runner.temp }}/fork-release-needs.json\n          if-no-files-found: error",
+        "          name: release-outcomes-${{ github.run_attempt }}\n          path: |\n            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}\n            ${{ runner.temp }}/fork-release-needs.json\n          if-no-files-found: warn",
+      ),
+    )!,
+    /must error when outcome files are missing/,
+  );
+});
+
+it("reports release outcome export drift through the workflow scan", () => {
+  const reviewed = {
+    upstream: after,
+    reviewedUpstream: after,
+    fork: forkAfter,
+    reviewedFork: forkAfter,
+  };
+  const result = scan(
+    fixture({
+      ...reviewed,
+      releaseWorkflow: releaseWorkflow.replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:"),
+    }).git,
+  );
+  assert.deepStrictEqual(scanFailures(result), [
+    "workflow-drift: .github/workflows/release.yml -> .github/workflows/hyprws-release.yml: FORK_OUTCOME_EXPORT must be declared once in the release workflow",
+  ]);
 });
