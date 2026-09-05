@@ -23,6 +23,7 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { filterSidebarProjects, filterSidebarThreads } from "./sidebar/SidebarPhysicalScope";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -181,7 +182,6 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
-  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
@@ -3168,24 +3168,12 @@ export default function LegacySidebar({
 }) {
   const allProjects = useProjects();
   const projects = useMemo(
-    () =>
-      allProjects.filter((project) =>
-        isProjectInSidebarScope(
-          scopeProjectRef(project.environmentId, project.id),
-          forcedProjectRef,
-        ),
-      ),
+    () => filterSidebarProjects(allProjects, forcedProjectRef),
     [allProjects, forcedProjectRef],
   );
   const allSidebarThreads = useThreadShells();
   const sidebarThreads = useMemo(
-    () =>
-      allSidebarThreads.filter((thread) =>
-        isProjectInSidebarScope(
-          scopeProjectRef(thread.environmentId, thread.projectId),
-          forcedProjectRef,
-        ),
-      ),
+    () => filterSidebarThreads(allSidebarThreads, forcedProjectRef),
     [allSidebarThreads, forcedProjectRef],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);

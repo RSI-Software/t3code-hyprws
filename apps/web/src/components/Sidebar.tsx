@@ -1,4 +1,9 @@
 import { autoAnimate } from "@formkit/auto-animate";
+import {
+  filterSidebarProjects,
+  resolveSidebarPhysicalScope,
+  setSidebarLogicalScope,
+} from "./sidebar/SidebarPhysicalScope";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -154,7 +159,6 @@ import {
   getSidebarThreadLayoutOrder,
   hasSavedSidebarThreadOrder,
   hasUnseenCompletion,
-  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isSidebarThreadGroupingTarget,
   isSidebarThreadUngroupBeforeTarget,
@@ -1919,13 +1923,7 @@ export default function Sidebar({
 }) {
   const allProjects = useProjects();
   const projects = useMemo(
-    () =>
-      allProjects.filter((project) =>
-        isProjectInSidebarScope(
-          scopeProjectRef(project.environmentId, project.id),
-          forcedProjectRef,
-        ),
-      ),
+    () => filterSidebarProjects(allProjects, forcedProjectRef),
     [allProjects, forcedProjectRef],
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
@@ -2211,21 +2209,19 @@ export default function Sidebar({
   // Project scope: one menu above the list. Scoping filters the list without
   // making the header width depend on the number or length of project names.
   const [projectScopeKey, setProjectScopeKey] = useState<string | null>(null);
-  const forcedProjectGroup = useMemo(
+  const {
+    projectGroup: scopedProjectGroup,
+    effectiveScopeKey: effectiveProjectScopeKey,
+    projectKeys: scopedProjectKeys,
+  } = useMemo(
     () =>
-      forcedProjectRef
-        ? (projectGroups.find((project) =>
-            project.memberProjectRefs.some(
-              (projectRef) =>
-                projectRef.environmentId === forcedProjectRef.environmentId &&
-                projectRef.projectId === forcedProjectRef.projectId,
-            ),
-          ) ?? null)
-        : null,
-    [forcedProjectRef, projectGroups],
+      resolveSidebarPhysicalScope({
+        forcedProjectRef,
+        projectGroups,
+        logicalScopeKey: projectScopeKey,
+      }),
+    [forcedProjectRef, projectGroups, projectScopeKey],
   );
-  const effectiveProjectScopeKey =
-    forcedProjectGroup?.projectKey ?? (forcedProjectRef === null ? projectScopeKey : null);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2271,24 +2267,6 @@ export default function Sidebar({
       }),
     [effectiveProjectScopeKey, projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
   );
-  const scopedProjectGroup =
-    forcedProjectGroup ??
-    (projectScopeKey === null
-      ? null
-      : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null));
-  const scopedProjectKeys = useMemo(
-    () =>
-      forcedProjectRef
-        ? new Set([`${forcedProjectRef.environmentId}:${forcedProjectRef.projectId}`])
-        : scopedProjectGroup === null
-          ? null
-          : new Set(
-              scopedProjectGroup.memberProjectRefs.map(
-                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-              ),
-            ),
-    [forcedProjectRef, scopedProjectGroup],
-  );
   const hasSavedCustomThreadOrder = useMemo(
     () =>
       hasSavedSidebarThreadOrder({
@@ -2303,7 +2281,7 @@ export default function Sidebar({
   });
   useEffect(() => {
     if (forcedProjectRef === null && projectScopeKey !== null && scopedProjectGroup === null) {
-      setProjectScopeKey(null);
+      setSidebarLogicalScope(forcedProjectRef, null, setProjectScopeKey);
     }
   }, [forcedProjectRef, projectScopeKey, scopedProjectGroup]);
   // Count-only subscription: the parent needs "are there draft rows" for the
@@ -4258,7 +4236,11 @@ export default function Sidebar({
                   value={selectedProjectScopeItem}
                   onValueChange={(item) => {
                     if (!item || forcedProjectRef !== null) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    setSidebarLogicalScope(
+                      forcedProjectRef,
+                      item.value === "all" ? null : item.value,
+                      setProjectScopeKey,
+                    );
                   }}
                 >
                   <ComboboxTrigger
