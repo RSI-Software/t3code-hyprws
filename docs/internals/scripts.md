@@ -35,6 +35,12 @@ authenticated.
   `preview_open`; clients without integrated preview use the external browser. `--desktop` keeps DevTools off, scopes the Electron profile and single-instance lock to `.t3/electron` without moving provider credentials, records CDP, and accepts
   `--workspace <+1|-1|id|none>`. Stop the owned run before switching surfaces; subsequent launches
   preserve fixture edits, project registration, threads, and authentication.
+  These commands are for local checkouts. **Dev Web** refuses remote, relay, and SSH environments
+  before starting a terminal; select the primary local environment. A slow cold build keeps its
+  preview listener for up to ten minutes after terminal attachment, or until terminal exit or
+  navigation away from the thread. On timeout, inspect the terminal and stop the owned run before retrying.
+  For a consumed or expired pairing link, run `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"`
+  from that checkout. The explicit home keeps base-checkout recovery away from installed stable.
 - `vp run dev`: Starts contracts, server, and web in watch mode.
 - `vp run dev --share`: Also publishes the web port over HTTPS on this machine's tailnet. The
   startup pairing URL is built against the shared origin, and the mapping is removed on exit.

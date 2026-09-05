@@ -78,6 +78,8 @@ Launch from the base checkout for exploration, the implementation worktree for f
 
 T3 imports checked-in `t3.json` scripts once and stores project-owned copies. Update those imported copies when a checked-in command changes. **Setup Worktree** only prepares a checkout; it does not launch the app or recreate fixtures.
 
+The convenience actions target local checkouts. **Dev Web** requires the primary local environment: remote/relay/SSH loopback URLs would open on the wrong machine. Use the existing shared-development workflow for remote access. Pairing recovery from either base or a worktree uses `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"`; a bare `pair` in the base checkout may select the installed home.
+
 ## Architectural direction
 
 This section records the grounded target shape, verified against the code on 2026-08-22.
