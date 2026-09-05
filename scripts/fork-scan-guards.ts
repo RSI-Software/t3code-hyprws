@@ -26,6 +26,7 @@ export type ScanWarningRule =
   | "upstream-test"
   | "footprint"
   | "replaced-export"
+  | "provider-agent-boundary"
   | "lockfile"
   | "terminal-attachment-boundary";
 
@@ -34,6 +35,7 @@ export type ScanWarningRule =
 // in the controlled replay lane without unrelated old warnings blocking authors.
 export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "terminal-attachment-boundary",
+  "provider-agent-boundary",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -41,6 +43,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "upstream-test",
   "footprint",
   "replaced-export",
+  "provider-agent-boundary",
   "lockfile",
   "terminal-attachment-boundary",
 ];
@@ -76,6 +79,7 @@ export interface CommitPatch {
   // hunk, so only a nearby removal can identify an addition as a replacement.
   readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
   readonly terminalAttachmentStateAdded?: boolean;
+  readonly providerAgentImplementationAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -123,6 +127,12 @@ const TERMINAL_METADATA_PATH = "apps/web/src/state/terminalSessions.ts";
 const TERMINAL_ATTACHMENT_STATE =
   /\b(?:useState|useEffect)\s*(?:<[^>]*>)?\s*\(|\b(?:interface|type)\s+RetainedTerminalAttachmentState\b|\b(?:function|const)\s+updateRetainedTerminalAttachment\b/;
 
+// Keep provider-specific agent normalization/options out of upstream provider
+// setup. Imports and adapter calls are the intended, small integration seam.
+const PROVIDER_AGENT_SOURCE = /^apps\/server\/src\/provider\/Layers\/(?:Claude|Codex)Provider\.ts$/;
+const PROVIDER_AGENT_DECLARATION =
+  /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+(?:parseClaudeInitializationAgents|withClaudeAgentOptions|withCodexAgentOptions)\b/;
+
 const diffPath = (value: string): string | null => {
   const target = value.trim();
   return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
@@ -138,6 +148,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const addedExports: Array<ExportDeclaration> = [];
     const testBlockHunks: Array<TestBlockHunk> = [];
     let terminalAttachmentStateAdded = false;
+    let providerAgentImplementationAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -177,6 +188,9 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const content = line.slice(1);
       if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
         terminalAttachmentStateAdded = true;
+      if (added && PROVIDER_AGENT_SOURCE.test(path) && PROVIDER_AGENT_DECLARATION.test(content)) {
+        providerAgentImplementationAdded = true;
+      }
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -196,6 +210,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       addedExports,
       testBlockHunks,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
+      ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
     });
   }
   return patches;
@@ -250,6 +265,12 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "terminal-attachment-boundary",
         `${TERMINAL_METADATA_PATH} gains attachment retention state; keep it in terminalAttachmentRetention.fork.ts and preserve upstream metadata indexing and tests`,
+      );
+    }
+    if (patch.providerAgentImplementationAdded) {
+      warn(
+        "provider-agent-boundary",
+        "ClaudeProvider.ts/CodexProvider.ts gains fork agent normalization or model-option implementation; keep it in the provider-specific *AgentOptions.fork.ts sibling and retain only the integration call",
       );
     }
 

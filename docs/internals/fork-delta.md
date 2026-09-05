@@ -455,6 +455,18 @@ Compact web and mobile surfaces reuse the existing provider-options menus.
 Claude agent inventory comes from the Agent SDK initialization result.
 The selected name becomes the SDK's `--agent` launch argument.
 
+`ClaudeAgentOptions.fork.ts` owns SDK agent normalization and Claude's model-option
+descriptor; `CodexAgentOptions.fork.ts` owns Codex's descriptor. Provider setup keeps
+the small discovery/result adaptation calls so upstream initialization, auth, model,
+and usage changes can replay independently. The `provider-agent-boundary` authoring
+guard rejects reintroducing those declarations into either upstream provider module.
+Codex discovery remains in `CodexAgents.ts`; neither helper shares provider policy.
+
+Child activity detail remains in `childItemRenderDetail.ts`. Session identity remains
+in `providerSessionEnvironment.ts`, and launcher environment scrubbing remains in the
+existing environment helpers. Keep the small provider-service identity persistence and
+reactor agent-change joins: extracting those joins would duplicate their upstream owners.
+
 Codex agent inventory comes from `<CODEX_HOME>/agents/*.toml`.
 
 The selected definition becomes a `thread/start` or `thread/resume` config and instruction layer.
