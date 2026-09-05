@@ -1,5 +1,10 @@
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import {
+  filterSidebarProjects,
+  resolveSidebarPhysicalScope,
+  setSidebarLogicalScope,
+} from "./sidebar/SidebarPhysicalScope";
 import { useAtomValue } from "@effect/atom-react";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
@@ -171,7 +176,6 @@ import {
   firstValidTimestampMs,
   getSidebarThreadGroupDissolvingKey,
   hasUnseenCompletion,
-  isProjectInSidebarScope,
   isSidebarNestedLinkClick,
   isSidebarThreadGroupingTarget,
   isTrailingDoubleClick,
@@ -2158,13 +2162,7 @@ export default function Sidebar({
 }) {
   const allProjects = useProjects();
   const projects = useMemo(
-    () =>
-      allProjects.filter((project) =>
-        isProjectInSidebarScope(
-          scopeProjectRef(project.environmentId, project.id),
-          forcedProjectRef,
-        ),
-      ),
+    () => filterSidebarProjects(allProjects, forcedProjectRef),
     [allProjects, forcedProjectRef],
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
@@ -2420,21 +2418,19 @@ export default function Sidebar({
   // app restarts keep it.
   const projectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const setProjectScopeKey = useUiStateStore((store) => store.setSidebarProjectScopeKey);
-  const forcedProjectGroup = useMemo(
+  const {
+    projectGroup: scopedProjectGroup,
+    effectiveScopeKey: effectiveProjectScopeKey,
+    projectKeys: scopedProjectKeys,
+  } = useMemo(
     () =>
-      forcedProjectRef
-        ? (projectGroups.find((project) =>
-            project.memberProjectRefs.some(
-              (projectRef) =>
-                projectRef.environmentId === forcedProjectRef.environmentId &&
-                projectRef.projectId === forcedProjectRef.projectId,
-            ),
-          ) ?? null)
-        : null,
-    [forcedProjectRef, projectGroups],
+      resolveSidebarPhysicalScope({
+        forcedProjectRef,
+        projectGroups,
+        logicalScopeKey: projectScopeKey,
+      }),
+    [forcedProjectRef, projectGroups, projectScopeKey],
   );
-  const effectiveProjectScopeKey =
-    forcedProjectGroup?.projectKey ?? (forcedProjectRef === null ? projectScopeKey : null);
   // {value, label} items let Base UI drive the combobox selection contract
   // while the popup search filters the same collection.
   const projectScopeItems = useMemo(
@@ -2485,24 +2481,6 @@ export default function Sidebar({
       }),
     [effectiveProjectScopeKey, projectScopeFilter, projectScopeItems, projectScopeMenuState.query],
   );
-  const scopedProjectGroup =
-    forcedProjectGroup ??
-    (projectScopeKey === null
-      ? null
-      : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null));
-  const scopedProjectKeys = useMemo(
-    () =>
-      forcedProjectRef
-        ? new Set([`${forcedProjectRef.environmentId}:${forcedProjectRef.projectId}`])
-        : scopedProjectGroup === null
-          ? null
-          : new Set(
-              scopedProjectGroup.memberProjectRefs.map(
-                (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-              ),
-            ),
-    [forcedProjectRef, scopedProjectGroup],
-  );
   // A persisted scope whose project is gone falls back to all projects, but
   // only after every catalog environment has a live project snapshot. Cached
   // or disconnected environments cannot establish that the project is gone.
@@ -2514,7 +2492,7 @@ export default function Sidebar({
       allProjectSnapshotsReady &&
       scopedProjectGroup === null
     ) {
-      setProjectScopeKey(null);
+      setSidebarLogicalScope(forcedProjectRef, null, setProjectScopeKey);
     }
   }, [
     allProjectSnapshotsReady,
@@ -4812,7 +4790,11 @@ export default function Sidebar({
                       return;
                     }
                     if (!item || forcedProjectRef !== null) return;
-                    setProjectScopeKey(item.value === "all" ? null : item.value);
+                    setSidebarLogicalScope(
+                      forcedProjectRef,
+                      item.value === "all" ? null : item.value,
+                      setProjectScopeKey,
+                    );
                   }}
                 >
                   <ComboboxTrigger
