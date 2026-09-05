@@ -1,6 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import { DEFAULT_TERMINAL_ID, TerminalEvent, TerminalSessionSnapshot } from "./terminal.ts";
+import {
+  DEFAULT_TERMINAL_ID,
+  TerminalEvent,
+  TerminalOpenInput,
+  TerminalSessionSnapshot,
+} from "./terminal.ts";
 function decodeSync<S extends Schema.Top>(schema: S, input: unknown): Schema.Schema.Type<S> {
   return Schema.decodeUnknownSync(schema as never)(input) as Schema.Schema.Type<S>;
 }
@@ -37,6 +42,36 @@ describe("TerminalSessionSnapshot", () => {
       }),
     ).toBe(true);
     expect(decodes(TerminalSessionSnapshot, { ...snapshot, status: "suspended" })).toBe(false);
+  });
+});
+describe("viewer terminal identity", () => {
+  it("keeps legacy shared terminals while accepting a viewer attachment identity", () => {
+    expect(
+      decodeSync(TerminalOpenInput, {
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cwd: "/tmp/project",
+      }).attachmentId,
+    ).toBeUndefined();
+    expect(
+      decodeSync(TerminalOpenInput, {
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+        cwd: "/tmp/project",
+      }).attachmentId,
+    ).toBe("device-a");
+  });
+  it("identifies output for one viewer attachment", () => {
+    expect(
+      decodeSync(TerminalEvent, {
+        type: "output",
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        attachmentId: "device-a",
+        data: "line\n",
+      }).attachmentId,
+    ).toBe("device-a");
   });
 });
 describe("TerminalEvent", () => {
