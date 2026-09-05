@@ -501,14 +501,7 @@ export const assertOnly = (
     if (!allowed.includes(flag)) throw new UsageError(`unknown option: ${flag}`);
 };
 
-export const externalPath = (root: string, path: string): string => {
-  const resolved = NodePath.resolve(path);
-  const relative = NodePath.relative(NodeFS.realpathSync(root), NodePath.dirname(resolved));
-  if (relative === "" || (!relative.startsWith(`..${NodePath.sep}`) && relative !== "..")) {
-    throw new Error(`report must be outside the repository: ${resolved}`);
-  }
-  return resolved;
-};
+export { externalPath } from "./lib/fork-external-path.ts";
 
 export const validateReport = (value: unknown): SyncReport => {
   if (typeof value !== "object" || value === null) throw new Error("report is not an object");

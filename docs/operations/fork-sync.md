@@ -51,7 +51,9 @@ without changing the configuration read by subsequent object commands. A
 read-only verifier recomputes the receipt from the manifest and objects at the governed gates.
 Manifest paths resolve from the repository root, including when invoked in a subdirectory. The
 manifest and its adjacent receipt must be regular files outside the checkout; symlinked parents
-cannot redirect them into the checkout. These paths are checked before object traversal or writes.
+cannot redirect them into the checkout. Build and every later rehearsal/check/review/apply
+verification share this validation before object traversal or writes; copied or replaced artifacts
+cannot bypass it after construction.
 `--json` emits one complete ANSI-free result/error object. Exits: 0 verified, 1 runtime failure,
 2 usage/schema error, 3 stale or unsupported proof precondition. Help performs no work.
 

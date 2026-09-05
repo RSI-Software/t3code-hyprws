@@ -258,6 +258,30 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
             throw new Error(`unexpected fixture command: ${command} ${args.join(" ")}`);
           },
         };
+        const copiedManifest = NodePath.join(root, ".git/copied-manifest.json");
+        yield* fs.writeFile(copiedManifest, raw);
+        yield* fs.writeFileString(`${copiedManifest}.receipt.json`, encodeJson(receipt));
+        const symlinkManifest = NodePath.join(directory, "symlink-manifest.json");
+        yield* fs.symlink(manifestPath, symlinkManifest);
+        yield* fs.writeFileString(`${symlinkManifest}.receipt.json`, encodeJson(receipt));
+        for (const replacement of [copiedManifest, symlinkManifest])
+          assert.throws(
+            () =>
+              execute(
+                [
+                  "rewrite-rehearse",
+                  "--from",
+                  receipt.result,
+                  "--manifest",
+                  replacement,
+                  "--issue",
+                  "568",
+                ],
+                root,
+                runner,
+              ),
+            /outside the repository|regular external files/,
+          );
         const replayed = execute(
           [
             "rewrite-rehearse",
@@ -322,6 +346,38 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           runner,
         );
         assert.strictEqual(reviewed.nightlyReview?.status, "signed-off");
+        for (const replacement of [copiedManifest, symlinkManifest]) {
+          const relocated = {
+            ...reviewed,
+            rewrite: {
+              ...reviewed.rewrite,
+              build: {
+                ...reviewed.rewrite!.build,
+                manifestPath: replacement,
+                receiptPath: `${replacement}.receipt.json`,
+              },
+            },
+          };
+          for (const argv of [
+            ["unblock-check", "--report", reviewed.reportPath],
+            ["unblock-review", "--report", reviewed.reportPath, "--sign-off"],
+            ["unblock-apply", "--report", reviewed.reportPath, "--record", reviewed.recordPath],
+          ]) {
+            yield* fs.writeFileString(
+              reviewed.reportPath,
+              encodeJson({
+                ...relocated,
+                stage: argv[0] === "unblock-check" ? "replayed" : "checked",
+                nightlyReview: argv[0] === "unblock-review" ? undefined : relocated.nightlyReview,
+              }),
+            );
+            assert.throws(
+              () => execute(argv, root, runner),
+              /outside the repository|regular external files/,
+            );
+          }
+        }
+        yield* fs.writeFileString(reviewed.reportPath, encodeJson(reviewed));
         const originalRecord = yield* fs.readFileString(reviewed.recordPath);
         yield* fs.writeFileString(
           reviewed.recordPath,
@@ -576,6 +632,7 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
             () => buildRewrite(root, raw, false),
             /partial\/promisor|promisor object-store|alternate object stores/,
           );
+          yield* fs.writeFileString(`${manifestPath}.receipt.json`, "{}");
           assert.throws(
             () => verifyRewriteBuild(root, manifestPath, `${manifestPath}.receipt.json`),
             /partial\/promisor|promisor object-store|alternate object stores/,
@@ -634,10 +691,6 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
           () => buildRewrite(root, raw),
           /explicit empty subtrees|unsupported tree path/,
         );
-        assert.throws(
-          () => verifyRewriteBuild(root, manifestPath, `${manifestPath}.receipt.json`),
-          /explicit empty subtrees|unsupported tree path/,
-        );
         const cli = NodeChildProcess.spawnSync(
           process.execPath,
           [
@@ -651,8 +704,65 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
         );
         assert.strictEqual(cli.status, 3, cli.stdout);
         assert.isFalse(yield* fs.exists(`${manifestPath}.receipt.json`));
+        yield* fs.writeFileString(`${manifestPath}.receipt.json`, "{}");
+        assert.throws(
+          () => verifyRewriteBuild(root, manifestPath, `${manifestPath}.receipt.json`),
+          /explicit empty subtrees|unsupported tree path/,
+        );
         assert.strictEqual(git(root, ["count-objects", "-v"]), before);
       }
+    }),
+  );
+
+  it.effect("verifier rejects relocated or nonregular artifacts before Git traversal", () =>
+    Effect.gen(function* () {
+      const { root, directory, fs, manifest } = yield* fixture();
+      const raw = Buffer.from(encodeJson(manifest));
+      const receipt = buildRewrite(root, raw);
+      const manifestPath = NodePath.join(directory, "manifest.json");
+      const receiptPath = `${manifestPath}.receipt.json`;
+      yield* fs.writeFile(manifestPath, raw);
+      yield* fs.writeFileString(receiptPath, encodeJson(receipt));
+      assert.deepStrictEqual(
+        verifyRewriteBuild(
+          root,
+          NodePath.relative(root, manifestPath),
+          NodePath.relative(root, receiptPath),
+        ),
+        receipt,
+      );
+      const inside = NodePath.join(root, ".git/inside.json");
+      yield* fs.writeFile(inside, raw);
+      yield* fs.writeFileString(`${inside}.receipt.json`, encodeJson(receipt));
+      const redirected = NodePath.join(directory, "redirected");
+      yield* fs.symlink(NodePath.join(root, ".git"), redirected);
+      const linked = NodePath.join(directory, "linked.json");
+      yield* fs.symlink(manifestPath, linked);
+      const dangling = NodePath.join(directory, "dangling.json");
+      yield* fs.symlink(NodePath.join(directory, "missing-target"), dangling);
+      const nonregular = NodePath.join(directory, "directory.json");
+      yield* fs.makeDirectory(nonregular);
+      // A missed artifact refusal would reach the constructor's Git/config probe instead.
+      git(root, ["config", "remote.review.promisor", "true"]);
+      const before = git(root, ["count-objects", "-v"]);
+      for (const invalid of [
+        inside,
+        NodePath.join(redirected, "inside.json"),
+        linked,
+        dangling,
+        nonregular,
+        NodePath.join(directory, "missing.json"),
+      ]) {
+        assert.throws(
+          () => verifyRewriteBuild(root, invalid, receiptPath),
+          /outside the repository|regular external files/,
+        );
+        assert.throws(
+          () => verifyRewriteBuild(root, manifestPath, invalid),
+          /outside the repository|regular external files/,
+        );
+      }
+      assert.strictEqual(git(root, ["count-objects", "-v"]), before);
     }),
   );
 

@@ -4,6 +4,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { UsageError } from "./fork-cli.ts";
+import { externalPath } from "./fork-external-path.ts";
 
 export const REWRITE_MANIFEST_SCHEMA = "fork.rewrite-manifest.v1";
 export const REWRITE_RECEIPT_SCHEMA = "fork.rewrite-build.v1";
@@ -471,24 +472,53 @@ export const buildRewrite = (
   };
 };
 
-/** Recompute every receipt field from the frozen manifest and existing objects without writing. */
+const requireRewriteArtifacts = (
+  root: string,
+  manifest: string,
+  receipt: string,
+  requireReceipt: boolean,
+) => {
+  requireConsistentGitConfig();
+  const manifestPath = NodePath.resolve(root, manifest);
+  const receiptPath = NodePath.resolve(root, receipt);
+  for (const file of [manifestPath, receiptPath]) {
+    try {
+      externalPath(root, file);
+      externalPath(
+        root,
+        NodePath.join(NodeFS.realpathSync(NodePath.dirname(file)), NodePath.basename(file)),
+      );
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    let stat: NodeFS.Stats | undefined;
+    try {
+      stat = NodeFS.lstatSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const required = file === manifestPath || requireReceipt;
+    if ((stat === undefined && required) || (stat !== undefined && !stat.isFile()))
+      fail("rewrite manifest and receipt must be regular external files");
+  }
+  return { manifestPath, receiptPath };
+};
+
+/** Revalidate external artifacts before reading Git, then recompute their complete receipt. */
 export const verifyRewriteBuild = (
   root: string,
   manifestPath: string,
   receiptPath: string,
 ): RewriteBuildReceipt => {
-  const expected = buildRewrite(root, NodeFS.readFileSync(manifestPath), false);
-  const actual: unknown = JSON.parse(NodeFS.readFileSync(receiptPath, "utf8"));
+  const paths = requireRewriteArtifacts(root, manifestPath, receiptPath, true);
+  const expected = buildRewrite(root, NodeFS.readFileSync(paths.manifestPath), false);
+  const actual: unknown = JSON.parse(NodeFS.readFileSync(paths.receiptPath, "utf8"));
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     fail("rewrite receipt does not match verified manifest/objects");
   return expected;
 };
 
-export const runRewriteBuild = (
-  argv: ReadonlyArray<string>,
-  resolveRoot: () => string,
-  externalPath: (root: string, path: string) => string,
-): number => {
+export const runRewriteBuild = (argv: ReadonlyArray<string>, resolveRoot: () => string): number => {
   const json = argv.includes("--json");
   try {
     let manifestPath: string | undefined;
@@ -510,27 +540,14 @@ export const runRewriteBuild = (
     if (!manifestPath) throw new UsageError("--manifest is required");
     requireConsistentGitConfig();
     const root = resolveRoot();
-    manifestPath = NodePath.resolve(root, manifestPath);
-    const receiptPath = `${manifestPath}.receipt.json`;
-    for (const file of [manifestPath, receiptPath]) {
-      try {
-        externalPath(root, file);
-        externalPath(
-          root,
-          NodePath.join(NodeFS.realpathSync(NodePath.dirname(file)), NodePath.basename(file)),
-        );
-      } catch (error) {
-        fail(error instanceof Error ? error.message : String(error));
-      }
-      let stat: NodeFS.Stats | undefined;
-      try {
-        stat = NodeFS.lstatSync(file);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      if (stat !== undefined && !stat.isFile())
-        fail("rewrite manifest and receipt must be regular external files");
-    }
+    const paths = requireRewriteArtifacts(
+      root,
+      manifestPath,
+      `${manifestPath}.receipt.json`,
+      false,
+    );
+    manifestPath = paths.manifestPath;
+    const receiptPath = paths.receiptPath;
     const receipt = buildRewrite(root, NodeFS.readFileSync(manifestPath));
     const bytes = JSON.stringify(receipt, null, 2) + "\n";
     if (NodeFS.existsSync(receiptPath)) {
