@@ -12,10 +12,21 @@ testing, use [test-t3-mobile](../test-t3-mobile/SKILL.md).
 
 ## Start the app
 
-Reuse this task's healthy dev server. Otherwise run `vp run dev` from the
-repository root and retain its terminal session. Use the worktree's ignored
-`.t3` state and read the actual ports and pairing URL from the dev-runner output.
-Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
+Reuse this task's healthy dev server. Otherwise run `vp run dev:app` from the
+checkout whose code must be tested and retain its terminal session: `--preview`
+for a native T3 agent, `--external` for the external browser, `--desktop` for
+Electron. The launcher owns startup pairing, uses that checkout's ignored `.t3`
+state, and creates or reuses the editable fixture repository at
+`.t3/test-project`. Read the actual ports and ready URL from the dev-runner
+output; do not infer a port or open an earlier URL. Never run against
+`~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
+
+Keep one backend per checkout home. Stop the owned launcher before changing
+surface, then start the new selection against the same retained home. T3's
+**Dev Web** project action spells `--preview`, and `--desktop` accepts
+`--workspace <+1|-1|id|none>` when explicit placement is required. `t3.json`
+actions are imported into T3 once and stored as project-owned copies, so update
+the imported copy after changing a checked-in action.
 
 Test with meaningful project and thread data. Read
 [references/sqlite-fixtures.md](references/sqlite-fixtures.md) only when
@@ -27,14 +38,18 @@ Call `preview_status`, then `preview_open` if the Browser panel is
 closed. Navigate to the complete startup pairing URL once with
 `preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
 If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
-for a fresh one. Keep using the same tab.
+from the same checkout root for a fresh one. Keep using the same tab.
 
 ## Verify and retain
 
 Exercise the affected flow and capture the state that proves it works. Keep
 the server, state, and panel available while the user inspects or iterates.
 An assistant turn ending is not teardown. Stop only processes you started,
-using retained terminal sessions or captured PIDs.
+using retained terminal sessions or captured PIDs. Preserve the checkout's
+`.t3` home and `.t3/test-project`; they carry the retained test state for the
+next run. When authentication, migrations, or fixture state becomes ambiguous,
+inspect the retained home and name the problem; do not replace it with a fresh
+home as an implicit reset.
 
 When sharing is requested, start with `vp run dev --share` and give the user
 a fresh complete pairing URL that you have not consumed. Keep other credentials

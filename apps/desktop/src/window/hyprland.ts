@@ -28,6 +28,8 @@ export type HyprlandSocketEnvironment = {
   readonly runtimeDirectory: string | undefined;
 };
 
+export type HyprlandWindowRuleGrammar = "legacy" | "lua";
+
 export function readHyprlandSocketEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): HyprlandSocketEnvironment {
@@ -104,8 +106,59 @@ export function formatWorkspaceArgument(workspace: HyprlandWorkspaceRef): string
   return workspace.name.length > 0 ? `name:${workspace.name}` : String(workspace.id);
 }
 
+export function formatMoveToWorkspaceRequest(
+  workspace: HyprlandWorkspaceRef,
+  address: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
+): string {
+  const target = formatWorkspaceArgument(workspace);
+  if (grammar === "legacy") {
+    return `/dispatch movetoworkspacesilent ${target},address:${address}`;
+  }
+  return `/dispatch hl.dsp.window.move({workspace=${formatLuaString(target)},follow=false,window=${formatLuaString(`address:${address}`)}})`;
+}
+
 const escapeWindowRuleRegex = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+export function resolveHyprlandWindowRuleGrammar(input: {
+  readonly versionPayload: string;
+  readonly statusPayload: string;
+}): HyprlandWindowRuleGrammar {
+  try {
+    const versionRecord = JSON.parse(input.versionPayload) as Record<string, unknown>;
+    const statusRecord = JSON.parse(input.statusPayload) as Record<string, unknown>;
+    const version = typeof versionRecord["version"] === "string" ? versionRecord["version"] : "";
+    const match = /^(\d+)\.(\d+)(?:\.|$)/u.exec(version);
+    if (match === null) return "legacy";
+    const major = Number(match[1]);
+    const minor = Number(match[2]);
+    const supportsLua = major > 0 || minor >= 55;
+    return supportsLua && statusRecord["configProvider"] === "lua" ? "lua" : "legacy";
+  } catch {
+    return "legacy";
+  }
+}
+
+const formatLuaString = (value: string): string =>
+  JSON.stringify(value).replaceAll("\u2028", "\\u{2028}").replaceAll("\u2029", "\\u{2029}");
+
+function formatLuaWindowRuleHandle(title: string, kind: "workspace" | "suppression"): string {
+  return `t3code.desktop-agent.${kind}.${title}`;
+}
+
+function formatLuaWindowRule(input: {
+  readonly title: string;
+  readonly kind: "workspace" | "suppression";
+  readonly effect: string;
+}): string {
+  const matcher = formatWindowRuleTitleMatcher(input.title);
+  if (matcher === null) return "";
+  const key = formatLuaString(formatLuaWindowRuleHandle(input.title, input.kind));
+  const namePrefix = formatLuaString(`t3code-desktop-agent-${input.kind}-${input.title}-`);
+  const titleMatcher = formatLuaString(matcher.slice("match:title ".length));
+  return `/eval local key=${key};local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name=${namePrefix}..seq,match={title=${titleMatcher}},${input.effect}})`;
+}
 
 /** Exact map-time title matcher. Commas cannot be escaped in Hyprland rule fields. */
 export function formatWindowRuleTitleMatcher(title: string): string | null {
@@ -114,26 +167,47 @@ export function formatWindowRuleTitleMatcher(title: string): string | null {
     : null;
 }
 
-export function formatSuppressActivationWindowRule(title: string): string | null {
+export function formatSuppressActivationWindowRule(
+  title: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
+): string | null {
   const matcher = formatWindowRuleTitleMatcher(title);
-  return matcher === null
-    ? null
-    : `/keyword windowrule suppress_event activate activate_focus, ${matcher}`;
+  if (matcher === null) return null;
+  return grammar === "legacy"
+    ? `/keyword windowrule suppress_event activate activate_focus, ${matcher}`
+    : formatLuaWindowRule({
+        title,
+        kind: "suppression",
+        effect: `suppress_event=${formatLuaString("activate activate_focus")}`,
+      });
 }
 
 export function formatWorkspaceWindowRule(
   workspace: HyprlandWorkspaceRef,
   title: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
 ): string | null {
   const matcher = formatWindowRuleTitleMatcher(title);
-  return matcher === null
-    ? null
-    : `/keyword windowrule workspace ${formatWorkspaceArgument(workspace)} silent, ${matcher}`;
+  if (matcher === null) return null;
+  const target = `${formatWorkspaceArgument(workspace)} silent`;
+  return grammar === "legacy"
+    ? `/keyword windowrule workspace ${target}, ${matcher}`
+    : formatLuaWindowRule({
+        title,
+        kind: "workspace",
+        effect: `workspace=${formatLuaString(target)}`,
+      });
 }
 
-export function formatClearWorkspaceWindowRule(title: string): string | null {
+export function formatClearWorkspaceWindowRule(
+  title: string,
+  grammar: HyprlandWindowRuleGrammar = "legacy",
+): string | null {
   const matcher = formatWindowRuleTitleMatcher(title);
-  return matcher === null ? null : `/keyword windowrule workspace unset, ${matcher}`;
+  if (matcher === null) return null;
+  if (grammar === "legacy") return `/keyword windowrule workspace unset, ${matcher}`;
+  const key = formatLuaString(formatLuaWindowRuleHandle(title, "workspace"));
+  return `/eval local key=${key};local rule=rawget(_G,key);if rule then rule:set_enabled(false);rawset(_G,key,nil) end`;
 }
 
 /**
