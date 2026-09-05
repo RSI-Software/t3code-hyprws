@@ -70,13 +70,15 @@ describe("checkout move client policy", () => {
   });
 
   it("reports effective partial state and exposes the matching recovery action", () => {
-    expect(presentCheckoutMove(move("partial"))).toMatchObject({
+    const partial = move("partial");
+    expect(presentCheckoutMove(partial)).toMatchObject({
       action: "retry",
       inFlight: false,
       label: "Partially moved · Retry",
       detail: expect.stringContaining("Effective provider: feature"),
     });
-    expect(presentCheckoutMove(move("partial"))?.detail).toContain("provider unavailable");
+    expect(presentCheckoutMove(partial)?.detail).toContain("provider unavailable");
+    expect(checkoutMoveExpectedRoot(partial)).toBe("/repo/main");
     expect(presentCheckoutMove(move("committed"))).toMatchObject({
       action: "undo",
       label: "Moved main → feature · Undo",
