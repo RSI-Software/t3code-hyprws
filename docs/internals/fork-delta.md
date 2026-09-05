@@ -600,6 +600,14 @@ It reuses the existing optimistic file cache and save coordinator, so local and 
 MDX stays on the existing rendered preview because the Markdown pipeline cannot preserve JSX safely.
 Truncated files remain read-only.
 
+The adopted `rich-markdown-boundary` authoring guard rejects editor imports and inline rich
+surfaces in FilePreviewPanel, and `normalizeDotSegments` implementations in the shared
+Markdown link resolver. Keep the preview boundary mount and document-link adapter in their
+fork-owned modules. The preview-mode, rich-editor link and save-coordinator tests guard behavior;
+the real scan CLI fixtures prove rejected additions and accepted boundary calls.
+During historical repair, derive the lockfile from the accepted manifests with `vp i`;
+do not replay the old generated dependency patch or add another lockfile mechanism.
+
 Run `vp run fork:delta` for the commit list.
 
 ### Retirement condition
