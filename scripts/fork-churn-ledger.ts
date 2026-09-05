@@ -31,6 +31,7 @@ import {
   type CensusFile,
   type CensusSnapshot,
 } from "./lib/fork-churn-seams.ts";
+import { requireOutcomeReceipts, type OutcomeReceipt } from "./lib/fork-sync-outcomes.ts";
 export type { CensusFile, CensusSnapshot } from "./lib/fork-churn-seams.ts";
 
 export const CONFLICT_CLASSES = [
@@ -75,9 +76,10 @@ export interface CensusChurn {
 }
 
 export interface ChurnState {
-  readonly version: 2;
+  readonly version: 3;
   readonly walks: ReadonlyArray<ChurnEntry>;
   readonly seamRecords: ReadonlyArray<SeamRecord>;
+  readonly outcomes: ReadonlyArray<OutcomeReceipt>;
 }
 
 export interface ChurnEntry {
@@ -369,18 +371,25 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
 
 export const parseChurnState = (raw: string): ChurnState => {
   const value: unknown = JSON.parse(raw);
-  if (Array.isArray(value)) return { version: 2, walks: parseWalks(value), seamRecords: [] };
+  if (Array.isArray(value))
+    return { version: 3, walks: parseWalks(value), seamRecords: [], outcomes: [] };
   if (typeof value !== "object" || value === null) throw new Error("invalid churn ledger envelope");
   const state = value as Record<string, unknown>;
   if (
-    state.version !== 2 ||
-    Object.keys(state).some((key) => !["version", "walks", "seamRecords"].includes(key))
+    (state.version !== 2 && state.version !== 3) ||
+    Object.keys(state).some(
+      (key) =>
+        !["version", "walks", "seamRecords", ...(state.version === 3 ? ["outcomes"] : [])].includes(
+          key,
+        ),
+    )
   )
     throw new Error("unsupported churn ledger envelope");
   return {
-    version: 2,
+    version: 3,
     walks: parseWalks(state.walks),
     seamRecords: requireSeamRecords(state.seamRecords),
+    outcomes: state.version === 2 ? [] : requireOutcomeReceipts(state.outcomes),
   };
 };
 
@@ -472,8 +481,11 @@ export const writeChurnLedger = (
   ref = CHURN_REF,
 ): string => {
   const existing = readBotRefFile(root, ref, CHURN_LEDGER_FILE);
-  const seamRecords = existing === null ? [] : parseChurnState(existing).seamRecords;
-  return writeChurnState(root, { version: 2, walks: entries, seamRecords }, message, ref);
+  const state =
+    existing === null
+      ? { version: 3 as const, walks: [], seamRecords: [], outcomes: [] }
+      : parseChurnState(existing);
+  return writeChurnState(root, { ...state, walks: entries }, message, ref);
 };
 
 const conflictRowsByPath = (

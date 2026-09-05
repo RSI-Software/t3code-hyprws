@@ -77,8 +77,9 @@ git show refs/fork/churn:fork-churn.json
 
 ### Churn ledger
 
-The v2 ledger keeps `walks` and immutable `seamRecords` in the same `fork-churn.json`.
-Legacy arrays remain readable; no migration invents repair or verification records.
+The v3 ledger keeps `walks`, immutable `seamRecords`, and target `outcomes` in the same
+`fork-churn.json`. Legacy arrays and v2 envelopes remain readable; every writer preserves
+their existing evidence, and no migration invents repairs, verification, or successful outcomes.
 Before rewriting a named seam, freeze its full census and reviewed identity mapping:
 
 ```bash
@@ -108,6 +109,75 @@ guard command passed. An attested guard failure always blocks, including across 
 measurement boundaries. The importer validates retained evidence and source binding; it does
 not execute commands or check the repair commit's ancestry.
 Existing `vp run fork:churn` and `vp run fork:churn --check` still render/check the mirror.
+
+#### Target outcomes through distribution
+
+`vp run fork:churn outcome` records each selected tagged upstream commit once, retaining
+separate attempts under it. Eligibility defaults to true even when mode is `candidate` or
+`off`, a target is blocked, or recovery needs an agent. Exclusions require an explicit
+tag-policy reason before measurement. A mode change or history rewrite cannot exclude an
+existing target. `trigger` records schedule, push, or manual kickoff independently of the
+bot, agent, or human `executor`; optional `rewriteProvenance` belongs on the attempt.
+
+The upstream-sync workflow writes target declarations before executing its plan. Its
+`always()` collectors retain clean, blocked, stopped, and failed attempts. Report publication
+and report policy are separate stages: a posted comment followed by exit 1 does not claim a
+failed publication or an attempted apply. An installed rehearsal head is not an applied
+trunk head; only the durable `applied` report stage supplies that receipt. Rerere publication
+and the workflow cache export retain their own pending/failure evidence after apply.
+
+```bash
+vp run fork:churn outcome --auto-report /path/auto-result.json --report-receipt /path/report-receipt.json --push
+vp run fork:churn outcome --sync-report /path/sync-report.json --push
+vp run fork:churn outcome --input reviewed-outcomes.json --push
+```
+
+The auto, rehearse, check, and apply commands retain a local `.outcome.json` sidecar,
+including conflict stops and failed verification. List, orient, review, and refresh do not
+create carry attempts. Workflow identity is extended with the command phase and an immutable
+report-snapshot digest: a stopped walk and its resumed apply retain separate attempts, while
+re-collecting an unchanged snapshot adds nothing. Collectors refresh the report before reading
+its sidecar; an old sidecar cannot hide a later apply. Local executing commands receive a new
+invocation ID, while readback reuses the retained snapshot evidence. Set
+`FORK_OUTCOME_EXECUTOR=agent` or `human` before an operator's sync invocation; otherwise
+that executor remains unknown. `FORK_OUTCOME_EXPORT` saves an importable bundle before
+ledger publication. Workflow artifacts retain raw reports and outcome bundles for 90 days.
+On a stale ledger lease, publication refuses and restores its previous local ref; fetch the
+current `refs/fork/churn` and re-import the retained bundle. Never replace the ledger with an
+older artifact. Duplicate deliveries add nothing; conflicting evidence refuses with exit 1.
+
+An input bundle is `{ "version": 1, "receipts": [...] }`, ordered target, attempt, then
+stage evidence. Targets declare `target: {tag, sha}`, `eligible`, and `reason`. Attempts
+name `targetSha`, a stable `attemptId`, `sourceSha`, `trigger`, `executor`, `mode`, and
+`runUrl`. Stages name that target/attempt, `stage`, `status`, `detail`, and the actual `sha`
+when successful verification/apply/build needs it. The first selected tag stays immutable.
+If another tag resolves to the same commit, explicitly import a `target-alias` receipt with
+`targetSha`, `tag`, and review `reason` after the original declaration; subsequent selection
+of that alias reuses the retained target. It never creates another streak entry.
+
+The release workflow's `always()` outcome job passes its job results through
+`FORK_RELEASE_NEEDS` to `outcome --release --push`. It resolves the nearest retained applied
+ancestor of the actual release checkout, verifies the release tag's commit, and compares
+every expected build asset with GitHub's published name, positive size, and SHA-256 digest.
+Distribution success requires passing preflight and build receipts for the exact released
+SHA. A later release SHA retains the intervening commit list and its exact-tree verification.
+Failed preflight/build/publication remains visible; rerun the existing release workflow to
+recover distribution without replaying an already applied rebase. A scheduled no-change
+skip at the same released SHA preserves its earlier successful distribution.
+
+The JSON result reports retained attempts/stages and `resume`: `sync`, `release-only`, or
+`complete`. `noAgentCarry` counts consecutive eligible targets whose carry attempts were
+on-mode bots, automatically triggered, verified, applied, and free of blocked/unknown/
+pending/failed carry stages. Every successful apply attempt must retain selection, matching verification, apply,
+rerere, and cache-export receipts. Direct clean replays explicitly mark the cache stages
+`not-attempted` with `notApplicableReason: "direct-clean-rebase"`; absent receipts or
+unexplained non-attempts cannot qualify. Attempts with incomplete stage evidence never
+silently preserve the streak. `distributed` is a separate eligible-target streak. Raw blocked
+and rewritten targets stay in that order. Missing historical evidence never counts as
+success; reviewed historical imports must name their evidence or remain unknown. A release
+that stops before identifying any checkout retains raw workflow evidence instead of
+inventing a target binding. The importer validates evidence consistency; manual input is an
+attestation, while workflow collectors obtain Git and GitHub evidence directly.
 
 The report extends the existing census table with explicit seam states:
 
