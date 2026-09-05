@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 
 import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { checkoutMoveExpectedRoot } from "@t3tools/client-runtime/state/checkout-move";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import {
   type GitActionRequestInput,
@@ -28,6 +29,9 @@ import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 
 export function useSelectedThreadGitActions() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
     reportFailure: false,
   });
   const refreshStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
@@ -180,17 +184,46 @@ export function useSelectedThreadGitActions() {
         readonly worktreePath?: string | null;
       };
     }): Promise<AtomCommandResult<void, unknown>> => {
+      let checkoutMoveRequested = false;
       if (input.nextThreadState) {
-        const updateResult = await updateThreadGitContext(input.thread, input.nextThreadState);
+        const nextWorktreePath = input.nextThreadState.worktreePath;
+        checkoutMoveRequested =
+          nextWorktreePath !== undefined &&
+          nextWorktreePath !== input.thread.worktreePath &&
+          selectedThreadProject !== null;
+        const updateResult =
+          checkoutMoveRequested && selectedThreadProject
+            ? await moveThreadCheckout({
+                environmentId: input.thread.environmentId,
+                input: {
+                  threadId: input.thread.id,
+                  requestedPath: nextWorktreePath ?? selectedThreadProject.workspaceRoot,
+                  expectedCheckoutRoot:
+                    (input.thread.checkoutMove
+                      ? checkoutMoveExpectedRoot(input.thread.checkoutMove)
+                      : null) ??
+                    input.thread.worktreePath ??
+                    selectedThreadProject.workspaceRoot,
+                },
+              })
+            : await updateThreadGitContext(input.thread, input.nextThreadState);
         if (AsyncResult.isFailure(updateResult)) {
           return AsyncResult.failure(updateResult.cause);
         }
       }
       branchState.refresh();
-      await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
+      if (!checkoutMoveRequested) {
+        await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
+      }
       return AsyncResult.success(undefined);
     },
-    [branchState, refreshSelectedThreadGitStatus, updateThreadGitContext],
+    [
+      branchState,
+      moveThreadCheckout,
+      refreshSelectedThreadGitStatus,
+      selectedThreadProject,
+      updateThreadGitContext,
+    ],
   );
 
   const onCheckoutSelectedThreadBranch = useCallback(
