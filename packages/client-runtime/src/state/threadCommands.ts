@@ -32,6 +32,7 @@ import {
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
   type LinkThreadPullRequestInput,
+  type MoveThreadCheckoutInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type DismissThreadUserInputInput,
@@ -68,6 +69,7 @@ import {
   resumeThreadQueue,
   retryWorkspacePreparation,
   linkThreadPullRequest,
+  moveThreadCheckout,
   respondToThreadApproval,
   respondToThreadUserInput,
   dismissThreadUserInput,
@@ -260,6 +262,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     watchPullRequest: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:watch-pull-request",
       execute: (input: WatchThreadPullRequestInput) => watchThreadPullRequest(input),
+      scheduler,
+      concurrency,
+    }),
+    moveCheckout: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:move-checkout",
+      execute: (input: MoveThreadCheckoutInput) => moveThreadCheckout(input),
       scheduler,
       concurrency,
     }),
