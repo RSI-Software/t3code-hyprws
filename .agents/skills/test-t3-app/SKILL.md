@@ -7,28 +7,31 @@ description: Launch, retain, and test the T3 Code web app in isolated developmen
 
 Use this skill for the web client. For iOS Simulator, Android Emulator, or physical-device testing against an isolated T3 backend, use the sibling [`test-t3-mobile`](../test-t3-mobile/SKILL.md) skill.
 
-## Start an isolated web environment
+## Start the shared isolated app
 
-1. Run commands from the repository root.
-2. Choose a base directory that belongs only to the current worktree or test:
-   - Use the repository's ignored `.t3` directory for reusable worktree-local state.
-   - Use `mktemp -d /tmp/t3code-test.XXXXXX` for disposable state and retain the printed absolute path.
-3. Start the full web stack with `vp run dev`. Add `--share` when the user needs to open it from another tailnet device. In a linked worktree it defaults to that worktree's gitignored `.t3`; pass `--home-dir <base-dir>` only when the test needs a different isolated directory.
-4. Keep the terminal session alive and read the selected server port, web port, base directory, and pairing URL from its output.
+Run the launcher from the checkout whose code must be tested:
 
-Treat a base directory as disposable only when it was created or deliberately selected for the current test. Never delete or directly seed the shared `~/.t3` directory. Prefer starting with a new temporary base directory over clearing state of uncertain ownership.
+- `vp run dev:app --preview` starts web for a native T3 agent. After the launcher prints the actual ready URL, open that URL with `preview_open`.
+- `vp run dev:app --external` starts web and opens the ready app in the external browser.
+- `vp run dev:app --desktop` starts Electron with DevTools disabled and a recorded CDP endpoint. Add `--workspace <+1|-1|id|none>` only when explicit placement is required.
 
-The worktree-local default deliberately outranks an ambient `T3CODE_HOME`; do not pass the shared home through to a worktree dev server.
+The command-line default is `--external`; T3's **Dev Web** project action spells `--preview` explicitly. When the current client has no integrated preview, that action uses the external browser instead. The launcher owns startup pairing, uses the checkout's `.t3` as its isolated home, and creates or reuses the editable fixture repository at `.t3/test-project`. It prints the actual ports and ready endpoint after startup; do not infer a port or open an earlier URL.
 
-Ports are derived from the worktree path but can shift when occupied. Always read the actual values from the `[dev-runner]` line.
+Choose the checkout deliberately:
 
-Shared browser dev is single-origin: Vite proxies the backend paths, so never set `VITE_HTTP_URL` or `VITE_WS_URL` for `dev`/`dev:web`.
+- Use the base checkout for exploratory work against the current fork trunk.
+- Use the implementation worktree while building and verifying a feature.
+- Use a checkout at the exact candidate UAT SHA for release acceptance, and verify `git rev-parse HEAD` before launch.
 
-The dev runner disables browser auto-open by default. Do not pass `--browser` during automated testing: an automatically opened page can consume the one-time bootstrap token before the controlled browser uses it.
+Keep one backend for one checkout home running at a time. Stop the owned launcher before changing surface for that checkout, then start the new selection against the same retained home. A different checkout has its own `.t3` home and may run concurrently when the test needs it. The fixture repository, edits, registered project, threads, and authentication survive restarts. Do not reset the fixture or copy state from the stable T3 installation.
+
+`t3.json` project actions are imported into T3 once and then stored as project-owned copies. After changing a checked-in action, update its imported copy before testing it. **Setup Worktree** only prepares dependencies, environment links, and caches; it does not launch the app or reset test state.
+
+The checkout-local home deliberately excludes ambient T3 runner ports and the shared `~/.t3` state. Shared browser dev remains single-origin, so never set `VITE_HTTP_URL` or `VITE_WS_URL`.
 
 ### Verify a shared environment before human handoff
 
-When another person will use the printed pairing URL, first open the shared origin without the pairing path or fragment in the controlled browser and confirm the T3 Code app loads. This browser navigation is required even when curl succeeds because browsers block some otherwise reachable ports before making a network request.
+When another person will use a printed pairing URL, first open the shared origin without the pairing path or fragment in the controlled browser and confirm the T3 Code app loads. This browser navigation is required even when curl succeeds because browsers block some otherwise reachable ports before making a network request.
 
 Do not open the other person's complete pairing URL during this reachability check; doing so consumes its one-time token. If the agent also needs an authenticated browser, create and consume a separate pairing token, then leave a fresh token for the other person.
 
@@ -54,7 +57,7 @@ Keep pairing URLs out of screenshots, committed files, and durable logs. When th
 
 ## Recover a consumed or expired pairing token
 
-Run `node apps/server/src/bin.ts pair` from the repository root. It discovers the running dev server (worktree `.t3` first, same precedence as the dev runner) and prints a fresh `Pair URL` against the server's current web origin, including a `--share` tailnet origin. Pass `--base-dir <base-dir>` only when the server was started with `--home-dir`, using the identical path.
+Run `node apps/server/src/bin.ts pair` from the same checkout root. It discovers the launcher-owned `.t3` home and prints a fresh `Pair URL` against the server's current web origin.
 
 Tokens from `pair` carry standard client scopes. The startup pairing URL carries admin scopes; if the user needs Settings → Connections management (`access:write`), restart the server and hand over the new startup URL instead.
 
@@ -76,15 +79,14 @@ Tear down when the user explicitly asks, confirms the iteration is finished, or 
 When teardown is appropriate:
 
 1. Stop the dev process with its terminal interrupt.
-2. Preserve the isolated base directory when it contains useful reproduction evidence or state for a likely follow-up.
-3. Otherwise remove only a path created for this test after resolving and verifying the exact target.
+2. Preserve the checkout's `.t3` home and `.t3/test-project`; they carry the retained test state for the next run.
 
-If completion is uncertain, keep the environment alive and mention that it is retained for further iteration. A fresh isolated base directory remains the safest reset when authentication, migrations, or fixture state becomes ambiguous.
+If completion is uncertain, keep the environment alive and mention that it is retained for further iteration. When authentication, migrations, or fixture state becomes ambiguous, inspect the retained home and name the problem; do not replace it with a fresh home as an implicit reset.
 
 ## Troubleshoot predictably
 
 - If the browser shows an unauthenticated pairing screen, issue a new token instead of retrying the consumed URL.
 - If the pairing URL is no longer visible, create a replacement token with both `--dev-url` and `--base-url`.
-- If the replacement token is rejected, verify that the CLI and server use the identical absolute base directory and web URL.
-- If the UI shows unexpected data, verify that every command uses the identical explicit base directory before editing anything.
+- If the replacement token is rejected, verify that the pair command and launcher ran from the identical checkout and use the printed web URL.
+- If the UI shows unexpected data, verify that every command uses that checkout's `.t3` home before editing anything.
 - If ports move because another instance is running, trust the current dev-runner output rather than assuming ports `13773` and `5733`.
