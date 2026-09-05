@@ -39,6 +39,8 @@ const bindJson = (outcome: "created" | "reused" | "restored" | "renamed" = "crea
   });
 
 const resolveJson = JSON.stringify({
+  workspace: "t3code",
+  session: "feat/test",
   target: "t3code/feat/test",
   match: "worktree",
   tmuxName: "t3code__feat_test",
@@ -99,6 +101,10 @@ describe("ZmuxSessionBinder", () => {
           KEEP_ME: "yes",
         },
         extendEnv: false,
+        timeout: "30 seconds",
+        maxOutputBytes: 64 * 1024,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
       });
       assert.deepStrictEqual(run.mock.calls[1]?.[0], {
         command: "zmux",
@@ -108,6 +114,10 @@ describe("ZmuxSessionBinder", () => {
           KEEP_ME: "yes",
         },
         extendEnv: false,
+        timeout: "30 seconds",
+        maxOutputBytes: 64 * 1024,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
       });
     }).pipe(Effect.provide(makeLayer(run)));
   });
@@ -188,6 +198,8 @@ describe("ZmuxSessionBinder", () => {
 
       assert.deepStrictEqual(resolved, {
         status: "resolved",
+        workspace: "t3code",
+        session: "feat/test",
         target: "t3code/feat/test",
         match: "worktree",
         tmuxName: "t3code__feat_test",
