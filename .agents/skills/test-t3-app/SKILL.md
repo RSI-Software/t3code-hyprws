@@ -23,7 +23,7 @@ Choose the checkout deliberately:
 - Use the implementation worktree while building and verifying a feature.
 - Use a checkout at the exact candidate UAT SHA for release acceptance, and verify `git rev-parse HEAD` before launch.
 
-Keep one backend for one checkout home running at a time. Stop the owned launcher before changing surface or checkout, then start the new selection against the same retained home when continuing the same test. The fixture repository, edits, registered project, threads, and authentication survive restarts. Do not reset the fixture or copy state from the stable T3 installation.
+Keep one backend for one checkout home running at a time. Stop the owned launcher before changing surface for that checkout, then start the new selection against the same retained home. A different checkout has its own `.t3` home and may run concurrently when the test needs it. The fixture repository, edits, registered project, threads, and authentication survive restarts. Do not reset the fixture or copy state from the stable T3 installation.
 
 `t3.json` project actions are imported into T3 once and then stored as project-owned copies. After changing a checked-in action, update its imported copy before testing it. **Setup Worktree** only prepares dependencies, environment links, and caches; it does not launch the app or reset test state.
 
