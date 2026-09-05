@@ -46,61 +46,74 @@ describe("buildTurnStartParams", () => {
   );
 });
 describe("openCodexThread", () => {
-  it.effect("layers a selected Codex custom agent onto thread start", () =>
-    Effect.gen(function* () {
-      const calls: Array<{
-        method: "thread/start" | "thread/resume";
-        payload: unknown;
-      }> = [];
-      const started = makeThreadOpenResponse("agent-thread");
-      const client = {
-        request: <M extends "thread/start" | "thread/resume">(
-          method: M,
-          payload: CodexRpc.ClientRequestParamsByMethod[M],
-        ) => {
-          calls.push({ method, payload });
-          return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
-        },
-        raw: {
-          request: () => Effect.die("A fresh agent thread must not resume"),
-        },
-      };
-      yield* openCodexThread({
-        client,
-        threadId: ThreadId.make("thread-agent"),
-        runtimeMode: "full-access",
-        cwd: "/tmp/project",
-        requestedModel: "gpt-5.6-sol",
-        serviceTier: undefined,
-        resumeThreadId: undefined,
-        agent: {
-          name: "fable",
-          description: "Shape product direction",
-          developerInstructions: "Work from first principles.",
-          config: {
-            model: "gpt-5.6-sol",
-            model_reasoning_effort: "high",
-          },
-          sourcePath: "/tmp/fable.toml",
-        },
-      });
-      NodeAssert.deepStrictEqual(calls, [
-        {
-          method: "thread/start",
-          payload: {
-            cwd: "/tmp/project",
-            approvalPolicy: "never",
-            sandbox: "danger-full-access",
-            approvalsReviewer: "user",
-            model: "gpt-5.6-sol",
-            developerInstructions: "Work from first principles.",
-            config: {
-              model: "gpt-5.6-sol",
-              model_reasoning_effort: "high",
+  for (const resumeThreadId of [undefined, "retained-agent-thread"]) {
+    it.effect(
+      `layers a selected Codex custom agent onto thread ${resumeThreadId ? "resume" : "start"}`,
+      () =>
+        Effect.gen(function* () {
+          const calls: Array<{
+            method: "thread/start" | "thread/resume";
+            payload: unknown;
+          }> = [];
+          const started = makeThreadOpenResponse("agent-thread");
+          const client = {
+            request: <M extends "thread/start" | "thread/resume">(
+              method: M,
+              payload: CodexRpc.ClientRequestParamsByMethod[M],
+            ) => {
+              calls.push({ method, payload });
+              return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
             },
-          },
-        },
-      ]);
-    }),
-  );
+            // Upstream resumes over the raw request so a stale history cannot
+            // block the resume; the agent options ride the same params either way.
+            raw: {
+              request: (
+                method: "thread/resume",
+                payload: CodexRpc.ClientRequestParamsByMethod["thread/resume"],
+              ) => {
+                calls.push({ method, payload });
+                return Effect.succeed(started);
+              },
+            },
+          };
+          yield* openCodexThread({
+            client,
+            threadId: ThreadId.make("thread-agent"),
+            runtimeMode: "full-access",
+            cwd: "/tmp/project",
+            requestedModel: "gpt-5.6-sol",
+            serviceTier: undefined,
+            resumeThreadId,
+            agent: {
+              name: "fable",
+              description: "Shape product direction",
+              developerInstructions: "Work from first principles.",
+              config: {
+                model: "gpt-5.6-sol",
+                model_reasoning_effort: "high",
+              },
+              sourcePath: "/tmp/fable.toml",
+            },
+          });
+          NodeAssert.deepStrictEqual(calls, [
+            {
+              method: resumeThreadId ? "thread/resume" : "thread/start",
+              payload: {
+                ...(resumeThreadId ? { threadId: resumeThreadId, excludeTurns: true } : {}),
+                cwd: "/tmp/project",
+                approvalPolicy: "never",
+                sandbox: "danger-full-access",
+                approvalsReviewer: "user",
+                model: "gpt-5.6-sol",
+                developerInstructions: "Work from first principles.",
+                config: {
+                  model: "gpt-5.6-sol",
+                  model_reasoning_effort: "high",
+                },
+              },
+            },
+          ]);
+        }),
+    );
+  }
 });
