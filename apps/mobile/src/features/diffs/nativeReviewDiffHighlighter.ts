@@ -277,6 +277,7 @@ function createHighlighterHandle(
           lang,
           theme,
           grammarState,
+          tokenizeTimeLimit: 0,
         });
         grammarState = highlighter.getLastGrammarState(tokens);
         highlighted.push(...normalizeTokens(tokens));
