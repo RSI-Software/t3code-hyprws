@@ -105,6 +105,134 @@ const authoringCases = [
 ] as const;
 
 it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
+  it.effect(
+    "rejects target-owned Effect appends and accepts siblings and exact harness deferrals",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-test-ownership-" });
+        const git = (args: ReadonlyArray<string>) =>
+          NodeChildProcess.execFileSync("git", [...args], {
+            cwd: root,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          }).trim();
+        const write = Effect.fn("writeTestOwnershipFixture")(function* (
+          path: string,
+          content: string,
+        ) {
+          const absolute = NodePath.join(root, path);
+          yield* fs.makeDirectory(NodePath.dirname(absolute), { recursive: true });
+          yield* fs.writeFileString(absolute, content);
+        });
+        const commit = (message: string) => {
+          git(["add", "."]);
+          git([
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "-m",
+            message,
+          ]);
+          return git(["rev-parse", "HEAD"]);
+        };
+        git(["init", "--initial-branch=fork"]);
+        const pairs = ["ci", "release"].map((name) => ({
+          upstream: `.github/workflows/${name}.yml`,
+          fork: `.github/workflows/hyprws-${name}.yml`,
+        }));
+        const deferred = [
+          "apps/desktop/src/window/DesktopWindow.test.ts",
+          "apps/server/src/server.test.ts",
+        ];
+        for (const pair of pairs) {
+          yield* write(pair.upstream, "jobs: {}\n");
+          yield* write(pair.fork, "jobs: {}\n");
+        }
+        for (const path of deferred) yield* write(path, 'it("upstream harness", () => {});\n');
+        const base = commit("upstream base");
+        const path = "apps/web/src/state/terminalSessions.test.ts";
+        git(["checkout", "-b", "upstream-target"]);
+        yield* write(path, 'it("upstream metadata", () => {});\n');
+        const target = commit("upstream independently adds terminal tests");
+        git(["checkout", "fork"]);
+        yield* write(
+          ".github/fork-workflow-reviews.json",
+          yield* encodeFixtureJson({
+            version: 1,
+            reviews: pairs.map((pair) => ({
+              ...pair,
+              upstreamCommit: base,
+              upstreamBlob: git(["rev-parse", `${base}:${pair.upstream}`]),
+              forkBlob: git(["rev-parse", `${base}:${pair.fork}`]),
+              disposition: "no-change",
+              reason: "Fixture workflows are unchanged.",
+            })),
+          }),
+        );
+        yield* write(
+          "docs/internals/fork-delta.md",
+          [
+            "# Fork delta",
+            "",
+            "## project-windows",
+            "",
+            "### Rebase scan",
+            "",
+            "| Path | Why |",
+            "| --- | --- |",
+            ...[path, ...deferred].map((path) => `| \`${path}\` | Fixture |`),
+            "",
+          ].join("\n"),
+        );
+        yield* write(path, 'effectIt.effect("fork attachment", () => Effect.void);\n');
+        const trailers = "Fork-Domain: project-windows\nFork-Tier: core";
+        const bad = commit(`fork independently adds attachment tests\n\n${trailers}`);
+        const scan = (target: string, since: string | null) =>
+          NodeChildProcess.spawnSync(
+            process.execPath,
+            [
+              scanScript,
+              "--head",
+              "HEAD",
+              "--target",
+              target,
+              "--no-typecheck",
+              ...(since === null ? [] : ["--since", since]),
+            ],
+            { cwd: root, encoding: "utf8" },
+          );
+        const forkOwned = scan(base, base);
+        assert.strictEqual(forkOwned.status, 0, forkOwned.stderr);
+        const rejected = scan(target, base);
+        assert.strictEqual(rejected.status, 1, rejected.stderr);
+        assert.include(rejected.stdout, "upstream-test");
+        assert.include(rejected.stdout, "adopted authoring guard");
+        const historical = scan(target, null);
+        assert.strictEqual(historical.status, 0, historical.stderr);
+        assert.include(historical.stdout, "upstream-test");
+        assert.include(historical.stdout, "advisory");
+        yield* write(path, git(["show", `${target}:${path}`]) + "\n");
+        yield* write(
+          path.replace(".test.ts", ".fork.test.ts"),
+          'effectIt.effect("fork attachment", () => Effect.void);\n',
+        );
+        for (const path of deferred)
+          yield* write(
+            path,
+            'it("upstream harness", () => {});\neffectIt.effect("fork integration", () => Effect.void);\n',
+          );
+        commit(`move attachment tests and preserve deferred harnesses\n\n${trailers}`);
+        const repaired = scan(target, bad);
+        assert.strictEqual(repaired.status, 0, repaired.stderr);
+        assert.notInclude(repaired.stdout, "upstream-test");
+      }),
+  );
+
   for (const example of authoringCases) {
     const { sourcePath, domain, rule } = example;
     it.effect(
