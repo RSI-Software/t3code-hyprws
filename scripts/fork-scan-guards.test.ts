@@ -176,6 +176,58 @@ it("rejects reintroduced physical sidebar derivation and permits the policy adap
   }
 });
 
+it("guards direct thread navigation policy while preserving boundary calls and upstream params", () => {
+  const sha = "a".repeat(40);
+  const sources = [
+    "components/ChatView.tsx",
+    "components/CommandPalette.tsx",
+    "hooks/useHandleNewThread.ts",
+  ];
+  const cases = [
+    ['+import { resolveThreadRouteFamily } from "../threadRoutes";', true],
+    ['+import {\n+  resolveThreadRouteFamily as resolveFamily,\n+} from "../threadRoutes";', true],
+    ["+select: (params) => resolveThreadRouteFamily(params),", true],
+    ["+select: (params) => {\n+ return resolveThreadRouteFamily(params);\n+},", true],
+    ["+function resolveThreadRouteFamily(params) {", true],
+    ['+import { resolveThreadRouteFamily } from "../lib/threadRouteNavigation";', false],
+    ["+const family = useThreadRouteFamily();", false],
+    ["+...resolveThreadRouteFamily(getCurrentRouteParams()).draft(draftId),", false],
+    ["+const target = useParams({ strict: false, select: resolveThreadRouteTarget });", false],
+    ["+// select: (params) => resolveThreadRouteFamily(params)", false],
+    ['+/* import { resolveThreadRouteFamily } from "../threadRoutes"; */', false],
+    ['-import { resolveThreadRouteFamily } from "../threadRoutes";', false],
+  ] as const;
+  for (const source of sources) {
+    for (const [lines, expected] of cases) {
+      const path = `apps/web/src/${source}`;
+      const warnings = collectScanWarnings(
+        guardInput({
+          patchesBySha: parseCommitPatches(
+            patch(sha, `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${lines}`),
+          ),
+        }),
+      );
+      assert.strictEqual(
+        warnings.some((warning) => warning.rule === "thread-route-navigation"),
+        expected,
+        `${source}: ${lines}`,
+      );
+    }
+  }
+  const path = "apps/web/src/lib/threadRouteNavigation.ts";
+  const warnings = collectScanWarnings(
+    guardInput({
+      patchesBySha: parseCommitPatches(
+        patch(
+          sha,
+          `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n+import { resolveThreadRouteFamily } from "../threadRoutes";`,
+        ),
+      ),
+    }),
+  );
+  assert.deepStrictEqual(warnings, []);
+});
+
 it("keeps a path hot only while the ledger charged for it more than once", () => {
   const seams = readHotSeams(churn);
   assert.deepStrictEqual([...seams.keys()], ["apps/web/src/components/ChatView.tsx"]);
