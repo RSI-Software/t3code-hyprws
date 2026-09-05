@@ -9,7 +9,11 @@ import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 
 import { runCommandText } from "./fork-command.ts";
-import { readHyprctlWorkspace, type WorkspaceRef } from "./hyprland-workspace.ts";
+import {
+  readHyprctlWorkspace,
+  selectHyprlandInstance,
+  type WorkspaceRef,
+} from "./hyprland-workspace.ts";
 import { loadRepoEnv } from "./public-config.ts";
 
 const DEBUG_PORT_BASE = 9223;
@@ -58,34 +62,251 @@ export function withoutInheritedDevRunnerEnv(
   return output;
 }
 
-export function resolveAgentTargetWorkspace(origin: WorkspaceRef): WorkspaceRef {
-  if (origin.id <= 1 || origin.name !== String(origin.id)) {
+export function resolveAgentTargetWorkspace(origin: WorkspaceRef, offset: -1 | 1): WorkspaceRef {
+  if (!Number.isSafeInteger(origin.id) || origin.id <= 0 || origin.name !== String(origin.id)) {
     throw new Error(
-      `the invoking app must be on a numbered Hyprland workspace above 1; received ${origin.name}`,
+      `the invoking app must be on a positive numbered Hyprland workspace; received ${origin.name}`,
     );
   }
-  const id = origin.id - 1;
+  const id = origin.id + offset;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new Error(
+      `workspace ${origin.name} has no valid ${offset < 0 ? "previous" : "next"} numbered workspace`,
+    );
+  }
   return { id, name: String(id) };
 }
 
 export type DesktopAgentWorkspaceSelector =
   | { readonly kind: "default" }
-  | { readonly kind: "previous" }
+  | { readonly kind: "relative"; readonly offset: -1 | 1 }
   | { readonly kind: "numbered"; readonly workspace: WorkspaceRef };
+
+export type DesktopAgentWorkspacePlacement = {
+  readonly origin: WorkspaceRef | null;
+  readonly target: WorkspaceRef | null;
+};
+
+export type DesktopAgentHyprlandClient = {
+  readonly pid: number;
+  readonly initialTitle: string;
+  readonly workspace: WorkspaceRef;
+  readonly mapped: boolean;
+  readonly hidden: boolean;
+};
 
 export function parseDesktopAgentWorkspaceSelector(
   value: string | undefined,
 ): DesktopAgentWorkspaceSelector {
   const selector = value?.trim();
   if (!selector || selector === "none") return { kind: "default" };
-  if (selector === "-1") return { kind: "previous" };
+  if (selector === "-1") return { kind: "relative", offset: -1 };
+  if (selector === "+1") return { kind: "relative", offset: 1 };
   if (/^[1-9]\d*$/u.test(selector)) {
     const id = Number(selector);
     if (Number.isSafeInteger(id)) return { kind: "numbered", workspace: { id, name: selector } };
   }
   throw new Error(
-    `invalid desktop agent workspace selector ${JSON.stringify(value)}; expected none, -1, or a positive workspace id`,
+    `invalid desktop agent workspace selector ${JSON.stringify(value)}; expected none, +1, -1, or a positive workspace id`,
   );
+}
+
+export function selectDesktopAgentWorkspaceSelector(
+  workspaceOverride: string | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+): DesktopAgentWorkspaceSelector {
+  return parseDesktopAgentWorkspaceSelector(
+    workspaceOverride ?? environment["T3CODE_DESKTOP_AGENT_WORKSPACE"],
+  );
+}
+
+export function parseDesktopAgentHyprlandClients(
+  payload: string,
+): readonly DesktopAgentHyprlandClient[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    throw new Error("hyprctl clients returned invalid JSON");
+  }
+  if (!Array.isArray(parsed)) throw new Error("hyprctl clients returned an invalid list");
+  return parsed.flatMap((value): DesktopAgentHyprlandClient[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const record = value as Record<string, unknown>;
+    const workspace = record["workspace"];
+    if (typeof workspace !== "object" || workspace === null) return [];
+    const workspaceRecord = workspace as Record<string, unknown>;
+    const pid = record["pid"];
+    const initialTitle = record["initialTitle"];
+    const id = workspaceRecord["id"];
+    const name = workspaceRecord["name"];
+    if (
+      typeof pid !== "number" ||
+      !Number.isSafeInteger(pid) ||
+      pid <= 0 ||
+      typeof initialTitle !== "string" ||
+      typeof id !== "number" ||
+      !Number.isSafeInteger(id) ||
+      typeof name !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        pid,
+        initialTitle,
+        workspace: { id, name },
+        mapped: record["mapped"] !== false,
+        hidden: record["hidden"] === true,
+      },
+    ];
+  });
+}
+
+function readProcessParent(pid: number): number {
+  try {
+    const stat = NodeFS.readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+    return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function desktopAgentAncestorPids(
+  pid: number,
+  readParent: (pid: number) => number = readProcessParent,
+): readonly number[] {
+  const ancestors: number[] = [];
+  let current = readParent(pid);
+  for (let hops = 0; current > 1 && hops < 64; hops += 1) {
+    ancestors.push(current);
+    current = readParent(current);
+  }
+  return ancestors;
+}
+
+export function resolveInvokingT3Workspace(input: {
+  readonly projectId: string | undefined;
+  readonly clients: readonly DesktopAgentHyprlandClient[];
+  readonly selfPid: number;
+  readonly readParent?: (pid: number) => number;
+}): WorkspaceRef {
+  const projectId = input.projectId?.trim() ?? "";
+  const ancestors = new Set(desktopAgentAncestorPids(input.selfPid, input.readParent));
+  const owned = input.clients.filter(
+    (client) =>
+      client.mapped && !client.hidden && client.workspace.id > 0 && ancestors.has(client.pid),
+  );
+  let client: DesktopAgentHyprlandClient;
+  if (projectId.length > 0) {
+    const matches = owned.filter((candidate) => candidate.initialTitle.trim() === projectId);
+    if (matches.length > 1) {
+      throw new Error(
+        `relative workspace placement is ambiguous: the invoking T3 app owns ${String(matches.length)} visible windows for project ${projectId}`,
+      );
+    }
+    if (matches.length === 1) {
+      client = matches[0]!;
+    } else if (owned.length === 1) {
+      // A staged map-time placement title becomes Hyprland's initialTitle. The
+      // sole ancestor-owned window still proves the origin without using focus.
+      client = owned[0]!;
+    } else if (owned.length === 0) {
+      throw new Error(
+        `no visible window owned by the invoking T3 app was created for project ${projectId}`,
+      );
+    } else {
+      throw new Error(
+        `relative workspace placement is ambiguous: no owned window matches project ${projectId}, and the invoking T3 app owns ${String(owned.length)} visible windows`,
+      );
+    }
+  } else {
+    if (owned.length === 0) {
+      throw new Error(
+        "relative workspace placement could not find a visible Hyprland window owned by the invoking process ancestry",
+      );
+    }
+    if (owned.length > 1) {
+      throw new Error(
+        `relative workspace placement is ambiguous: T3CODE_PROJECT_ID is unset and the invoking process ancestry owns ${String(owned.length)} visible Hyprland windows`,
+      );
+    }
+    client = owned[0]!;
+  }
+  const workspace = client.workspace;
+  if (
+    !Number.isSafeInteger(workspace.id) ||
+    workspace.id <= 0 ||
+    workspace.name !== String(workspace.id)
+  ) {
+    throw new Error(
+      `the invoking T3 project window must be on a positive numbered Hyprland workspace; received ${workspace.name}`,
+    );
+  }
+  return workspace;
+}
+
+function readDesktopAgentHyprlandClients(): readonly DesktopAgentHyprlandClient[] {
+  try {
+    return parseDesktopAgentHyprlandClients(runCommandText("hyprctl", ["-j", "clients"]));
+  } catch (initialError) {
+    try {
+      const instance = selectHyprlandInstance(
+        runCommandText("hyprctl", ["instances", "-j"]),
+        process.env["WAYLAND_DISPLAY"],
+      );
+      return parseDesktopAgentHyprlandClients(
+        runCommandText("hyprctl", ["-i", instance, "-j", "clients"]),
+      );
+    } catch (retryError) {
+      const initial = initialError instanceof Error ? initialError.message : String(initialError);
+      const retry = retryError instanceof Error ? retryError.message : String(retryError);
+      throw new Error(`${initial}; live-instance retry failed: ${retry}`, { cause: retryError });
+    }
+  }
+}
+
+export type DesktopAgentWorkspaceCaptureDependencies = {
+  readonly readActiveWorkspace: () => WorkspaceRef;
+  readonly readClients: () => readonly DesktopAgentHyprlandClient[];
+  readonly selfPid: number;
+  readonly readParent: (pid: number) => number;
+};
+
+const defaultWorkspaceCaptureDependencies: DesktopAgentWorkspaceCaptureDependencies = {
+  readActiveWorkspace: () => readHyprctlWorkspace("activeworkspace"),
+  readClients: readDesktopAgentHyprlandClients,
+  selfPid: process.pid,
+  readParent: readProcessParent,
+};
+
+export function captureDesktopAgentWorkspace(
+  workspaceOverride: string | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+  dependencies: DesktopAgentWorkspaceCaptureDependencies = defaultWorkspaceCaptureDependencies,
+): DesktopAgentWorkspacePlacement {
+  const selector = selectDesktopAgentWorkspaceSelector(workspaceOverride, environment);
+  if (selector.kind === "default") return { origin: null, target: null };
+  if (selector.kind === "numbered") {
+    dependencies.readActiveWorkspace();
+    return { origin: null, target: selector.workspace };
+  }
+  const origin = resolveInvokingT3Workspace({
+    projectId: environment["T3CODE_PROJECT_ID"],
+    clients: dependencies.readClients(),
+    selfPid: dependencies.selfPid,
+    readParent: dependencies.readParent,
+  });
+  return { origin, target: resolveAgentTargetWorkspace(origin, selector.offset) };
+}
+
+export function desktopAgentDevRunnerArgs(
+  homeDir: string | undefined,
+  runnerArgs: readonly string[] = [],
+): readonly string[] {
+  return homeDir === undefined
+    ? ["run", "dev:desktop", ...runnerArgs]
+    : ["run", "dev:desktop", "--home-dir", homeDir, ...runnerArgs];
 }
 
 export function desktopAgentInstanceHash(repo: string): string {
@@ -327,6 +548,9 @@ function printError(error: unknown): number {
 async function runAgentDesktop(
   dryRun: boolean,
   workspaceOverride: string | undefined,
+  homeDir: string | undefined,
+  runnerArgs: readonly string[],
+  capturedPlacement: DesktopAgentWorkspacePlacement | undefined,
 ): Promise<number> {
   const repo = resolveRepo();
   const hash = desktopAgentInstanceHash(repo);
@@ -338,17 +562,8 @@ async function runAgentDesktop(
     baseEnv: withoutInheritedDevRunnerEnv(process.env),
     repoRoot: repo,
   });
-  const workspace = parseDesktopAgentWorkspaceSelector(
-    workspaceOverride ?? repoEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"],
-  );
-  let origin: WorkspaceRef | null = null;
-  let target: WorkspaceRef | null = null;
-  if (workspace.kind === "previous") {
-    origin = readHyprctlWorkspace("activewindow");
-    target = resolveAgentTargetWorkspace(origin);
-  } else if (workspace.kind === "numbered") {
-    target = workspace.workspace;
-  }
+  const { origin, target } =
+    capturedPlacement ?? captureDesktopAgentWorkspace(workspaceOverride, repoEnv);
   const directory = stateDirectory();
   const path = recordPath(hash);
   const releaseLock = await acquireAllocationLock(lockPath());
@@ -411,7 +626,7 @@ async function runAgentDesktop(
     childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"] = target.name;
     childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"] = placementTitle;
   }
-  const child = NodeChildProcess.spawn("vp", ["run", "dev:desktop"], {
+  const child = NodeChildProcess.spawn("vp", desktopAgentDevRunnerArgs(homeDir, runnerArgs), {
     cwd: repo,
     detached: true,
     env: {
@@ -467,13 +682,26 @@ function printAgentUrl(): number {
 
 export async function runDesktopAgentCommand(
   command:
-    | { readonly kind: "run"; readonly dryRun: boolean; readonly workspace: string | undefined }
+    | {
+        readonly kind: "run";
+        readonly dryRun: boolean;
+        readonly workspace: string | undefined;
+        readonly homeDir: string | undefined;
+        readonly runnerArgs?: readonly string[];
+        readonly placement?: DesktopAgentWorkspacePlacement | undefined;
+      }
     | { readonly kind: "url" },
 ): Promise<number> {
   try {
     return command.kind === "url"
       ? printAgentUrl()
-      : await runAgentDesktop(command.dryRun, command.workspace);
+      : await runAgentDesktop(
+          command.dryRun,
+          command.workspace,
+          command.homeDir,
+          command.runnerArgs ?? [],
+          command.placement,
+        );
   } catch (error) {
     return printError(error);
   }

@@ -11,7 +11,7 @@ const HELP = `Start or inspect the worktree's agent-placed desktop development a
 Usage:
   vp run dev:desktop:agent
   vp run dev:desktop:agent:url
-  node scripts/dev-desktop-agent.ts run [--dry-run] [--workspace <id|-1|none>]
+  node scripts/dev-desktop-agent.ts run [--dry-run] [--workspace <id|+1|-1|none>] [--home-dir <path>]
   node scripts/dev-desktop-agent.ts url
 
 Commands:
@@ -21,16 +21,19 @@ Commands:
 Options:
   --dry-run              Resolve placement and port without writing state or starting processes.
   --workspace <selector> Override T3CODE_DESKTOP_AGENT_WORKSPACE for this run.
+  --home-dir <path>      Forward an explicit T3 Code data directory to dev:desktop.
   -h, --help             Show this help before side effects.
 
 Workspace selectors:
   none or unset  Let the compositor place the window normally (default).
   -1             Place one numbered workspace before the invoking app.
+  +1             Place one numbered workspace after the invoking app.
   <id>           Place on a fixed positive numbered workspace.
 
 Environment:
   T3CODE_DESKTOP_AGENT_WORKSPACE is loaded from .env and .env.local.
   Precedence: --workspace, environment/repo env, default placement.
+  --home-dir outranks repository and inherited T3CODE_HOME in dev:desktop.
 
 Exit codes:
   0 success
@@ -49,7 +52,12 @@ Writes:
 
 export type DesktopAgentCommand =
   | { readonly kind: "help" }
-  | { readonly kind: "run"; readonly dryRun: boolean; readonly workspace: string | undefined }
+  | {
+      readonly kind: "run";
+      readonly dryRun: boolean;
+      readonly workspace: string | undefined;
+      readonly homeDir: string | undefined;
+    }
   | { readonly kind: "url" };
 
 function parseWorkspaceOption(value: string | undefined): string {
@@ -57,11 +65,18 @@ function parseWorkspaceOption(value: string | undefined): string {
     throw new DesktopAgentUsageError("--workspace requires a value");
   }
   const selector = value.trim();
-  if (selector === "none" || selector === "-1") return selector;
+  if (selector === "none" || selector === "-1" || selector === "+1") return selector;
   if (/^[1-9]\d*$/u.test(selector) && Number.isSafeInteger(Number(selector))) return selector;
   throw new DesktopAgentUsageError(
-    `invalid --workspace value ${JSON.stringify(value)}; expected none, -1, or a positive workspace id`,
+    `invalid --workspace value ${JSON.stringify(value)}; expected none, +1, -1, or a positive workspace id`,
   );
+}
+
+function parseHomeDirectoryOption(value: string | undefined): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new DesktopAgentUsageError("--home-dir requires a non-empty path");
+  }
+  return value;
 }
 
 export function parseDesktopAgentCommand(argv: readonly string[]): DesktopAgentCommand {
@@ -76,6 +91,7 @@ export function parseDesktopAgentCommand(argv: readonly string[]): DesktopAgentC
   }
   let dryRun = false;
   let workspace: string | undefined;
+  let homeDir: string | undefined;
   for (let index = 0; index < options.length; index += 1) {
     const option = options[index];
     if (option === "--dry-run") {
@@ -98,9 +114,24 @@ export function parseDesktopAgentCommand(argv: readonly string[]): DesktopAgentC
       workspace = parseWorkspaceOption(option.slice("--workspace=".length));
       continue;
     }
+    if (option === "--home-dir") {
+      if (homeDir !== undefined) {
+        throw new DesktopAgentUsageError("--home-dir may be specified only once");
+      }
+      homeDir = parseHomeDirectoryOption(options[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (option?.startsWith("--home-dir=")) {
+      if (homeDir !== undefined) {
+        throw new DesktopAgentUsageError("--home-dir may be specified only once");
+      }
+      homeDir = parseHomeDirectoryOption(option.slice("--home-dir=".length));
+      continue;
+    }
     throw new DesktopAgentUsageError(`unknown argument: ${String(option)}`);
   }
-  return { kind: "run", dryRun, workspace };
+  return { kind: "run", dryRun, workspace, homeDir };
 }
 
 export async function runDesktopAgentCli(argv: readonly string[]): Promise<number> {
