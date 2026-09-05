@@ -15,7 +15,7 @@
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
 
-import { hotSeams, parseLedger } from "./fork-churn.ts";
+import { lessonHotSeams, readLessonEvidence } from "./fork-lesson-guidance.ts";
 
 // `#73` spans 12 hunks over 6 files in the v0.0.39-nightly.20260902.1256
 // census, the largest footprint the ledger has had to replay by hand.
@@ -36,6 +36,56 @@ export type ScanWarningRule =
   | "thread-route-navigation"
   | "github-issue-settings-search"
   | "mobile-ignored-file-listing";
+
+// Exact integration targets used by the real matchers and the lesson-guidance
+// coverage invariant. Upstream test ownership is a separate generic policy.
+export const AUTHORING_GUARD_TARGETS = {
+  "terminal-attachment-boundary": { metadata: "apps/web/src/state/terminalSessions.ts" },
+  "provider-agent-boundary": {
+    claude: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    codex: "apps/server/src/provider/Layers/CodexProvider.ts",
+  },
+  "sidebar-physical-scope": {
+    sidebar: "apps/web/src/components/Sidebar.tsx",
+    legacy: "apps/web/src/components/LegacySidebar.tsx",
+  },
+  "thread-route-navigation": {
+    chat: "apps/web/src/components/ChatView.tsx",
+    palette: "apps/web/src/components/CommandPalette.tsx",
+    newThread: "apps/web/src/hooks/useHandleNewThread.ts",
+  },
+  "pull-request-project-scope": {
+    route: "apps/web/src/routes/_chat.pull-requests.tsx",
+    filters: "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+    shell: "apps/web/src/state/shell.ts",
+    retiredParser: "apps/web/src/components/pullRequest/pullRequestListRoute.ts",
+  },
+  "github-issue-settings-search": {
+    registry: "apps/web/src/components/settings/settingsSearch.ts",
+  },
+  "mobile-ignored-file-listing": {
+    route: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+  },
+  "agent-spawn-navigation": { timeline: "apps/web/src/components/chat/MessagesTimeline.tsx" },
+  "rich-markdown-boundary": {
+    preview: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    links: "apps/web/src/markdown-links.ts",
+  },
+} as const satisfies Partial<Record<ScanWarningRule, Readonly<Record<string, string>>>>;
+
+const TERMINAL_METADATA_PATH = AUTHORING_GUARD_TARGETS["terminal-attachment-boundary"].metadata;
+const AGENT_SPAWN_TIMELINE = AUTHORING_GUARD_TARGETS["agent-spawn-navigation"].timeline;
+
+const authoringTargetPaths = new Map(
+  Object.entries(AUTHORING_GUARD_TARGETS).map(([rule, paths]) => [
+    rule,
+    new Set<string>(Object.values(paths)),
+  ]),
+);
+const isAuthoringGuardTarget = (
+  rule: keyof typeof AUTHORING_GUARD_TARGETS,
+  path: string,
+): boolean => authoringTargetPaths.get(rule)?.has(path) ?? false;
 
 // Adopted boundaries are enforced on the commits an authoring scan selects.
 // Historical inventory remains advisory so its original patches can be repaired
@@ -79,6 +129,7 @@ export interface ScanWarning {
 
 export interface HotSeam {
   readonly walkCount: number;
+  readonly countUnit: string;
   readonly worstClass: string;
 }
 
@@ -153,7 +204,6 @@ const EXPORT_DECLARATION =
 // effectIt is the repository's @effect/vitest alias beside vite-plus/test's it.
 const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
 
-const TERMINAL_METADATA_PATH = "apps/web/src/state/terminalSessions.ts";
 // Keep the check scoped to added state/effect calls and the old inline state
 // declarations. Upstream memoized metadata indexing and the retained hook call
 // remain free to evolve without triggering it.
@@ -162,14 +212,8 @@ const TERMINAL_ATTACHMENT_STATE =
 
 // Keep provider-specific agent normalization/options out of upstream provider
 // setup. Imports and adapter calls are the intended, small integration seam.
-const PROVIDER_AGENT_SOURCE = /^apps\/server\/src\/provider\/Layers\/(?:Claude|Codex)Provider\.ts$/;
 const PROVIDER_AGENT_DECLARATION =
   /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+(?:parseClaudeInitializationAgents|withClaudeAgentOptions|withCodexAgentOptions)\b/;
-const THREAD_NAVIGATION_SOURCES = new Set([
-  "apps/web/src/components/ChatView.tsx",
-  "apps/web/src/components/CommandPalette.tsx",
-  "apps/web/src/hooks/useHandleNewThread.ts",
-]);
 // Added import blocks may span lines. Calls through threadRouteNavigation stay
 // valid, including execution-time reads of current params after async work.
 const THREAD_NAVIGATION_IMPORT =
@@ -181,24 +225,21 @@ const THREAD_NAVIGATION_DECLARATION = /\b(?:function|const|let)\s+resolveThreadR
 // filtering or the adapter's narrow calls. The removed search module duplicated
 // the upstream route validator; its original path must stay retired.
 const isPullRequestProjectScopeAddition = (path: string, content: string): boolean => {
+  const targets = AUTHORING_GUARD_TARGETS["pull-request-project-scope"];
   if (/^\s*(?:\/\/|\/\*|\*)/.test(content) || content.trim().length === 0) return false;
-  if (path === "apps/web/src/components/pullRequest/pullRequestListRoute.ts") return true;
-  if (path === "apps/web/src/state/shell.ts")
+  if (path === targets.retiredParser) return true;
+  if (path === targets.shell)
     return /\b(?:const|function)\s+environmentShellBootstrappedAtom\b/.test(content);
-  if (path === "apps/web/src/routes/_chat.pull-requests.tsx") {
+  if (path === targets.route) {
     return (
       /\b(?:const|let)\s+forcedProjectScope\b/.test(content) ||
       /\bforcedProject(?:Scope|Ref)\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
       /["'][^"']*\/pullRequestListRoute(?:\.ts)?["']/.test(content)
     );
   }
-  return (
-    path === "apps/web/src/components/pullRequest/PullRequestListFilters.tsx" &&
-    /\bprojects\s*(?:===?|!==?)\s*null\b/.test(content)
-  );
+  return path === targets.filters && /\bprojects\s*(?:===?|!==?)\s*null\b/.test(content);
 };
 
-const AGENT_SPAWN_TIMELINE = "apps/web/src/components/chat/MessagesTimeline.tsx";
 // The timeline keeps CTA presentation and widened callback arguments. Target
 // selection and its click closure belong behind AgentSpawnNavigation's handler.
 const AGENT_SPAWN_SELECTION =
@@ -207,11 +248,12 @@ const AGENT_SPAWN_SELECTION =
 // The preview owns the narrow boundary mount; editor loading and document-link
 // normalization stay in their fork modules. Calls to the shared resolver remain valid.
 const isRichMarkdownImplementation = (path: string, content: string): boolean => {
+  const targets = AUTHORING_GUARD_TARGETS["rich-markdown-boundary"];
   if (/^\s*(?:\/\/|\/\*|\*)/.test(content)) return false;
-  if (path === "apps/web/src/markdown-links.ts") {
+  if (path === targets.links) {
     return /\b(?:function|const|let|var)\s+normalizeDotSegments\b/.test(content);
   }
-  if (path !== "apps/web/src/components/files/FilePreviewPanel.tsx") return false;
+  if (path !== targets.preview) return false;
   return (
     /["'](?:@milkdown\/[^"']+|(?:\.\/|~\/components\/files\/)MarkdownRichEditor(?:\.tsx)?)["']/.test(
       content,
@@ -281,14 +323,18 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
-      if (added && THREAD_NAVIGATION_SOURCES.has(path) && !/^\s*(?:\/\/|\/\*|\*)/.test(content)) {
+      if (
+        added &&
+        isAuthoringGuardTarget("thread-route-navigation", path) &&
+        !/^\s*(?:\/\/|\/\*|\*)/.test(content)
+      ) {
         const additions = navigationAdditions.get(path) ?? [];
         additions.push(content);
         navigationAdditions.set(path, additions);
       }
       if (
         added &&
-        path === AGENT_SPAWN_TIMELINE &&
+        isAuthoringGuardTarget("agent-spawn-navigation", path) &&
         !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
         AGENT_SPAWN_SELECTION.test(content)
       ) {
@@ -296,14 +342,22 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (added && isRichMarkdownImplementation(path, content))
         richMarkdownImplementationAdded = true;
-      if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
+      if (
+        added &&
+        isAuthoringGuardTarget("terminal-attachment-boundary", path) &&
+        TERMINAL_ATTACHMENT_STATE.test(content)
+      )
         terminalAttachmentStateAdded = true;
-      if (added && PROVIDER_AGENT_SOURCE.test(path) && PROVIDER_AGENT_DECLARATION.test(content)) {
+      if (
+        added &&
+        isAuthoringGuardTarget("provider-agent-boundary", path) &&
+        PROVIDER_AGENT_DECLARATION.test(content)
+      ) {
         providerAgentImplementationAdded = true;
       }
       if (
         added &&
-        /^apps\/web\/src\/components\/(?:Sidebar|LegacySidebar)\.tsx$/.test(path) &&
+        isAuthoringGuardTarget("sidebar-physical-scope", path) &&
         !/^\s*(?:\/\/|\*)/.test(content) &&
         (/\bforcedProjectRef\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
           /\b(?:const|let)\s+forcedProjectGroup\b/.test(content))
@@ -314,14 +368,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         pullRequestProjectScopeAdded = true;
       if (
         added &&
-        path === "apps/web/src/components/settings/settingsSearch.ts" &&
+        isAuthoringGuardTarget("github-issue-settings-search", path) &&
         !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
         /(?:\bid|["']id["'])\s*:\s*["']github-issue-handoff-prompt["']/.test(content)
       )
         githubIssueSettingsSearchAdded = true;
       if (
         added &&
-        path === "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx" &&
+        isAuthoringGuardTarget("mobile-ignored-file-listing", path) &&
         !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
         /\b(?:showIgnoredFiles|includeIgnored)\b/.test(content)
       )
@@ -367,12 +421,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
 };
 
 export const readHotSeams = (churnLedger: string): ReadonlyMap<string, HotSeam> =>
-  new Map(
-    hotSeams(parseLedger(churnLedger)).map((seam) => [
-      seam.path,
-      { walkCount: seam.walkCount, worstClass: seam.worstClass },
-    ]),
-  );
+  lessonHotSeams(readLessonEvidence(churnLedger));
 
 // `pnpm-lock.yaml`, `package-lock.json`, `bun.lock`, `Cargo.lock`, `uv.lock`.
 const LOCKFILE = /(?:^|\/)(?:[^/]*-lock\.[^/.]+|[^/]*\.lock)$/;
@@ -474,7 +523,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       if (seam === undefined) continue;
       warn(
         "hot-seam",
-        `${path} is a hot seam (${seam.walkCount} walk(s), worst class ${seam.worstClass}); read docs/internals/fork-churn.md before adding to it`,
+        `${path} is a retained seam (${seam.walkCount} ${seam.countUnit}, ${seam.worstClass}); use the declared lesson inventory and preferred boundary printed by this scan`,
       );
     }
 
@@ -509,7 +558,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     const reported = new Set<string>();
     for (const removed of patch.removedExports) {
       if (!input.upstreamFiles.has(removed.path)) continue;
-      const key = `${removed.path} ${removed.name}`;
+      const key = `${removed.path}\0${removed.name}`;
       if (reported.has(key)) continue;
       const readded = patch.addedExports.find((added) => added.name === removed.name);
       if (readded === undefined) continue;
