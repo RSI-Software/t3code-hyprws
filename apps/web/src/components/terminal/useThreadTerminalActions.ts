@@ -17,6 +17,7 @@ import { terminalEnvironment } from "../../state/terminal";
 import { useKnownTerminalSessions } from "../../state/terminalSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
+import { terminalAttachmentId } from "../../terminalAttachmentIdentity"; // fork-hook: zmux-estate/attachment-actions-import
 
 /** Where a new terminal starts. Omitted fields fall back to the thread's project and worktree. */
 export interface TerminalLaunchLocation {
@@ -132,14 +133,27 @@ export function useThreadTerminalActions(threadRef: ScopedThreadRef | null) {
     void (async () => {
       const closeResult = await closeTerminalCommand({
         environmentId,
-        input: { threadId, terminalId, deleteHistory: true },
+        input: {
+          threadId,
+          terminalId,
+          attachmentId: terminalAttachmentId(terminalId), // fork-hook: zmux-estate/attachment-close
+          deleteHistory: true,
+        }, // fork-hook: zmux-estate/attachment-close-input
       });
       if (
         closeResult._tag === "Failure" &&
         !isAtomCommandInterrupted(closeResult) &&
         readEnvironmentScope(environmentId, AuthTerminalOperateScope)
       ) {
-        await writeTerminal({ environmentId, input: { threadId, terminalId, data: "exit\n" } });
+        await writeTerminal({
+          environmentId,
+          input: {
+            threadId,
+            terminalId,
+            attachmentId: terminalAttachmentId(terminalId), // fork-hook: zmux-estate/attachment-close-fallback
+            data: "exit\n",
+          },
+        }); // fork-hook: zmux-estate/attachment-close-fallback-write
       }
     })();
   };
@@ -148,7 +162,12 @@ export function useThreadTerminalActions(threadRef: ScopedThreadRef | null) {
     if (!threadRef || !canWrite()) return null;
     return writeTerminal({
       environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId, terminalId, data },
+      input: {
+        threadId: threadRef.threadId,
+        terminalId,
+        attachmentId: terminalAttachmentId(terminalId), // fork-hook: zmux-estate/attachment-write
+        data,
+      }, // fork-hook: zmux-estate/attachment-write-input
     });
   };
 
