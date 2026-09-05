@@ -5,7 +5,8 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 import { EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { describe, expect, it } from "vite-plus/test";
+import { PrimaryConnectionTarget, SshConnectionTarget } from "@t3tools/client-runtime/connection";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   createDevAppPreviewHandoffManager,
@@ -13,6 +14,7 @@ import {
   DevAppPreviewHandoffCancelledError,
   DevAppPreviewInvocationLifecycle,
   DevAppPreviewOutputWatcher,
+  devAppPreviewActionBlockReason,
   devAppPreviewActionCommandForRuntime,
   type DevAppPreviewHandoffSource,
   isDevAppPreviewActionCommand,
@@ -273,6 +275,111 @@ describe("dev app preview handoff", () => {
     expect(isDevAppPreviewActionCommand("echo vp run dev:app --preview")).toBe(false);
     expect(isDevAppPreviewActionCommand("vp run dev:app --preview && echo owned")).toBe(false);
     expect(isDevAppPreviewActionCommand("vp run dev:app --preview --external")).toBe(false);
+  });
+
+  it("opens a late cold-start URL after the attachment deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeHandoffSource();
+      const manager = createDevAppPreviewHandoffManager(fake.source);
+      const environmentId = EnvironmentId.make("environment-a");
+      const input = terminal("thread-a");
+      const opened = vi.fn();
+      const failed = vi.fn();
+      const handoff = manager.arm({
+        environmentId,
+        terminal: input,
+        onPreviewUrl: opened,
+        onError: failed,
+      });
+      const initial = withOutput(EMPTY_TERMINAL_BUFFER_STATE, outputState("", 1));
+      fake.emit(environmentId, input, initial);
+      await handoff.ready;
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(handoff.isActive()).toBe(true);
+      expect(failed).not.toHaveBeenCalled();
+      fake.emit(
+        environmentId,
+        input,
+        withOutput(initial, outputState(`[dev-app] previewUrl=${previewUrl}\n`, 1)),
+      );
+      expect(opened).toHaveBeenCalledExactlyOnceWith(previewUrl);
+      expect(fake.channel(environmentId, input).listeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses an attachment that never receives a server snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeHandoffSource();
+      const environmentId = EnvironmentId.make("environment-a");
+      const input = terminal("thread-a");
+      const handoff = createDevAppPreviewHandoffManager(fake.source).arm({
+        environmentId,
+        terminal: input,
+        onPreviewUrl: () => {},
+        onError: () => {},
+      });
+      const rejection = expect(handoff.ready).rejects.toThrow("The launch was not started");
+      await vi.advanceTimersByTimeAsync(120_000);
+      await rejection;
+      expect(fake.channel(environmentId, input).listeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a failed launch even when its terminal shell remains alive", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeHandoffSource();
+      const environmentId = EnvironmentId.make("environment-a");
+      const input = terminal("thread-a");
+      const onError = vi.fn();
+      const handoff = createDevAppPreviewHandoffManager(fake.source).arm({
+        environmentId,
+        terminal: input,
+        onPreviewUrl: () => {},
+        onError,
+      });
+      fake.emit(environmentId, input, withOutput(EMPTY_TERMINAL_BUFFER_STATE, outputState("", 1)));
+      await handoff.ready;
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(
+        "Dev app did not become ready. Check its terminal output; stop the run before retrying.",
+      );
+      expect(handoff.isActive()).toBe(false);
+      expect(fake.channel(environmentId, input).listeners.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a remote terminal's localhost URL out of the local preview", () => {
+    const environmentId = EnvironmentId.make("environment-a");
+    const target = new PrimaryConnectionTarget({
+      environmentId,
+      label: "local",
+      httpBaseUrl: "http://127.0.0.1:3773",
+      wsBaseUrl: "ws://127.0.0.1:3773",
+    });
+    const command = "vp run dev:app --preview";
+    expect(
+      devAppPreviewActionBlockReason(command, { target, httpBaseUrl: target.httpBaseUrl }),
+    ).toBeNull();
+    expect(
+      devAppPreviewActionBlockReason(command, { target, httpBaseUrl: "https://remote.example" }),
+    ).toContain("primary local environment");
+    expect(
+      devAppPreviewActionBlockReason(command, {
+        target: new SshConnectionTarget({ environmentId, label: "remote", connectionId: "ssh" }),
+        httpBaseUrl: target.httpBaseUrl,
+      }),
+    ).toContain("primary local environment");
+    expect(devAppPreviewActionBlockReason(command, null)).toContain("still connecting");
+    expect(devAppPreviewActionBlockReason("vp run test", null)).toBeNull();
   });
 
   it("uses the external lane when the runtime cannot open a preview", () => {
