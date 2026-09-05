@@ -32,11 +32,12 @@ import {
   ModelSelection,
   ProjectId,
   ThreadLinkedPullRequest,
-  ThreadTitleState,
+  ThreadCheckoutMove,
   ThreadId,
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
   type ThreadPullRequestLink,
+  ThreadTitleState,
 } from "@t3tools/contracts";
 import { legacyLinkedPullRequestOf } from "@t3tools/shared/threadPullRequests";
 import * as Arr from "effect/Array";
@@ -140,6 +141,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    checkoutMove: Schema.NullOr(Schema.fromJsonString(ThreadCheckoutMove)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -592,6 +594,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          checkout_move_json AS "checkoutMove",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -633,6 +636,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          checkout_move_json AS "checkoutMove",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -676,6 +680,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          checkout_move_json AS "checkoutMove",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -1212,7 +1217,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           threads.thread_id AS "threadId",
           threads.project_id AS "projectId",
           projects.workspace_root AS "workspaceRoot",
-          threads.worktree_path AS "worktreePath"
+          threads.worktree_path AS "worktreePath",
+          threads.checkout_move_json AS "checkoutMove"
         FROM projection_threads AS threads
         INNER JOIN projection_projects AS projects
           ON projects.project_id = threads.project_id
@@ -1237,6 +1243,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          checkout_move_json AS "checkoutMove",
           linked_pull_request_json AS "linkedPullRequest",
           branch_pull_request_json AS "branchPullRequest",
           latest_turn_id AS "latestTurnId",
@@ -2086,6 +2093,7 @@ pending_approval_requests AS (
           threads.project_id AS "projectId",
           projects.workspace_root AS "workspaceRoot",
           threads.worktree_path AS "worktreePath",
+          threads.checkout_move_json AS "checkoutMove",
           (
             SELECT MAX(turns.checkpoint_turn_count)
             FROM projection_turns AS turns
@@ -2380,6 +2388,7 @@ pending_approval_requests AS (
                   repositoryIdentities.get(row.projectId),
                 ),
                 branchPullRequest: row.branchPullRequest,
+                checkoutMove: row.checkoutMove,
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -2625,6 +2634,7 @@ pending_approval_requests AS (
                     repositoryIdentities.get(row.projectId),
                   ),
                   branchPullRequest: row.branchPullRequest,
+                  checkoutMove: row.checkoutMove,
                   latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -2775,6 +2785,7 @@ pending_approval_requests AS (
                         interactionMode: row.interactionMode,
                         branch: row.branch,
                         worktreePath: row.worktreePath,
+                        checkoutMove: row.checkoutMove,
                         branchPullRequest: row.branchPullRequest,
                         ...mapThreadPullRequests(
                           pullRequestsByThread.get(row.threadId) ?? [],
@@ -2938,6 +2949,7 @@ pending_approval_requests AS (
                   interactionMode: row.interactionMode,
                   branch: row.branch,
                   worktreePath: row.worktreePath,
+                  checkoutMove: row.checkoutMove,
                   branchPullRequest: row.branchPullRequest,
                   ...mapThreadPullRequests(
                     pullRequestsByThread.get(row.threadId) ?? [],
@@ -3300,6 +3312,7 @@ pending_approval_requests AS (
                 ?.repositoryIdentity,
         ),
         branchPullRequest: threadRow.value.branchPullRequest,
+        checkoutMove: threadRow.value.checkoutMove,
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
@@ -3601,6 +3614,7 @@ pending_approval_requests AS (
                 ?.repositoryIdentity,
         ),
         branchPullRequest: threadRow.value.branchPullRequest,
+        checkoutMove: threadRow.value.checkoutMove,
         latestTurn: Option.isSome(latestTurnRow) ? mapLatestTurn(latestTurnRow.value) : null,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
