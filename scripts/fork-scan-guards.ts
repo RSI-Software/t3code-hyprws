@@ -9,6 +9,8 @@
 // - replaced-export: the commit deletes an upstream-owned exported declaration
 //   and re-declares it, so every later upstream edit to it lands invisibly.
 // - lockfile: the commit carries a lockfile change.
+// - terminal-attachment-boundary: fork retention state grows inside upstream's
+//   terminal metadata/index module instead of its fork-owned hook.
 //
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
@@ -24,7 +26,15 @@ export type ScanWarningRule =
   | "upstream-test"
   | "footprint"
   | "replaced-export"
-  | "lockfile";
+  | "lockfile"
+  | "terminal-attachment-boundary";
+
+// Adopted boundaries are enforced on the commits an authoring scan selects.
+// Historical inventory remains advisory so its original patches can be repaired
+// in the controlled replay lane without unrelated old warnings blocking authors.
+export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
+  "terminal-attachment-boundary",
+]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "hot-seam",
@@ -32,6 +42,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "footprint",
   "replaced-export",
   "lockfile",
+  "terminal-attachment-boundary",
 ];
 
 export interface ScanWarning {
@@ -64,6 +75,7 @@ export interface CommitPatch {
   // `it`/`test`/`describe` block openers stay grouped by zero-context diff
   // hunk, so only a nearby removal can identify an addition as a replacement.
   readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
+  readonly terminalAttachmentStateAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -104,6 +116,13 @@ const EXPORT_DECLARATION =
 
 const TEST_BLOCK = /^\s*(?:it|test|describe)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
 
+const TERMINAL_METADATA_PATH = "apps/web/src/state/terminalSessions.ts";
+// Keep the check scoped to added state/effect calls and the old inline state
+// declarations. Upstream memoized metadata indexing and the retained hook call
+// remain free to evolve without triggering it.
+const TERMINAL_ATTACHMENT_STATE =
+  /\b(?:useState|useEffect)\s*(?:<[^>]*>)?\s*\(|\b(?:interface|type)\s+RetainedTerminalAttachmentState\b|\b(?:function|const)\s+updateRetainedTerminalAttachment\b/;
+
 const diffPath = (value: string): string | null => {
   const target = value.trim();
   return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
@@ -118,6 +137,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const removedExports: Array<ExportDeclaration> = [];
     const addedExports: Array<ExportDeclaration> = [];
     const testBlockHunks: Array<TestBlockHunk> = [];
+    let terminalAttachmentStateAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -155,6 +175,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
+      if (added && path === TERMINAL_METADATA_PATH && TERMINAL_ATTACHMENT_STATE.test(content))
+        terminalAttachmentStateAdded = true;
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -169,7 +191,12 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
     }
     flushTestBlockHunk();
-    patches.set(sha, { removedExports, addedExports, testBlockHunks });
+    patches.set(sha, {
+      removedExports,
+      addedExports,
+      testBlockHunks,
+      ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
+    });
   }
   return patches;
 };
@@ -218,6 +245,13 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     const warn = (rule: ScanWarningRule, detail: string) => {
       found.push({ rule, commit: commit.short, domain: commit.domain, detail });
     };
+
+    if (patch.terminalAttachmentStateAdded) {
+      warn(
+        "terminal-attachment-boundary",
+        `${TERMINAL_METADATA_PATH} gains attachment retention state; keep it in terminalAttachmentRetention.fork.ts and preserve upstream metadata indexing and tests`,
+      );
+    }
 
     for (const path of upstreamTouched) {
       const seam = input.hotSeams.get(path);

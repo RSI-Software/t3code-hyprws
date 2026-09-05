@@ -22,6 +22,7 @@ import {
   type WorkflowDrift,
 } from "./lib/fork-workflow-drift.ts";
 import {
+  ADOPTED_AUTHORING_GUARDS,
   collectScanWarnings,
   commitPatchArguments,
   parseCommitPatches,
@@ -104,7 +105,8 @@ Ledger guards read refs/fork/churn, or docs/internals/fork-churn.json until it i
 and warn about a hot seam, a fork test block appended to an upstream-owned test file, a
 commit spread over more than six upstream files, and an upstream export a commit deletes
 and re-declares. They print and exit 0 so an
-existing walk keeps its verdict; --strict turns them into a failure.
+existing walk keeps its verdict; --strict turns them into a failure. With --since,
+adopted authoring guards (terminal-attachment-boundary) fail without --strict.
 
 Workflow copies require a reviewed adaptation or no-change decision in
 .github/fork-workflow-reviews.json. Changed upstream or fork blobs fail even without
@@ -600,6 +602,16 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       return 1;
     }
     if (result.warnings.length > 0) {
+      const adoptedFailures =
+        options.since === null
+          ? []
+          : result.warnings.filter(({ rule }) => ADOPTED_AUTHORING_GUARDS.has(rule));
+      if (!options.strict && adoptedFailures.length > 0) {
+        process.stdout.write(
+          `failed: ${adoptedFailures.length} adopted authoring guard warning(s) in --since range; repair the named fork boundary\n`,
+        );
+        return 1;
+      }
       process.stdout.write(
         options.strict
           ? `failed: ${result.warnings.length} ledger guard warning(s) under --strict\n`

@@ -89,6 +89,49 @@ it("keeps a path hot only while the ledger charged for it more than once", () =>
   });
 });
 
+it("warns about inline terminal retention while allowing its fork-owned hook and upstream index", () => {
+  const sha = "a".repeat(40);
+  const make = (file: string, content: string) =>
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(
+            sha,
+            [`--- a/${file}`, `+++ b/${file}`, "@@ -1,0 +2,1 @@", `+${content}`].join("\n"),
+          ),
+        ),
+      }),
+    );
+  for (const content of [
+    "export interface RetainedTerminalAttachmentState {",
+    "export function updateRetainedTerminalAttachment(",
+    "const [committed, setCommitted] = useState(initial);",
+    "useEffect(() => {",
+  ]) {
+    const warnings = make("apps/web/src/state/terminalSessions.ts", content);
+    assert.deepStrictEqual(
+      warnings.map(({ rule }) => rule),
+      ["terminal-attachment-boundary"],
+    );
+    assert.include(warnings[0]!.detail, "terminalAttachmentRetention.fork.ts");
+  }
+  assert.isEmpty(
+    make("apps/web/src/state/terminalAttachmentRetention.fork.ts", "useEffect(() => {"),
+  );
+  assert.isEmpty(
+    make(
+      "apps/web/src/state/terminalSessions.ts",
+      "const retained = useRetainedTerminalAttachment(input, attach);",
+    ),
+  );
+  assert.isEmpty(
+    make(
+      "apps/web/src/state/terminalSessions.ts",
+      "const metadataIndexes = new WeakMap<ReadonlyArray<TerminalSummary>, TerminalMetadataIndex>();",
+    ),
+  );
+});
+
 it("warns when a fork commit touches a hot seam and stays quiet on a cold upstream file", () => {
   const hot = collectScanWarnings(
     guardInput({
