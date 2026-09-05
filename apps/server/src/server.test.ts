@@ -167,6 +167,7 @@ import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -726,6 +727,7 @@ const buildAppUnderTest = (options?: {
     const zmuxSessionBinderLayer = Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
       bind: () => Effect.succeed({ status: "disabled" as const }),
       resolve: () => Effect.succeed({ status: "disabled" as const }),
+      reconcileExisting: () => Effect.succeed({ status: "disabled" as const }),
       prepareUnbind: () => Effect.succeed({ status: "disabled" as const }),
       unbind: () => Effect.succeed({ status: "disabled" as const }),
       ...options?.layers?.zmuxSessionBinder,
@@ -1686,7 +1688,9 @@ const NodeHttpServerTestWithWsDeflate = HttpServer.layerTestClient.pipe(
   ),
 );
 
-it.layer(NodeServices.layer)("server router seam", (it) => {
+const ServerRouterTestLayer = Layer.merge(NodeServices.layer, CheckoutMutationCoordinator.layer);
+
+it.layer(ServerRouterTestLayer)("server router seam", (it) => {
   it.effect("parks HTTP ingress until command readiness", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -12172,6 +12176,6 @@ it.live(
         yield* fileSystem.writeFileString(resultPath.value, formatTransferBudgetResult(runs));
       }
       assert.deepEqual(transferBudgetViolations(runs), []);
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.merge(NodeServices.layer, CheckoutMutationCoordinator.layer))),
   120_000,
 );
