@@ -30,6 +30,11 @@ import {
   PullRequestReviewDecision,
   PullRequestState,
 } from "./pullRequest.ts";
+import {
+  ThreadCheckoutMove,
+  ThreadCheckoutMoveCompleteCommand,
+  ThreadCheckoutMovePrepareCommand,
+} from "./checkoutMove.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -708,6 +713,7 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(Schema.NullOr(ThreadCheckoutMove)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   // Optional so payloads from pre-link servers still decode.
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
@@ -799,6 +805,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(Schema.NullOr(ThreadCheckoutMove)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.Array(ThreadPullRequestLink).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -1223,6 +1230,16 @@ const ThreadRuntimeModeSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadCheckoutMoveRequestClientCommand = Schema.Struct({
+  type: Schema.Literal("thread.checkout-move.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestedPath: TrimmedNonEmptyString,
+  expectedCheckoutRoot: TrimmedNonEmptyString,
+  reverseOfRequestId: Schema.optional(CommandId),
+  createdAt: IsoDateTime,
+});
+
 const ThreadInteractionModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.interaction-mode.set"),
   commandId: CommandId,
@@ -1378,6 +1395,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
+  ThreadCheckoutMoveRequestClientCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -1410,6 +1428,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadPullRequestLinkCommand,
   ThreadPullRequestUnlinkCommand,
+  ThreadCheckoutMoveRequestClientCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
@@ -1548,6 +1567,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
+  ThreadCheckoutMovePrepareCommand,
+  ThreadCheckoutMoveCompleteCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
 ]);
@@ -1578,6 +1599,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.pull-request-linked",
   "thread.pull-request-unlinked",
   "thread.pull-request-synced",
+  "thread.checkout-move-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.message-sent",
@@ -1757,6 +1779,11 @@ export const ThreadPullRequestSyncedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ThreadPullRequestSyncedPayload = typeof ThreadPullRequestSyncedPayload.Type;
+export const ThreadCheckoutMoveUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  move: ThreadCheckoutMove,
+});
+export type ThreadCheckoutMoveUpdatedPayload = typeof ThreadCheckoutMoveUpdatedPayload.Type;
 
 export const ThreadRuntimeModeSetPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1985,6 +2012,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.pull-request-synced"),
     payload: ThreadPullRequestSyncedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.checkout-move-updated"),
+    payload: ThreadCheckoutMoveUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
