@@ -36,6 +36,7 @@ import {
   type OrchestrationClientOrigin,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitCommandError,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -103,6 +104,8 @@ import {
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
+import { withVerifiedCheckoutMove } from "./orchestration/CheckoutMoveCoordinator.ts";
+import { threadHasQueuedTurnStart } from "./orchestration/ThreadSettlementPolicy.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -138,6 +141,7 @@ import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
+import { CheckoutMutationCoordinator } from "./git/CheckoutMutationCoordinator.ts";
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -165,7 +169,8 @@ import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
+import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -520,6 +525,8 @@ const makeWsRpcLayer = (
               Effect.orElseSucceed(() => null),
             );
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const vcsDriverRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
+      const checkoutMutationCoordinator = yield* CheckoutMutationCoordinator;
       const threadDeletionReactor = yield* ThreadDeletionReactor;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Every command dispatched on this connection carries the connecting
@@ -527,13 +534,31 @@ const makeWsRpcLayer = (
       // the client's request caused them.
       const hasClientOrigin =
         clientOrigin.surface !== undefined || clientOrigin.appVersion !== undefined;
-      const dispatchFromClient: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (
-        command,
-      ) =>
+      const dispatchRaw: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (command) =>
         orchestrationEngine.dispatch(
           command,
           hasClientOrigin ? { origin: clientOrigin } : undefined,
         );
+      const dispatchFromClient: OrchestrationEngine.OrchestrationEngineShape["dispatch"] = (
+        command,
+      ) => {
+        if (command.type !== "thread.turn.start") return dispatchRaw(command);
+        return Effect.gen(function* () {
+          const bootstrapPath = command.bootstrap?.createThread?.worktreePath;
+          const existing = bootstrapPath
+            ? undefined
+            : yield* projectionSnapshotQuery
+                .getThreadShellById(command.threadId)
+                .pipe(Effect.map(Option.getOrUndefined), Effect.orDie);
+          const cwd = bootstrapPath ?? existing?.worktreePath;
+          if (!cwd) return yield* dispatchRaw(command);
+          const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(Effect.orDie);
+          return yield* checkoutMutationCoordinator.withLease(
+            checkout.repository.rootPath,
+            dispatchRaw(command),
+          );
+        });
+      };
       const recordClientCommandAnalytics = (command: OrchestrationCommand) => {
         switch (command.type) {
           case "thread.create":
@@ -549,6 +574,74 @@ const makeWsRpcLayer = (
             return Effect.void;
         }
       };
+
+      const guardSharedCheckoutBranchMutation = Effect.fn("ws.guardSharedCheckoutBranchMutation")(
+        function* (cwd: string) {
+          const checkout = yield* vcsDriverRegistry.resolve({ cwd }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "vcs.branch.change",
+                  command: "shared-checkout-guard",
+                  cwd,
+                  detail: "Could not identify this Git checkout.",
+                  cause,
+                }),
+            ),
+          );
+          const shell = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "vcs.branch.change",
+                  command: "shared-checkout-guard",
+                  cwd,
+                  detail: "Could not verify whether this checkout is idle.",
+                  cause,
+                }),
+            ),
+          );
+          const checkoutThreads = yield* Effect.filter(shell.threads, (thread) => {
+            const candidateCwd = thread.worktreePath
+              ? Effect.succeed(thread.worktreePath)
+              : projectionSnapshotQuery
+                  .getProjectShellById(thread.projectId)
+                  .pipe(
+                    Effect.map(Option.map((project) => project.workspaceRoot)),
+                    Effect.map(Option.getOrUndefined),
+                  );
+            return candidateCwd.pipe(
+              Effect.flatMap((resolvedCwd) =>
+                resolvedCwd
+                  ? vcsDriverRegistry
+                      .resolve({ cwd: resolvedCwd })
+                      .pipe(
+                        Effect.map(
+                          (candidate) =>
+                            candidate.repository.rootPath === checkout.repository.rootPath,
+                        ),
+                      )
+                  : Effect.succeed(false),
+              ),
+              Effect.orElseSucceed(() => false),
+            );
+          });
+          const hasBusyThread = checkoutThreads.some(
+            (thread) =>
+              thread.session?.activeTurnId != null || thread.session?.status === "starting",
+          );
+          if (hasBusyThread) {
+            return yield* new GitCommandError({
+              operation: "vcs.branch.change",
+              command: "shared-checkout-guard",
+              cwd,
+              detail:
+                "Wait for active turns sharing this checkout to finish before changing branch.",
+            });
+          }
+          return checkout.repository.rootPath;
+        },
+      );
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
@@ -667,7 +760,7 @@ const makeWsRpcLayer = (
       const pullRequests = yield* PullRequestService.PullRequestService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
-      const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+      const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -768,6 +861,37 @@ const makeWsRpcLayer = (
       }) =>
         Effect.all({
           commandId: serverCommandId("thread-activity"),
+          activityId: serverEventId,
+        }).pipe(
+          Effect.flatMap(({ commandId, activityId }) =>
+            dispatchFromClient({
+              type: "thread.activity.append",
+              commandId,
+              threadId: input.threadId,
+              activity: {
+                id: activityId,
+                tone: input.tone,
+                kind: input.kind,
+                summary: input.summary,
+                payload: input.payload,
+                turnId: null,
+                createdAt: input.createdAt,
+              },
+              createdAt: input.createdAt,
+            }),
+          ),
+        );
+
+      const appendSetupScriptActivity = (input: {
+        readonly threadId: ThreadId;
+        readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+        readonly summary: string;
+        readonly createdAt: string;
+        readonly payload: Record<string, unknown>;
+        readonly tone: "info" | "error";
+      }) =>
+        Effect.all({
+          commandId: serverCommandId("setup-script-activity"),
           activityId: serverEventId,
         }).pipe(
           Effect.flatMap(({ commandId, activityId }) =>
@@ -1205,7 +1329,7 @@ const makeWsRpcLayer = (
             readonly worktreePath: string;
           }) => {
             const detail = projectSetupScriptCompatibilityDetail(input.error);
-            return appendThreadActivity({
+            return appendSetupScriptActivity({
               threadId: command.threadId,
               kind: "setup-script.failed",
               summary: "Setup script failed to start",
@@ -1243,7 +1367,7 @@ const makeWsRpcLayer = (
                 worktreePath: input.worktreePath,
               };
               yield* Effect.all([
-                appendThreadActivity({
+                appendSetupScriptActivity({
                   threadId: command.threadId,
                   kind: "setup-script.requested",
                   summary: "Starting setup script",
@@ -1251,7 +1375,7 @@ const makeWsRpcLayer = (
                   payload,
                   tone: "info",
                 }),
-                appendThreadActivity({
+                appendSetupScriptActivity({
                   threadId: command.threadId,
                   kind: "setup-script.started",
                   summary: "Setup script started",
@@ -2008,7 +2132,96 @@ const makeWsRpcLayer = (
                     ),
                   )
                 : false;
-              const result = yield* dispatchNormalizedCommand(normalizedCommand).pipe(
+              const commandForDispatch =
+                normalizedCommand.type !== "thread.checkout-move.request"
+                  ? normalizedCommand
+                  : yield* Effect.gen(function* () {
+                      const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+                      const thread = snapshot.threads.find(
+                        (candidate) => candidate.id === normalizedCommand.threadId,
+                      );
+                      if (!thread) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move thread was not found",
+                        });
+                      }
+                      const project = snapshot.projects.find(
+                        (candidate) => candidate.id === thread.projectId,
+                      );
+                      if (!project) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move project was not found",
+                        });
+                      }
+                      if (thread.checkoutMove?.requestId === normalizedCommand.commandId) {
+                        const existing = thread.checkoutMove;
+                        const samePayload =
+                          existing.requestedPath === normalizedCommand.requestedPath &&
+                          existing.expectedCheckoutRoot ===
+                            normalizedCommand.expectedCheckoutRoot &&
+                          existing.reverseOfRequestId === normalizedCommand.reverseOfRequestId;
+                        if (!samePayload) {
+                          return yield* new OrchestrationDispatchCommandError({
+                            message:
+                              "Checkout move request identity was reused with different input",
+                          });
+                        }
+                        // The engine's command receipt returns the original result before
+                        // the raw request reaches the decider.
+                        return normalizedCommand;
+                      }
+                      const sourcePath = thread.worktreePath ?? project.workspaceRoot;
+                      const serverCreatedAt = yield* nowIso;
+                      if (normalizedCommand.expectedCheckoutRoot !== sourcePath) {
+                        return yield* new OrchestrationDispatchCommandError({
+                          message: "Checkout move context changed; refresh and retry",
+                        });
+                      }
+                      return yield* withVerifiedCheckoutMove({
+                        sourcePath,
+                        destinationPath: normalizedCommand.requestedPath,
+                        effect: (source, destination) =>
+                          Effect.gen(function* () {
+                            const latest = yield* projectionSnapshotQuery.getThreadShellById(
+                              normalizedCommand.threadId,
+                            );
+                            if (
+                              Option.isNone(latest) ||
+                              (latest.value.worktreePath ?? project.workspaceRoot) !== sourcePath
+                            ) {
+                              return yield* new OrchestrationDispatchCommandError({
+                                message: "Checkout move context changed; refresh and retry",
+                              });
+                            }
+                            return {
+                              type: "thread.checkout-move.prepare" as const,
+                              commandId: normalizedCommand.commandId,
+                              threadId: normalizedCommand.threadId,
+                              requestId: normalizedCommand.commandId,
+                              source,
+                              sourceThreadBranch: latest.value.branch,
+                              sourceThreadWorktreePath: latest.value.worktreePath,
+                              destination,
+                              ...(normalizedCommand.reverseOfRequestId
+                                ? { reverseOfRequestId: normalizedCommand.reverseOfRequestId }
+                                : {}),
+                              queued:
+                                latest.value.session?.activeTurnId != null ||
+                                threadHasQueuedTurnStart(latest.value, serverCreatedAt),
+                              createdAt: serverCreatedAt,
+                            };
+                          }),
+                      }).pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new OrchestrationDispatchCommandError({
+                              message: "Checkout move identity validation failed",
+                              cause,
+                            }),
+                        ),
+                      );
+                    });
+              const result = yield* dispatchNormalizedCommand(commandForDispatch).pipe(
                 Effect.tapError(() => cleanupFailedUploadedAttachments(command, normalizedCommand)),
               );
               yield* recordClientCommandAnalytics(normalizedCommand);
@@ -3075,14 +3288,7 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "pull-requests",
             },
           ),
-        [WS_METHODS.githubIssuesList]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesList, githubIssues.list(input), {
-            "rpc.aggregate": "github-issues",
-          }),
-        [WS_METHODS.githubIssuesDetail]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesDetail, githubIssues.detail(input), {
-            "rpc.aggregate": "github-issues",
-          }),
+        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlLookupRepository,
@@ -3516,13 +3722,35 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            (input.switchRef === true
+              ? guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                  Effect.flatMap((checkoutRoot) =>
+                    checkoutMutationCoordinator.withLease(
+                      checkoutRoot,
+                      guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                        Effect.andThen(gitWorkflow.createRef(input)),
+                      ),
+                    ),
+                  ),
+                )
+              : gitWorkflow.createRef(input)
+            ).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            guardSharedCheckoutBranchMutation(input.cwd).pipe(
+              Effect.flatMap((checkoutRoot) =>
+                checkoutMutationCoordinator.withLease(
+                  checkoutRoot,
+                  guardSharedCheckoutBranchMutation(input.cwd).pipe(
+                    Effect.andThen(gitWorkflow.switchRef(input)),
+                  ),
+                ),
+              ),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
@@ -3945,7 +4173,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
     const sql = yield* SqlClient.SqlClient;
-    const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+    const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3993,7 +4221,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               // One server-lifetime service means clients share the same PR caches, and a WS
               // mutation invalidates the HTTP diff cache that every client reads from.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
-              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)),
+              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
