@@ -106,7 +106,8 @@ and warn about a hot seam, a fork test block appended to an upstream-owned test 
 commit spread over more than six upstream files, and an upstream export a commit deletes
 and re-declares. They print and exit 0 so an
 existing walk keeps its verdict; --strict turns them into a failure. With --since,
-adopted authoring guards (terminal-attachment-boundary) fail without --strict.
+adopted authoring guards (terminal-attachment-boundary, upstream-test) fail without --strict.
+Test ownership follows the selected target, including independently added same-path tests.
 
 Workflow copies require a reviewed adaptation or no-change decision in
 .github/fork-workflow-reviews.json. Changed upstream or fork blobs fail even without
@@ -532,6 +533,14 @@ const buildGuardInput = (
             ),
           ),
     hotSeams: churn === null ? new Map() : readHotSeams(churn),
+    upstreamTestFiles:
+      guardCommits.length === 0
+        ? new Set()
+        : new Set(
+            readLines(
+              git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
+            ),
+          ),
   };
 };
 

@@ -420,6 +420,35 @@ it("defers only the two proven file-local integration harnesses", () => {
   );
 });
 
+it("counts Effect aliases and follows target ownership for independent test additions", () => {
+  const path = "apps/web/src/state/terminalSessions.test.ts";
+  const patchesBySha = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        "--- /dev/null",
+        `+++ b/${path}`,
+        "@@ -0,0 +1,2 @@",
+        '+effectIt.effect("retains a fork attachment", () => Effect.void);',
+        '+it.effect("supports direct Effect tests", () => Effect.void);',
+      ].join("\n"),
+    ),
+  );
+  const input = guardInput({ patchesBySha, upstreamFiles: new Set() });
+  assert.deepStrictEqual(collectScanWarnings(input), []);
+  const warnings = collectScanWarnings({ ...input, upstreamTestFiles: new Set([path]) });
+  assert.lengthOf(warnings, 1);
+  assert.include(warnings[0]!.detail, "gains 2 fork test block(s)");
+  assert.deepStrictEqual(
+    collectScanWarnings({
+      ...input,
+      upstreamFiles: new Set([path]),
+      upstreamTestFiles: new Set(),
+    }),
+    [],
+  );
+});
+
 it("leaves a renamed upstream test alone when its removed and added openers share a hunk", () => {
   const patches = parseCommitPatches(
     patch(
