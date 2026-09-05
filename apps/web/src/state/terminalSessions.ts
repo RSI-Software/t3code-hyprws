@@ -53,6 +53,7 @@ function knownSession(
       environmentId,
       threadId: ThreadId.make(summary.threadId),
       terminalId: summary.terminalId,
+      ...(summary.attachmentId ? { attachmentId: summary.attachmentId } : {}),
     },
     state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),
   };
@@ -156,7 +157,11 @@ export function useAttachedTerminalSession(input: {
         ? null
         : terminalMetadataIndex(metadata.data)
             .byThreadId.get(input.terminal.threadId)
-            ?.find((terminal) => terminal.terminalId === input.terminal?.terminalId)) ?? null;
+            ?.find(
+              (terminal) =>
+                terminal.terminalId === input.terminal?.terminalId &&
+                (terminal.attachmentId ?? null) === (input.terminal?.attachmentId ?? null),
+            )) ?? null;
     const state = combineTerminalSessionState(summary, retainedAttachment.value);
     return retainedAttachment.error !== null
       ? { ...state, error: retainedAttachment.error, status: "error" }
