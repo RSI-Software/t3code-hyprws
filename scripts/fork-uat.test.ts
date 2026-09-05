@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
+import { parentUatBody, renderUatTaskBody } from "./fork-uat-policy.ts";
 
 import {
   differenceRows,
@@ -206,7 +207,10 @@ it("renders sources and carries prior acceptance into fresh task drafts", () => 
         {
           area: "Sidebar",
           title: "Groups remain usable automatically",
-          carriedFrom: [{ issue: 245, status: "unsettled" }],
+          carriedFrom: [
+            { issue: 245, task: 246, status: "unsettled" },
+            { issue: 245, task: 247, status: "accepted" },
+          ],
         },
       ],
     },
@@ -226,6 +230,7 @@ it("renders sources and carries prior acceptance into fresh task drafts", () => 
   assert.include(body, "- Target: `v1.4.0-hyprws`");
   assert.include(body, "- Ref: `origin/release/v1.4.0-hyprws`");
   assert.include(body, "- Previous stable: `v1.3.0-hyprws.12` (overridden)");
+  assert.include(body, "- Previous UAT: RSI-Software/t3code-hyprws#245");
   assert.include(body, "## Sources");
   assert.include(body, "Included product commits (2)");
   assert.include(
@@ -240,13 +245,31 @@ it("renders sources and carries prior acceptance into fresh task drafts", () => 
   );
   assert.include(
     body,
-    "- [ ] Groups remain usable automatically <!-- fork-uat:carried-from #245 unsettled -->",
+    "- [ ] Groups remain usable automatically <!-- fork-uat:carried-from #245 unsettled task #246 --> <!-- fork-uat:carried-from #245 accepted task #247 -->",
   );
   assert.include(body, "## Excluded");
   assert.include(body, "<details>");
   assert.include(body, "`1234567` ci(fork): publish support — Fork-Domain fork-meta");
   assert.include(body, "## Close condition");
   assert.include(body, "open children remain non-blocking evidence");
+
+  const reviewed = body.replace(/^## (?:Sources|Excluded)\n[\s\S]*?(?=^## )/gm, "");
+  const metadata = reviewedDraft(reviewed);
+  assert.include(parentUatBody(reviewed), "- Previous UAT: RSI-Software/t3code-hyprws#245");
+  assert.deepStrictEqual(metadata.tasks[1]?.carriedFrom, [
+    { issue: 245, task: 246, status: "unsettled" },
+    { issue: 245, task: 247, status: "accepted" },
+  ]);
+  const children = metadata.tasks.map((task) => renderUatTaskBody(task, metadata));
+  assert.include(children[0] ?? "", "- RSI-Software/t3code-hyprws#245: previously accepted");
+  assert.include(
+    children[1] ?? "",
+    "- RSI-Software/t3code-hyprws#246 (previous UAT: RSI-Software/t3code-hyprws#245): unsettled",
+  );
+  assert.include(
+    children[1] ?? "",
+    "- RSI-Software/t3code-hyprws#247 (previous UAT: RSI-Software/t3code-hyprws#245): previously accepted",
+  );
 });
 
 it("recovers legacy accepted and unsettled conditions without sign-off rows", () => {
@@ -459,10 +482,24 @@ it("uses child state as the authority for a structured previous UAT", () => {
       area: task.area,
       title: task.title,
       status: task.carriedFrom[0]?.status,
+      previousUat: task.carriedFrom[0]?.issue,
+      previousTask: task.carriedFrom[0]?.task,
     })),
     [
-      { area: "Sidebar", title: "Manual ordering works", status: "accepted" },
-      { area: "Sidebar", title: "Automatic groups remain usable", status: "unsettled" },
+      {
+        area: "Sidebar",
+        title: "Manual ordering works",
+        status: "accepted",
+        previousUat: 516,
+        previousTask: 517,
+      },
+      {
+        area: "Sidebar",
+        title: "Automatic groups remain usable",
+        status: "unsettled",
+        previousUat: 516,
+        previousTask: 518,
+      },
     ],
   );
 });

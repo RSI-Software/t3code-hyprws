@@ -33,6 +33,7 @@ export interface UatTask {
   readonly title: string;
   readonly carriedFrom: ReadonlyArray<{
     readonly issue: number;
+    readonly task?: number;
     readonly status: PriorUatStatus;
   }>;
 }
@@ -233,7 +234,8 @@ export const legacyUatTasks = (body: string, issue: number): ReadonlyArray<UatTa
   return tasks;
 };
 
-const carryMarker = /<!-- fork-uat:carried-from #([1-9][0-9]*) (accepted|unsettled) -->/g;
+const carryMarker =
+  /<!-- fork-uat:carried-from #([1-9][0-9]*) (accepted|unsettled)(?: task #([1-9][0-9]*))? -->/g;
 
 export const reviewedUatTasks = (body: string): ReadonlyArray<UatTask> => {
   const heading = /^## UAT\s*$/m.exec(body);
@@ -256,6 +258,7 @@ export const reviewedUatTasks = (body: string): ReadonlyArray<UatTask> => {
     const carriedFrom = [...raw.matchAll(carryMarker)].map((match) => ({
       issue: Number(match[1]),
       status: match[2] as PriorUatStatus,
+      ...(match[3] === undefined ? {} : { task: Number(match[3]) }),
     }));
     const title = raw.replace(carryMarker, "").trim();
     if (title.length === 0) throw new Error("reviewed draft has an empty UAT row");
@@ -293,8 +296,8 @@ export const renderUatTaskBody = (
   snapshot: Pick<UatBodyInput, "targetVersion" | "ref" | "sha">,
 ): string => {
   const carried = task.carriedFrom.map(
-    ({ issue, status }) =>
-      `- RSI-Software/t3code-hyprws#${issue}: ${status === "accepted" ? "previously accepted" : "unsettled"}`,
+    ({ issue, task, status }) =>
+      `- ${REPOSITORY}#${task ?? issue}${task === undefined ? "" : ` (previous UAT: ${REPOSITORY}#${issue})`}: ${status === "accepted" ? "previously accepted" : "unsettled"}`,
   );
   return [
     `Origin: human acceptance task for \`${snapshot.targetVersion}\` at \`${snapshot.sha}\`.`,
@@ -342,10 +345,13 @@ export const renderUatBody = (input: UatBodyInput): string => {
       tasks.push(`### ${task.area}`, "");
       currentArea = task.area;
     }
-    const evidence = task.carriedFrom[0];
-    tasks.push(
-      `- [ ] ${task.title}${evidence === undefined ? "" : ` <!-- fork-uat:carried-from #${evidence.issue} ${evidence.status} -->`}`,
-    );
+    const evidence = task.carriedFrom
+      .map(
+        ({ issue, status, task: previousTask }) =>
+          ` <!-- fork-uat:carried-from #${issue} ${status}${previousTask === undefined ? "" : ` task #${previousTask}`} -->`,
+      )
+      .join("");
+    tasks.push(`- [ ] ${task.title}${evidence}`);
   }
   return [
     `Ref \`${input.ref}\` at \`${input.sha}\` is ready for human acceptance.`,
@@ -360,6 +366,9 @@ export const renderUatBody = (input: UatBodyInput): string => {
     `- Commit: \`${input.sha}\``,
     `- Upstream base: \`${input.upstreamBaseTag}\` at \`${input.upstreamBaseSha}\``,
     `- Previous stable: \`${input.previousStable}\`${input.previousStableOverridden ? " (overridden)" : ""}`,
+    ...(input.previousUat === null
+      ? []
+      : [`- Previous UAT: ${REPOSITORY}#${input.previousUat.issue}`]),
     "",
     "## Sources",
     "",

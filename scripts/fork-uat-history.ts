@@ -76,6 +76,7 @@ const subIssueTasks = (
       carriedFrom: [
         {
           issue: issue.number,
+          task: child.number,
           status: child.state === "CLOSED" ? "accepted" : "unsettled",
         },
       ],

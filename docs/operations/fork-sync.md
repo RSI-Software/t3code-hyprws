@@ -570,6 +570,10 @@ candidate's upstream base. `--since` is an explicit historical or human-directed
 rendered snapshot marks it as `(overridden)` so the comparison boundary is visible before
 preparation.
 
+The new parent links the previous UAT in its snapshot. Carried children link their exact previous
+acceptance task and its UAT; legacy checklist rows link the previous UAT alone. These references
+preserve access to earlier findings without copying comments or creating release dependencies.
+
 At the stable sign-off stop, present the selected issue, snapshot branch and SHA, derived tag, prior
 matching tags, all preparation results, the clean/ref checks, and the UAT evidence. If the app cannot
 launch or basic use fails, the human withholds the explicit release go. Ordinary open children,
