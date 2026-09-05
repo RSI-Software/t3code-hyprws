@@ -8,9 +8,9 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Binder from "./ZmuxSessionBinder.ts";
 
-const output = (stdout = "", code = 0): ProcessRunner.ProcessRunOutput => ({
+const output = (stdout = "", code = 0, stderr = ""): ProcessRunner.ProcessRunOutput => ({
   stdout,
-  stderr: "",
+  stderr,
   code: ChildProcessSpawner.ExitCode(code),
   timedOut: false,
   stdoutTruncated: false,
@@ -164,16 +164,81 @@ describe("ZmuxSessionBinder atomic checkout ensure", () => {
       message: "workspace root belongs to another Git checkout",
     });
     const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
-      Effect.succeed(input.args[0] === "session" ? output("", 1) : output(refusal, 1)),
+      Effect.succeed(
+        input.args[0] === "session"
+          ? output("", 1)
+          : output(refusal, 1, "checkout ensure failed\n"),
+      ),
     );
     return Effect.gen(function* () {
       const binder = yield* Binder.ZmuxSessionBinder;
       const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
-      assert.equal(result.status, "failed");
-      if (result.status === "failed") assert.match(result.notice.detail, /repository_conflict/);
+      assert.deepStrictEqual(result, {
+        status: "failed",
+        notice: {
+          summary: "zmux session binding could not be verified",
+          detail: "repository_conflict: workspace root belongs to another Git checkout",
+        },
+      });
       assert.equal(
         run.mock.calls.some(([i]) => i.args[0] === "workspace" || i.args[0] === "new"),
         false,
+      );
+    }).pipe(Effect.provide(layer(run)));
+  });
+  it.effect("preserves an older zmux CLI unknown-flag failure", () => {
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(
+        input.args[0] === "session"
+          ? output("", 1)
+          : output("", 1, "unknown flag: --create-workspace\n"),
+      ),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
+
+      assert.deepStrictEqual(result, {
+        status: "failed",
+        notice: {
+          summary: "zmux session binding could not be verified",
+          detail: "unknown flag: --create-workspace",
+        },
+      });
+    }).pipe(Effect.provide(layer(run)));
+  });
+  it.effect("rejects malformed JSON from a successful checkout ensure", () => {
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(input.args[0] === "session" ? output("", 1) : output("not-json")),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
+
+      assert.deepStrictEqual(result, {
+        status: "failed",
+        notice: {
+          summary: "zmux session binding could not be verified",
+          detail: "zmux returned an invalid checkout ensure response",
+        },
+      });
+    }).pipe(Effect.provide(layer(run)));
+  });
+  it.effect("accepts the current checkout ensure success protocol", () => {
+    let resolves = 0;
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] === "session") {
+        resolves++;
+        return Effect.succeed(output(resolves === 1 ? "" : project, resolves === 1 ? 1 : 0));
+      }
+      return Effect.succeed(output(ensured(false, "created")));
+    });
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+
+      assert.deepStrictEqual(
+        yield* binder.ensure("/repo/project", { projectPath: "/repo/project" }),
+        { status: "ensured", target: "project/main", workspace: "project", session: "main" },
       );
     }).pipe(Effect.provide(layer(run)));
   });
