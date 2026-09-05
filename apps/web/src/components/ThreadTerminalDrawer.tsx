@@ -81,6 +81,7 @@ import { serverEnvironment } from "../state/server";
 import { previewEnvironment } from "../state/preview";
 import { terminalEnvironment } from "../state/terminal";
 import { terminalAttachmentId } from "../terminalAttachmentIdentity";
+import { terminalCheckoutLaunchIdentity } from "../terminalCheckoutLaunch.fork";
 import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
@@ -219,15 +220,6 @@ function parseTerminalColor(value: string, fallback: GhosttyColor): GhosttyColor
     g: green ?? fallback.g,
     b: blue ?? fallback.b,
   };
-}
-
-function runtimeEnvSignature(runtimeEnv: Record<string, string> | undefined): string {
-  if (!runtimeEnv) return "";
-  return JSON.stringify(
-    Object.entries(runtimeEnv)
-      .filter(([key, value]) => key.length > 0 && typeof value === "string")
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
-  );
 }
 
 function normalizeComputedColor(value: string | null | undefined, fallback: string): string {
@@ -458,8 +450,16 @@ export function TerminalViewport({
   const runTerminalOpen = useAtomCommand(terminalEnvironment.open, {
     reportFailure: false,
   });
-  const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
-  const launchIdentity = `${attachmentId}\0${cwd}\0${worktreePath ?? ""}\0${runtimeEnvKey}`;
+  const launchIdentity = useMemo(
+    () =>
+      terminalCheckoutLaunchIdentity({
+        attachmentId,
+        cwd,
+        ...(worktreePath !== undefined ? { worktreePath } : {}),
+        ...(runtimeEnv ? { runtimeEnv } : {}),
+      }),
+    [attachmentId, cwd, worktreePath, runtimeEnv],
+  );
   const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
   const handledFocusRequestIdRef = useRef(0);
