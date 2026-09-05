@@ -6,6 +6,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { isCheckoutMoveInFlight } from "@t3tools/client-runtime/state/checkout-move"; // fork-hook: zmux-estate/checkout-move-in-flight-import
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { memo, useEffect, useState } from "react";
@@ -22,6 +23,8 @@ import { useProject, useQuietThreadShell } from "../state/entities";
 import { useEnvironmentScope } from "../state/session";
 import { useKnownTerminalSessions } from "../state/terminalSessions";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { ownTerminalAttachments } from "../terminalAttachmentIdentity"; // fork-hook: zmux-estate/known-terminal-sessions-import
+import { resolveTerminalCheckoutLaunch } from "../terminalCheckoutLaunch.fork"; // fork-hook: zmux-estate/checkout-launch-import
 import { useThreadTerminalActions } from "./terminal/useThreadTerminalActions";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 
@@ -128,8 +131,9 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     panelSurfaces.flatMap((surface) => (surface.kind === "terminal" ? surface.terminalIds : [])),
   );
   const drawerTerminalSessions =
-    knownTerminalSessions?.filter((session) => !panelTerminalIds.has(session.target.terminalId)) ??
-    [];
+    ownTerminalAttachments(knownTerminalSessions)?.filter(
+      (session) => !panelTerminalIds.has(session.target.terminalId),
+    ) ?? []; // fork-hook: zmux-estate/known-terminal-sessions
   const terminalLabelsById = new Map<string, string>();
   for (const session of drawerTerminalSessions) {
     terminalLabelsById.set(
@@ -141,14 +145,19 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
   for (const session of drawerTerminalSessions) {
     const summary = session.state.summary;
     if (!project || !summary) continue;
-    const worktreePathForLaunch =
-      launchContext !== null ? launchContext.worktreePath : summary.worktreePath;
+    const launchLocation = resolveTerminalCheckoutLaunch({
+      mode: terminalUiState.checkoutModeByTerminalId[session.target.terminalId] ?? "follow",
+      projectCwd: project.workspaceRoot,
+      selectedWorktreePath: serverThread?.worktreePath,
+      requested: launchContext,
+      current: summary,
+    }); // fork-hook: zmux-estate/checkout-launch-drawer
     terminalLaunchLocationsById.set(session.target.terminalId, {
-      cwd: launchContext?.cwd ?? summary.cwd,
-      worktreePath: worktreePathForLaunch,
+      cwd: launchLocation.cwd, // fork-hook: zmux-estate/checkout-launch-location
+      worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       runtimeEnv: projectScriptRuntimeEnv({
         project: { cwd: project.workspaceRoot },
-        worktreePath: worktreePathForLaunch,
+        worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       }),
     });
   }
@@ -163,6 +172,9 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
   const storeNewTerminal = useTerminalUiStateStore((state) => state.newTerminal);
   const storeSetActiveTerminal = useTerminalUiStateStore((state) => state.setActiveTerminal);
   const storeCloseTerminal = useTerminalUiStateStore((state) => state.closeTerminal);
+  const storeSetTerminalCheckoutMode = useTerminalUiStateStore(
+    (state) => state.setTerminalCheckoutMode,
+  ); // fork-hook: zmux-estate/checkout-mode-drawer-store
   const reconcileTerminalIds = useTerminalUiStateStore((state) => state.reconcileTerminalIds);
 
   useEffect(() => {
@@ -286,6 +298,11 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           onAddTerminalContext={handleAddTerminalContext}
           terminalLabelsById={terminalLabelsById}
           terminalLaunchLocationsById={terminalLaunchLocationsById}
+          checkoutModeByTerminalId={terminalUiState.checkoutModeByTerminalId} // fork-hook: zmux-estate/checkout-mode-drawer-props
+          checkoutModeChangeDisabled={isCheckoutMoveInFlight(serverThread?.checkoutMove)} // fork-hook: zmux-estate/checkout-mode-drawer-props
+          onCheckoutModeChange={(terminalId, mode) =>
+            storeSetTerminalCheckoutMode(threadRef, terminalId, mode)
+          } // fork-hook: zmux-estate/checkout-mode-drawer-props
         />
       </div>
     </div>
@@ -329,6 +346,12 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
   newShortcutLabel,
   closeShortcutLabel,
 }: PersistentThreadTerminalPanelProps) {
+  const checkoutModeByTerminalId = useTerminalUiStateStore(
+    (state) =>
+      selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef)
+        .checkoutModeByTerminalId,
+  ); // fork-hook: zmux-estate/checkout-mode-panel-state
+  const setTerminalCheckoutMode = useTerminalUiStateStore((state) => state.setTerminalCheckoutMode); // fork-hook: zmux-estate/checkout-mode-panel-store
   const serverThread = useQuietThreadShell(threadRef);
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
   const projectRef = serverThread
@@ -337,10 +360,12 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const project = useProject(projectRef);
-  const knownTerminalSessions = useKnownTerminalSessions({
-    environmentId: threadRef.environmentId,
-    threadId: threadRef.threadId,
-  });
+  const knownTerminalSessions = ownTerminalAttachments(
+    useKnownTerminalSessions({
+      environmentId: threadRef.environmentId,
+      threadId: threadRef.threadId,
+    }),
+  ); // fork-hook: zmux-estate/known-terminal-sessions
   const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const activeSummary =
     knownTerminalSessions?.find((session) => session.target.terminalId === surface.activeTerminalId)
@@ -362,20 +387,19 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
         .summary ?? null;
     terminalLabelsById.set(terminalId, resolveTerminalSessionLabel(terminalId, summary));
     if (!project) continue;
-    const terminalWorktreePath =
-      launchContext?.worktreePath ?? summary?.worktreePath ?? threadWorktreePath;
+    const launchLocation = resolveTerminalCheckoutLaunch({
+      mode: checkoutModeByTerminalId[terminalId] ?? "follow",
+      projectCwd: project.workspaceRoot,
+      selectedWorktreePath: threadWorktreePath,
+      requested: launchContext,
+      current: summary,
+    }); // fork-hook: zmux-estate/checkout-launch-panel
     terminalLaunchLocationsById.set(terminalId, {
-      cwd:
-        launchContext?.cwd ??
-        summary?.cwd ??
-        projectScriptCwd({
-          project: { cwd: project.workspaceRoot },
-          worktreePath: terminalWorktreePath,
-        }),
-      worktreePath: terminalWorktreePath,
+      cwd: launchLocation.cwd, // fork-hook: zmux-estate/checkout-launch-location
+      worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       runtimeEnv: projectScriptRuntimeEnv({
         project: { cwd: project.workspaceRoot },
-        worktreePath: terminalWorktreePath,
+        worktreePath: launchLocation.worktreePath, // fork-hook: zmux-estate/checkout-launch-location
       }),
     });
   }
@@ -416,6 +440,11 @@ export const PersistentThreadTerminalPanel = memo(function PersistentThreadTermi
       onAddTerminalContext={onAddTerminalContext}
       terminalLabelsById={terminalLabelsById}
       terminalLaunchLocationsById={terminalLaunchLocationsById}
+      checkoutModeByTerminalId={checkoutModeByTerminalId} // fork-hook: zmux-estate/checkout-mode-panel-props
+      checkoutModeChangeDisabled={isCheckoutMoveInFlight(serverThread?.checkoutMove)} // fork-hook: zmux-estate/checkout-mode-panel-props
+      onCheckoutModeChange={(terminalId, mode) =>
+        setTerminalCheckoutMode(threadRef, terminalId, mode)
+      } // fork-hook: zmux-estate/checkout-mode-panel-props
       keybindings={keybindings}
     />
   );

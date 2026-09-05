@@ -17,6 +17,8 @@ interface ThreadTerminalUiState {
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
   activeTerminalGroupId: string;
+  /** Missing entries follow the thread checkout. Pins are local to this viewer. */
+  checkoutModeByTerminalId: Record<string, "follow" | "pin">;
 }
 
 // Keep the old storage key so existing drawer layout preferences migrate.
@@ -169,7 +171,8 @@ function threadTerminalUiStateEqual(
     left.activeTerminalId === right.activeTerminalId &&
     left.activeTerminalGroupId === right.activeTerminalGroupId &&
     arraysEqual(left.terminalIds, right.terminalIds) &&
-    terminalGroupsEqual(left.terminalGroups, right.terminalGroups)
+    terminalGroupsEqual(left.terminalGroups, right.terminalGroups) &&
+    JSON.stringify(left.checkoutModeByTerminalId) === JSON.stringify(right.checkoutModeByTerminalId)
   );
 }
 
@@ -180,6 +183,7 @@ const DEFAULT_THREAD_TERMINAL_UI_STATE: ThreadTerminalUiState = Object.freeze({
   activeTerminalId: "",
   terminalGroups: [],
   activeTerminalGroupId: "",
+  checkoutModeByTerminalId: {},
 });
 
 function createDefaultThreadTerminalUiState(): ThreadTerminalUiState {
@@ -187,6 +191,7 @@ function createDefaultThreadTerminalUiState(): ThreadTerminalUiState {
     ...DEFAULT_THREAD_TERMINAL_UI_STATE,
     terminalIds: [...DEFAULT_THREAD_TERMINAL_UI_STATE.terminalIds],
     terminalGroups: copyTerminalGroups(DEFAULT_THREAD_TERMINAL_UI_STATE.terminalGroups),
+    checkoutModeByTerminalId: {},
   };
 }
 
@@ -219,6 +224,11 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
     terminalGroups,
     activeTerminalGroupId:
       activeGroupIdFromState ?? activeGroupIdFromTerminal ?? terminalGroups[0]?.id ?? "",
+    checkoutModeByTerminalId: Object.fromEntries(
+      nextTerminalIds.flatMap((terminalId) =>
+        state.checkoutModeByTerminalId?.[terminalId] === "pin" ? [[terminalId, "pin"]] : [],
+      ),
+    ),
   };
   return threadTerminalUiStateEqual(state, normalized) ? state : normalized;
 }
@@ -441,6 +451,9 @@ function closeThreadTerminal(
     activeTerminalId: nextActiveTerminalId,
     terminalGroups,
     activeTerminalGroupId: nextActiveTerminalGroupId,
+    checkoutModeByTerminalId: Object.fromEntries(
+      Object.entries(normalized.checkoutModeByTerminalId).filter(([id]) => id !== terminalId),
+    ),
   });
 }
 
@@ -567,6 +580,11 @@ interface TerminalUiStateStoreState {
     options?: { open?: boolean; active?: boolean },
   ) => void;
   setActiveTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
+  setTerminalCheckoutMode: (
+    threadRef: ScopedThreadRef,
+    terminalId: string,
+    mode: "follow" | "pin",
+  ) => void;
   closeTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
   reconcileTerminalIds: (threadRef: ScopedThreadRef, nextIds: string[]) => void;
   clearTerminalUiState: (threadRef: ScopedThreadRef) => void;
@@ -674,6 +692,13 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
           ),
         setActiveTerminal: (threadRef, terminalId) =>
           updateTerminal(threadRef, (state) => setThreadActiveTerminal(state, terminalId)),
+        setTerminalCheckoutMode: (threadRef, terminalId, mode) =>
+          updateTerminal(threadRef, (state) => {
+            const checkoutModeByTerminalId = { ...state.checkoutModeByTerminalId };
+            if (mode === "pin") checkoutModeByTerminalId[terminalId] = "pin";
+            else delete checkoutModeByTerminalId[terminalId];
+            return { ...state, checkoutModeByTerminalId };
+          }),
         closeTerminal: (threadRef, terminalId) =>
           updateTerminal(threadRef, (state) => closeThreadTerminal(state, terminalId), {
             terminalId,
