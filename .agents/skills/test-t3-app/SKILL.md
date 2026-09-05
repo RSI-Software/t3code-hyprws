@@ -17,6 +17,8 @@ Run the launcher from the checkout whose code must be tested:
 
 The command-line default is `--external`; T3's **Dev Web** project action spells `--preview` explicitly. When the current client has no integrated preview, that action uses the external browser instead. The launcher owns startup pairing, uses the checkout's `.t3` as its isolated home, and creates or reuses the editable fixture repository at `.t3/test-project`. It prints the actual ports and ready endpoint after startup; do not infer a port or open an earlier URL.
 
+These convenience commands launch on the checkout's machine. **Dev Web** requires the primary local environment; secondary desktop backends, remote, relay, and SSH environments are outside this convenience action. Use the existing shared-development workflow for remote testing. After attaching to its terminal, the action gives a cold build ten minutes to emit its ready URL. Terminal exit or leaving the thread cancels the listener. If startup times out, inspect the terminal and stop the owned run before retrying.
+
 Choose the checkout deliberately:
 
 - Use the base checkout for exploratory work against the current fork trunk.
@@ -57,7 +59,7 @@ Keep pairing URLs out of screenshots, committed files, and durable logs. When th
 
 ## Recover a consumed or expired pairing token
 
-Run `node apps/server/src/bin.ts pair` from the same checkout root. It discovers the launcher-owned `.t3` home and prints a fresh `Pair URL` against the server's current web origin.
+Run `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"` from the same checkout root. The explicit home is required in the base checkout as well as worktrees; it prevents the pair command from selecting the installed app's home. It prints a fresh `Pair URL` against the running dev server's web origin.
 
 Tokens from `pair` carry standard client scopes. The startup pairing URL carries admin scopes; if the user needs Settings → Connections management (`access:write`), restart the server and hand over the new startup URL instead.
 
@@ -86,7 +88,7 @@ If completion is uncertain, keep the environment alive and mention that it is re
 ## Troubleshoot predictably
 
 - If the browser shows an unauthenticated pairing screen, issue a new token instead of retrying the consumed URL.
-- If the pairing URL is no longer visible, create a replacement token with both `--dev-url` and `--base-url`.
+- If the pairing URL is no longer visible, use the explicit-home `pair` command above. It reads the running server's endpoint; `pair` does not accept `--dev-url` or `--base-url`.
 - If the replacement token is rejected, verify that the pair command and launcher ran from the identical checkout and use the printed web URL.
 - If the UI shows unexpected data, verify that every command uses that checkout's `.t3` home before editing anything.
 - If ports move because another instance is running, trust the current dev-runner output rather than assuming ports `13773` and `5733`.
