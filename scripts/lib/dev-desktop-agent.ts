@@ -28,6 +28,7 @@ const DEV_RUNNER_ENV_KEYS = [
   "PORT",
   "T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
   "T3CODE_DEV_INSTANCE",
+  "T3CODE_DESKTOP_USER_DATA_DIR",
   "T3CODE_HOME",
   "T3CODE_HOST",
   "T3CODE_LOG_WS_EVENTS",
@@ -307,6 +308,15 @@ export function desktopAgentDevRunnerArgs(
   return homeDir === undefined
     ? ["run", "dev:desktop", ...runnerArgs]
     : ["run", "dev:desktop", "--home-dir", homeDir, ...runnerArgs];
+}
+
+export function desktopAgentUserDataDirectory(
+  repo: string,
+  homeDir: string | undefined,
+): string | undefined {
+  return homeDir === undefined
+    ? undefined
+    : NodePath.join(NodePath.resolve(repo, homeDir), "electron");
 }
 
 export function desktopAgentInstanceHash(repo: string): string {
@@ -620,6 +630,10 @@ async function runAgentDesktop(
     `[desktop-agent] placement=${placement} debugUrl=http://127.0.0.1:${String(port)} devtools=off\n`,
   );
   const childEnv = { ...repoEnv };
+  const userDataDirectory = desktopAgentUserDataDirectory(repo, homeDir);
+  if (userDataDirectory !== undefined) {
+    childEnv["T3CODE_DESKTOP_USER_DATA_DIR"] = userDataDirectory;
+  }
   delete childEnv["T3CODE_DESKTOP_AGENT_WORKSPACE"];
   delete childEnv["T3CODE_DESKTOP_AGENT_PLACEMENT_TITLE"];
   if (target !== null && placementTitle !== null) {

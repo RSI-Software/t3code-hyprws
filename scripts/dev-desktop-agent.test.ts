@@ -7,6 +7,7 @@ import {
   desktopAgentDevRunnerArgs,
   desktopAgentInstanceHash,
   desktopAgentPortCandidate,
+  desktopAgentUserDataDirectory,
   parseDesktopAgentHyprlandClients,
   parseDesktopAgentWorkspaceSelector,
   resolveAgentTargetWorkspace,
@@ -351,6 +352,12 @@ describe("desktop agent launcher", () => {
         "127.0.0.1",
       ],
     );
+    assert.equal(
+      desktopAgentUserDataDirectory("/worktree", "/worktree/.t3"),
+      "/worktree/.t3/electron",
+    );
+    assert.equal(desktopAgentUserDataDirectory("/worktree", ".state"), "/worktree/.state/electron");
+    assert.isUndefined(desktopAgentUserDataDirectory("/worktree", undefined));
   });
 
   it("derives stable instance hashes and port candidates", () => {
@@ -372,6 +379,7 @@ describe("desktop agent launcher", () => {
       T3CODE_HOME: "/home/user/.t3",
       T3CODE_PORT_OFFSET: "4",
       T3CODE_DEV_INSTANCE: "stable",
+      T3CODE_DESKTOP_USER_DATA_DIR: "/shared/profile",
       VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
       VITE_HTTP_URL: "http://127.0.0.1:3773",
       VITE_WS_URL: "ws://127.0.0.1:3773",
