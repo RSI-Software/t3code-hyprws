@@ -113,6 +113,69 @@ it("guards provider agent implementations while allowing provider-specific sibli
   }
 });
 
+it("rejects reintroduced physical sidebar derivation and permits the policy adapter", () => {
+  const sha = "a".repeat(40);
+  const cases = [
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+const forcedProjectGroup = useMemo(() => groups.find(match), [groups]);",
+      true,
+    ],
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+ref.environmentId === forcedProjectRef.environmentId",
+      true,
+    ],
+    [
+      "apps/web/src/components/LegacySidebar.tsx",
+      "+project.id === forcedProjectRef?.projectId",
+      true,
+    ],
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+const scope = resolveSidebarPhysicalScope({ forcedProjectRef, projectGroups, logicalScopeKey });",
+      false,
+    ],
+    [
+      "apps/web/src/components/LegacySidebar.tsx",
+      "+const projects = filterSidebarProjects(allProjects, forcedProjectRef);",
+      false,
+    ],
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "-const forcedProjectGroup = useMemo(findGroup, [groups]);",
+      false,
+    ],
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+// forcedProjectRef.environmentId is matched by the adapter.",
+      false,
+    ],
+    [
+      "apps/web/src/components/sidebar/SidebarPhysicalScope.ts",
+      "+ref.environmentId === forcedProjectRef.environmentId",
+      false,
+    ],
+  ] as const;
+  for (const [path, addition, forbidden] of cases) {
+    const patchesBySha = parseCommitPatches(
+      patch(sha, [`--- a/${path}`, `+++ b/${path}`, "@@ -1 +1 @@", addition].join("\n")),
+    );
+    const warnings = collectScanWarnings(
+      guardInput({
+        filesBySha: new Map([[sha, [path]]]),
+        patchesBySha,
+        upstreamFiles: new Set([path]),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "sidebar-physical-scope"),
+      forbidden,
+      `${path}: ${addition}`,
+    );
+  }
+});
+
 it("keeps a path hot only while the ledger charged for it more than once", () => {
   const seams = readHotSeams(churn);
   assert.deepStrictEqual([...seams.keys()], ["apps/web/src/components/ChatView.tsx"]);

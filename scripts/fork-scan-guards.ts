@@ -28,6 +28,7 @@ export type ScanWarningRule =
   | "replaced-export"
   | "provider-agent-boundary"
   | "lockfile"
+  | "sidebar-physical-scope"
   | "terminal-attachment-boundary";
 
 // Adopted boundaries are enforced on the commits an authoring scan selects.
@@ -36,6 +37,7 @@ export type ScanWarningRule =
 export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "terminal-attachment-boundary",
   "provider-agent-boundary",
+  "sidebar-physical-scope",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -44,6 +46,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "footprint",
   "replaced-export",
   "provider-agent-boundary",
+  "sidebar-physical-scope",
   "lockfile",
   "terminal-attachment-boundary",
 ];
@@ -73,6 +76,7 @@ export interface TestBlockHunk {
 }
 
 export interface CommitPatch {
+  readonly sidebarPhysicalScopeAdded?: boolean;
   readonly removedExports: ReadonlyArray<ExportDeclaration>;
   readonly addedExports: ReadonlyArray<ExportDeclaration>;
   // `it`/`test`/`describe` block openers stay grouped by zero-context diff
@@ -149,6 +153,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const testBlockHunks: Array<TestBlockHunk> = [];
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
+    let sidebarPhysicalScopeAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -191,6 +196,15 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       if (added && PROVIDER_AGENT_SOURCE.test(path) && PROVIDER_AGENT_DECLARATION.test(content)) {
         providerAgentImplementationAdded = true;
       }
+      if (
+        added &&
+        /^apps\/web\/src\/components\/(?:Sidebar|LegacySidebar)\.tsx$/.test(path) &&
+        !/^\s*(?:\/\/|\*)/.test(content) &&
+        (/\bforcedProjectRef\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
+          /\b(?:const|let)\s+forcedProjectGroup\b/.test(content))
+      ) {
+        sidebarPhysicalScopeAdded = true;
+      }
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -211,6 +225,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       testBlockHunks,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
+      ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
     });
   }
   return patches;
@@ -260,6 +275,12 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     const warn = (rule: ScanWarningRule, detail: string) => {
       found.push({ rule, commit: commit.short, domain: commit.domain, detail });
     };
+    if (patch.sidebarPhysicalScopeAdded) {
+      warn(
+        "sidebar-physical-scope",
+        "physical project matching belongs in sidebar/SidebarPhysicalScope; keep upstream grouping, selection, search and ordering at their existing derivation points",
+      );
+    }
 
     if (patch.terminalAttachmentStateAdded) {
       warn(
