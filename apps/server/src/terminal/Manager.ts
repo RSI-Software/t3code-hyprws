@@ -104,9 +104,21 @@ const MAX_TERMINAL_LABEL_LENGTH = 128;
 const ZMUX_RESOLVE_TIMEOUT = "2 seconds";
 const ZMUX_RESOLVE_MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_ZMUX_ATTACH_READY_TIMEOUT_MS = 5_000;
-const ZMUX_ATTACH_READY_MAX_BUFFER_BYTES = 64 * 1024;
+// tmux paints the requested grid before emitting readiness. Style/control output and concurrent
+// client redraws can expand each visible cell substantially, so retain fixed headroom and a cap.
+const ZMUX_ATTACH_READY_BASE_BUFFER_BYTES = 64 * 1024;
+const ZMUX_ATTACH_READY_BYTES_PER_CELL = 128;
+const ZMUX_ATTACH_READY_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+const ZMUX_ATTACH_POST_RECEIPT_MAX_BUFFER_BYTES = 512 * 1024;
 const ZMUX_ATTACH_READY_PREFIX = "\u001b]777;zmux-attach-ready;";
 const ZMUX_ATTACH_READY_SUFFIX = "\u001b\\";
+
+function zmuxAttachReadyBufferLimit(cols: number, rows: number): number {
+  return Math.min(
+    ZMUX_ATTACH_READY_MAX_BUFFER_BYTES,
+    ZMUX_ATTACH_READY_BASE_BUFFER_BYTES + cols * rows * ZMUX_ATTACH_READY_BYTES_PER_CELL,
+  );
+}
 
 const ZmuxSessionResolution = Schema.Struct({
   workspace: Schema.String.check(Schema.isNonEmpty()),
@@ -320,8 +332,7 @@ interface PreparedManagedRetarget {
   readonly unsubscribeData: () => void;
   readonly unsubscribeExit: () => void;
   readonly dispose: () => void;
-  readonly assertLive: Effect.Effect<void, TerminalManagedRetargetError>;
-  readonly reserve: () => void;
+  readonly checkAndReserve: Effect.Effect<void, TerminalManagedRetargetError>;
   readonly commit: () => void;
 }
 
@@ -2395,67 +2406,69 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     const readiness = yield* Deferred.make<void, TerminalManagedRetargetError>();
     const bufferedEvents: Array<PendingProcessEvent> = [];
     const framePrefix = `${ZMUX_ATTACH_READY_PREFIX}${nonce};`;
+    const readyBufferLimit = zmuxAttachReadyBufferLimit(input.cols, input.rows);
     let pendingData = "";
-    let bufferedOutputBytes = 0;
+    let preReceiptOutputBytes = 0;
+    let postReceiptOutputBytes = 0;
     let receiptFound = false;
     let readinessFailed = false;
+    let readinessOverflow: TerminalManagedRetargetError | null = null;
     let exited: PtyAdapter.PtyExitEvent | null = null;
     let reserved = false;
     let committed = false;
-    const bufferOutput = (data: string) => {
+    const failReadinessOverflow = (cause: string) => {
+      if (readinessFailed) return;
+      const error = new TerminalManagedRetargetError({
+        cwd: input.cwd,
+        worktreePath,
+        reason: "readiness-overflow",
+        target: resolved.target ?? undefined,
+        cause: new Error(cause),
+      });
+      readinessFailed = true;
+      readinessOverflow = error;
+      pendingData = "";
+      bufferedEvents.length = 0;
+      runFork(Deferred.fail(readiness, error).pipe(Effect.asVoid));
+    };
+    const bufferPreReceiptOutput = (data: string) => {
       if (data.length === 0) return;
-      bufferedOutputBytes += Buffer.byteLength(data);
-      if (bufferedOutputBytes > ZMUX_ATTACH_READY_MAX_BUFFER_BYTES) {
-        readinessFailed = true;
-        bufferedEvents.length = 0;
-        runFork(
-          Deferred.fail(
-            readiness,
-            new TerminalManagedRetargetError({
-              cwd: input.cwd,
-              worktreePath,
-              reason: "invalid-protocol",
-              target: resolved.target ?? undefined,
-              cause: new Error("managed attachment exceeded the readiness output limit"),
-            }),
-          ).pipe(Effect.asVoid),
-        );
+      preReceiptOutputBytes += Buffer.byteLength(data);
+      if (preReceiptOutputBytes > readyBufferLimit) {
+        failReadinessOverflow("managed attachment exceeded the pre-receipt output limit");
         return;
       }
+      bufferedEvents.push({ type: "output", data });
+    };
+    const bufferPostReceiptOutput = (data: string) => {
+      if (data.length === 0) return;
+      if (!reserved) {
+        postReceiptOutputBytes += Buffer.byteLength(data);
+        if (postReceiptOutputBytes > ZMUX_ATTACH_POST_RECEIPT_MAX_BUFFER_BYTES) {
+          failReadinessOverflow("managed attachment exceeded the post-receipt output limit");
+          return;
+        }
+      }
+      // PtyProcess has no redraw primitive. Once the source has been reserved for replacement,
+      // retain this brief adoption-window output losslessly rather than truncate an escape stream.
       bufferedEvents.push({ type: "output", data });
     };
     let dataSink = (data: string) => {
       if (readinessFailed) return;
       if (receiptFound) {
-        bufferOutput(data);
+        bufferPostReceiptOutput(data);
         return;
       }
       pendingData += data;
-      if (
-        bufferedOutputBytes + Buffer.byteLength(pendingData) >
-        ZMUX_ATTACH_READY_MAX_BUFFER_BYTES
-      ) {
-        readinessFailed = true;
-        pendingData = "";
-        bufferedEvents.length = 0;
-        runFork(
-          Deferred.fail(
-            readiness,
-            new TerminalManagedRetargetError({
-              cwd: input.cwd,
-              worktreePath,
-              reason: "invalid-protocol",
-              target: resolved.target ?? undefined,
-              cause: new Error("managed attachment exceeded the readiness output limit"),
-            }),
-          ).pipe(Effect.asVoid),
-        );
+      if (preReceiptOutputBytes + Buffer.byteLength(pendingData) > readyBufferLimit) {
+        failReadinessOverflow("managed attachment exceeded the pre-receipt output limit");
         return;
       }
       const frameStart = pendingData.indexOf(framePrefix);
       if (frameStart < 0) {
         const retainedLength = Math.min(pendingData.length, framePrefix.length - 1);
-        bufferOutput(pendingData.slice(0, pendingData.length - retainedLength));
+        bufferPreReceiptOutput(pendingData.slice(0, pendingData.length - retainedLength));
+        if (readinessFailed) return;
         pendingData = pendingData.slice(pendingData.length - retainedLength);
         return;
       }
@@ -2463,11 +2476,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       const frameEnd = pendingData.indexOf(ZMUX_ATTACH_READY_SUFFIX, payloadStart);
       if (frameEnd < 0) return;
 
-      bufferOutput(pendingData.slice(0, frameStart));
+      bufferPreReceiptOutput(pendingData.slice(0, frameStart));
+      if (readinessFailed) return;
       const payload = pendingData.slice(payloadStart, frameEnd);
-      bufferOutput(pendingData.slice(frameEnd + ZMUX_ATTACH_READY_SUFFIX.length));
+      const postReceiptData = pendingData.slice(frameEnd + ZMUX_ATTACH_READY_SUFFIX.length);
       pendingData = "";
       receiptFound = true;
+      bufferPostReceiptOutput(postReceiptData);
+      if (readinessFailed) return;
       runFork(
         decodeZmuxAttachReadyReceipt(payload).pipe(
           Effect.filterOrFail(
@@ -2506,7 +2522,8 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     };
     let exitSink = (event: PtyAdapter.PtyExitEvent) => {
       exited = event;
-      bufferOutput(pendingData);
+      if (receiptFound) bufferPostReceiptOutput(pendingData);
+      else bufferPreReceiptOutput(pendingData);
       pendingData = "";
       bufferedEvents.push({ type: "exit", event });
       runFork(
@@ -2558,36 +2575,25 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       spawnEnv,
       unsubscribeData,
       unsubscribeExit,
-      assertLive: Effect.suspend(() =>
-        reserved
-          ? Effect.void
-          : readinessFailed
-            ? Effect.fail(
-                new TerminalManagedRetargetError({
-                  cwd: input.cwd,
-                  worktreePath,
-                  reason: "invalid-protocol",
-                  target: resolved.target ?? undefined,
-                  cause: new Error("managed attachment exceeded the readiness output limit"),
-                }),
-              )
-            : exited
-              ? Effect.fail(
-                  new TerminalManagedRetargetError({
-                    cwd: input.cwd,
-                    worktreePath,
-                    reason: "attach-failed",
-                    target: resolved.target ?? undefined,
-                    cause: new Error(
-                      `managed attachment exited before commit (code ${exited.exitCode}, signal ${exited.signal ?? "none"})`,
-                    ),
-                  }),
-                )
-              : Effect.void,
-      ),
-      reserve: () => {
+      checkAndReserve: Effect.suspend(() => {
+        if (reserved) return Effect.void;
+        if (readinessOverflow) return Effect.fail(readinessOverflow);
+        if (exited) {
+          return Effect.fail(
+            new TerminalManagedRetargetError({
+              cwd: input.cwd,
+              worktreePath,
+              reason: "attach-failed",
+              target: resolved.target ?? undefined,
+              cause: new Error(
+                `managed attachment exited before commit (code ${exited.exitCode}, signal ${exited.signal ?? "none"})`,
+              ),
+            }),
+          );
+        }
         reserved = true;
-      },
+        return Effect.void;
+      }),
       activate: (onData, onExit) => {
         dataSink = onData;
         exitSink = onExit;
@@ -3463,8 +3469,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               yield* managedRetargetCommitBarrier;
               yield* Effect.uninterruptible(
                 Effect.gen(function* () {
-                  yield* preparedRetarget.assertLive;
-                  preparedRetarget.reserve();
+                  yield* preparedRetarget.checkAndReserve;
                   yield* startSession(liveSession, nextStartInput, "started", preparedRetarget);
                 }),
               );
