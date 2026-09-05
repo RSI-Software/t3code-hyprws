@@ -17,6 +17,11 @@ import { UsageError } from "./lib/fork-cli.ts";
 import { CHURN_LEDGER_FILE, CHURN_REF, readBotRefFile } from "./lib/fork-bot-refs.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import {
+  readWorkflowDrift,
+  WORKFLOW_REVIEWS_PATH,
+  type WorkflowDrift,
+} from "./lib/fork-workflow-drift.ts";
+import {
   collectScanWarnings,
   commitPatchArguments,
   parseCommitPatches,
@@ -76,6 +81,7 @@ export interface ScanResult {
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<ScanWarning>;
+  readonly workflowDrift: ReadonlyArray<WorkflowDrift>;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
@@ -99,6 +105,10 @@ and warn about a hot seam, a fork test block appended to an upstream-owned test 
 commit spread over more than six upstream files, and an upstream export a commit deletes
 and re-declares. They print and exit 0 so an
 existing walk keeps its verdict; --strict turns them into a failure.
+
+Workflow copies require a reviewed adaptation or no-change decision in
+.github/fork-workflow-reviews.json. Changed upstream or fork blobs fail even without
+--strict, including after replay. Output is read-only; exit 0 passes, 1 fails, 2 is usage.
 
 The typechecks run only when --head resolves to the checkout HEAD, because they read the
 working tree. A scan of any other ref reports declarations alone.
@@ -307,6 +317,7 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     undeclaredDomains,
     untaggedCommits,
     warnings: input.guard === undefined ? [] : collectScanWarnings(input.guard),
+    workflowDrift: [],
   };
 };
 
@@ -319,6 +330,11 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ),
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
+  ),
+  ...result.workflowDrift.flatMap((drift) =>
+    drift.problem === undefined
+      ? []
+      : [`workflow-drift: ${drift.upstream} -> ${drift.fork}: ${drift.problem}`],
   ),
 ];
 
@@ -339,6 +355,11 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
       `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun`,
     );
   }
+  const workflowGaps = result.workflowDrift.filter(({ problem }) => problem !== undefined).length;
+  if (workflowGaps > 0)
+    summary.push(
+      `failed: ${workflowGaps} workflow drift gap(s); adapt the fork copy or justify no-change in ${WORKFLOW_REVIEWS_PATH}, then rerun`,
+    );
   return summary;
 };
 
@@ -368,6 +389,16 @@ export const renderScanReport = (result: ScanResult): string => {
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
   lines.push(...renderScanWarnings(result.warnings));
+  if (result.workflowDrift.length > 0) {
+    lines.push("", "Workflow copy reviews:");
+    for (const drift of result.workflowDrift) {
+      lines.push(
+        `  ${drift.problem === undefined ? drift.review?.disposition : "MISSING"}  ${drift.upstream} -> ${drift.fork}`,
+      );
+      lines.push(`    upstream ${drift.upstreamBlob}; fork ${drift.forkBlob}`);
+      lines.push(`    ${drift.problem ?? drift.review?.reason}`);
+    }
+  }
   if (result.untaggedCommits.length > 0) {
     lines.push(
       `skipped ${result.untaggedCommits.length} commit(s) without Fork-Domain (vp run fork:delta --check owns them): ${result.untaggedCommits.join(", ")}`,
@@ -514,7 +545,7 @@ export const readScan = (
   const filesBySha: ReadonlyMap<string, ReadonlyArray<string>> = shas.length === 0
     ? new Map()
     : parseCommitFiles(git.run(commitFilesArguments(shas)));
-  return buildScanResult({
+  const result = buildScanResult({
     ...range,
     commits,
     filesBySha,
@@ -523,6 +554,7 @@ export const readScan = (
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
     guard: buildGuardInput(git, options, range, commits, filesBySha, churn),
   });
+  return { ...result, workflowDrift: readWorkflowDrift(git, range.head, range.target) };
 };
 
 export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number => {

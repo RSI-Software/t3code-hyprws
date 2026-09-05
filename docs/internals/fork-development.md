@@ -341,6 +341,29 @@ can ship before the stack it describes is clean and no existing walk breaks. `--
 fatal. `--since <ref>` restricts them to commits after that ref, which is how CI shows a pull
 request the shapes it introduces instead of the whole replayed stack.
 
+### Workflow copies require an explicit review
+
+`workflow-drift` is a blocking `fork:scan` check, including in `fork:sync unblock-check`.
+It compares upstream `ci.yml` and `release.yml` at the selected target with the reviews in
+`.github/fork-workflow-reviews.json` at the selected fork head. Each review binds the upstream
+commit and workflow blob, the fork counterpart blob, and an `adapted` or `no-change` rationale.
+Checking the reviewed blobs also catches drift after replay, when the merge base is already
+the target and an ordinary overlap scan has no upstream delta left to see.
+
+Keep prerequisites at the corresponding fork workflow job boundary. Inspect changes to both
+upstream workflows before refreshing reviews; shared install text alone cannot find a new
+upstream-only step. Adapt every applicable job before tests or builds run. Preserve deliberate
+fork choices such as GitHub-hosted runners and Linux-only release channels with a specific reason.
+Record adaptations through the existing `--silent-seam` flow as well as the review manifest.
+
+Read source fingerprints with `git rev-parse <target>:<upstream-path>` and pin its full commit
+with `git rev-parse <target>^{commit}`. Read a committed fork blob with
+`git rev-parse HEAD:<fork-path>`, or a pending edit with `git hash-object <fork-path>`.
+Commit the reviewed workflow and manifest together, then rerun `fork:scan --target <target>`.
+An intentional fork-only workflow edit requires a new fork blob and rationale, but no new
+upstream tag. Never refresh fingerprints without reviewing the diff. Missing, malformed or stale
+review evidence fails the gate; historical advisory ledger warnings retain their existing behavior.
+
 ### Fork tests live in fork-owned files
 
 Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` or
