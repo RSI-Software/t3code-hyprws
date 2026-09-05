@@ -717,6 +717,7 @@ const buildAppUnderTest = (options?: {
     const zmuxSessionBinderLayer = Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
       bind: () => Effect.succeed({ status: "disabled" as const }),
       resolve: () => Effect.succeed({ status: "disabled" as const }),
+      prepareUnbind: () => Effect.succeed({ status: "disabled" as const }),
       unbind: () => Effect.succeed({ status: "disabled" as const }),
       ...options?.layers?.zmuxSessionBinder,
     });
