@@ -6,8 +6,8 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
+import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import { describe, expect, it } from "vite-plus/test";
 
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
@@ -39,11 +39,11 @@ function makeEvent(input: {
 }
 
 describe("checkout move projector", () => {
-  it("projects canonical and worktree destinations in both directions", async () => {
-    const now = "2026-09-05T00:00:00.000Z";
-    let model = createEmptyReadModel(now);
-    model = await Effect.runPromise(
-      projectEvent(
+  it.effect("projects canonical and worktree destinations in both directions", () =>
+    Effect.gen(function* () {
+      const now = "2026-09-05T00:00:00.000Z";
+      let model = createEmptyReadModel(now);
+      model = yield* projectEvent(
         model,
         makeEvent({
           sequence: 1,
@@ -64,10 +64,8 @@ describe("checkout move projector", () => {
             updatedAt: now,
           },
         }),
-      ),
-    );
-    model = await Effect.runPromise(
-      projectEvent(
+      );
+      model = yield* projectEvent(
         model,
         makeEvent({
           sequence: 2,
@@ -89,29 +87,27 @@ describe("checkout move projector", () => {
             updatedAt: now,
           },
         }),
-      ),
-    );
-    const identity = (checkoutRoot: string, branch: string | null) => ({
-      repositoryRoot: "/repo",
-      checkoutRoot,
-      revision: "abc",
-      branch,
-    });
-    const move = (destination: ReturnType<typeof identity>, updatedAt: string) => ({
-      requestId: `request-${updatedAt}`,
-      source: identity("/repo/wt", "feature"),
-      requestedPath: destination.checkoutRoot,
-      destination,
-      expectedCheckoutRoot: "/repo/wt",
-      status: "committed",
-      completedSteps: ["provider", "metadata"],
-      effectiveProvider: destination,
-      providerAvailable: true,
-      requestedAt: now,
-      updatedAt,
-    });
-    model = await Effect.runPromise(
-      projectEvent(
+      );
+      const identity = (checkoutRoot: string, branch: string | null) => ({
+        repositoryRoot: "/repo",
+        checkoutRoot,
+        revision: "abc",
+        branch,
+      });
+      const move = (destination: ReturnType<typeof identity>, updatedAt: string) => ({
+        requestId: `request-${updatedAt}`,
+        source: identity("/repo/wt", "feature"),
+        requestedPath: destination.checkoutRoot,
+        destination,
+        expectedCheckoutRoot: "/repo/wt",
+        status: "committed",
+        completedSteps: ["provider", "metadata"],
+        effectiveProvider: destination,
+        providerAvailable: true,
+        requestedAt: now,
+        updatedAt,
+      });
+      model = yield* projectEvent(
         model,
         makeEvent({
           sequence: 3,
@@ -125,11 +121,9 @@ describe("checkout move projector", () => {
             move: move(identity("/repo", "main"), "2026-09-05T00:00:01.000Z"),
           },
         }),
-      ),
-    );
-    expect(model.threads[0]?.worktreePath).toBeNull();
-    model = await Effect.runPromise(
-      projectEvent(
+      );
+      expect(model.threads[0]?.worktreePath).toBeNull();
+      model = yield* projectEvent(
         model,
         makeEvent({
           sequence: 4,
@@ -143,8 +137,8 @@ describe("checkout move projector", () => {
             move: move(identity("/repo/wt", "feature"), "2026-09-05T00:00:02.000Z"),
           },
         }),
-      ),
-    );
-    expect(model.threads[0]?.worktreePath).toBe("/repo/wt");
-  });
+      );
+      expect(model.threads[0]?.worktreePath).toBe("/repo/wt");
+    }),
+  );
 });
