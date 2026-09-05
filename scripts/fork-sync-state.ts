@@ -280,6 +280,23 @@ export interface SilentSeam {
   readonly touchesBehaviour: boolean;
 }
 
+/** Rechecking an observation retains its first evidence object and arrival order. */
+export const uniqueSilentSeams = (
+  observations: ReadonlyArray<SilentSeam>,
+): ReadonlyArray<SilentSeam> => {
+  const seen = new Set<string>();
+  return observations.filter((observation) => {
+    const identity = JSON.stringify([
+      observation.path,
+      observation.summary,
+      observation.touchesBehaviour,
+    ]);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+};
+
 export interface SyncReport {
   readonly schemaVersion: 1;
   readonly stage: SyncStage;
