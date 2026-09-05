@@ -4,10 +4,8 @@ import type {
   EnvironmentThread,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import {
-  type EnvironmentThreadStatus,
-  mergeEnvironmentThread,
-} from "@t3tools/client-runtime/state/threads";
+import { type EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import { mergeEnvironmentThreadWithCheckoutMove } from "@t3tools/client-runtime/state/checkout-move"; // fork-hook: zmux-estate/entities-merge-import
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
@@ -143,7 +141,7 @@ export function useThread(
       waitForShell: options?.waitForShell === true,
     }),
   );
-  return useMemo(() => mergeEnvironmentThread(detail, shell), [detail, shell]);
+  return useMemo(() => mergeEnvironmentThreadWithCheckoutMove(detail, shell), [detail, shell]); // fork-hook: zmux-estate/entities-use-thread
 }
 
 export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {
@@ -185,10 +183,10 @@ export function readThreadShell(ref: ScopedThreadRef): EnvironmentThreadShell | 
 
 /** The thread as `useThread` returns it, read outside React. */
 export function readThread(ref: ScopedThreadRef): EnvironmentThread | null {
-  return mergeEnvironmentThread(
+  return mergeEnvironmentThreadWithCheckoutMove(
     appAtomRegistry.get(environmentThreadDetails.detailAtom(ref)),
     readThreadShell(ref),
-  );
+  ); // fork-hook: zmux-estate/entities-read-thread
 }
 
 /** Whether the environment's server understands thread.settle/unsettle.
