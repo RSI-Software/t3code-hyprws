@@ -31,7 +31,8 @@ export type ScanWarningRule =
   | "sidebar-physical-scope"
   | "pull-request-project-scope"
   | "terminal-attachment-boundary"
-  | "thread-route-navigation";
+  | "thread-route-navigation"
+  | "github-issue-settings-search";
 
 // Adopted boundaries are enforced on the commits an authoring scan selects.
 // Historical inventory remains advisory so its original patches can be repaired
@@ -43,6 +44,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "thread-route-navigation",
   "pull-request-project-scope",
   "upstream-test",
+  "github-issue-settings-search",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -56,6 +58,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "terminal-attachment-boundary",
   "thread-route-navigation",
   "pull-request-project-scope",
+  "github-issue-settings-search",
 ];
 
 export interface ScanWarning {
@@ -93,6 +96,7 @@ export interface CommitPatch {
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
   readonly pullRequestProjectScopeAdded?: boolean;
+  readonly githubIssueSettingsSearchAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -201,6 +205,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let sidebarPhysicalScopeAdded = false;
     const navigationAdditions = new Map<string, Array<string>>();
     let pullRequestProjectScopeAdded = false;
+    let githubIssueSettingsSearchAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -259,6 +264,13 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (added && isPullRequestProjectScopeAddition(path, content))
         pullRequestProjectScopeAdded = true;
+      if (
+        added &&
+        path === "apps/web/src/components/settings/settingsSearch.ts" &&
+        !/^\s*(?:\/\/|\/\*|\*)/.test(content) &&
+        /(?:\bid|["']id["'])\s*:\s*["']github-issue-handoff-prompt["']/.test(content)
+      )
+        githubIssueSettingsSearchAdded = true;
       const declaration = EXPORT_DECLARATION.exec(content);
       if (declaration !== null) {
         (added ? addedExports : removedExports).push({
@@ -290,6 +302,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
       ...(threadRouteNavigationAdded ? { threadRouteNavigationAdded: true } : {}),
       ...(pullRequestProjectScopeAdded ? { pullRequestProjectScopeAdded: true } : {}),
+      ...(githubIssueSettingsSearchAdded ? { githubIssueSettingsSearchAdded: true } : {}),
     });
   }
   return patches;
@@ -369,6 +382,13 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "thread-route-navigation",
         "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts gains direct route-family policy; use lib/threadRouteNavigation and retain execution-time parameter reads at navigation sites",
+      );
+    }
+
+    if (patch.githubIssueSettingsSearchAdded) {
+      warn(
+        "github-issue-settings-search",
+        "register the issue handoff item in githubIssueSettingsSearch.ts through useAvailableSettingsSearchItems; preserve upstream settingsSearch.ts items, availability and ordering",
       );
     }
 

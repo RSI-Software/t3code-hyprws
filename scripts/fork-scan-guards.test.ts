@@ -280,6 +280,42 @@ it("warns about inline terminal retention while allowing its fork-owned hook and
   );
 });
 
+it("rejects handoff registration in the upstream settings registry and permits its extension", () => {
+  const registry = "apps/web/src/components/settings/settingsSearch.ts";
+  const extension = "apps/web/src/components/settings/githubIssueSettingsSearch.ts";
+  const consumer = "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts";
+  for (const [file, content, rejected] of [
+    [registry, '+  id: "github-issue-handoff-prompt",', true],
+    [registry, "+  'id': 'github-issue-handoff-prompt',", true],
+    [registry, '+  id: "upstream-setting",', false],
+    [registry, '-  id: "github-issue-handoff-prompt",', false],
+    [registry, '+// id: "github-issue-handoff-prompt" was moved.', false],
+    [extension, '+  id: "github-issue-handoff-prompt",', false],
+    [
+      consumer,
+      "+const items = filterAvailableGitHubIssueSettingsSearchItems(availability);",
+      false,
+    ],
+    [registry, "+const items = filterAvailableSettingsSearchItems(availability);", false],
+  ] as const) {
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(
+            "a".repeat(40),
+            [`--- a/${file}`, `+++ b/${file}`, "@@ -1 +1 @@", content].join("\n"),
+          ),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some(({ rule }) => rule === "github-issue-settings-search"),
+      rejected,
+      `${file}: ${content}`,
+    );
+  }
+});
+
 it("rejects the old pull-request scope policy while permitting upstream derivation and fork adapters", () => {
   const route = "apps/web/src/routes/_chat.pull-requests.tsx";
   const filters = "apps/web/src/components/pullRequest/PullRequestListFilters.tsx";
