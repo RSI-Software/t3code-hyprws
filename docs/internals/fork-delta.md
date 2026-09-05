@@ -424,6 +424,12 @@ The contracts and server expose read-only issue list and detail requests through
 
 The web renderer provides hub and project-window routes with search, state and project filters, project/all-project scope, issue descriptions and comments, in-app link claiming, right-panel tabs, and an unsent "Work on this issue" hand-off to a fresh composer. The hand-off prompt is an environment-scoped template configured under Source Control settings. The palette intentionally has a “Go to Issues” command but no matching “Go to Pull Requests” command.
 
+The handoff search item is registered by `githubIssueSettingsSearch.ts` through
+`useAvailableSettingsSearchItems`, after upstream availability filtering. The adopted
+`github-issue-settings-search` authoring guard rejects adding its item back into the
+upstream settings registry. Keep the extension's ordering, fallback and deduplication
+when repairing the original registry patch.
+
 ### Retirement condition
 
 Delete the service and UI when upstream ships a stable GitHub Issues list, detail, and agent hand-off across web and desktop with multi-environment scoping. If upstream ships only the core service, retire this domain's service and UI while keeping the project-window scope adapter under `project-windows`.
