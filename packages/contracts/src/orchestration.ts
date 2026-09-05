@@ -23,6 +23,11 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import {
+  ThreadCheckoutMove,
+  ThreadCheckoutMoveCompleteCommand,
+  ThreadCheckoutMovePrepareCommand,
+} from "./checkoutMove.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -622,6 +627,7 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(Schema.NullOr(ThreadCheckoutMove)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -709,6 +715,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  checkoutMove: Schema.optional(Schema.NullOr(ThreadCheckoutMove)),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -1114,6 +1121,16 @@ const ThreadRuntimeModeSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadCheckoutMoveRequestClientCommand = Schema.Struct({
+  type: Schema.Literal("thread.checkout-move.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestedPath: TrimmedNonEmptyString,
+  expectedCheckoutRoot: TrimmedNonEmptyString,
+  reverseOfRequestId: Schema.optional(CommandId),
+  createdAt: IsoDateTime,
+});
+
 const ThreadInteractionModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.interaction-mode.set"),
   commandId: CommandId,
@@ -1267,6 +1284,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadCheckoutMoveRequestClientCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -1297,6 +1315,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinReorderCommand,
   ThreadActiveReorderCommand,
   ThreadMetaUpdateCommand,
+  ThreadCheckoutMoveRequestClientCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
@@ -1424,6 +1443,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadTitleRegenerationCompleteCommand,
+  ThreadCheckoutMovePrepareCommand,
+  ThreadCheckoutMoveCompleteCommand,
   ThreadPullRequestSyncCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -1450,6 +1471,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unpinned",
   "thread.pin-reordered",
   "thread.meta-updated",
+  "thread.checkout-move-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.message-sent",
@@ -1603,6 +1625,11 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   updatedAt: IsoDateTime,
+});
+
+export const ThreadCheckoutMoveUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  move: ThreadCheckoutMove,
 });
 
 export const ThreadRuntimeModeSetPayload = Schema.Struct({
@@ -1817,6 +1844,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.meta-updated"),
     payload: ThreadMetaUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.checkout-move-updated"),
+    payload: ThreadCheckoutMoveUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
