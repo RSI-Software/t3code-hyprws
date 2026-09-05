@@ -38,10 +38,17 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
+import * as CheckoutMutationCoordinator from "../../git/CheckoutMutationCoordinator.ts";
+import * as ProcessRunner from "../../processRunner.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
+import { registerCheckpointReactorForkTests } from "./CheckpointReactor.fork.test.ts";
+import {
+  forkCheckpointHarnessLayer,
+  forkRealGitHeadStatus,
+} from "./CheckpointReactor.fork.test.ts"; // fork-hook: zmux-estate/checkpoint-harness-import
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -305,11 +312,13 @@ describe("CheckpointReactor", () => {
     readonly secondThreadSharingWorktree?: boolean;
     readonly secondThreadWorktreePath?: (cwd: string) => string;
     readonly localStatusRefName?: string | null;
+    readonly observeRealGitHead?: boolean;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderDriverKind;
     readonly gitStatusRefreshCalls?: Array<string>;
     readonly pullRequestRefreshCalls?: Array<string>;
     readonly pullRequestRefresh?: Effect.Effect<void>;
+    readonly watchDirectory?: typeof NodeFS.watch;
   }) {
     const cwd = createGitRepository();
     if (options?.initializeGit === false) {
@@ -361,6 +370,7 @@ describe("CheckpointReactor", () => {
             workingTree: { files: [], insertions: 0, deletions: 0 },
           }),
         ),
+      ...forkRealGitHeadStatus(options, runGit), // fork-hook: zmux-estate/checkpoint-real-git-head
       refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
       refreshPullRequestStatus: (cwd: string) =>
         Effect.sync(() => {
@@ -400,6 +410,9 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(ServerConfigLayer),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+      Layer.provideMerge(CheckoutMutationCoordinator.layer),
+      Layer.provideMerge(forkCheckpointHarnessLayer(options)), // fork-hook: zmux-estate/checkpoint-watch-layer
     );
 
     runtime = ManagedRuntime.make(layer);
@@ -514,6 +527,7 @@ describe("CheckpointReactor", () => {
       provider,
       cwd,
       drain,
+      runEffect: <A, E>(effect: Effect.Effect<A, E>) => runtime!.runPromise(Effect.orDie(effect)),
       nextReceipt: Queue.take(receipts),
       pullRequestRefreshes,
     };
@@ -757,6 +771,7 @@ describe("CheckpointReactor", () => {
         expect(refreshCalls).toEqual([harness.cwd, secondCwd, harness.cwd]);
       }),
   );
+  registerCheckpointReactorForkTests({ createHarness, getScope: () => scope!, runGit });
 
   effectIt.effect("captures baseline and large turn summaries before completion receipts", () =>
     Effect.gen(function* () {
@@ -1290,37 +1305,6 @@ describe("CheckpointReactor", () => {
     expect(thread?.worktreePath).toBe(harness.cwd);
     expect(pullRequestRefreshCalls).toEqual([harness.cwd]);
   });
-
-  it.each(["t3code/original-branch", "t3code/fd9cbe0e"])(
-    "does not adopt a drifted checkout from %s when the worktree is shared by another thread",
-    async (threadBranch) => {
-      const pullRequestRefreshCalls: string[] = [];
-      const harness = await createHarness({
-        seedFilesystemCheckpoints: false,
-        threadBranch,
-        localStatusRefName: "t3code/renamed-by-agent",
-        secondThreadSharingWorktree: true,
-        pullRequestRefreshCalls,
-      });
-
-      harness.provider.emit({
-        type: "turn.completed",
-        eventId: EventId.make("evt-turn-completed-branch-drift-shared"),
-        provider: ProviderDriverKind.make("codex"),
-        createdAt: "2026-01-01T00:00:00.000Z",
-        threadId: ThreadId.make("thread-1"),
-        turnId: asTurnId("turn-branch-drift-shared"),
-        payload: { state: "completed" },
-      });
-
-      await harness.drain();
-
-      const snapshot = await harness.readModel();
-      const thread = snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      expect(thread?.branch).toBe(threadBranch);
-      expect(pullRequestRefreshCalls).toEqual([]);
-    },
-  );
 
   it("does not adopt a temporary placeholder checkout as the thread branch", async () => {
     const harness = await createHarness({
