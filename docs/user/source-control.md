@@ -128,3 +128,9 @@ holding a project needs GitHub CLI installed and authenticated — `gh auth logi
   remotes can require separate setup from the hosting provider's API access.
 - **A review cannot load:** open it on the host website while resolving connectivity, permissions,
   or rate limits.
+
+## Moving a started thread between checkouts
+
+A started thread can move to another existing checkout from the branch selector. Provider
+continuation, queued turns, terminal follow and pin behavior, retry, and checked undo are described
+in [Managed terminals and checkout moves](managed-terminals.md).
