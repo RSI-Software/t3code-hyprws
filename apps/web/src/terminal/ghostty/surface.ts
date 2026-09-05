@@ -755,6 +755,18 @@ export class GhosttyTerminalSurface {
     this.requestRender();
   }
 
+  /** Reset state that belongs to the replaced PTY while preserving the canvas viewer. */
+  resetSession(data: string): void {
+    if (this.disposed) return;
+    this.composing = false;
+    this.clearCompositionInputSuppression();
+    this.clearPrimedCopy();
+    this.input.value = "";
+    this.pasteShortcutToken += 1;
+    this.copyShortcutToken += 1;
+    this.resetAndWrite(data);
+  }
+
   setTheme(theme: GhosttyTheme): void {
     if (this.disposed) return;
     this.theme = theme;
