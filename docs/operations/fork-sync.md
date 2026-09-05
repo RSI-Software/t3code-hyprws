@@ -77,6 +77,24 @@ git show refs/fork/churn:fork-churn.json
 
 ### Churn ledger
 
+Authoring scans read `refs/fork/churn` by default; select another named bot ref with
+`vp run fork:scan --ledger-ref refs/fork/<name> --no-typecheck`. Every scan prints the declared
+ref, exact commit SHA and `current`, `stale`, `offline` or `unavailable` freshness. Online reads
+check origin before and after reading immutable objects. A moving remote never reports current.
+Fetching a missing object does not move a local bot ref, ordinary branch or `FETCH_HEAD`.
+`--offline` performs no fetch or remote query and explicitly reports retained local evidence.
+SHA and ordinary branch arguments are refused before Git runs; inspect an immutable snapshot
+directly with `git show <full-sha>:fork-churn.json` instead.
+
+The scan reconciles legacy walks and v2/v3 frozen seam observations with the complete original
+per-file inventory in `docs/internals/fork-churn.md`. New observations reach the next scan and
+carry preferred boundary guidance where a reviewed mapping exists. Unmapped lessons remain
+visible and unresolved. Mappings name exact integration paths and the reviewed policy within
+each path, not ownership of every change in that file. Provider agent metadata guidance does
+not cover startup, resume, child-work results or launcher environment behavior. Neither absence,
+a boundary recommendation nor a recorded guard proves
+repair; comparable repair receipts still own that verdict. Outcome records are left untouched.
+
 The v3 ledger keeps `walks`, immutable `seamRecords`, and target `outcomes` in the same
 `fork-churn.json`. Legacy arrays and v2 envelopes remain readable; every writer preserves
 their existing evidence, and no migration invents repairs, verification, or successful outcomes.
@@ -209,8 +227,9 @@ from the file, from a clean canonical checkout of `hyprws`:
 node scripts/fork-churn.ts seed --from docs/internals/fork-churn.json --push
 ```
 
-Verify with `git show refs/fork/churn:fork-churn.json | head`. Until the ref exists, every reader
-refuses rather than reporting an empty ledger.
+Verify with `git show refs/fork/churn:fork-churn.json | head`. Ledger mutation commands refuse a
+missing ref. Authoring scans explicitly report unavailable lesson evidence and retain the original
+inventory; they never present missing evidence as a current, empty ledger.
 
 Ledgers seeded before census subjects became durable need one migration from a trusted checkout
 whose local object store still resolves every census SHA. Do not rely on a fresh fetch: pruned

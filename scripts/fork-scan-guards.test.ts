@@ -522,7 +522,7 @@ it("warns when a fork commit touches a hot seam and stays quiet on a cold upstre
     hot.map(({ rule, commit, domain }) => `${rule} ${commit} ${domain}`),
     ["hot-seam aaaaaaa project-windows"],
   );
-  assert.include(hot[0]?.detail ?? "", "2 walk(s), worst class seam-moved");
+  assert.include(hot[0]?.detail ?? "", "2 observation(s), seam-moved");
 
   const forkOwned = collectScanWarnings(
     guardInput({

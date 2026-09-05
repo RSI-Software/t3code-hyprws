@@ -14,7 +14,12 @@ import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import { UsageError } from "./lib/fork-cli.ts";
-import { CHURN_LEDGER_FILE, CHURN_REF, readBotRefFile } from "./lib/fork-bot-refs.ts";
+import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
+import {
+  readLessonEvidence,
+  renderLessonGuidance,
+  resolveLessonSource,
+} from "./fork-lesson-guidance.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
 import {
   readWorkflowDrift,
@@ -33,7 +38,6 @@ import {
 } from "./fork-scan-guards.ts";
 
 export const LEDGER_PATH = "docs/internals/fork-delta.md";
-export const CHURN_PATH = "docs/internals/fork-churn.json";
 
 const RECORD_SEPARATOR = "";
 
@@ -48,6 +52,8 @@ export interface ScanOptions {
   // sees the shapes it introduces rather than the whole replayed stack.
   readonly since: string | null;
   readonly strict: boolean;
+  readonly ledgerRef: string;
+  readonly offline: boolean;
 }
 
 export interface ScanRange {
@@ -89,32 +95,32 @@ export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: vp run fork:scan [options]
 
-Verify every fork domain's rebase scan lists the shared files its own commits touch:
-the files the fork changed above its upstream base that upstream changed as well.
+Verify declared fork seams against upstream changes and retained lessons.
 
 Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
   --since <ref>   Warn only about commits after <ref> (default: every commit in the range)
+  --ledger-ref <ref> Named refs/fork/... lesson ledger (default: refs/fork/churn)
+  --offline      Read retained local lesson evidence without network access or writes
   --strict        Fail on ledger guard warnings as well as scan gaps
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
-Ledger guards read refs/fork/churn, or docs/internals/fork-churn.json until it is seeded,
-and warn about a hot seam, a fork test block appended to an upstream-owned test file, a
-commit spread over more than six upstream files, and an upstream export a commit deletes
-and re-declares. They print and exit 0 so an
-existing walk keeps its verdict; --strict turns them into a failure. With --since,
-adopted authoring guards (terminal-attachment-boundary, upstream-test) fail without --strict.
+Ledger guidance reports the selected ref, exact SHA, and current/stale/offline evidence.
+Online reads check origin and fetch immutable objects without moving any local ref.
+The inventory retains original seams and all recorded census paths, including unmapped
+lessons. A named boundary or guard is guidance, not proof that a repair is verified.
+General ledger warnings are advisory unless --strict is set. With --since,
+adopted authoring guards fail without --strict; historical warnings stay advisory.
 Test ownership follows the selected target, including independently added same-path tests.
 
 Workflow copies require a reviewed adaptation or no-change decision in
 .github/fork-workflow-reviews.json. Changed upstream or fork blobs fail even without
 --strict, including after replay. Output is read-only; exit 0 passes, 1 fails, 2 is usage.
 
-The typechecks run only when --head resolves to the checkout HEAD, because they read the
-working tree. A scan of any other ref reports declarations alone.
+Typechecks run only when --head resolves to checkout HEAD; other refs report declarations.
 
 Pre-rebase overlap walk, declarations only:
   vp run fork:scan --head <fork-ref> --target vX.Y.Z --no-typecheck
@@ -130,20 +136,23 @@ const defaultOptions = (): ScanOptions => ({
   typecheck: true,
   since: null,
   strict: false,
+  ledgerRef: CHURN_REF,
+  offline: false,
 });
 
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set(["--base", "--head", "--target", "--since"]);
+  const valueFlags = new Set(["--base", "--head", "--target", "--since", "--ledger-ref"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
-    if (argument === "--no-typecheck" || argument === "--strict") {
+    if (argument === "--no-typecheck" || argument === "--strict" || argument === "--offline") {
       if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
       seen.add(argument);
       if (argument === "--strict") options.strict = true;
+      else if (argument === "--offline") options.offline = true;
       else options.typecheck = false;
       continue;
     }
@@ -158,6 +167,7 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     if (argument === "--base") options.base = value;
     else if (argument === "--head") options.head = value;
     else if (argument === "--since") options.since = value;
+    else if (argument === "--ledger-ref") options.ledgerRef = value;
     else options.target = value;
   }
 
@@ -169,6 +179,11 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   }
   if (options.head.length === 0) throw new UsageError("--head cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
+  try {
+    requireBotRef(options.ledgerRef);
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
   return options;
 };
 
@@ -579,11 +594,10 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
-    // The ledger lives on its bot-owned ref; the deprecated file answers until it is seeded.
-    const churnPath = NodePath.join(root, CHURN_PATH);
-    const churn =
-      readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE) ??
-      (NodeFS.existsSync(churnPath) ? NodeFS.readFileSync(churnPath, "utf8") : null);
+    const lessons = resolveLessonSource(root, options.ledgerRef, options.offline);
+    const evidence =
+      lessons.raw === null ? { walks: [], seamRecords: [] } : readLessonEvidence(lessons.raw);
+    const churn = lessons.raw;
     const scanned = readScan(git, options, ledger, churn);
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
@@ -598,6 +612,7 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
         : [],
     };
     process.stdout.write(renderScanReport(result));
+    process.stdout.write(renderLessonGuidance(lessons, evidence));
     if (!options.typecheck) {
       process.stdout.write("typecheck: skipped (--no-typecheck)\n");
     } else if (!typecheckCurrentHead) {

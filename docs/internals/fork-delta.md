@@ -649,6 +649,8 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-preflight.ts` with its `fork:preflight` alias, the precondition check every sync gate runs first.
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
+- `scripts/fork-lesson-guidance.ts` resolves declared lesson evidence without moving refs and
+  reconciles the full original scope with live observations and preferred authoring boundaries.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-upstream-sync.yml`.
 - `scripts/fork-churn.ts outcome`, its focused receipt collector and pure outcome model retain
   eligible targets and immutable attempts through exact-SHA apply and distribution. The v3

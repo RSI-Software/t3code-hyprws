@@ -15,7 +15,7 @@
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
 
-import { hotSeams, parseLedger } from "./fork-churn.ts";
+import { lessonHotSeams, readLessonEvidence } from "./fork-lesson-guidance.ts";
 
 // `#73` spans 12 hunks over 6 files in the v0.0.39-nightly.20260902.1256
 // census, the largest footprint the ledger has had to replay by hand.
@@ -367,12 +367,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
 };
 
 export const readHotSeams = (churnLedger: string): ReadonlyMap<string, HotSeam> =>
-  new Map(
-    hotSeams(parseLedger(churnLedger)).map((seam) => [
-      seam.path,
-      { walkCount: seam.walkCount, worstClass: seam.worstClass },
-    ]),
-  );
+  lessonHotSeams(readLessonEvidence(churnLedger));
 
 // `pnpm-lock.yaml`, `package-lock.json`, `bun.lock`, `Cargo.lock`, `uv.lock`.
 const LOCKFILE = /(?:^|\/)(?:[^/]*-lock\.[^/.]+|[^/]*\.lock)$/;
@@ -474,7 +469,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       if (seam === undefined) continue;
       warn(
         "hot-seam",
-        `${path} is a hot seam (${seam.walkCount} walk(s), worst class ${seam.worstClass}); read docs/internals/fork-churn.md before adding to it`,
+        `${path} is a retained seam (${seam.walkCount} observation(s), ${seam.worstClass}); use the declared lesson inventory and preferred boundary printed by this scan`,
       );
     }
 
@@ -509,7 +504,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     const reported = new Set<string>();
     for (const removed of patch.removedExports) {
       if (!input.upstreamFiles.has(removed.path)) continue;
-      const key = `${removed.path} ${removed.name}`;
+      const key = `${removed.path}\0${removed.name}`;
       if (reported.has(key)) continue;
       const readded = patch.addedExports.find((added) => added.name === removed.name);
       if (readded === undefined) continue;
