@@ -28,6 +28,7 @@ import {
   type OrchestrationClientOrigin,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitCommandError,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -500,6 +501,36 @@ const makeWsRpcLayer = (
             return Effect.void;
         }
       };
+
+      const guardSharedCheckoutBranchMutation = Effect.fn("ws.guardSharedCheckoutBranchMutation")(
+        function* (cwd: string) {
+          const shell = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "vcs.branch.change",
+                  command: "shared-checkout-guard",
+                  cwd,
+                  detail: "Could not verify whether this checkout is idle.",
+                  cause,
+                }),
+            ),
+          );
+          const checkoutThreads = shell.threads.filter((thread) => thread.worktreePath === cwd);
+          if (
+            checkoutThreads.length > 1 &&
+            checkoutThreads.some((thread) => thread.session?.activeTurnId != null)
+          ) {
+            return yield* new GitCommandError({
+              operation: "vcs.branch.change",
+              command: "shared-checkout-guard",
+              cwd,
+              detail:
+                "Wait for active turns sharing this checkout to finish before changing branch.",
+            });
+          }
+        },
+      );
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
@@ -2609,13 +2640,19 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            guardSharedCheckoutBranchMutation(input.cwd).pipe(
+              Effect.andThen(gitWorkflow.createRef(input)),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            guardSharedCheckoutBranchMutation(input.cwd).pipe(
+              Effect.andThen(gitWorkflow.switchRef(input)),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>

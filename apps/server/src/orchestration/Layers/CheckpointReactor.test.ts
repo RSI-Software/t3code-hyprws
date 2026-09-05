@@ -715,7 +715,7 @@ describe("CheckpointReactor", () => {
     expect(thread?.branch).toBe("t3code/renamed-by-agent");
   });
 
-  it("does not adopt a drifted checkout when the worktree is shared by another thread", async () => {
+  it("adopts drift for idle branch-bound threads sharing the worktree", async () => {
     const pullRequestRefreshCalls: string[] = [];
     const harness = await createHarness({
       seedFilesystemCheckpoints: false,
@@ -738,9 +738,10 @@ describe("CheckpointReactor", () => {
     await harness.drain();
 
     const snapshot = await harness.readModel();
-    const thread = snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.branch).toBe("t3code/original-branch");
-    expect(pullRequestRefreshCalls).toEqual([]);
+    const sharedThreads = snapshot.threads.filter(
+      (entry) => entry.id === ThreadId.make("thread-1") || entry.id === ThreadId.make("thread-2"),
+    );
+    expect(sharedThreads.map((entry) => entry.branch)).toEqual(["t3code/renamed-by-agent", null]);
   });
 
   it("does not adopt a temporary placeholder checkout as the thread branch", async () => {

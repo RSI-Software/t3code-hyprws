@@ -257,6 +257,21 @@ export const make = Effect.gen(function* () {
     return true;
   });
 
+  const reconcileManagedSession = Effect.fn("GitWorkflowService.reconcileManagedSession")(
+    function* (cwd: string) {
+      const result = yield* zmuxSessionBinder.ensure(cwd);
+      if (result.status === "failed") {
+        yield* Effect.logWarning(
+          "Git branch changed but its managed zmux session did not reconcile",
+          {
+            cwd,
+            detail: result.notice.detail,
+          },
+        );
+      }
+    },
+  );
+
   const routeGitManager =
     <Input extends { readonly cwd: string }, Output>(
       operation: string,
@@ -413,28 +428,21 @@ export const make = Effect.gen(function* () {
     createRef: (input) =>
       ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
         Effect.andThen(git.createRef(input)),
+        Effect.tap(() =>
+          input.switchRef === true ? reconcileManagedSession(input.cwd) : Effect.void,
+        ),
       ),
     switchRef: (input) =>
       ensureGitCommand("GitWorkflowService.switchRef", input.cwd).pipe(
         Effect.andThen(Effect.scoped(git.switchRef(input))),
+        Effect.tap(() => reconcileManagedSession(input.cwd)),
       ),
     renameBranch: (input) =>
       ensureGit("GitWorkflowService.renameBranch", input.cwd).pipe(
         Effect.andThen(
           Effect.gen(function* () {
             const renamed = yield* git.renameBranch(input);
-            const resolved = yield* zmuxSessionBinder.resolve(input.cwd);
-            if (resolved.status === "resolved" && resolved.match === "worktree") {
-              const result = yield* zmuxSessionBinder.bind(input.cwd);
-              if (result.status === "failed") {
-                yield* Effect.logWarning("branch rename could not relabel its zmux session", {
-                  worktreePath: input.cwd,
-                  oldBranch: input.oldBranch,
-                  newBranch: input.newBranch,
-                  detail: result.notice.detail,
-                });
-              }
-            }
+            yield* reconcileManagedSession(input.cwd);
             return renamed;
           }),
         ),

@@ -331,23 +331,14 @@ describe("GitWorkflowService", () => {
         return { branch: "t3code/new-name" };
       }),
     );
-    const resolve = vi.fn(() =>
+    const ensure = vi.fn((_dir: string) =>
       Effect.sync(() => {
-        calls.push("resolve");
+        calls.push("ensure");
         return {
-          status: "resolved" as const,
-          target: "repo/t3code-old-name",
-          match: "worktree" as const,
-        };
-      }),
-    );
-    const bind = vi.fn((_dir: string) =>
-      Effect.sync(() => {
-        calls.push("bind");
-        return {
-          status: "bound" as const,
+          status: "ensured" as const,
           target: "repo/t3code-new-name",
-          outcome: "renamed" as const,
+          workspace: "repo",
+          session: "t3code-new-name",
         };
       }),
     );
@@ -359,7 +350,7 @@ describe("GitWorkflowService", () => {
       ),
       Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ renameBranch })),
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
-      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ resolve, bind })),
+      Layer.provide(Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({ ensure })),
       Layer.provide(makeWorktrunkHookRunnerLayer()),
     );
     return Effect.gen(function* () {
@@ -370,19 +361,13 @@ describe("GitWorkflowService", () => {
         newBranch: "t3code/new-name",
       });
       assert.equal(renamed.branch, "t3code/new-name");
-      assert.deepStrictEqual(calls, ["rename", "resolve", "bind"]);
-      assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/repo/wt");
+      assert.deepStrictEqual(calls, ["rename", "ensure"]);
+      assert.deepStrictEqual(ensure.mock.calls[0]?.[0], "/repo/wt");
     }).pipe(Effect.provide(layer));
   });
   it.effect("does not rebind after a rename outside a bound worktree", () => {
     const renameBranch = vi.fn(() => Effect.succeed({ branch: "feat/renamed" }));
-    const bind = vi.fn((_dir: string) =>
-      Effect.succeed({
-        status: "bound" as const,
-        target: "repo/main",
-        outcome: "renamed" as const,
-      }),
-    );
+    const ensure = vi.fn((_dir: string) => Effect.succeed({ status: "disabled" as const }));
     const layer = GitWorkflowService.layer.pipe(
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -393,8 +378,7 @@ describe("GitWorkflowService", () => {
       Layer.provide(Layer.mock(GitManager.GitManager)({})),
       Layer.provide(
         Layer.mock(ZmuxSessionBinder.ZmuxSessionBinder)({
-          resolve: () => Effect.succeed({ status: "not-found" as const }),
-          bind,
+          ensure,
         }),
       ),
       Layer.provide(makeWorktrunkHookRunnerLayer()),
@@ -406,7 +390,7 @@ describe("GitWorkflowService", () => {
         oldBranch: "feat/old",
         newBranch: "feat/renamed",
       });
-      assert.equal(bind.mock.calls.length, 0);
+      assert.equal(ensure.mock.calls.length, 1);
       assert.equal(renameBranch.mock.calls.length, 1);
     }).pipe(Effect.provide(layer));
   });

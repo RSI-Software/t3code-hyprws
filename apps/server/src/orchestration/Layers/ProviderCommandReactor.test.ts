@@ -289,15 +289,17 @@ describe("ProviderCommandReactor", () => {
         ),
       ),
     );
+    let checkedOutBranch = "t3code/1234abcd";
     const renameBranch = vi.fn((input: unknown) =>
-      Effect.succeed({
-        branch:
+      Effect.sync(() => {
+        checkedOutBranch =
           typeof input === "object" &&
           input !== null &&
           "newBranch" in input &&
           typeof input.newBranch === "string"
             ? input.newBranch
-            : "renamed-branch",
+            : "renamed-branch";
+        return { branch: checkedOutBranch };
       }),
     );
     const pruneWorktrees = vi.fn((_: { readonly cwd: string }) => Effect.void);
@@ -453,6 +455,15 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           renameBranch,
+          localStatus: () =>
+            Effect.succeed({
+              isRepo: true,
+              hasPrimaryRemote: true,
+              isDefaultRef: false,
+              refName: checkedOutBranch,
+              hasWorkingTreeChanges: false,
+              workingTree: { files: [], insertions: 0, deletions: 0 },
+            }),
           pruneWorktrees,
           createWorktree,
         } satisfies Partial<GitWorkflowService.GitWorkflowService["Service"]>),

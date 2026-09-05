@@ -39,6 +39,7 @@ import { isGitRepository } from "../../git/Utils.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as PullRequestService from "../../pullRequest/PullRequestService.ts";
+import * as ZmuxSessionBinder from "../../zmux/ZmuxSessionBinder.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -90,6 +91,7 @@ const make = Effect.gen(function* () {
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const pullRequests = yield* PullRequestService.PullRequestService;
+  const zmuxSessionBinder = yield* Effect.serviceOption(ZmuxSessionBinder.ZmuxSessionBinder);
   const startedTurns = new Map<ThreadId, TurnId>();
   const pending = new Set<ThreadId>();
 
@@ -629,23 +631,43 @@ const make = Effect.gen(function* () {
       }
 
       const shell = yield* projectionSnapshotQuery.getShellSnapshot();
-      const worktreeIsShared = shell.threads.some(
-        (other) => other.id !== thread.id && other.worktreePath === thread.worktreePath,
+      const checkoutThreads = shell.threads.filter(
+        (candidate) => candidate.worktreePath === thread.worktreePath,
       );
-      if (worktreeIsShared) {
+      if (checkoutThreads.some((candidate) => candidate.session?.activeTurnId != null)) {
         return;
+      }
+
+      if (Option.isSome(zmuxSessionBinder)) {
+        const reconciliation = yield* zmuxSessionBinder.value.ensure(input.cwd);
+        if (reconciliation.status === "failed") {
+          yield* Effect.logWarning("worktree branch drift could not reconcile managed session", {
+            cwd: input.cwd,
+            detail: reconciliation.notice.detail,
+          });
+          return;
+        }
       }
 
       // expectedBranch makes this a compare-and-swap in the decider: if the
       // recorded branch moved between our read and the dispatch (rename,
       // concurrent drift-follow), the stale update is dropped.
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: yield* serverCommandId("worktree-branch-drift"),
-        threadId: thread.id,
-        branch: checkedOutBranch,
-        expectedBranch: thread.branch,
-      });
+      for (const candidate of checkoutThreads) {
+        if (
+          candidate.branch === null ||
+          candidate.branch === checkedOutBranch ||
+          isTemporaryWorktreeBranch(candidate.branch)
+        ) {
+          continue;
+        }
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: yield* serverCommandId("worktree-branch-drift"),
+          threadId: candidate.id,
+          branch: checkedOutBranch,
+          expectedBranch: candidate.branch,
+        });
+      }
       yield* Effect.logInfo("thread branch followed worktree checkout", {
         threadId: thread.id,
         previousBranch: thread.branch,
