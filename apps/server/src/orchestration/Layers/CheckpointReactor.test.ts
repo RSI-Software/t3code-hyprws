@@ -36,10 +36,13 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
+import * as CheckoutMutationCoordinator from "../../git/CheckoutMutationCoordinator.ts";
+import * as ProcessRunner from "../../processRunner.ts";
 import * as VcsProcess from "../../vcs/VcsProcess.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
-import { CheckpointReactorLive } from "./CheckpointReactor.ts";
+import { CheckpointReactorLive, makeCheckpointReactor } from "./CheckpointReactor.ts";
+import { registerCheckpointReactorForkTests } from "./CheckpointReactor.fork.test.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -298,11 +301,13 @@ describe("CheckpointReactor", () => {
     readonly threadBranch?: string | null;
     readonly secondThreadSharingWorktree?: boolean;
     readonly localStatusRefName?: string | null;
+    readonly observeRealGitHead?: boolean;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderDriverKind;
     readonly gitStatusRefreshCalls?: Array<string>;
     readonly pullRequestRefreshCalls?: Array<string>;
     readonly pullRequestRefresh?: Effect.Effect<void>;
+    readonly watchDirectory?: typeof NodeFS.watch;
   }) {
     const cwd = createGitRepository();
     if (options?.initializeGit === false) {
@@ -342,18 +347,20 @@ describe("CheckpointReactor", () => {
       refreshLocalStatus: (cwd: string) =>
         Effect.sync(() => {
           options?.gitStatusRefreshCalls?.push(cwd);
-        }).pipe(
-          Effect.as({
+          const refName = options?.observeRealGitHead
+            ? runGit(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]).trim() || null
+            : options?.localStatusRefName !== undefined
+              ? options.localStatusRefName
+              : "main";
+          return {
             isRepo: true,
             hasPrimaryRemote: false,
-            isDefaultRef:
-              options?.localStatusRefName === undefined || options.localStatusRefName === "main",
-            refName:
-              options?.localStatusRefName !== undefined ? options.localStatusRefName : "main",
+            isDefaultRef: refName === "main",
+            refName,
             hasWorkingTreeChanges: false,
             workingTree: { files: [], insertions: 0, deletions: 0 },
-          }),
-        ),
+          };
+        }),
       refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
       refreshPullRequestStatus: (cwd: string) =>
         Effect.sync(() => {
@@ -362,7 +369,10 @@ describe("CheckpointReactor", () => {
       streamStatus: () => Stream.empty,
     });
 
-    const layer = CheckpointReactorLive.pipe(
+    const checkpointReactorLayer = options?.watchDirectory
+      ? Layer.effect(CheckpointReactor, makeCheckpointReactor(options.watchDirectory))
+      : CheckpointReactorLive;
+    const layer = checkpointReactorLayer.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(RuntimeReceiptBusTest),
@@ -380,6 +390,8 @@ describe("CheckpointReactor", () => {
       Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(ServerConfigLayer),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+      Layer.provideMerge(CheckoutMutationCoordinator.layer),
     );
 
     runtime = ManagedRuntime.make(layer);
@@ -492,10 +504,13 @@ describe("CheckpointReactor", () => {
       provider,
       cwd,
       drain,
+      runEffect: <A, E>(effect: Effect.Effect<A, E>) => runtime!.runPromise(Effect.orDie(effect)),
       nextReceipt: Queue.take(receipts),
       pullRequestRefreshes,
     };
   }
+
+  registerCheckpointReactorForkTests({ createHarness, getScope: () => scope!, runGit });
 
   effectIt.effect("captures baseline and large turn summaries before completion receipts", () =>
     Effect.gen(function* () {
@@ -1002,7 +1017,7 @@ describe("CheckpointReactor", () => {
     expect(thread?.branch).toBe("t3code/renamed-by-agent");
   });
 
-  it("does not adopt a drifted checkout when the worktree is shared by another thread", async () => {
+  it("adopts drift for idle branch-bound threads sharing the worktree", async () => {
     const pullRequestRefreshCalls: string[] = [];
     const harness = await createHarness({
       seedFilesystemCheckpoints: false,
@@ -1025,9 +1040,10 @@ describe("CheckpointReactor", () => {
     await harness.drain();
 
     const snapshot = await harness.readModel();
-    const thread = snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(thread?.branch).toBe("t3code/original-branch");
-    expect(pullRequestRefreshCalls).toEqual([]);
+    const sharedThreads = snapshot.threads.filter(
+      (entry) => entry.id === ThreadId.make("thread-1") || entry.id === ThreadId.make("thread-2"),
+    );
+    expect(sharedThreads.map((entry) => entry.branch)).toEqual(["t3code/renamed-by-agent", null]);
   });
 
   it("does not adopt a temporary placeholder checkout as the thread branch", async () => {
@@ -1064,7 +1080,7 @@ describe("CheckpointReactor", () => {
     });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-primary-running"),
@@ -1152,7 +1168,7 @@ describe("CheckpointReactor", () => {
     });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-capture-claude"),
@@ -1356,7 +1372,7 @@ describe("CheckpointReactor", () => {
       threadWorktreePath: null,
     });
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.start",
         commandId: CommandId.make("cmd-turn-start-for-baseline"),
@@ -1424,7 +1440,7 @@ describe("CheckpointReactor", () => {
     });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-missing-provider-cwd"),
@@ -1471,7 +1487,7 @@ describe("CheckpointReactor", () => {
     const harness = await createHarness();
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-checkpoint-captured"),
@@ -1521,7 +1537,7 @@ describe("CheckpointReactor", () => {
     });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-non-repo-runtime"),
@@ -1656,7 +1672,7 @@ describe("CheckpointReactor", () => {
     const harness = await createHarness();
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set"),
@@ -1674,7 +1690,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-diff-1"),
@@ -1688,7 +1704,7 @@ describe("CheckpointReactor", () => {
         createdAt,
       }),
     );
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-diff-2"),
@@ -1703,7 +1719,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-revert-request"),
@@ -1737,7 +1753,7 @@ describe("CheckpointReactor", () => {
     const harness = await createHarness({ providerName: ProviderDriverKind.make("claudeAgent") });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-claude"),
@@ -1755,7 +1771,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-diff-claude-1"),
@@ -1769,7 +1785,7 @@ describe("CheckpointReactor", () => {
         createdAt,
       }),
     );
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-diff-claude-2"),
@@ -1784,7 +1800,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-revert-request-claude"),
@@ -1806,7 +1822,7 @@ describe("CheckpointReactor", () => {
     const harness = await createHarness();
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-inline-revert"),
@@ -1824,7 +1840,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-inline-revert-diff-1"),
@@ -1838,7 +1854,7 @@ describe("CheckpointReactor", () => {
         createdAt,
       }),
     );
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-inline-revert-diff-2"),
@@ -1853,7 +1869,7 @@ describe("CheckpointReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-sequenced-revert-request-1"),
@@ -1862,7 +1878,7 @@ describe("CheckpointReactor", () => {
         createdAt,
       }),
     );
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-sequenced-revert-request-0"),
@@ -1889,7 +1905,7 @@ describe("CheckpointReactor", () => {
     const harness = await createHarness({ hasSession: false });
     const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-revert-no-session"),
