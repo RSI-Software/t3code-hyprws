@@ -479,6 +479,8 @@ it("publishes record bundles with a lease and restores the local ref after a sta
 
 it("exercises report comments and failure exits for absence, return and verified regression", () => {
   const root = repository();
+  // Origin is an isolated fixture repository, so report freshness is verifiable.
+  runCommandText("git", ["remote", "add", "origin", root], { cwd: root });
   const oldPath = process.env.PATH;
   const oldBody = process.env.SEAM_FIXTURE_BODY;
   const oldOutput = process.env.SEAM_FIXTURE_OUTPUT;
@@ -574,7 +576,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         root,
         {
           version: 3,
-          walks: item.snapshots.map((snapshot, i) =>
+          walks: (item.records.length > 0 ? [] : item.snapshots).map((snapshot, i) =>
             walk(i === item.snapshots.length - 1 ? item.current.tag : `old-${i}`, snapshot),
           ),
           seamRecords: item.records,
@@ -597,6 +599,29 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       assert.include(posted, item.status);
       if (item.records.length === 0) assert.notInclude(posted, "was fixed at");
     }
+    // The verified frozen repair cannot order an unanchored completed walk.
+    writeChurnState(
+      root,
+      {
+        version: 3,
+        walks: [walk("v1.0.0", snapshot(C))],
+        seamRecords: records,
+        outcomes: [],
+      },
+      "ambiguous mixed chronology",
+    );
+    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
+    const ambiguousReceipt = NodePath.join(root, "ambiguous-receipt.json");
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 1);
+    assert.include(
+      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
+      "chronology is ambiguous",
+    );
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(ambiguousReceipt, "utf8")), {
+      publication: "succeeded",
+      policy: "failed",
+      url: "https://example.test/comment",
+    });
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;

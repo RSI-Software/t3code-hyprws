@@ -129,6 +129,7 @@ export interface ScanWarning {
 
 export interface HotSeam {
   readonly walkCount: number;
+  readonly countUnit?: string;
   readonly worstClass: string;
 }
 
@@ -522,7 +523,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       if (seam === undefined) continue;
       warn(
         "hot-seam",
-        `${path} is a retained seam (${seam.walkCount} observation(s), ${seam.worstClass}); use the declared lesson inventory and preferred boundary printed by this scan`,
+        `${path} is a retained seam (${seam.walkCount} ${seam.countUnit ?? "conflict walk(s)"}, ${seam.worstClass}); use the declared lesson inventory and preferred boundary printed by this scan`,
       );
     }
 

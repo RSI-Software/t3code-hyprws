@@ -36,6 +36,7 @@ import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 import { runOutcome } from "./fork-churn-outcomes.ts";
 import {
   readLessonEvidence,
+  lessonAssessmentUnavailable,
   resolveLessonSource,
   renderLessonSource,
 } from "./fork-lesson-guidance.ts";
@@ -549,10 +550,11 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
         }),
   } as const;
   const records = lessons.seamRecords;
-  const churn = lessons.notices === undefined ? censusChurn(entries, currentCensus, records) : null;
+  const unavailable = lessonAssessmentUnavailable(lessons, source);
+  const churn = unavailable === null ? censusChurn(entries, currentCensus, records) : null;
   const section =
     churn === null
-      ? `${CHURN_MARKER}\n## Churn\n\nLesson assessment unavailable: this reader does not fully understand the published ledger schema. No repair or policy pass is inferred.\n`
+      ? `${CHURN_MARKER}\n## Churn\n\nLesson assessment unavailable: ${unavailable}. No repair or policy pass is inferred.\n`
       : renderChurnSection(entries, existing?.body ?? null, currentCensus, records);
   const body = `${section}\n\n\`\`\`text\n${renderLessonSource(source, lessons)}\n\`\`\`\n`;
   const bodyPath = NodePath.join(
@@ -586,7 +588,7 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   if (churn === null) {
     receipt("succeeded", "failed", url);
     process.stderr.write(
-      "Lesson assessment unavailable for the newer ledger schema; the published report does not establish a policy pass.\n",
+      `Lesson assessment unavailable: ${unavailable}; the published report does not establish a policy pass.\n`,
     );
     return 1;
   }

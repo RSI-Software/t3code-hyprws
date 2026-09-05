@@ -15,6 +15,7 @@ import {
   preferredLessonBoundary,
   lessonHotSeams,
   lessonObservations,
+  lessonAssessmentUnavailable,
 } from "./fork-lesson-guidance.ts";
 import type { ChurnEntry, CensusSnapshot } from "./fork-churn-ledger.ts";
 import {
@@ -131,7 +132,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
   const observation = (sourceSha: string, present: boolean) =>
     seamRecord(
       freezeObservation({
-        tag: "v1",
+        tag: `v1-${sourceSha[0]}`,
         fixedAt: null,
         files: present ? [file] : [],
         censusEvidence: {
@@ -140,7 +141,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
           sourceSha,
           baseSha: "d".repeat(40),
           targetSha: C,
-          targetTag: "v1",
+          targetTag: `v1-${sourceSha[0]}`,
           complete: true,
           rows: present
             ? [
@@ -181,33 +182,29 @@ it("renders assessed repair states instead of presenting a guard name as verific
     attestation,
   } as const);
   for (const [records, status, completed] of [
-    [[before, repair], "repair-unverified"],
-    [[before, clear], "not-observed"],
-    [[before, clear, repair, verified], "verified-repaired"],
-    [[before, clear, repair, verified, returned], "regressed"],
-    [[before, clear, repair, verified], "verified-repaired", clear],
-    [[before, clear, repair, verified], "regressed", returned],
+    [[before, repair], "repair-unverified", []],
+    [[before, clear], "not-observed", []],
+    [[before, clear, repair, verified], "verified-repaired", []],
+    [[before, clear, repair, verified, returned], "regressed", []],
+    [[before, clear, repair, verified], "verified-repaired", [clear]],
+    [[before, clear, repair, verified], "regressed", [clear, returned]],
+    [[before, clear, repair, verified, returned], "regressed", [before, clear]],
   ] as const) {
     const evidence = readLessonEvidence(
       encodeSync({
         version: 3,
         seamRecords: records,
         outcomes: [],
-        walks:
-          completed === undefined
-            ? []
-            : [
-                {
-                  tag: completed.tag,
-                  before: A,
-                  after: completed.evidence!.sourceSha,
-                  recordUrl: "https://example.test/completed-walk",
-                  conflicts: [],
-                  decisions: [],
-                  censusFiles: completed.files,
-                  censusEvidence: completed.evidence,
-                },
-              ],
+        walks: completed.map((walk) => ({
+          tag: walk.tag,
+          before: A,
+          after: walk.evidence!.sourceSha,
+          recordUrl: "https://example.test/completed-walk",
+          conflicts: [],
+          decisions: [],
+          censusFiles: walk.files,
+          censusEvidence: walk.evidence,
+        })),
       }),
     );
     const output = renderLessonGuidance(
@@ -217,17 +214,118 @@ it("renders assessed repair states instead of presenting a guard name as verific
     assert.include(output, `evidence: ${status}`);
     assert.notInclude(output, "(owner ");
     assert.include(output, "policy reference #535; issue status is not inferred");
-    if (completed !== undefined) {
+    if (completed.length > 0) {
       const assessment = lessonInventory(evidence).find((row) => row.path === file.path)
         ?.assessments[0];
       assert.strictEqual(assessment?.status, status);
-      assert.strictEqual(assessment?.blocking, completed.id === returned.id);
+      assert.strictEqual(assessment?.blocking, status === "regressed");
       assert.deepStrictEqual(
         [...lessonObservations(evidence).keys()],
-        completed.id === returned.id ? [before.id, clear.id, returned.id] : [before.id, clear.id],
+        status === "regressed" ? [before.id, clear.id, returned.id] : [before.id, clear.id],
       );
     }
   }
+  // An unfrozen walk can be older OR newer than the frozen history. Without a
+  // shared anchor neither ordering may certify the old successful verification.
+  for (const walks of [[returned], [returned, before]]) {
+    const evidence = readLessonEvidence(
+      encodeSync({
+        version: 3,
+        seamRecords: [before, clear, repair, verified],
+        outcomes: [],
+        walks: walks.map((walk) => ({
+          tag: walk.tag,
+          before: A,
+          after: walk.evidence!.sourceSha,
+          recordUrl: "https://example.test/completed-walk",
+          conflicts: [],
+          decisions: [],
+          censusFiles: walk.files,
+          censusEvidence: walk.evidence,
+        })),
+      }),
+    );
+    if (walks.length === 1) {
+      assert.include(lessonAssessmentUnavailable(evidence)!, "chronology is ambiguous");
+      const row = lessonInventory(evidence).find((row) => row.path === file.path)!;
+      assert.deepStrictEqual(row.assessments, []);
+      assert.include(row.assessmentUnavailable!, "chronology is ambiguous");
+    } else {
+      assert.isNull(lessonAssessmentUnavailable(evidence));
+      assert.deepStrictEqual(
+        [...lessonObservations(evidence).keys()],
+        [returned.id, before.id, clear.id],
+      );
+      assert.strictEqual(
+        lessonInventory(evidence).find((row) => row.path === file.path)?.assessments[0]?.status,
+        "verified-repaired",
+      );
+    }
+  }
+  const contradictory = {
+    walks: [clear, before].map((walk) => ({
+      tag: walk.tag,
+      before: A,
+      after: walk.evidence!.sourceSha,
+      recordUrl: "https://example.test/completed-walk",
+      conflicts: [],
+      decisions: [],
+      censusFiles: walk.files,
+      censusEvidence: walk.evidence!,
+    })),
+    seamRecords: [before, clear, repair, verified],
+  };
+  assert.include(lessonAssessmentUnavailable(contradictory)!, "chronology is inconsistent");
+  assert.deepStrictEqual(
+    lessonInventory(contradictory).find((row) => row.path === file.path)?.assessments,
+    [],
+  );
+});
+
+it("requires current source evidence for a report policy pass", () => {
+  const evidence = readLessonEvidence(empty);
+  for (const freshness of ["current", "stale", "offline", "unavailable"] as const) {
+    const reason = lessonAssessmentUnavailable(evidence, {
+      ref: CHURN_REF,
+      sha: A,
+      remoteSha: B,
+      freshness,
+      detail: "fixture",
+      raw: empty,
+    });
+    if (freshness === "current") assert.isNull(reason);
+    else assert.include(reason!, `freshness is ${freshness}`);
+  }
+});
+
+it("validates the complete known envelope before projecting lesson fields", () => {
+  for (const version of [2, 3]) {
+    const envelope = {
+      version,
+      walks: [],
+      seamRecords: [],
+      ...(version === 3 ? { outcomes: [] } : {}),
+    };
+    assert.deepStrictEqual(readLessonEvidence(encodeSync(envelope)), {
+      walks: [],
+      seamRecords: [],
+    });
+    assert.throws(
+      () => readLessonEvidence(encodeSync({ ...envelope, unknown: true })),
+      "unsupported churn ledger envelope",
+    );
+  }
+  assert.throws(() =>
+    readLessonEvidence(
+      encodeSync({
+        version: 3,
+        walks: [],
+        seamRecords: [],
+        outcomes: [{ preserved: "invalid outcome" }],
+      }),
+    ),
+  );
+  assert.throws(() => readLessonEvidence(encodeSync({ version: 3, walks: [], seamRecords: [] })));
 });
 
 it("projects future compatible fields explicitly without claiming complete schema or repair support", () => {
@@ -448,7 +546,7 @@ it("retains original and unmapped lessons across legacy, v2 and v3 projections",
       ],
     }),
   );
-  const raw = `{"version":3,"walks":[],"seamRecords":[${encodeSync(record)}],"outcomes":[{"preserved":"owned by outcome accounting"}]}`;
+  const raw = `{"version":3,"walks":[],"seamRecords":[${encodeSync(record)}],"outcomes":[]}`;
   const current = lessonInventory(readLessonEvidence(raw));
   assert.strictEqual(current.filter((row) => row.original).length, ORIGINAL_LESSON_PATHS.length);
   assert.strictEqual(current.find((row) => row.path === unknownPath)?.observations, 1);
@@ -656,6 +754,28 @@ else if (args[0] === "issue" && args[1] === "comment") {
           url: "https://example.test/issues/1#issuecomment-1",
         });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
+        // Retained local evidence is useful to publish, but cannot certify that
+        // the current policy passes when origin cannot supply the declared ref.
+        const emptyRemote = NodePath.join(consumer, "empty-origin.git");
+        git(consumer, ["init", "--bare", emptyRemote]);
+        for (const [url, freshness] of [
+          [NodePath.join(consumer, "missing-origin.git"), "offline"],
+          [emptyRemote, "unavailable"],
+        ]) {
+          git(consumer, ["remote", "set-url", "origin", url!]);
+          const retainedReport = publishReport();
+          assert.strictEqual(retainedReport.status, 1, retainedReport.stderr);
+          const retainedBody = yield* fs.readFileString(reportBodyPath);
+          assert.include(retainedBody, `at ${first}; freshness=${freshness}`);
+          assert.include(retainedBody, `lesson source freshness is ${freshness}`);
+          assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
+            publication: "succeeded",
+            policy: "failed",
+            url: "https://example.test/issues/1#issuecomment-1",
+          });
+          assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
+        }
+        git(consumer, ["remote", "set-url", "origin", remote]);
         const future = writeBotRefFile(
           publisher,
           CHURN_REF,

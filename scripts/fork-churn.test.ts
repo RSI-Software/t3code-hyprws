@@ -654,6 +654,7 @@ it("seeds the ledger ref once and refuses a second seed", () => {
 
 it("migrates every legacy census subject once and survives expired objects", () => {
   const root = repository();
+  runCommandText("git", ["remote", "add", "origin", root], { cwd: root });
   const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
   const commits = [
     runCommandText("git", ["commit-tree", tree, "-m", "feat(fork): first identity"], {

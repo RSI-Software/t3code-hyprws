@@ -87,6 +87,9 @@ The live `fork:churn report` uses the same immutable-current reader once for bot
 records, and includes its SHA/freshness in the published section. Local append/record writers and
 the intentionally frozen tracked mirror retain their local-ref behavior; a guidance read does not
 overwrite unpushed local evidence.
+Only a verified current source can establish a report policy pass. A report published from
+stale, offline or unavailable retained evidence records publication success separately from
+policy failure and exits nonzero; its limitation remains visible in the published section.
 SHA and ordinary branch arguments are refused before Git runs; inspect an immutable snapshot
 directly with `git show <full-sha>:fork-churn.json` instead.
 
@@ -105,11 +108,18 @@ A walk and its frozen copy share one immutable observation identity. A single ne
 stays in the inventory without creating a hot-seam warning; distinct repeated observations can
 warn. Exact file-local test harness deferrals keep their documented integration placement, while
 fork-owned tests do not receive generic sibling advice.
+The order within each history is retained, and shared observation identities anchor their
+combined chronology. If those constraints leave multiple possible orders or contradict each
+other, repair assessment is unavailable and the live report cannot pass policy. Neither frozen
+observations nor completed walks are assumed newer just because they came from one source.
+Hot-seam warnings distinguish conflict-walk counts from repeated census-observation counts.
 
 For a newer ledger schema, compatible known fields remain visible with an explicit partial-reader
 notice. Repair assessment is unavailable until the schema is understood. Authoring guidance keeps
 the original inventory; the live report publishes that limitation and returns an unavailable policy
 verdict rather than inferring a pass from missing evidence.
+Known v2/v3 envelopes are validated in full, including allowed fields and v3 outcome receipts,
+before the read-only lesson projection is derived.
 
 The v3 ledger keeps `walks`, immutable `seamRecords`, and target `outcomes` in the same
 `fork-churn.json`. Legacy arrays and v2 envelopes remain readable; every writer preserves

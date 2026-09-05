@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Read-only Git evidence for standalone authoring scans.
-import { parseLedger, hotSeams, type ChurnEntry } from "./fork-churn-ledger.ts";
+import { parseLedger, parseChurnState, hotSeams, type ChurnEntry } from "./fork-churn-ledger.ts";
 import {
   assessSeams,
   freezeObservation,
@@ -45,7 +45,7 @@ export interface LessonEvidence {
   readonly notices?: ReadonlyArray<string>;
 }
 
-/** Read-only projection: outcome records in v3 belong to outcome accounting, never this writer. */
+/** Validate known envelopes before projecting; future schemas remain explicitly partial. */
 export const readLessonEvidence = (raw: string): LessonEvidence => {
   const parsed: unknown = JSON.parse(raw);
   if (Array.isArray(parsed)) return { walks: parseLedger(raw), seamRecords: [] };
@@ -79,10 +79,8 @@ export const readLessonEvidence = (raw: string): LessonEvidence => {
     }
     return { walks, seamRecords, notices };
   }
-  return {
-    walks: parseLedger(JSON.stringify(value.walks)),
-    seamRecords: requireSeamRecords(value.seamRecords),
-  };
+  const state = parseChurnState(raw);
+  return { walks: state.walks, seamRecords: state.seamRecords };
 };
 
 export interface LessonSource {
@@ -362,13 +360,14 @@ const walkSnapshot = (walk: ChurnEntry): CensusSnapshot => ({
   ...(walk.censusEvidence === undefined ? {} : { censusEvidence: walk.censusEvidence }),
 });
 
-/** Frozen history establishes order; a completed walk not yet frozen extends it. */
-export const lessonObservations = (
-  evidence: LessonEvidence,
-): ReadonlyMap<string, CensusSnapshot> => {
+/** Shared content identities anchor two ordered histories; neither history outranks the other. */
+const orderedLessonObservations = (evidence: LessonEvidence) => {
   const observations = new Map<string, CensusSnapshot>();
+  const frozen: string[] = [];
+  const completed: string[] = [];
   for (const record of evidence.seamRecords)
     if (record.kind === "observation") {
+      frozen.push(record.id);
       observations.set(record.id, {
         tag: record.tag,
         fixedAt: null,
@@ -376,13 +375,63 @@ export const lessonObservations = (
         ...(record.evidence === null ? {} : { censusEvidence: record.evidence }),
       });
     }
-  // A matching completed walk must reuse its frozen position. Putting walks first
-  // could make an old verified snapshot look current after a later walk regressed.
   for (const walk of evidence.walks) {
     const snapshot = walkSnapshot(walk);
-    observations.set(seamRecord(freezeObservation(snapshot)).id, snapshot);
+    const id = seamRecord(freezeObservation(snapshot)).id;
+    completed.push(id);
+    observations.set(id, snapshot);
   }
-  return observations;
+  const successors = new Map([...observations.keys()].map((id) => [id, new Set<string>()]));
+  const predecessors = new Map([...observations.keys()].map((id) => [id, 0]));
+  for (const history of [frozen, completed]) {
+    for (let index = 1; index < history.length; index++) {
+      const previous = history[index - 1]!;
+      const current = history[index]!;
+      if (previous === current || successors.get(previous)!.has(current)) continue;
+      successors.get(previous)!.add(current);
+      predecessors.set(current, predecessors.get(current)! + 1);
+    }
+  }
+  const ordered = new Map<string, CensusSnapshot>();
+  const ready = [...predecessors].filter(([, count]) => count === 0).map(([id]) => id);
+  let ambiguous = false;
+  while (ready.length > 0) {
+    if (ready.length > 1) ambiguous = true;
+    const id = ready.shift()!;
+    ordered.set(id, observations.get(id)!);
+    for (const next of successors.get(id)!) {
+      const remaining = predecessors.get(next)! - 1;
+      predecessors.set(next, remaining);
+      if (remaining === 0) ready.push(next);
+    }
+  }
+  const unavailable =
+    ordered.size !== observations.size
+      ? "retained walk and frozen observation chronology is inconsistent"
+      : ambiguous
+        ? "retained walk and frozen observation chronology is ambiguous; a shared ordering anchor is required"
+        : null;
+  return { observations: unavailable === null ? ordered : observations, unavailable };
+};
+
+export const lessonObservations = (evidence: LessonEvidence): ReadonlyMap<string, CensusSnapshot> =>
+  orderedLessonObservations(evidence).observations;
+
+/** A published policy pass requires complete, ordered evidence from a verified current source. */
+export const lessonAssessmentUnavailable = (
+  evidence: LessonEvidence,
+  source?: LessonSource,
+): string | null => {
+  if (source !== undefined && source.freshness !== "current")
+    return `lesson source freshness is ${source.freshness}; retained evidence does not establish current policy`;
+  if (evidence.notices !== undefined) return "newer schema is only partially understood";
+  const { observations, unavailable } = orderedLessonObservations(evidence);
+  if (unavailable !== null) return unavailable;
+  return [...observations.values()].every((snapshot) =>
+    snapshot.files.every((file) => file.subject !== undefined),
+  )
+    ? null
+    : "retained census subjects need enrichment";
 };
 
 export const lessonInventory = (evidence: LessonEvidence) => {
@@ -409,10 +458,8 @@ export const lessonInventory = (evidence: LessonEvidence) => {
   for (const [id, observation] of observations)
     for (const file of observation.files) add(file.path, id);
   const snapshots = [...observations.values()];
-  const assessable =
-    evidence.notices === undefined &&
-    snapshots.every((snapshot) => snapshot.files.every((file) => file.subject !== undefined));
-  const assessments = assessable ? assessSeams(snapshots, evidence.seamRecords) : [];
+  const unavailable = lessonAssessmentUnavailable(evidence);
+  const assessments = unavailable === null ? assessSeams(snapshots, evidence.seamRecords) : [];
   for (const assessment of assessments) add(assessment.path).assessments.push(assessment);
   return [...paths]
     .toSorted(([left], [right]) => left.localeCompare(right))
@@ -421,11 +468,7 @@ export const lessonInventory = (evidence: LessonEvidence) => {
       original: row.original,
       observations: row.observations.size,
       assessments: row.assessments,
-      assessmentUnavailable: assessable
-        ? null
-        : evidence.notices !== undefined
-          ? "newer schema is only partially understood"
-          : "retained census subjects need enrichment",
+      assessmentUnavailable: unavailable,
       preferred: preferredLessonBoundary(path),
     }));
 };
@@ -434,7 +477,11 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
   const seams = new Map(
     hotSeams(evidence.walks).map((row) => [
       row.path,
-      { walkCount: row.walkCount, worstClass: row.worstClass as string },
+      {
+        walkCount: row.walkCount,
+        worstClass: row.worstClass as string,
+        countUnit: "conflict walk(s)",
+      },
     ]),
   );
   const observed = new Map<string, number>();
@@ -444,7 +491,11 @@ export const lessonHotSeams = (evidence: LessonEvidence) => {
   }
   for (const [path, count] of observed)
     if (count > 1 && !seams.has(path))
-      seams.set(path, { walkCount: count, worstClass: "repeated retained census observation" });
+      seams.set(path, {
+        walkCount: count,
+        worstClass: "repeated retained census observation",
+        countUnit: "census observation(s)",
+      });
   return seams;
 };
 

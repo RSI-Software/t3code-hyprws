@@ -335,6 +335,7 @@ it("keeps a path hot only while the ledger charged for it more than once", () =>
   assert.deepStrictEqual(seams.get("apps/web/src/components/ChatView.tsx"), {
     walkCount: 2,
     worstClass: "seam-moved",
+    countUnit: "conflict walk(s)",
   });
 });
 
@@ -522,7 +523,7 @@ it("warns when a fork commit touches a hot seam and stays quiet on a cold upstre
     hot.map(({ rule, commit, domain }) => `${rule} ${commit} ${domain}`),
     ["hot-seam aaaaaaa project-windows"],
   );
-  assert.include(hot[0]?.detail ?? "", "2 observation(s), seam-moved");
+  assert.include(hot[0]?.detail ?? "", "2 conflict walk(s), seam-moved");
 
   const forkOwned = collectScanWarnings(
     guardInput({
