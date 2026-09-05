@@ -17,14 +17,19 @@ import {
   parseCensusFiles,
   parseCensusTag,
   parseLedger,
+  parseChurnState,
   parseSilentSeams,
   readChurnLedger,
+  readChurnState,
+  writeChurnState,
   writeChurnLedger,
   type CensusFile,
   type ChurnConflict,
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
-import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
+import { CHURN_MARKER, blockingSeamLines, renderChurnSection } from "./fork-churn-section.ts";
+import { requireSeamRecords } from "./lib/fork-churn-seams.ts";
+import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
@@ -345,8 +350,8 @@ const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<string, string> 
       !flag.startsWith("--") ||
       value.startsWith("--")
     )
-      throw new Error("invalid append arguments");
-    if (options.has(flag)) throw new Error(`duplicate option: ${flag}`);
+      throw new UsageError("invalid arguments: expected flag/value pairs");
+    if (options.has(flag)) throw new UsageError(`duplicate option: ${flag}`);
     options.set(flag, value);
   }
   return options;
@@ -362,10 +367,10 @@ const append = (args: ReadonlyArray<string>, root: string): void => {
   const options = parseOptions(rest);
   const allowed = ["--record", "--issue", "--tag", "--before", "--after"];
   for (const option of options.keys())
-    if (!allowed.includes(option)) throw new Error(`unknown option: ${option}`);
+    if (!allowed.includes(option)) throw new UsageError(`unknown option: ${option}`);
   const required = (flag: string): string => {
     const value = options.get(flag);
-    if (value === undefined) throw new Error(`${flag} is required`);
+    if (value === undefined) throw new UsageError(`${flag} is required`);
     return value;
   };
   const recordPath = NodePath.resolve(root, required("--record"));
@@ -489,7 +494,7 @@ export const commentRestId = (url: string): string => {
 const report = (args: ReadonlyArray<string>, root: string): number => {
   const options = parseOptions(args);
   for (const option of options.keys())
-    if (option !== "--issue") throw new Error(`unknown option: ${option}`);
+    if (option !== "--issue") throw new UsageError(`unknown option: ${option}`);
   const explicit = options.get("--issue");
   const issue = explicit === undefined ? blockedIssueNumber(root) : Number(explicit);
   if (issue === null) {
@@ -517,8 +522,9 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
           censusEvidence: parseSequentialCensusEvidence(view.body)!,
         }),
   } as const;
-  const churn = censusChurn(entries, currentCensus);
-  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus);
+  const records = readChurnState(root).seamRecords;
+  const churn = censusChurn(entries, currentCensus, records);
+  const body = renderChurnSection(entries, existing?.body ?? null, currentCensus, records);
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
     "churn.md",
@@ -541,10 +547,52 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     { cwd: root },
   ).trim();
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
-  const regressions = regressedSeamLines(churn);
-  if (regressions.length === 0) return 0;
-  process.stderr.write(`${regressions.join("\n")}\n`);
+  const failures = blockingSeamLines(churn);
+  if (failures.length === 0) return 0;
+  process.stderr.write(
+    `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
+  );
   return 1;
+};
+
+const recordSeams = (args: ReadonlyArray<string>, root: string): number => {
+  if (args.filter((value) => value === "--push").length > 1)
+    throw new UsageError("duplicate --push");
+  const [push, rest] = takeFlag(args, "--push");
+  if (rest.length !== 2 || rest[0] !== "--input" || rest[1]!.startsWith("--"))
+    throw new UsageError("usage: fork-churn record --input <reviewed-bundle.json> [--push]");
+  const bundle: unknown = JSON.parse(NodeFS.readFileSync(NodePath.resolve(root, rest[1]!), "utf8"));
+  if (typeof bundle !== "object" || bundle === null || Array.isArray(bundle))
+    throw new Error("invalid seam record bundle");
+  const input = bundle as Record<string, unknown>;
+  if (
+    input.version !== 1 ||
+    !Array.isArray(input.records) ||
+    Object.keys(input).some((key) => key !== "version" && key !== "records")
+  )
+    throw new Error("expected seam bundle {version:1, records:[...]}");
+  const expectedOld = resolveBotRef(root, CHURN_REF);
+  if (expectedOld === null) throw new Error("seed the churn ledger before recording seam evidence");
+  const state = readChurnState(root);
+  const seamRecords = requireSeamRecords([...state.seamRecords, ...input.records]);
+  const added = seamRecords.length - state.seamRecords.length;
+  const commit =
+    added === 0
+      ? expectedOld
+      : writeChurnState(root, { ...state, seamRecords }, "churn: record seam evidence");
+  if (push) {
+    try {
+      pushBotRefWithLease(root, CHURN_REF, expectedOld);
+    } catch (error) {
+      if (commit !== expectedOld)
+        runCommandText("git", ["update-ref", CHURN_REF, expectedOld, commit], { cwd: root });
+      throw error;
+    }
+  }
+  process.stdout.write(
+    `recorded ${added} seam record(s) on ${CHURN_REF} at ${commit}${push ? " (pushed with expected-old lease)" : ""}; guard results are maintainer attestations\n`,
+  );
+  return 0;
 };
 
 /**
@@ -555,14 +603,15 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
   const [push, rest] = takeFlag(args, "--push");
   const options = parseOptions(rest);
   for (const option of options.keys())
-    if (option !== "--from") throw new Error(`unknown option: ${option}`);
+    if (option !== "--from") throw new UsageError(`unknown option: ${option}`);
   const from = NodePath.resolve(root, options.get("--from") ?? LEDGER_PATH);
   if (resolveBotRef(root, CHURN_REF) !== null)
     throw new Error(`${CHURN_REF} already exists; it is seeded once and appended to after that`);
-  const entries = enrichLedgerForRoot(root, parseLedger(NodeFS.readFileSync(from, "utf8")));
-  const commit = writeChurnLedger(
+  const source = parseChurnState(NodeFS.readFileSync(from, "utf8"));
+  const entries = enrichLedgerForRoot(root, source.walks);
+  const commit = writeChurnState(
     root,
-    entries,
+    { ...source, walks: entries },
     `churn: seed from ${NodePath.relative(root, from)}`,
   );
   if (push) pushBotRef(root, CHURN_REF);
@@ -578,7 +627,7 @@ const seed = (args: ReadonlyArray<string>, root: string): number => {
  */
 const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
   if (args.length > 1 || (args.length === 1 && args[0] !== "--push"))
-    throw new Error("usage: fork-churn migrate-subjects [--push]");
+    throw new UsageError("usage: fork-churn migrate-subjects [--push]");
   const push = args[0] === "--push";
   const expectedOld = resolveBotRef(root, CHURN_REF);
   if (expectedOld === null)
@@ -616,11 +665,33 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
 };
 
 const USAGE =
-  "usage: fork-churn append <options> | migrate-subjects [--push] | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
+  "usage: fork-churn append <options> | record --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] | seed [--from <json>] [--push]";
+
+const HELP = `Record and report fork rebase observations, repairs and verification.
+${USAGE}
+
+record --input PATH imports a reviewed {version:1, records:[...]} bundle.
+It validates content digests and frozen evidence; it does not execute guard commands.
+--push publishes the bot-owned ref with an expected-old lease.
+report writes the GitHub churn comment and reports unresolved failures.
+render writes the local mirror; --check compares without writing.
+seed initializes the ledger; append records a completed walk.
+Exit: 0 complete, 1 runtime/evidence failure or blocking seam, 2 invalid arguments.
+Output: compact receipts on stdout; failures on stderr. -h / --help writes nothing.
+`;
 
 export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number => {
   try {
-    const [verb, ...args] = argv;
+    if (
+      (argv.length === 1 && ["--help", "-h"].includes(argv[0]!)) ||
+      (argv.length === 2 && argv[0] === "record" && ["--help", "-h"].includes(argv[1]!))
+    ) {
+      process.stdout.write(HELP);
+      return 0;
+    }
+    // The package alias historically defaulted to render; preserve that invocation.
+    const [verb, ...args] = argv.length === 0 || argv[0] === "--check" ? ["render", ...argv] : argv;
+    if (verb === "record") return recordSeams(args, root);
     if (verb === "append") {
       append(args, root);
       return 0;
@@ -628,9 +699,9 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb === "report") return report(args, root);
     if (verb === "seed") return seed(args, root);
     if (verb === "migrate-subjects") return migrateSubjects(args, root);
-    if (verb !== "render") throw new Error(USAGE);
+    if (verb !== "render") throw new UsageError(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
-      throw new Error("usage: fork-churn render [--check]");
+      throw new UsageError("usage: fork-churn render [--check]");
     const rendered = renderForRoot(root, readDurableLedger(root));
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
     if (args[0] === "--check") {
@@ -649,7 +720,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     return 0;
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
+    return error instanceof UsageError ? 2 : 1;
   }
 };
 

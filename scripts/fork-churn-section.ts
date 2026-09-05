@@ -4,6 +4,7 @@
 
 import type { CensusChurn, CensusSnapshot, ChurnEntry, ChurnHotSeam } from "./fork-churn-ledger.ts";
 import { censusChurn, CONFLICT_CLASSES, hotSeams } from "./fork-churn-ledger.ts";
+import type { SeamRecord } from "./lib/fork-churn-seams.ts";
 
 export const CHURN_MARKER = "<!-- hyprws-fork-churn -->";
 const STATE_MARKER = /<!-- hyprws-fork-churn-state:(.*) -->/;
@@ -131,6 +132,28 @@ export const regressedSeamLines = (churn: CensusChurn): ReadonlyArray<string> =>
       `regressed seam: ${code(seam.path)} / ${code(seam.subject)} (${seam.domain}) was fixed at ${code(seam.fixedAt)} and reappeared on ${code(seam.tag)} as ${code(seam.commit)}`,
   );
 
+export const blockingSeamLines = (churn: CensusChurn): ReadonlyArray<string> =>
+  churn.seams
+    .filter((seam) => seam.blocking)
+    .map(
+      (seam) =>
+        `${seam.status}: ${code(seam.path)} / ${code(seam.subject)} (${seam.domain}): ${seam.reason}`,
+    );
+
+const seamTable = (churn: CensusChurn): ReadonlyArray<string> =>
+  churn.seams.length === 0
+    ? ["No observed seams."]
+    : [
+        "Absence leaves a seam unresolved. Guard results are maintainer attestations; recording them does not run a check.",
+        "",
+        "| Seam | State | Blocking | Guard / reason |",
+        "| --- | --- | --- | --- |",
+        ...churn.seams.map(
+          (seam) =>
+            `| ${escapeCell(code(seam.id.slice(0, 12)))} ${escapeCell(code(seam.path))} / ${escapeCell(code(seam.subject))} | ${seam.status} | ${seam.blocking ? "yes" : "no"} | ${escapeCell(seam.guard === null ? seam.reason : `${seam.guard}: ${seam.reason}`)} |`,
+        ),
+      ];
+
 const regressionTable = (churn: CensusChurn): ReadonlyArray<string> => {
   const lines = regressedSeamLines(churn);
   return lines.length === 0 ? ["None."] : lines.map((line) => `- ${line}`);
@@ -181,9 +204,10 @@ export const renderChurnSection = (
   entries: ReadonlyArray<ChurnEntry>,
   previousBody: string | null = null,
   currentCensus: CensusSnapshot | null = null,
+  records: ReadonlyArray<SeamRecord> = [],
 ): string => {
   const previous = previousBody === null ? null : parseChurnSectionState(previousBody);
-  const census = censusChurn(entries, currentCensus);
+  const census = censusChurn(entries, currentCensus, records);
   const range =
     entries.length === 0
       ? "no walks yet"
@@ -211,6 +235,10 @@ export const renderChurnSection = (
     "Measurement: rows without census provenance are legacy pairwise feasibility overlap. Sequential provisional replay uses its own evidence; method changes and partial observations break comparison continuity.",
     "",
     ...censusChurnTable(census),
+    "",
+    "### Seam state",
+    "",
+    ...seamTable(census),
     "",
     "### Regressed seams",
     "",

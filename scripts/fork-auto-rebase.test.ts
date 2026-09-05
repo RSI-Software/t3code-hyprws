@@ -671,7 +671,8 @@ it("keeps sequential totals and overlap totals bound to their own rows", () => {
       const body = buildBlockedIssue(plan, census)!.body;
       assert.include(body, "29 conflicting fork commits and 41 conflict-file observations");
       assert.include(body, "26 introducing fork commits and 37 file rows");
-      assert.notInclude(body, "999");
+      assert.notInclude(body, "999 conflicting fork");
+      assert.notInclude(body, "999 conflict-file");
       assert.include(body, `${complete ? "Complete" : "Partial"} observation set`);
       if (!complete) assert.include(body, "lower-bound counts");
       assert.deepStrictEqual(parseSequentialCensusEvidence(body), census.evidence);

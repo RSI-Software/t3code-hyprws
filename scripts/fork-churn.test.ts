@@ -445,30 +445,22 @@ it("fails a path and logical commit seam that returns after a census gap", () =>
     files: [censusFile(path, "3333333", subject)],
   });
 
-  assert.deepStrictEqual(churn.regressions, [
-    {
-      path,
-      commit: "3333333",
-      subject,
-      domain: "fork-meta",
-      tag: "v3",
-      fixedAt,
-    },
-  ]);
-  assert.deepStrictEqual(regressedSeamLines(churn), [
-    `regressed seam: \`${path}\` / \`${subject}\` (fork-meta) was fixed at \`${fixedAt}\` and reappeared on \`v3\` as \`3333333\``,
-  ]);
+  assert.deepStrictEqual(churn.regressions, []);
+  assert.deepStrictEqual(regressedSeamLines(churn), []);
+  assert.strictEqual(churn.seams.find((seam) => seam.path === path)?.status, "returned-unresolved");
+  assert.isTrue(churn.seams.find((seam) => seam.path === path)?.blocking);
+  assert.isNull(churn.seams.find((seam) => seam.path === path)?.repairSha);
   assert.include(
     renderChurnSection(entries, null, {
       tag: "v3",
       fixedAt: null,
       files: [censusFile(path, "3333333", subject)],
     }),
-    "regressed seam:",
+    "returned-unresolved",
   );
 });
 
-it("keeps a returned seam failed until the newest census is clean", () => {
+it("keeps a returned seam failed until comparable repair verification exists", () => {
   const path = "apps/web/src/regressed.ts";
   const subject = "feat(web): keep the seam";
   const entries = [
@@ -477,31 +469,21 @@ it("keeps a returned seam failed until the newest census is clean", () => {
     censusEntry("v3", [censusFile(path, "3333333", subject)]),
   ];
 
-  assert.deepStrictEqual(
-    censusChurn(entries, {
-      tag: "v4",
-      fixedAt: null,
-      files: [censusFile(path, "4444444", subject)],
-    }).regressions,
-    [
-      {
-        path,
-        commit: "4444444",
-        subject,
-        domain: "fork-meta",
-        tag: "v4",
-        fixedAt: B,
-      },
-    ],
-  );
-  assert.deepStrictEqual(
-    censusChurn(entries, {
-      tag: "v4",
-      fixedAt: null,
-      files: [censusFile("latest.ts", "4444444", "feat: latest")],
-    }).regressions,
-    [],
-  );
+  const returned = censusChurn(entries, {
+    tag: "v4",
+    fixedAt: null,
+    files: [censusFile(path, "4444444", subject)],
+  });
+  assert.isTrue(returned.seams.find((seam) => seam.path === path)?.blocking);
+  assert.deepStrictEqual(returned.regressions, []);
+  const absent = censusChurn(entries, {
+    tag: "v4",
+    fixedAt: null,
+    files: [censusFile("latest.ts", "4444444", "feat: latest")],
+  });
+  assert.deepStrictEqual(absent.regressions, []);
+  assert.isTrue(absent.seams.find((seam) => seam.path === path)?.blocking);
+  assert.strictEqual(absent.seams.find((seam) => seam.path === path)?.status, "not-observed");
 });
 
 it("keeps equal subjects in separate domain and path seams", () => {
@@ -519,7 +501,9 @@ it("keeps equal subjects in separate domain and path seams", () => {
       tag: "v3",
       fixedAt: null,
       files: [{ ...censusFile("b.ts", "4444444", subject), domain: "project-windows" }],
-    }).regressions.map(({ path, domain }) => ({ path, domain })),
+    })
+      .seams.filter((seam) => seam.blocking)
+      .map(({ path, domain }) => ({ path, domain })),
     [{ path: "b.ts", domain: "project-windows" }],
   );
 });
