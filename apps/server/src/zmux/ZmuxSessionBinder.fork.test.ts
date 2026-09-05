@@ -34,6 +34,8 @@ const resolvedWorktree = JSON.stringify({
   match: "worktree",
   tmuxName: "zws_project__feature",
   nativeId: "$23",
+  serverId: "123:456",
+  createdAt: 789,
   state: "live",
   binding: { branch: "feature", worktreePath: "/repo/project-worktree" },
 });
