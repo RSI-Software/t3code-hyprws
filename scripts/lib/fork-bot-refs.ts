@@ -16,6 +16,13 @@ export const CHURN_LEDGER_FILE = "fork-churn.json";
 /** Shared rerere cache the walks accumulate (RSI-Software/t3code-hyprws#444). */
 export const RERERE_REF = "refs/fork/rerere";
 
+/** Bot ref APIs accept names only. Immutable commit reads use git show directly. */
+export const requireBotRef = (ref: string): string => {
+  if (!/^refs\/fork\/[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*$/.test(ref))
+    throw new Error("expected a named refs/fork/... ref, not a SHA or branch name");
+  return ref;
+};
+
 const gitResult = (root: string, args: ReadonlyArray<string>) =>
   runCommand("git", args, { cwd: root, maxBuffer: 64 * 1024 * 1024 });
 
@@ -29,11 +36,14 @@ const refExists = (root: string, ref: string): boolean =>
  * Bring a bot-owned ref down from origin. It is never rebased, so a forced local
  * update only ever fast-forwards onto the bot's own append.
  */
-export const fetchBotRef = (root: string, ref: string): boolean =>
-  gitResult(root, ["fetch", "--quiet", "origin", `+${ref}:${ref}`]).status === 0;
+export const fetchBotRef = (root: string, ref: string): boolean => {
+  requireBotRef(ref);
+  return gitResult(root, ["fetch", "--quiet", "origin", `+${ref}:${ref}`]).status === 0;
+};
 
 /** Resolve a bot-owned ref, fetching once when the checkout has not seen it yet. */
 export const resolveBotRef = (root: string, ref: string): string | null => {
+  requireBotRef(ref);
   if (!refExists(root, ref)) fetchBotRef(root, ref);
   if (!refExists(root, ref)) return null;
   return gitText(root, ["rev-parse", `${ref}^{commit}`]).trim();

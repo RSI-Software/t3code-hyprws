@@ -18,7 +18,7 @@ The fork stays small, replayable, and in sync with upstream without a person in 
 - The bot carries most upstream tags on its own. An agent runs only when a walk stops at a real judgement: a retire question, or a behaviour seam.
 - A conflict that reaches an agent is genuine — new upstream work meeting new fork work — never a seam the churn ledger already named.
 - Every action taken from the ledger ships its own guard in the same change: a `fork:scan` rule where the shape is scannable, a test where it is behavioural, a documented convention otherwise. The sub-issue names the guard. We do not fix the same seam twice.
-- Before adding to the fork, read the hot seams in the `## Churn` section of the latest sync report, which the bot renders from `refs/fork/churn`. Put fork tests in fork-owned files. Prefer one adapter boundary over edits spread across upstream files.
+- Before adding to the fork, run `vp run fork:scan --no-typecheck` and read its declared lesson ref, exact SHA, freshness and preferred boundaries alongside the latest sync report's `## Churn` section. Use `--offline` explicitly when working from retained evidence. Put fork tests in fork-owned files. Prefer one adapter boundary over edits spread across upstream files.
 
 The measure: consecutive tags carried with the bot on and no agent stop, and ledger rows that read `mechanical: 0`. Tracked in RSI-Software/t3code-hyprws#443.
 
@@ -342,8 +342,10 @@ again.
 
 `vp run fork:scan` collects them over the fork stack:
 
-- `hot-seam`: the commit edits a path [Fork churn](./fork-churn.md) lists as a hot seam. Read what
-  the earlier walks resolved there before adding to it.
+- `hot-seam`: the commit edits a retained ledger hot seam or a path repeated across distinct census observations. Read the
+  scan's current lesson inventory and preferred boundary before adding to it. The inventory keeps
+  every original [Fork churn](./fork-churn.md) path, including unmapped and unresolved lessons;
+  a missing path in a later snapshot or a named guard does not prove a historical repair.
 - `upstream-test`: the commit adds a test block to an upstream-owned test file rather than the
   `*.fork.test.ts` sibling below.
 - `footprint`: one commit edits more than six upstream files, which is more seam than a single
@@ -353,10 +355,14 @@ again.
 - `lockfile`: the commit changes a lockfile. No domain owns dependency bumps, so every lockfile
   change warns until one does.
 
-Warnings are advisory. `fork:scan` prints them and still exits on its own scan verdict, so a guard
-can ship before the stack it describes is clean and no existing walk breaks. `--strict` makes them
-fatal. `--since <ref>` restricts them to commits after that ref, which is how CI shows a pull
-request the shapes it introduces instead of the whole replayed stack.
+General warnings are advisory; `--strict` makes them fatal. `--since <ref>` restricts warnings to
+commits after that ref and makes adopted authoring guards blocking, as in the CI authoring step.
+Retained historical hot-seam warnings remain advisory without `--strict`.
+
+`AUTHORING_GUARD_TARGETS` in `scripts/fork-scan-guards.ts` supplies the exact paths used by
+each adopted seam matcher. Its invariant requires scoped lesson guidance for every target,
+including retired paths. Upstream test ownership keeps its generic policy and the two exact
+file-local harness deferrals instead of inheriting a basename-based boundary recommendation.
 
 ### Workflow copies require an explicit review
 

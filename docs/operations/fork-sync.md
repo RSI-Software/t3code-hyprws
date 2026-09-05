@@ -77,6 +77,50 @@ git show refs/fork/churn:fork-churn.json
 
 ### Churn ledger
 
+Authoring scans read `refs/fork/churn` by default; select another named bot ref with
+`vp run fork:scan --ledger-ref refs/fork/<name> --no-typecheck`. Every scan prints the declared
+ref, exact commit SHA and `current`, `stale`, `offline` or `unavailable` freshness. Online reads
+check origin before and after reading immutable objects. A moving remote never reports current.
+Fetching a missing object does not move a local bot ref, ordinary branch or `FETCH_HEAD`.
+`--offline` performs no fetch or remote query and explicitly reports retained local evidence.
+The live `fork:churn report` uses the same immutable-current reader once for both walks and seam
+records, and includes its SHA/freshness in the published section. Local append/record writers and
+the intentionally frozen tracked mirror retain their local-ref behavior; a guidance read does not
+overwrite unpushed local evidence.
+Only a verified current source can establish a report policy pass. A report published from
+stale, offline or unavailable retained evidence records publication success separately from
+policy failure and exits nonzero; its limitation remains visible in the published section.
+SHA and ordinary branch arguments are refused before Git runs; inspect an immutable snapshot
+directly with `git show <full-sha>:fork-churn.json` instead.
+
+The scan reconciles legacy walks and v2/v3 frozen seam observations with the complete original
+per-file inventory in `docs/internals/fork-churn.md`. New observations reach the next scan and
+carry preferred boundary guidance where a reviewed mapping exists. Unmapped lessons remain
+visible and unresolved. Mappings name exact integration paths and the reviewed policy within
+each path, not ownership of every change in that file. Provider agent metadata guidance does
+not cover startup, resume, child-work results or launcher environment behavior. Neither absence,
+a boundary recommendation nor a recorded guard proves repair. Guidance uses `assessSeams` to show
+observed, unverified, verified, regressed or unobserved status from comparable receipts. Policy
+references include closed historical issues; they do not claim a live assignment. Outcome records
+are left untouched.
+
+A walk and its frozen copy share one immutable observation identity. A single new census path
+stays in the inventory without creating a hot-seam warning; distinct repeated observations can
+warn. Exact file-local test harness deferrals keep their documented integration placement, while
+fork-owned tests do not receive generic sibling advice.
+The order within each history is retained, and shared observation identities anchor their
+combined chronology. If those constraints leave multiple possible orders or contradict each
+other, repair assessment is unavailable and the live report cannot pass policy. Neither frozen
+observations nor completed walks are assumed newer just because they came from one source.
+Hot-seam warnings distinguish conflict-walk counts from repeated census-observation counts.
+
+For a newer ledger schema, compatible known fields remain visible with an explicit partial-reader
+notice. Repair assessment is unavailable until the schema is understood. Authoring guidance keeps
+the original inventory; the live report publishes that limitation and returns an unavailable policy
+verdict rather than inferring a pass from missing evidence.
+Known v2/v3 envelopes are validated in full, including allowed fields and v3 outcome receipts,
+before the read-only lesson projection is derived.
+
 The v3 ledger keeps `walks`, immutable `seamRecords`, and target `outcomes` in the same
 `fork-churn.json`. Legacy arrays and v2 envelopes remain readable; every writer preserves
 their existing evidence, and no migration invents repairs, verification, or successful outcomes.
@@ -209,8 +253,9 @@ from the file, from a clean canonical checkout of `hyprws`:
 node scripts/fork-churn.ts seed --from docs/internals/fork-churn.json --push
 ```
 
-Verify with `git show refs/fork/churn:fork-churn.json | head`. Until the ref exists, every reader
-refuses rather than reporting an empty ledger.
+Verify with `git show refs/fork/churn:fork-churn.json | head`. Ledger mutation commands refuse a
+missing ref. Authoring scans explicitly report unavailable lesson evidence and retain the original
+inventory; they never present missing evidence as a current, empty ledger.
 
 Ledgers seeded before census subjects became durable need one migration from a trusted checkout
 whose local object store still resolves every census SHA. Do not rely on a fresh fetch: pruned
