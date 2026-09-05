@@ -357,7 +357,10 @@ again.
 
 General warnings are advisory; `--strict` makes them fatal. `--since <ref>` restricts warnings to
 commits after that ref and makes adopted authoring guards blocking, as in the CI authoring step.
-Retained historical hot-seam warnings remain advisory without `--strict`.
+`--replay-of <ref>` returns them to advisory on a rebase rehearsal, which replays every fork commit
+onto a newer upstream release and so is newly authored under any `--since` ref, but only after the
+scan proves the head omits that trunk and sits on a tagged upstream commit the trunk has not
+reached. Retained historical hot-seam warnings remain advisory without `--strict`.
 
 `AUTHORING_GUARD_TARGETS` in `scripts/fork-scan-guards.ts` supplies the exact paths used by
 each adopted seam matcher. Its invariant requires scoped lesson guidance for every target,

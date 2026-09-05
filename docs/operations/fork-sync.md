@@ -40,6 +40,13 @@ source, including tests and non-test harnesses. This is deliberately stricter th
 rewrite diagnostic's test-file exclusion. A donor tree must never replace an entire combined
 snapshot: materialize only its declared path changes alongside the other active transforms.
 
+On a pushed `rehearse/rewrite-*` branch, fork CI treats the replayed stack as historical authoring
+only after `fork:scan` proves the candidate's full tree equals `origin/hyprws`. A tree mismatch
+fails the check. Every other branch is offered `--replay-of origin/hyprws`, which reaches the same
+verdict for a rebase rehearsal only after the scan proves the head omits the trunk and sits on a
+tagged upstream commit the trunk has not reached; an ordinary pull request fails that proof and
+keeps its normal authoring range.
+
 Raw commit message and identity bytes, timestamps, timezones and ordered parent correspondence
 remain unchanged. Rewritten signed commits lose only the now-invalid `gpgsig` header, with its
 digest retained in the receipt; unchanged objects retain signatures. Merge histories, shallow
