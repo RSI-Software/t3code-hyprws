@@ -1,9 +1,21 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  checkoutMoveExpectedRoot,
+  isCheckoutMoveInFlight,
+  isStaleCheckoutMoveRejection,
+  presentCheckoutMove,
+} from "@t3tools/client-runtime/state/checkout-move";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@t3tools/contracts";
+import type {
+  CommandId,
+  ContextMenuItem,
+  EnvironmentId,
+  VcsRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
@@ -108,6 +120,9 @@ export function BranchToolbarBranchSelector({
     threadEnvironment.updateMetadata,
     "thread metadata update",
   );
+  const moveThreadCheckout = useAtomCommand(threadEnvironment.moveCheckout, {
+    reportFailure: false,
+  });
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, {
     reportFailure: false,
   });
@@ -126,6 +141,24 @@ export function BranchToolbarBranchSelector({
   );
   const serverThread = useThread(threadRef, { waitForShell: draftThread !== null });
   const serverSession = serverThread?.session ?? null;
+  const checkoutMovePresentation = presentCheckoutMove(serverThread?.checkoutMove);
+  const checkoutMoveInFlight = isCheckoutMoveInFlight(serverThread?.checkoutMove);
+  const [checkoutMoveSubmission, setCheckoutMoveSubmission] = useState<{
+    readonly baseRequestId: CommandId | null;
+  } | null>(null);
+  const [staleUndoRequestId, setStaleUndoRequestId] = useState<CommandId | null>(null);
+  const checkoutMoveAwaitingProjection =
+    checkoutMoveSubmission !== null &&
+    (serverThread?.checkoutMove?.requestId ?? null) === checkoutMoveSubmission.baseRequestId;
+  const checkoutMoveControlsLocked = checkoutMoveInFlight || checkoutMoveAwaitingProjection;
+  const displayedCheckoutMove = checkoutMoveAwaitingProjection
+    ? {
+        action: null,
+        inFlight: true,
+        label: "Requesting checkout move…",
+        detail: "Waiting for the environment to accept and project the checkout move.",
+      }
+    : checkoutMovePresentation;
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
   const activeProjectRef = serverThread
@@ -152,19 +185,78 @@ export function BranchToolbarBranchSelector({
       draftThreadEnvMode: draftThread?.envMode,
     });
 
+  const runCheckoutMove = useCallback(
+    async (input: {
+      readonly requestedPath: string;
+      readonly expectedCheckoutRoot: string;
+      readonly reverseOfRequestId?: CommandId;
+      readonly failureTitle: string;
+    }) => {
+      if (checkoutMoveControlsLocked) return;
+      setCheckoutMoveSubmission({
+        baseRequestId: serverThread?.checkoutMove?.requestId ?? null,
+      });
+      let accepted = false;
+      try {
+        const result = await moveThreadCheckout({
+          environmentId,
+          input: {
+            threadId,
+            requestedPath: input.requestedPath,
+            expectedCheckoutRoot: input.expectedCheckoutRoot,
+            ...(input.reverseOfRequestId ? { reverseOfRequestId: input.reverseOfRequestId } : {}),
+          },
+        });
+        accepted = result._tag !== "Failure";
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          const staleUndo =
+            input.reverseOfRequestId !== undefined &&
+            isStaleCheckoutMoveRejection(toBranchActionErrorMessage(error));
+          if (staleUndo) setStaleUndoRequestId(input.reverseOfRequestId ?? null);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: staleUndo ? "Checkout move can no longer be undone" : input.failureTitle,
+              description: toBranchActionErrorMessage(error),
+            }),
+          );
+        }
+      } finally {
+        if (!accepted) setCheckoutMoveSubmission(null);
+      }
+    },
+    [
+      checkoutMoveControlsLocked,
+      environmentId,
+      moveThreadCheckout,
+      serverThread?.checkoutMove?.requestId,
+      threadId,
+    ],
+  );
+
   // ---------------------------------------------------------------------------
   // Thread branch mutation (colocated — only this component calls it)
   // ---------------------------------------------------------------------------
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
-      if (!activeThreadId || !activeProject) return;
-      if (serverSession && worktreePath !== activeWorktreePath) {
-        void stopThreadSession({
-          environmentId,
-          input: { threadId: activeThreadId },
-        });
-      }
+      if (!activeThreadId || !activeProject || checkoutMoveControlsLocked) return;
       if (hasServerThread) {
+        if (worktreePath !== activeWorktreePath && serverThread) {
+          const destinationPath = worktreePath ?? activeProject.workspaceRoot;
+          const sourcePath =
+            (serverThread.checkoutMove
+              ? checkoutMoveExpectedRoot(serverThread.checkoutMove)
+              : null) ??
+            activeWorktreePath ??
+            activeProject.workspaceRoot;
+          void runCheckoutMove({
+            requestedPath: destinationPath,
+            expectedCheckoutRoot: sourcePath,
+            failureTitle: "Failed to move thread checkout",
+          });
+          return;
+        }
         void updateThreadMetadata({
           environmentId,
           input: {
@@ -193,8 +285,9 @@ export function BranchToolbarBranchSelector({
     [
       activeThreadId,
       activeProject,
-      serverSession,
+      serverThread,
       activeWorktreePath,
+      checkoutMoveControlsLocked,
       hasServerThread,
       onActiveThreadBranchOverrideChange,
       setDraftThreadContext,
@@ -202,8 +295,8 @@ export function BranchToolbarBranchSelector({
       threadRef,
       environmentId,
       effectiveEnvMode,
-      stopThreadSession,
       updateThreadMetadata,
+      runCheckoutMove,
     ],
   );
 
@@ -393,7 +486,8 @@ export function BranchToolbarBranchSelector({
   };
 
   const selectBranch = (refName: VcsRef) => {
-    if (!branchCwd || !activeProjectCwd || isBranchActionPending) return;
+    if (!branchCwd || !activeProjectCwd || isBranchActionPending || checkoutMoveControlsLocked)
+      return;
 
     if (isSelectingWorktreeBase) {
       setThreadBranch(refName.name, null);
@@ -453,9 +547,24 @@ export function BranchToolbarBranchSelector({
     });
   };
 
+  const retryOrUndoCheckoutMove = useCallback(() => {
+    const move = serverThread?.checkoutMove;
+    if (!move || checkoutMoveControlsLocked) return;
+    const undo = move.status === "committed";
+    void runCheckoutMove({
+      requestedPath: undo ? move.source.checkoutRoot : move.requestedPath,
+      expectedCheckoutRoot: checkoutMoveExpectedRoot(move),
+      ...(undo ? { reverseOfRequestId: move.requestId } : {}),
+      failureTitle: undo ? "Failed to undo checkout move" : "Failed to retry checkout move",
+    });
+  }, [checkoutMoveControlsLocked, runCheckoutMove, serverThread?.checkoutMove]);
+  const undoUnavailable =
+    serverThread?.checkoutMove?.status === "committed" &&
+    staleUndoRequestId === serverThread.checkoutMove.requestId;
+
   const createRef = (rawName: string) => {
     const name = sanitizeNewRefName(rawName);
-    if (!branchCwd || !name || isBranchActionPending) return;
+    if (!branchCwd || !name || isBranchActionPending || checkoutMoveControlsLocked) return;
 
     setIsBranchMenuOpen(false);
     onComposerFocusRequest?.();
@@ -767,6 +876,41 @@ export function BranchToolbarBranchSelector({
             <TooltipPopup side="top">{branchPrTooltip}</TooltipPopup>
           </Tooltip>
         ) : null}
+        {displayedCheckoutMove ? (
+          displayedCheckoutMove.action === null ? (
+            <span
+              className="px-1 text-[10px] text-muted-foreground"
+              aria-live="polite"
+              aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
+            >
+              {displayedCheckoutMove.label}
+            </span>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="px-1 text-[10px]"
+                    disabled={checkoutMoveControlsLocked || undoUnavailable}
+                    onClick={retryOrUndoCheckoutMove}
+                    aria-label={`${displayedCheckoutMove.label}. ${displayedCheckoutMove.detail}`}
+                  />
+                }
+              >
+                {undoUnavailable
+                  ? "Undo unavailable: checkout changed"
+                  : displayedCheckoutMove.label}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {undoUnavailable
+                  ? "The physical checkout changed after this move. Start a new move to return."
+                  : displayedCheckoutMove.detail}
+              </TooltipPopup>
+            </Tooltip>
+          )
+        ) : null}
         {/* Context menu lives on the wrapper: the disabled Button has
             pointer-events-none, so the trigger itself never sees right-clicks
             while refs are loading or a branch action is pending. */}
@@ -777,7 +921,9 @@ export function BranchToolbarBranchSelector({
           <ComboboxTrigger
             render={<Button variant="ghost" size="xs" />}
             className="min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            disabled={
+              isInitialBranchesLoadPending || isBranchActionPending || checkoutMoveControlsLocked
+            }
           >
             <GitBranchIcon className="size-3 shrink-0 opacity-70" />
             <span
