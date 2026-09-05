@@ -3976,6 +3976,242 @@ it("surfaces each failing CI job with its last 40 failed-log lines verbatim", ()
   }
 });
 
+const ESC = "\u001B";
+
+/**
+ * Captured from `hyprws CI` run 33986893347, the run in RSI-Software/t3code-hyprws#629. Its `Check`
+ * job log is ANSI-bearing, carries long fork-ledger lines, and sits behind thousands of earlier
+ * lines, so the excerpt has to survive colour, line length, and volume at once.
+ */
+const CAPTURED_CHECK_TAIL: ReadonlyArray<string> = [
+  `${ESC}[0;32m✔${ESC}[0m ${ESC}[1;94mVITE+${ESC}[0m successfully installed!`,
+  `  ${ESC}[1mGet started:${ESC}[0m`,
+  "  pnpm-lock.yaml [original scope; 10 retained observation(s)] -> package manifest intent plus the pinned lockfile generator; never hand-merge generated dependency state; evidence: unknown: Different measurement method cannot establish absence of the retained identity.",
+  "Cleaning up orphan processes",
+];
+
+const capturedJobLog = (job: string, oversized: boolean): string => {
+  const stamp = (body: string): string => `${job}\tRun vp check\t2026-09-05T19:24:50.362Z ${body}`;
+  const filler = Array.from({ length: 2000 }, (_, index) =>
+    stamp(oversized ? "ledger row ".repeat(200) : `noise ${index}`),
+  );
+  return [
+    ...filler,
+    stamp("x".repeat(120_000)),
+    ...(oversized ? [] : CAPTURED_CHECK_TAIL.map(stamp)),
+  ].join("\n");
+};
+
+const failedVerdict = (
+  state: ReturnType<typeof replayedRun>,
+  jobs: ReadonlyArray<{ name: string; conclusion: string | null }>,
+  overrides: {
+    conclusion?: string | null;
+    jobsResult?: Partial<CommandResult>;
+    logResult?: Partial<CommandResult>;
+  } = {},
+): void => {
+  state.runner.set(
+    "gh",
+    [
+      "run",
+      "list",
+      "--workflow",
+      "hyprws-ci.yml",
+      "--branch",
+      state.branch,
+      "--json",
+      "databaseId,headSha,status,conclusion,url",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+    ],
+    {
+      stdout: JSON.stringify([
+        {
+          databaseId: 43,
+          headSha: A,
+          status: "completed",
+          conclusion: overrides.conclusion === undefined ? "failure" : overrides.conclusion,
+          url: "https://example.test/runs/43",
+        },
+      ]),
+    },
+  );
+  state.runner.set(
+    "gh",
+    ["run", "view", "43", "--json", "jobs", "-R", "RSI-Software/t3code-hyprws"],
+    overrides.jobsResult ?? { stdout: JSON.stringify({ jobs }) },
+  );
+  state.runner.set(
+    "gh",
+    ["run", "view", "43", "--log-failed", "-R", "RSI-Software/t3code-hyprws"],
+    overrides.logResult ?? {
+      stdout: jobs
+        .filter(({ conclusion }) => conclusion !== null && conclusion !== "success")
+        .map(({ name }) => capturedJobLog(name, name !== "Check"))
+        .join("\n"),
+    },
+  );
+};
+
+const withFailedVerdict = (
+  jobs: ReadonlyArray<{ name: string; conclusion: string | null }>,
+  overrides: Parameters<typeof failedVerdict>[2],
+  body: (state: ReturnType<typeof replayedRun>, message: string) => void,
+): void => {
+  const state = replayedRun();
+  failedVerdict(state, jobs, overrides);
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    body(state, message);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+};
+
+it("bounds a large ANSI-bearing failed CI log to a readable excerpt", () => {
+  withFailedVerdict(
+    [
+      { name: "Check", conclusion: "failure" },
+      { name: "Test", conclusion: "failure" },
+      { name: "Test Server 1", conclusion: "failure" },
+      { name: "Test Server 2", conclusion: "success" },
+    ],
+    {},
+    (state, message) => {
+      // The whole log is roughly 400 KB across three failed jobs, one line of it 120 000
+      // characters wide. The diagnostic stays capped, colour-free, and readable regardless.
+      assert.isBelow(message.length, 20_100);
+      assert.notInclude(message, ESC);
+      assert.include(message, "[line truncated]");
+      assert.include(message, "[evidence truncated at 20000 characters]");
+      assert.include(message, "hyprws CI failed: https://example.test/runs/43");
+      assert.include(message, "run 43 concluded failure on the pushed head");
+      assert.include(message, "failed jobs: Check, Test, Test Server 1");
+      assert.include(message, "Failing job: Check (failure)");
+      assert.include(message, "VITE+ successfully installed!");
+      assert.include(message, "Cleaning up orphan processes");
+      assert.notInclude(message, "Test Server 2");
+      // A red gate keeps the report resumable at the stage it reached.
+      assert.strictEqual(
+        run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+        1,
+      );
+      assert.strictEqual(
+        validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+        "replayed",
+      );
+    },
+  );
+});
+
+it("fails the gate with what the run knows when the failed log cannot be read", () => {
+  withFailedVerdict(
+    [{ name: "Check", conclusion: "failure" }],
+    { logResult: { status: 1, stderr: "failed to get run log: log not found" } },
+    (state, message) => {
+      assert.include(message, "hyprws CI failed: https://example.test/runs/43");
+      assert.include(message, "run 43 concluded failure on the pushed head");
+      assert.include(message, "failed jobs: Check");
+      assert.include(message, "failed job log unavailable");
+      assert.include(message, "log not found");
+      let stderr = "";
+      const original = process.stderr.write;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderr += chunk.toString();
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        assert.strictEqual(
+          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+          1,
+        );
+      } finally {
+        process.stderr.write = original;
+      }
+      assert.include(stderr, "hyprws CI failed: https://example.test/runs/43");
+      assert.include(
+        stderr,
+        `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${state.reportPath}`,
+      );
+      assert.strictEqual(
+        validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+        "replayed",
+      );
+    },
+  );
+});
+
+it("fails the gate with what the run knows when the job list cannot be read", () => {
+  withFailedVerdict(
+    [{ name: "Check", conclusion: "failure" }],
+    { jobsResult: { status: 1, stderr: "HTTP 502" } },
+    (_state, message) => {
+      assert.include(message, "hyprws CI failed: https://example.test/runs/43");
+      assert.include(message, "run 43 concluded failure on the pushed head");
+      assert.include(message, "failed job list unavailable");
+      assert.include(message, "HTTP 502");
+    },
+  );
+});
+
+it("keeps a red run a failed gate when its log quotes a refusal phrase", () => {
+  withFailedVerdict(
+    [{ name: "Check", conclusion: "failure" }],
+    {
+      logResult: {
+        stdout: "Check\tstep\tfatal: commit count changed while the bot run is in progress\n",
+      },
+    },
+    (state, message) => {
+      assert.include(message, "commit count changed while the bot run is in progress");
+      let stderr = "";
+      const original = process.stderr.write;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderr += chunk.toString();
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        assert.strictEqual(
+          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+          1,
+        );
+      } finally {
+        process.stderr.write = original;
+      }
+      assert.include(stderr, "failed: hyprws CI failed: https://example.test/runs/43");
+    },
+  );
+});
+
+for (const conclusion of ["failure", "cancelled", "timed_out", "action_required", null])
+  it(`treats a completed run concluded ${conclusion ?? "null"} as a failed gate`, () => {
+    withFailedVerdict(
+      [{ name: "Check", conclusion: "failure" }],
+      { conclusion, logResult: { stdout: "Check\tstep\tlast line\n" } },
+      (state, message) => {
+        assert.include(message, "hyprws CI failed: https://example.test/runs/43");
+        assert.include(message, `run 43 concluded ${conclusion ?? "unknown"} on the pushed head`);
+        assert.include(message, "Check\tstep\tlast line");
+        assert.strictEqual(
+          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+          1,
+        );
+        assert.strictEqual(
+          validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+          "replayed",
+        );
+      },
+    );
+  });
+
 it("treats a 45-minute CI wait timeout as a failed gate", () => {
   const state = replayedRun();
   state.runner.set(

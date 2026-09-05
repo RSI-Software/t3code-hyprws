@@ -36,32 +36,128 @@ export const remoteLaneHead = (
     rehearsal,
   ).split(/\s+/, 1)[0] ?? "";
 
-const failedCiEvidence = (runner: CommandRunner, worktree: string, run: CiRun): string => {
-  const jobs = JSON.parse(
-    requireSuccess(
-      runner,
-      "gh",
-      ["run", "view", String(run.databaseId), "--json", "jobs", "-R", REPOSITORY],
-      worktree,
-    ),
-  ) as { readonly jobs: ReadonlyArray<CiJob> };
-  const failedJobs = jobs.jobs.filter(
+/**
+ * A completed red run is a failed gate, so its diagnostic has to terminate on every input. A run
+ * log is arbitrary job output: tens of megabytes, ANSI-bearing, single lines of unbounded length,
+ * and sometimes unreadable because the archive is not published yet. None of that may turn a red
+ * gate into a hang or a message no operator can read, so the evidence is capped on every axis and
+ * every retrieval failure degrades to what the run itself already told us.
+ */
+const EVIDENCE_JOB_LINES = 40;
+const EVIDENCE_LINE_CHARS = 400;
+const EVIDENCE_CHARS = 20_000;
+
+// CSI and OSC colouring plus stray control bytes. Tab survives: it delimits the job/step columns.
+const CONTROL_SEQUENCES = new RegExp(
+  [
+    "\\u001B\\][^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\)",
+    "\\u001B\\[[0-9;?]*[ -/]*[@-~]",
+    "\\u001B[@-Z\\\\-_]",
+    "[\\u0000-\\u0008\\u000B-\\u001F\\u007F]",
+  ].join("|"),
+  "g",
+);
+
+const readableLine = (line: string): string => {
+  const stripped = line.replace(CONTROL_SEQUENCES, "");
+  return stripped.length > EVIDENCE_LINE_CHARS
+    ? `${stripped.slice(0, EVIDENCE_LINE_CHARS)}… [line truncated]`
+    : stripped;
+};
+
+const boundedEvidence = (lines: ReadonlyArray<string>): string => {
+  const text = lines.join("\n");
+  return text.length > EVIDENCE_CHARS
+    ? `${text.slice(0, EVIDENCE_CHARS)}\n… [evidence truncated at ${EVIDENCE_CHARS} characters]`
+    : text;
+};
+
+/**
+ * One pass over the log that retains only each named job's last `EVIDENCE_JOB_LINES` lines, so the
+ * excerpt costs the same on a 40 KB log and a 40 MB one.
+ */
+const jobLogTails = (
+  log: string,
+  names: ReadonlyArray<string>,
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const tails = new Map<string, Array<string>>(names.map((name) => [name, []]));
+  for (let start = 0; start <= log.length;) {
+    const linebreak = log.indexOf("\n", start);
+    const end = linebreak < 0 ? log.length : linebreak;
+    const column = log.indexOf("\t", start);
+    if (column >= 0 && column < end) {
+      const tail = tails.get(log.slice(start, column));
+      if (tail !== undefined) {
+        tail.push(readableLine(log.slice(start, end)));
+        if (tail.length > EVIDENCE_JOB_LINES) tail.shift();
+      }
+    }
+    if (linebreak < 0) break;
+    start = linebreak + 1;
+  }
+  return tails;
+};
+
+const attempt = <T>(read: () => T): { readonly value: T } | { readonly failure: string } => {
+  try {
+    return { value: read() };
+  } catch (error) {
+    return { failure: readableLine(error instanceof Error ? error.message : String(error)) };
+  }
+};
+
+const failedJobsOf = (runner: CommandRunner, worktree: string, run: CiRun): ReadonlyArray<CiJob> =>
+  (
+    JSON.parse(
+      requireSuccess(
+        runner,
+        "gh",
+        ["run", "view", String(run.databaseId), "--json", "jobs", "-R", REPOSITORY],
+        worktree,
+      ),
+    ) as { readonly jobs: ReadonlyArray<CiJob> }
+  ).jobs.filter(
     ({ conclusion }) =>
       conclusion !== null && !["success", "skipped", "neutral"].includes(conclusion),
   );
-  const log = requireSuccess(
-    runner,
-    "gh",
-    ["run", "view", String(run.databaseId), "--log-failed", "-R", REPOSITORY],
-    worktree,
-  );
-  return [
+
+const failedCiEvidence = (runner: CommandRunner, worktree: string, run: CiRun): string => {
+  const known = [
     `hyprws CI failed: ${run.url}`,
-    ...failedJobs.map(({ name }) => {
-      const jobLog = log.split("\n").filter((line) => line.startsWith(`${name}\t`));
-      return [`Failing job: ${name}`, ...jobLog.slice(-40)].join("\n");
+    `run ${run.databaseId} concluded ${run.conclusion ?? "unknown"} on the pushed head`,
+  ];
+  const jobs = attempt(() => failedJobsOf(runner, worktree, run));
+  if ("failure" in jobs)
+    return boundedEvidence([...known, `failed job list unavailable: ${jobs.failure}`]);
+  known.push(
+    jobs.value.length === 0
+      ? "failed jobs: none reported; treat the run conclusion as the verdict"
+      : `failed jobs: ${jobs.value.map(({ name }) => name).join(", ")}`,
+  );
+  const log = attempt(() =>
+    requireSuccess(
+      runner,
+      "gh",
+      ["run", "view", String(run.databaseId), "--log-failed", "-R", REPOSITORY],
+      worktree,
+    ),
+  );
+  if ("failure" in log)
+    return boundedEvidence([...known, `failed job log unavailable: ${log.failure}`]);
+  const tails = jobLogTails(
+    log.value,
+    jobs.value.map(({ name }) => name),
+  );
+  return boundedEvidence([
+    ...known,
+    ...jobs.value.flatMap(({ name, conclusion }) => {
+      const tail = tails.get(name) ?? [];
+      return [
+        `Failing job: ${name} (${conclusion ?? "unknown"})`,
+        ...(tail.length === 0 ? ["no log lines carried this job name"] : tail),
+      ];
     }),
-  ].join("\n");
+  ]);
 };
 
 export const waitForCiVerdict = (

@@ -3228,14 +3228,29 @@ export const execute = (
   throw new UsageError(`unknown verb: ${verb}`);
 };
 
+// Every refusal states its reason on the first line, so only that line votes. A gate failure that
+// quotes CI or Git output must never be reclassified as a refusal by a phrase inside the evidence.
 const isPreconditionRefusal = (error: unknown): boolean =>
   (typeof error === "object" &&
     error !== null &&
     (error as Record<string, unknown>).isPrecondition === true) ||
   (error instanceof Error &&
     /proof failed|same base|commit count|message digest|non-test diff|bot.*paused|bot run is in progress/i.test(
-      error.message,
+      error.message.split("\n", 1)[0] ?? "",
     ));
+
+// A stopped unblock verb leaves its report at the stage it reached, so the walk resumes from there.
+const RESUMABLE_VERBS = new Set([
+  "unblock-orient",
+  "unblock-rehearse",
+  "unblock-check",
+  "unblock-apply",
+]);
+
+const resumeHint = (verb: string | undefined, reportPath: string | undefined): string =>
+  verb !== undefined && reportPath !== undefined && RESUMABLE_VERBS.has(verb)
+    ? `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${reportPath}\n`
+    : "";
 
 export const run = (
   argv: ReadonlyArray<string>,
@@ -3290,7 +3305,9 @@ export const run = (
       process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
       return 2;
     }
-    process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `failed: ${error instanceof Error ? error.message : String(error)}\n${resumeHint(argv[0], outcomeReportPath)}`,
+    );
     return 1;
   } finally {
     if (
