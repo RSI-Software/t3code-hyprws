@@ -42,6 +42,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "sidebar-physical-scope",
   "thread-route-navigation",
   "pull-request-project-scope",
+  "upstream-test",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -109,6 +110,9 @@ export interface GuardInput {
   // Paths that exist in the upstream base tree. A fork-created file is the
   // repair every one of these rules points at, so it never triggers them.
   readonly upstreamFiles: ReadonlySet<string>;
+  // Test ownership follows the selected target, including independent same-path
+  // additions. Other footprint/export guards retain their upstream-base meaning.
+  readonly upstreamTestFiles?: ReadonlySet<string>;
   readonly hotSeams: ReadonlyMap<string, HotSeam>;
 }
 
@@ -130,7 +134,8 @@ export const commitPatchArguments = (shas: ReadonlyArray<string>) =>
 const EXPORT_DECLARATION =
   /^export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(const|let|var|function|class|type|interface|enum|namespace)\s+([A-Za-z_$][\w$]*)/;
 
-const TEST_BLOCK = /^\s*(?:it|test|describe)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
+// effectIt is the repository's @effect/vitest alias beside vite-plus/test's it.
+const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
 
 const TERMINAL_METADATA_PATH = "apps/web/src/state/terminalSessions.ts";
 // Keep the check scoped to added state/effect calls and the old inline state
@@ -385,7 +390,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     for (const [path, count] of [...appendedTestBlocks].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {
-      if (!input.upstreamFiles.has(path)) continue;
+      if (!(input.upstreamTestFiles ?? input.upstreamFiles).has(path)) continue;
       if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
       if (UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS.has(path)) continue;
       warn(

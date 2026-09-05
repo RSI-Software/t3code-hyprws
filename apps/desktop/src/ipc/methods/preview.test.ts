@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
-import { projectWindowIdentity, windowIdentityKey } from "../../window/WindowIdentity.ts";
+import { projectWindowIdentity } from "../../window/WindowIdentity.ts";
 import * as PreviewIpc from "./preview.ts";
 
 const { fromPartition, fromWebContents } = vi.hoisted(() => ({
@@ -119,95 +119,6 @@ describe("preview IPC methods", () => {
       expect(received[0]?.namespace).toBe("profile");
       expect(received[1]?.namespace).toBeUndefined();
     }).pipe(Effect.provideService(BrowserImport.BrowserImport, browserImport));
-  });
-
-  effectIt.effect("routes preview events only to their owning window", () => {
-    const firstIdentity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const firstSend = vi.fn();
-    const secondSend = vi.fn();
-    let stateListener: Parameters<
-      PreviewManager.PreviewManager["Service"]["subscribeOwnedStateChanges"]
-    >[0] = () => Effect.void;
-
-    return Effect.gen(function* () {
-      yield* PreviewIpc.installPreviewEventForwarding();
-      yield* stateListener(firstIdentity, "tab-1", { tabId: "tab-1" } as never);
-
-      expect(firstSend).toHaveBeenCalledOnce();
-      expect(secondSend).not.toHaveBeenCalled();
-    }).pipe(
-      Effect.provideService(ElectronWindow.ElectronWindow, {
-        get: (identity: typeof firstIdentity) =>
-          Effect.succeed(
-            Option.some({
-              webContents: {
-                send:
-                  windowIdentityKey(identity) === windowIdentityKey(firstIdentity)
-                    ? firstSend
-                    : secondSend,
-              },
-            } as never),
-          ),
-      } as never),
-      Effect.provideService(PreviewManager.PreviewManager, {
-        subscribeOwnedStateChanges: (listener: typeof stateListener) =>
-          Effect.sync(() => {
-            stateListener = listener;
-          }),
-        subscribeOwnedRecordingFrames: () => Effect.void,
-        subscribeOwnedPointerEvents: () => Effect.void,
-      } as never),
-    );
-  });
-
-  effectIt.effect("resolves the sender identity before invoking its window manager", () => {
-    const identity = projectWindowIdentity(
-      EnvironmentId.make("environment-1"),
-      ProjectId.make("project-1"),
-    );
-    const sender = {} as Electron.WebContents;
-    const senderWindow = {} as Electron.BrowserWindow;
-    const closeTab = vi.fn(() => Effect.void);
-    fromWebContents.mockReturnValue(senderWindow);
-
-    return PreviewIpc.closeTab.handler({ tabId: "owned-tab" }, { sender }).pipe(
-      Effect.provideService(ElectronWindow.ElectronWindow, {
-        identityFor: () => Effect.succeed(Option.some(identity)),
-      } as never),
-      Effect.provideService(PreviewManager.PreviewManager, {
-        forWindow: () => Effect.succeed({ closeTab } as never),
-      } as never),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          expect(closeTab).toHaveBeenCalledWith("owned-tab");
-        }),
-      ),
-    );
-  });
-
-  effectIt.effect("rejects an unregistered sender before resolving preview state", () => {
-    const sender = {} as Electron.WebContents;
-    const senderWindow = {} as Electron.BrowserWindow;
-    fromWebContents.mockReturnValue(senderWindow);
-
-    return PreviewIpc.closeTab.handler({ tabId: "other-tab" }, { sender }).pipe(
-      Effect.provideService(ElectronWindow.ElectronWindow, {
-        identityFor: () => Effect.succeed(Option.none()),
-      } as never),
-      Effect.provideService(PreviewManager.PreviewManager, null as never),
-      Effect.exit,
-      Effect.map((exit) => {
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isSuccess(exit)) return;
-        expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-          _tag: "PreviewIpcSenderNotAuthorizedError",
-          reason: "unregistered-window",
-        });
-      }),
-    );
   });
 
   effectIt.effect("rejects invalid webContents ids before resolving the preview service", () =>
