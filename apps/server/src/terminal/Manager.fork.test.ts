@@ -15,6 +15,7 @@ import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vite-plus/test";
+import { vi } from "vite-plus/test";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   createManager,
@@ -279,6 +280,13 @@ it.layer(
           }),
       }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
       yield* Effect.addFinalizer(() => manager.close({ threadId: "thread-1" }).pipe(Effect.ignore));
+      const suspended = yield* Deferred.make<TerminalEvent>();
+      const unsubscribeEvents = yield* manager.subscribe((event) =>
+        event.type === "activity" && event.attachmentStatus === "suspended"
+          ? Deferred.succeed(suspended, event).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribeEvents));
       const attachEvents = yield* Ref.make<ReadonlyArray<TerminalAttachStreamEvent>>([]);
       const release = yield* manager.attachStream(
         openInput({ worktreePath: process.cwd() }),
@@ -292,14 +300,8 @@ it.layer(
         (yield* getEvents).some((event) => event.type === "activity" && event.hasRunningSubprocess),
       ).toBe(true);
       release();
-      yield* Effect.yieldNow;
       yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("1500 millis");
-      yield* Effect.yieldNow;
-      const suspendedEvent = (yield* getEvents).findLast(
-        (event) => event.type === "activity" && event.attachmentStatus === "suspended",
-      );
+      const suspendedEvent = yield* Deferred.await(suspended);
       expect(suspendedEvent).toMatchObject({
         type: "activity",
         hasRunningSubprocess: true,
@@ -480,6 +482,59 @@ it.layer(
       });
       expect(snapshot.label).toBe("zmux/main");
       expect(snapshot.history).toBe("");
+    }),
+  );
+  it.effect("ensures and attaches an unbound worktree on first terminal open", () =>
+    Effect.gen(function* () {
+      const ensureZmuxSession = vi.fn(() =>
+        Effect.succeed({
+          status: "ensured",
+          target: "t3code-hyprws/t3code/audit-zmux-project-terminals",
+          workspace: "t3code-hyprws",
+          session: "t3code/audit-zmux-project-terminals",
+        } as const),
+      );
+      const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        ensureZmuxSession,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput({ worktreePath: process.cwd() }));
+
+      expect(ensureZmuxSession).toHaveBeenCalledWith(process.cwd());
+      expect(ptyAdapter.spawnInputs[0]).toMatchObject({
+        shell: "zmux",
+        args: ["open", "t3code-hyprws", "t3code/audit-zmux-project-terminals"],
+      });
+      expect(snapshot.label).toBe("t3code-hyprws/t3code/audit-zmux-project-terminals");
+    }),
+  );
+  it.effect("surfaces ensure failure without opening a plain shell", () =>
+    Effect.gen(function* () {
+      const ensureZmuxSession = vi.fn(() =>
+        Effect.succeed({
+          status: "failed",
+          notice: {
+            summary: "zmux workspace root needs attention",
+            detail: "conflicting checkout registration; inspect workspace project",
+          },
+        } as const),
+      );
+      const processRunner = new FakeProcessRunner(Effect.succeed(processResult()));
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        shellResolver: () => "/bin/bash",
+        terminalSessionMode: "zmux",
+        ensureZmuxSession,
+      }).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner.service));
+
+      const snapshot = yield* manager.open(openInput());
+
+      expect(ptyAdapter.spawnInputs).toEqual([]);
+      expect(snapshot.status).toBe("error");
+      expect(snapshot.history).toContain("zmux workspace root needs attention");
+      expect(snapshot.history).not.toContain("plain shell");
     }),
   );
   it.effect("falls back visibly when a linked worktree resolves the workspace main session", () =>

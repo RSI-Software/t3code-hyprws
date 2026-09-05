@@ -413,6 +413,7 @@ const TerminalLayerLive = TerminalManager.layer.pipe(
   Layer.provide(PortScannerLayerLive),
   Layer.provide(NativeTelemetryLayerLive),
   Layer.provide(ServerSettingsLayerLive),
+  Layer.provide(ZmuxSessionBinderLayerLive),
 );
 
 const PreviewLayerLive = Layer.empty.pipe(

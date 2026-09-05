@@ -4,14 +4,13 @@ import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/unstable/process";
-
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as ZmuxSessionBinder from "./ZmuxSessionBinder.ts";
+import * as Binder from "./ZmuxSessionBinder.ts";
 
-const output = (stdout = "", code = 0, stderr = ""): ProcessRunner.ProcessRunOutput => ({
+const output = (stdout = "", code = 0): ProcessRunner.ProcessRunOutput => ({
   stdout,
-  stderr,
+  stderr: "",
   code: ChildProcessSpawner.ExitCode(code),
   timedOut: false,
   stdoutTruncated: false,
@@ -19,8 +18,9 @@ const output = (stdout = "", code = 0, stderr = ""): ProcessRunner.ProcessRunOut
   stdoutInvalidUtf8: false,
   stderrInvalidUtf8: false,
 });
-
-const resolvedProject = JSON.stringify({
+const project = JSON.stringify({
+  workspace: "project",
+  session: "main",
   target: "project/main",
   match: "workspace-main",
   tmuxName: "zws_project__main",
@@ -28,8 +28,9 @@ const resolvedProject = JSON.stringify({
   state: "live",
   binding: { branch: null, worktreePath: null },
 });
-
-const resolvedWorktree = JSON.stringify({
+const worktree = JSON.stringify({
+  workspace: "project",
+  session: "feature",
   target: "project/feature",
   match: "worktree",
   tmuxName: "zws_project__feature",
@@ -39,186 +40,163 @@ const resolvedWorktree = JSON.stringify({
   state: "live",
   binding: { branch: "feature", worktreePath: "/repo/project-worktree" },
 });
+const ensured = (linked = false, status = "created") =>
+  JSON.stringify({
+    status,
+    code: "ok",
+    workspace: "project",
+    session: linked ? "feature" : "main",
+    target: linked ? "project/feature" : "project/main",
+    repositoryRoot: linked ? "/repo/project-worktree" : "/repo/project",
+    cwd: linked ? "/repo/project-worktree" : "/repo/project",
+    nativeId: linked ? "$23" : "$22",
+  });
 
-const bound = JSON.stringify({
-  session: {
-    qualified: "project/feature",
-    tmuxName: "zws_project__feature",
-    tmuxId: "$23",
-  },
-  worktree: { path: "/repo/project-worktree", branch: "feature" },
-  created: true,
-  reused: false,
-  restored: false,
-  renamed: false,
-});
-
-function makeLayer(run: ProcessRunner.ProcessRunner["Service"]["run"]) {
-  return ZmuxSessionBinder.layer.pipe(
-    Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run })),
+function layer(run: ProcessRunner.ProcessRunner["Service"]["run"], topLevel = "/repo/project") {
+  const routed: ProcessRunner.ProcessRunner["Service"]["run"] = (input) =>
+    input.command !== "git"
+      ? run(input)
+      : Effect.succeed(
+          output(
+            input.args.includes("worktree")
+              ? "worktree /repo/project\nHEAD abc\nbranch refs/heads/main\n"
+              : input.args.includes("symbolic-ref")
+                ? "refs/heads/main\n"
+                : `${topLevel}\n`,
+          ),
+        );
+  return Binder.layer.pipe(
+    Layer.provide(Layer.succeed(ProcessRunner.ProcessRunner, { run: routed })),
     Layer.provide(ServerSettings.ServerSettingsService.layerTest({ terminalSessionMode: "zmux" })),
     Layer.provide(NodePath.layer),
     Layer.provide(Layer.succeed(HostProcessEnvironment, { PATH: "/usr/bin" })),
   );
 }
 
-const bindProjectWorktree = Effect.gen(function* () {
-  const binder = yield* ZmuxSessionBinder.ZmuxSessionBinder;
-  return yield* binder.bind("/repo/project-worktree", { projectPath: "/repo/project" });
-});
-
-describe("ZmuxSessionBinder project workspace guard", () => {
-  it.effect("reuses a workspace that already resolves from the project root", () => {
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
-      if (input.args[0] !== "session") return Effect.succeed(output(bound));
-      return Effect.succeed(
-        output(input.args[3] === "/repo/project" ? resolvedProject : resolvedWorktree),
-      );
-    });
-
-    return Effect.gen(function* () {
-      const result = yield* bindProjectWorktree;
-
-      assert.deepStrictEqual(result, {
-        status: "bound",
-        target: "project/feature",
-        outcome: "created",
+describe("ZmuxSessionBinder atomic checkout ensure", () => {
+  for (const state of ["created", "reused", "restored"] as const)
+    it.effect(`${state} canonical session uses atomic ensure and strict readback`, () => {
+      let resolves = 0;
+      const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+        if (input.args[0] === "session") {
+          resolves++;
+          return Effect.succeed(output(resolves === 1 ? "" : project, resolves === 1 ? 1 : 0));
+        }
+        return Effect.succeed(output(ensured(false, state)));
       });
-      assert.deepStrictEqual(
-        run.mock.calls.map(([input]) => input.args),
-        [
-          ["session", "resolve", "--cwd", "/repo/project", "--json"],
-          ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
-          ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
-        ],
-      );
-    }).pipe(Effect.provide(makeLayer(run)));
-  });
-
-  it.effect("creates a missing workspace at the project root before adoption", () => {
-    let resolveCalls = 0;
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
-      switch (input.args[0]) {
-        case "session":
-          resolveCalls += 1;
-          return Effect.succeed(
-            resolveCalls === 1
-              ? output("", 1)
-              : output(resolveCalls === 2 ? resolvedProject : resolvedWorktree),
-          );
-        case "new":
-          return Effect.succeed(output("", 1, "open terminal failed: not a terminal"));
-        default:
-          return Effect.succeed(output(bound));
-      }
-    });
-
-    return Effect.gen(function* () {
-      const result = yield* bindProjectWorktree;
-
-      assert.deepStrictEqual(result, {
-        status: "bound",
-        target: "project/feature",
-        outcome: "created",
-      });
-      assert.deepStrictEqual(
-        run.mock.calls.map(([input]) => ({ args: input.args, cwd: input.cwd })),
-        [
-          {
-            args: ["session", "resolve", "--cwd", "/repo/project", "--json"],
-            cwd: undefined,
-          },
-          { args: ["new", "project"], cwd: "/repo/project" },
-          {
-            args: ["session", "resolve", "--cwd", "/repo/project", "--json"],
-            cwd: undefined,
-          },
-          {
-            args: ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
-            cwd: undefined,
-          },
-          {
-            args: ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
-            cwd: undefined,
-          },
-        ],
-      );
-    }).pipe(Effect.provide(makeLayer(run)));
-  });
-
-  it.effect("repairs a broad or stale workspace root before adoption", () => {
-    let resolveCalls = 0;
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
-      if (input.args[0] === "session") {
-        resolveCalls += 1;
-        return Effect.succeed(
-          resolveCalls < 3
-            ? output("", 1)
-            : output(resolveCalls === 3 ? resolvedProject : resolvedWorktree),
+      return Effect.gen(function* () {
+        const binder = yield* Binder.ZmuxSessionBinder;
+        assert.deepStrictEqual(
+          yield* binder.ensure("/repo/project", { projectPath: "/repo/project" }),
+          { status: "ensured", target: "project/main", workspace: "project", session: "main" },
         );
-      }
-      if (input.args[0] === "new") {
-        return Effect.succeed(output("", 1, 'workspace "project" already exists'));
-      }
-      if (input.args[0] === "workspace") {
-        return Effect.succeed(output("Workspace project root → /repo/project"));
-      }
-      return Effect.succeed(output(bound));
+        assert.deepStrictEqual(
+          run.mock.calls.map(([i]) => i.args),
+          [
+            ["session", "resolve", "--cwd", "/repo/project", "--json"],
+            [
+              "checkout",
+              "ensure",
+              "--workspace",
+              "project",
+              "--root",
+              "/repo/project",
+              "--cwd",
+              "/repo/project",
+              "--no-switch",
+              "--json",
+              "--create-workspace",
+            ],
+            ["session", "resolve", "--cwd", "/repo/project", "--json"],
+          ],
+        );
+      }).pipe(Effect.provide(layer(run)));
     });
-
-    return Effect.gen(function* () {
-      const result = yield* bindProjectWorktree;
-
-      assert.deepStrictEqual(result, {
-        status: "bound",
-        target: "project/feature",
-        outcome: "created",
-      });
-      assert.deepStrictEqual(
-        run.mock.calls.map(([input]) => input.args),
-        [
-          ["session", "resolve", "--cwd", "/repo/project", "--json"],
-          ["new", "project"],
-          ["session", "resolve", "--cwd", "/repo/project", "--json"],
-          ["workspace", "set-root", "project", "/repo/project"],
-          ["session", "resolve", "--cwd", "/repo/project", "--json"],
-          ["wt", "--adopt", "/repo/project-worktree", "--yes", "--json", "--no-switch"],
-          ["session", "resolve", "--cwd", "/repo/project-worktree", "--json"],
-        ],
-      );
-    }).pipe(Effect.provide(makeLayer(run)));
-  });
-
-  it.effect("refuses a conflicting populated workspace before adoption", () => {
-    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
-      if (input.args[0] === "session") {
-        return Effect.succeed(output("", 1));
-      }
-      if (input.args[0] === "new") {
-        return Effect.succeed(output("", 1, 'workspace "project" already exists'));
-      }
-      return Effect.succeed(
+  it.effect("linked setup shares the same atomic ensure", () => {
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(
         output(
-          "",
-          1,
-          'workspace root "/repo/project" belongs to a different Git repository than workspace "project"',
+          input.args[0] === "session"
+            ? input.args[3] === "/repo/project"
+              ? project
+              : worktree
+            : ensured(true),
         ),
-      );
-    });
-
+      ),
+    );
     return Effect.gen(function* () {
-      const result = yield* bindProjectWorktree;
-
-      assert.equal(result.status, "failed");
-      if (result.status !== "failed") return;
-      assert.equal(result.notice.summary, "zmux workspace root needs attention");
-      assert.match(result.notice.detail, /belongs to a different Git repository/);
-      assert.match(result.notice.detail, /zmux ls project/);
-      assert.match(result.notice.detail, /zmux workspace set-root project <project-root>/);
+      const binder = yield* Binder.ZmuxSessionBinder;
       assert.deepStrictEqual(
-        run.mock.calls.map(([input]) => input.args[0]),
-        ["session", "new", "session", "workspace"],
+        yield* binder.bind("/repo/project-worktree", { projectPath: "/repo/project" }),
+        { status: "bound", target: "project/feature", outcome: "created" },
       );
-    }).pipe(Effect.provide(makeLayer(run)));
+      assert.equal(
+        run.mock.calls.some(([i]) => i.args[0] === "wt"),
+        false,
+      );
+      assert.deepStrictEqual(run.mock.calls[1]?.[0].args, [
+        "checkout",
+        "ensure",
+        "--workspace",
+        "project",
+        "--root",
+        "/repo/project",
+        "--cwd",
+        "/repo/project-worktree",
+        "--no-switch",
+        "--json",
+        "--create-workspace",
+      ]);
+    }).pipe(Effect.provide(layer(run, "/repo/project-worktree")));
+  });
+  it.effect("surfaces atomic conflict without legacy repair", () => {
+    const refusal = JSON.stringify({
+      status: "refused",
+      code: "repository_conflict",
+      workspace: "project",
+      session: "",
+      target: "",
+      nativeId: null,
+      message: "workspace root belongs to another Git checkout",
+    });
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) =>
+      Effect.succeed(input.args[0] === "session" ? output("", 1) : output(refusal, 1)),
+    );
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const result = yield* binder.ensure("/repo/project", { projectPath: "/repo/project" });
+      assert.equal(result.status, "failed");
+      if (result.status === "failed") assert.match(result.notice.detail, /repository_conflict/);
+      assert.equal(
+        run.mock.calls.some(([i]) => i.args[0] === "workspace" || i.args[0] === "new"),
+        false,
+      );
+    }).pipe(Effect.provide(layer(run)));
+  });
+  it.effect("serializes concurrent calls around the atomic command", () => {
+    let exists = false;
+    const run = vi.fn((input: ProcessRunner.ProcessRunInput) => {
+      if (input.args[0] === "checkout") {
+        const state = exists ? "reused" : "created";
+        exists = true;
+        return Effect.succeed(output(ensured(false, state)));
+      }
+      return Effect.succeed(output(exists ? project : "", exists ? 0 : 1));
+    });
+    return Effect.gen(function* () {
+      const binder = yield* Binder.ZmuxSessionBinder;
+      const results = yield* Effect.all(
+        [
+          binder.ensure("/repo/project", { projectPath: "/repo/project" }),
+          binder.ensure("/repo/project", { projectPath: "/repo/project" }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      assert.equal(
+        results.every((r) => r.status === "ensured"),
+        true,
+      );
+      assert.equal(run.mock.calls.filter(([i]) => i.args[0] === "checkout").length, 2);
+    }).pipe(Effect.provide(layer(run)));
   });
 });
