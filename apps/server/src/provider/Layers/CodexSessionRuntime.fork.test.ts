@@ -46,58 +46,63 @@ describe("buildTurnStartParams", () => {
   );
 });
 describe("openCodexThread", () => {
-  it.effect("layers a selected Codex custom agent onto thread start", () =>
-    Effect.gen(function* () {
-      const calls: Array<{
-        method: "thread/start" | "thread/resume";
-        payload: unknown;
-      }> = [];
-      const started = makeThreadOpenResponse("agent-thread");
-      const client = {
-        request: <M extends "thread/start" | "thread/resume">(
-          method: M,
-          payload: CodexRpc.ClientRequestParamsByMethod[M],
-        ) => {
-          calls.push({ method, payload });
-          return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
-        },
-      };
-      yield* openCodexThread({
-        client,
-        threadId: ThreadId.make("thread-agent"),
-        runtimeMode: "full-access",
-        cwd: "/tmp/project",
-        requestedModel: "gpt-5.6-sol",
-        serviceTier: undefined,
-        resumeThreadId: undefined,
-        agent: {
-          name: "fable",
-          description: "Shape product direction",
-          developerInstructions: "Work from first principles.",
-          config: {
-            model: "gpt-5.6-sol",
-            model_reasoning_effort: "high",
-          },
-          sourcePath: "/tmp/fable.toml",
-        },
-      });
-      NodeAssert.deepStrictEqual(calls, [
-        {
-          method: "thread/start",
-          payload: {
-            cwd: "/tmp/project",
-            approvalPolicy: "never",
-            sandbox: "danger-full-access",
-            approvalsReviewer: "user",
-            model: "gpt-5.6-sol",
-            developerInstructions: "Work from first principles.",
-            config: {
-              model: "gpt-5.6-sol",
-              model_reasoning_effort: "high",
+  for (const resumeThreadId of [undefined, "retained-agent-thread"]) {
+    it.effect(
+      `layers a selected Codex custom agent onto thread ${resumeThreadId ? "resume" : "start"}`,
+      () =>
+        Effect.gen(function* () {
+          const calls: Array<{
+            method: "thread/start" | "thread/resume";
+            payload: unknown;
+          }> = [];
+          const started = makeThreadOpenResponse("agent-thread");
+          const client = {
+            request: <M extends "thread/start" | "thread/resume">(
+              method: M,
+              payload: CodexRpc.ClientRequestParamsByMethod[M],
+            ) => {
+              calls.push({ method, payload });
+              return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
             },
-          },
-        },
-      ]);
-    }),
-  );
+          };
+          yield* openCodexThread({
+            client,
+            threadId: ThreadId.make("thread-agent"),
+            runtimeMode: "full-access",
+            cwd: "/tmp/project",
+            requestedModel: "gpt-5.6-sol",
+            serviceTier: undefined,
+            resumeThreadId,
+            agent: {
+              name: "fable",
+              description: "Shape product direction",
+              developerInstructions: "Work from first principles.",
+              config: {
+                model: "gpt-5.6-sol",
+                model_reasoning_effort: "high",
+              },
+              sourcePath: "/tmp/fable.toml",
+            },
+          });
+          NodeAssert.deepStrictEqual(calls, [
+            {
+              method: resumeThreadId ? "thread/resume" : "thread/start",
+              payload: {
+                ...(resumeThreadId ? { threadId: resumeThreadId } : {}),
+                cwd: "/tmp/project",
+                approvalPolicy: "never",
+                sandbox: "danger-full-access",
+                approvalsReviewer: "user",
+                model: "gpt-5.6-sol",
+                developerInstructions: "Work from first principles.",
+                config: {
+                  model: "gpt-5.6-sol",
+                  model_reasoning_effort: "high",
+                },
+              },
+            },
+          ]);
+        }),
+    );
+  }
 });

@@ -80,6 +80,39 @@ const guardInput = (overrides: Partial<GuardInput> = {}): GuardInput => ({
   ...overrides,
 });
 
+it("guards provider agent implementations while allowing provider-specific siblings and calls", () => {
+  const sha = "a".repeat(40);
+  const cases = [
+    ["ClaudeProvider.ts", "+export function parseClaudeInitializationAgents(agents) {", true],
+    ["ClaudeProvider.ts", "+export const withClaudeAgentOptions = (models) => {", true],
+    ["CodexProvider.ts", "+export function withCodexAgentOptions(models) {", true],
+    ["ClaudeAgentOptions.fork.ts", "+export function withClaudeAgentOptions(models) {", false],
+    ["CodexAgentOptions.fork.ts", "+export function withCodexAgentOptions(models) {", false],
+    ["ClaudeProvider.ts", "+const models = withClaudeAgentOptions(baseModels, agents);", false],
+    [
+      "CodexProvider.ts",
+      '+import { withCodexAgentOptions } from "./CodexAgentOptions.fork.ts";',
+      false,
+    ],
+    ["ClaudeProvider.ts", "-export function withClaudeAgentOptions(models) {", false],
+  ] as const;
+  for (const [file, line, expected] of cases) {
+    const path = `apps/server/src/provider/Layers/${file}`;
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(sha, `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${line}`),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "provider-agent-boundary"),
+      expected,
+      `${file}: ${line}`,
+    );
+  }
+});
+
 it("keeps a path hot only while the ledger charged for it more than once", () => {
   const seams = readHotSeams(churn);
   assert.deepStrictEqual([...seams.keys()], ["apps/web/src/components/ChatView.tsx"]);
