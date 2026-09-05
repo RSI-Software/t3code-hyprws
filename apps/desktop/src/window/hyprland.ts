@@ -143,9 +143,9 @@ function formatLuaWindowRule(input: {
   const matcher = formatWindowRuleTitleMatcher(input.title);
   if (matcher === null) return "";
   const key = formatLuaString(formatLuaWindowRuleHandle(input.title, input.kind));
-  const name = formatLuaString(`t3code-desktop-agent-${input.kind}-${input.title}`);
+  const namePrefix = formatLuaString(`t3code-desktop-agent-${input.kind}-${input.title}-`);
   const titleMatcher = formatLuaString(matcher.slice("match:title ".length));
-  return `/eval local key=${key};local old=rawget(_G,key);if old then old:set_enabled(false) end;_G[key]=hl.window_rule({name=${name},match={title=${titleMatcher}},${input.effect}})`;
+  return `/eval local key=${key};local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name=${namePrefix}..seq,match={title=${titleMatcher}},${input.effect}})`;
 }
 
 /** Exact map-time title matcher. Commas cannot be escaped in Hyprland rule fields. */

@@ -103,14 +103,14 @@ describe("hyprland", () => {
     );
   });
 
-  it("formats exact named Lua rules and disables only the temporary workspace rule", () => {
+  it("gives repeated Lua rules unique names and disables only the current workspace rule", () => {
     assert.equal(
       formatWorkspaceWindowRule({ id: 8, name: "8" }, "t3code-dev-agent-a", "lua"),
-      '/eval local key="t3code.desktop-agent.workspace.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;_G[key]=hl.window_rule({name="t3code-desktop-agent-workspace-t3code-dev-agent-a",match={title="^(t3code-dev-agent-a)$"},workspace="8 silent"})',
+      '/eval local key="t3code.desktop-agent.workspace.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-workspace-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},workspace="8 silent"})',
     );
     assert.equal(
       formatSuppressActivationWindowRule("t3code-dev-agent-a", "lua"),
-      '/eval local key="t3code.desktop-agent.suppression.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;_G[key]=hl.window_rule({name="t3code-desktop-agent-suppression-t3code-dev-agent-a",match={title="^(t3code-dev-agent-a)$"},suppress_event="activate activate_focus"})',
+      '/eval local key="t3code.desktop-agent.suppression.t3code-dev-agent-a";local old=rawget(_G,key);if old then old:set_enabled(false) end;local seqkey=key..".sequence";local seq=(rawget(_G,seqkey) or 0)+1;rawset(_G,seqkey,seq);_G[key]=hl.window_rule({name="t3code-desktop-agent-suppression-t3code-dev-agent-a-"..seq,match={title="^(t3code-dev-agent-a)$"},suppress_event="activate activate_focus"})',
     );
     assert.equal(
       formatClearWorkspaceWindowRule("t3code-dev-agent-a", "lua"),
