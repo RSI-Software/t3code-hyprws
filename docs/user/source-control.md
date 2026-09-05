@@ -203,3 +203,7 @@ Control settings**.
 - [GitHub CLI](https://cli.github.com/)
 - [GitLab CLI](https://gitlab.com/gitlab-org/cli)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/)
+
+## Moving a started thread between checkouts
+
+A started thread can move to another existing checkout from the branch selector. Provider continuation, queued turns, terminal follow and pin behavior, retry, and checked undo are described in [Managed terminals and checkout moves](managed-terminals.md).
