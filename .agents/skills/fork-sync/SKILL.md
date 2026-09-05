@@ -11,6 +11,36 @@ merge upstream into `hyprws`, or move a bot-owned ref by hand. The
 
 ## Entry point: unblock
 
+### Same-base historical preparation
+
+When the original fork patches need reconstruction, first finish the reviewed executable manifest
+described in the runbook's **Historical rewrite construction** section. The design-only report is
+not executable. Keep every unresolved proof gate explicit; the constructor refuses it.
+
+```bash
+vp run fork:sync rewrite-build --manifest <reviewed-manifest.json> --json
+vp run fork:sync rewrite-rehearse --from <receipt-result-sha> --manifest <reviewed-manifest.json> --issue <live-block-issue>
+vp run fork:sync unblock-check --report <emitted-rewrite-report>
+vp run fork:sync unblock-auto --resume --report <emitted-rewrite-report>
+```
+
+This constructs unreferenced objects, then prepares a same-base lane. It does not replay the newest
+upstream tag. A publishable rewrite requires its exact construction receipt, unchanged source and
+base tag, live blocking marker, and an existing retained outcome declaration for that base. Missing
+outcome evidence needs reviewed reconciliation; never invent eligibility to get through the gate.
+No proof relaxation applies. The check pins the base tag and the installed head must equal the
+constructed head. Refresh cannot substitute a different candidate.
+
+For a nightly base, the final command binds the walking host and stops for the same independent
+Claude Opus review below. The reviewer signs that rewrite's report and record; auto resume applies
+with its expected-old lease. Keep judgement and withhold boundaries unchanged. After the same-base
+apply, start a fresh tagged unblock report for the actual upstream replay. Set
+`FORK_OUTCOME_EXECUTOR=agent` on operator auto/check/apply invocations and publish their retained
+outcome evidence; a same-base rewrite is an attempt on the existing target, not an upstream advance
+or unattended success.
+
+### Tagged upstream replay
+
 Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. It selects the
 open walk target (or the newest offered tag), accepts a coherent orientation, replays rerere and
 generated conflicts, takes the pushed-lane CI verdict, and records the walking host's clear keep
