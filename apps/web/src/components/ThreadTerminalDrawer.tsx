@@ -1245,6 +1245,44 @@ function TerminalActionButton({
   );
 }
 
+interface TerminalCheckoutModeButtonProps {
+  layout: "floating" | "sidebar";
+  terminalId: string;
+  mode: "follow" | "pin";
+  disabled?: boolean | undefined;
+  onModeChange?: ((terminalId: string, mode: "follow" | "pin") => void) | undefined;
+}
+
+export function TerminalCheckoutModeButton({
+  layout,
+  terminalId,
+  mode,
+  disabled,
+  onModeChange,
+}: TerminalCheckoutModeButtonProps) {
+  return (
+    <TerminalActionButton
+      className={cn(
+        layout === "sidebar"
+          ? "inline-flex h-full items-center border-l border-border/70 px-1 transition-colors hover:bg-accent/70"
+          : "p-1 transition-colors hover:bg-accent",
+        mode === "pin" ? "text-amber-500" : "text-foreground/90",
+      )}
+      onClick={() => onModeChange?.(terminalId, mode === "pin" ? "follow" : "pin")}
+      disabled={disabled}
+      label={
+        disabled
+          ? "Checkout mode is locked while the thread is moving"
+          : mode === "pin"
+            ? "Follow thread checkout"
+            : "Pin terminal checkout"
+      }
+    >
+      <Pin className="size-3.25" />
+    </TerminalActionButton>
+  );
+}
+
 export default function ThreadTerminalDrawer({
   mode = "drawer",
   threadRef,
@@ -1674,30 +1712,13 @@ export default function ThreadTerminalDrawer({
               <SquareSplitVertical className="size-3.25" />
             </TerminalActionButton>
             <div className="h-4 w-px bg-border/80" />
-            <TerminalActionButton
-              className={cn(
-                "p-1 transition-colors hover:bg-accent",
-                checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
-                  ? "text-amber-500"
-                  : "text-foreground/90",
-              )}
-              onClick={() =>
-                onCheckoutModeChange?.(
-                  resolvedActiveTerminalId,
-                  checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin" ? "follow" : "pin",
-                )
-              }
+            <TerminalCheckoutModeButton
+              layout="floating"
+              terminalId={resolvedActiveTerminalId}
+              mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
               disabled={checkoutModeChangeDisabled}
-              label={
-                checkoutModeChangeDisabled
-                  ? "Checkout mode is locked while the thread is moving"
-                  : checkoutModeByTerminalId?.[resolvedActiveTerminalId] === "pin"
-                    ? "Follow thread checkout"
-                    : "Pin terminal checkout"
-              }
-            >
-              <Pin className="size-3.25" />
-            </TerminalActionButton>
+              onModeChange={onCheckoutModeChange}
+            />
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
@@ -1848,6 +1869,13 @@ export default function ThreadTerminalDrawer({
                   >
                     <SquareSplitVertical className="size-3.25" />
                   </TerminalActionButton>
+                  <TerminalCheckoutModeButton
+                    layout="sidebar"
+                    terminalId={resolvedActiveTerminalId}
+                    mode={checkoutModeByTerminalId?.[resolvedActiveTerminalId] ?? "follow"}
+                    disabled={checkoutModeChangeDisabled}
+                    onModeChange={onCheckoutModeChange}
+                  />
                   <TerminalActionButton
                     className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
                     onClick={onNewTerminalAction}
