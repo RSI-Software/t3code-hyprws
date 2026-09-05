@@ -38,7 +38,7 @@ import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker
 import { isInheritedTmuxEnvKey, stripInheritedTmuxEnv } from "@t3tools/shared/env";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { randomBytes } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -2313,7 +2313,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       });
     }
 
-    const nonce = randomBytes(24).toString("base64url");
+    const nonce = NodeCrypto.randomBytes(24).toString("base64url");
     const readyCandidate: ShellCandidate = {
       ...resolved.candidate,
       args: [...(resolved.candidate.args ?? []), "--ready-token", nonce],
