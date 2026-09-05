@@ -586,16 +586,22 @@ export const make = Effect.gen(function* () {
     if (outputResult.success.timedOut) {
       return verificationFailure(`zmux checkout ensure timed out after ${ZMUX_OPERATION_TIMEOUT}`);
     }
+    if (outputResult.success.code !== 0) {
+      const decodedFailure = yield* decodeEnsureOutput(outputResult.success.stdout).pipe(
+        Effect.result,
+      );
+      if (decodedFailure._tag === "Success") {
+        return verificationFailure(
+          `${decodedFailure.success.code}: ${decodedFailure.success.message ?? "checkout ensure refused"}`,
+        );
+      }
+      return verificationFailure(yield* failureDetail(outputResult.success));
+    }
     const decoded = yield* decodeEnsureOutput(outputResult.success.stdout).pipe(Effect.result);
     if (decoded._tag === "Failure") {
       return verificationFailure("zmux returned an invalid checkout ensure response");
     }
     const ensured = decoded.success;
-    if (outputResult.success.code !== 0) {
-      return verificationFailure(
-        `${ensured.code}: ${ensured.message ?? "checkout ensure refused"}`,
-      );
-    }
     if (
       ensured.status !== "created" &&
       ensured.status !== "reused" &&
