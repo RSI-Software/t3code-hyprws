@@ -21,6 +21,7 @@ import {
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
+  ThreadCheckoutMoveUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadSettledPayload,
@@ -507,6 +508,35 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    case "thread.checkout-move-updated":
+      return decodeForEvent(
+        ThreadCheckoutMoveUpdatedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((candidate) => candidate.id === payload.threadId);
+          const project = nextBase.projects.find((candidate) => candidate.id === thread?.projectId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              checkoutMove: payload.move,
+              ...(payload.move.status === "committed" && payload.move.destination
+                ? {
+                    branch: payload.move.destination.branch,
+                    worktreePath:
+                      payload.move.destination.checkoutRoot === project?.workspaceRoot
+                        ? null
+                        : payload.move.destination.checkoutRoot,
+                  }
+                : {}),
+              updatedAt: payload.move.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.runtime-mode-set":
