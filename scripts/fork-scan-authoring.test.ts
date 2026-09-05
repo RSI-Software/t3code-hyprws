@@ -11,6 +11,33 @@ const scanScript = NodePath.join(import.meta.dirname, "fork-scan.ts");
 const encodeFixtureJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const authoringCases = [
   {
+    name: "rich Markdown editor loading",
+    sourcePath: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    inlineImplementation: 'const editor = lazy(() => import("./MarkdownRichEditor"));',
+    forkPath: "apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx",
+    integrationCall: 'import { RichMarkdownPreviewBoundary } from "./RichMarkdownPreviewBoundary";',
+    rule: "rich-markdown-boundary",
+    domain: "markdown-editing",
+  },
+  {
+    name: "rich Markdown inline surface",
+    sourcePath: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    inlineImplementation: "function RichMarkdownSurface(props) { return renderEditor(props); }",
+    forkPath: "apps/web/src/components/files/RichMarkdownPreviewBoundary.tsx",
+    integrationCall: "const preview = <RichMarkdownPreviewBoundary {...props} />;",
+    rule: "rich-markdown-boundary",
+    domain: "markdown-editing",
+  },
+  {
+    name: "rich Markdown link normalization",
+    sourcePath: "apps/web/src/markdown-links.ts",
+    inlineImplementation: "function normalizeDotSegments(path) { return normalize(path); }",
+    forkPath: "apps/web/src/components/files/richMarkdownEditorLinks.ts",
+    integrationCall: "const path = resolveMarkdownFileLinkMeta(href, cwd);",
+    rule: "rich-markdown-boundary",
+    domain: "markdown-editing",
+  },
+  {
     name: "spawn target resolution",
     sourcePath: "apps/web/src/components/chat/MessagesTimeline.tsx",
     inlineImplementation:
