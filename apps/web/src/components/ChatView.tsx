@@ -163,6 +163,14 @@ import {
   useThreadPreviewState,
 } from "../previewStateStore";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
+import {
+  armDevAppPreviewHandoff,
+  DevAppPreviewHandoffCancelledError,
+  devAppPreviewActionCommandForRuntime,
+  isDevAppPreviewActionCommand,
+  type DevAppPreviewHandoff,
+} from "../browser/devAppPreviewHandoff";
+import { openUrlInPreview } from "../browser/openFileInPreview";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
@@ -1831,6 +1839,14 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const devAppPreviewHandoffsRef = useRef(new Set<DevAppPreviewHandoff>());
+  useEffect(() => {
+    const handoffs = devAppPreviewHandoffsRef.current;
+    return () => {
+      for (const handoff of handoffs) handoff.cancel();
+      handoffs.clear();
+    };
+  }, [activeThreadKey]);
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const terminalFocusRequestId = nextTerminalFocusRequestId(
     terminalFocusRequests.threadKey,
@@ -3512,7 +3528,10 @@ export default function ChatView(props: ChatViewProps) {
           cwd: activeProject.workspaceRoot,
         },
         worktreePath: targetWorktreePath,
-        ...(options?.env ? { extraEnv: options.env } : {}),
+        extraEnv: {
+          ...options?.env,
+          T3CODE_PROJECT_ID: activeProject.id,
+        },
       });
       const targetTerminalId = shouldCreateNewTerminal
         ? nextTerminalId(allocatableActiveTerminalIds)
@@ -3553,14 +3572,65 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      const isDevAppPreviewAction = isDevAppPreviewActionCommand(script.command);
+      const previewSupported = isPreviewSupportedInRuntime();
+      let previewHandoff: DevAppPreviewHandoff | null = null;
+      if (isDevAppPreviewAction && previewSupported) {
+        previewHandoff = armDevAppPreviewHandoff({
+          environmentId,
+          terminal: openTerminalInput,
+          onPreviewUrl: async (url) => {
+            if (!previewHandoff || !devAppPreviewHandoffsRef.current.delete(previewHandoff)) {
+              return;
+            }
+            const previewResult = await openUrlInPreview({
+              threadRef: activeThreadRef,
+              url,
+              openPreview,
+            });
+            if (previewResult._tag === "Failure" && !isAtomCommandInterrupted(previewResult)) {
+              const error = squashAtomCommandFailure(previewResult);
+              setThreadError(
+                activeThreadId,
+                error instanceof Error ? error.message : "Failed to open the dev app preview.",
+              );
+            }
+          },
+          onError: (message) => {
+            if (previewHandoff) devAppPreviewHandoffsRef.current.delete(previewHandoff);
+            setThreadError(activeThreadId, message);
+          },
+        });
+        devAppPreviewHandoffsRef.current.add(previewHandoff);
+        try {
+          await previewHandoff.ready;
+        } catch (error: unknown) {
+          devAppPreviewHandoffsRef.current.delete(previewHandoff);
+          if (!(error instanceof DevAppPreviewHandoffCancelledError)) {
+            setThreadError(
+              activeThreadId,
+              error instanceof Error ? error.message : "Failed to watch for the dev app preview.",
+            );
+          }
+          previewHandoff = null;
+        }
+      }
+      if (isDevAppPreviewAction && previewSupported && previewHandoff === null) return;
+
+      const command = devAppPreviewActionCommandForRuntime(script.command, previewSupported);
+
       const writeResult = await writeTerminal({
         environmentId,
         input: {
           threadId: activeThreadId,
           terminalId: targetTerminalId,
-          data: `${script.command}\r`,
+          data: `${command}\r`,
         },
       });
+      if (writeResult._tag === "Failure" && previewHandoff) {
+        previewHandoff.cancel();
+        devAppPreviewHandoffsRef.current.delete(previewHandoff);
+      }
       if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
         const error = squashAtomCommandFailure(writeResult);
         setThreadError(
@@ -3582,6 +3652,7 @@ export default function ChatView(props: ChatViewProps) {
       setLastInvokedScriptByProjectId,
       environmentId,
       openTerminal,
+      openPreview,
       activeKnownTerminalIds,
       allocatableActiveTerminalIds,
       requestTerminalFocus,
