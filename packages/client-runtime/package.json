@@ -95,6 +95,10 @@
       "types": "./src/state/connections.ts",
       "default": "./src/state/connections.ts"
     },
+    "./state/checkout-move": {
+      "types": "./src/state/checkoutMove.ts",
+      "default": "./src/state/checkoutMove.ts"
+    },
     "./state/entities": {
       "types": "./src/state/entities.ts",
       "default": "./src/state/entities.ts"
