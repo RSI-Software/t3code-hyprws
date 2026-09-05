@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  canonicalizeOutcomeReceipts,
   requireOutcomeReceipts,
   outcomeStreak,
   summarizeOutcomes,
@@ -201,6 +202,48 @@ it("deduplicates exact delivery and refuses changed terminal evidence", () => {
     /conflicting immutable/,
   );
   assert.throws(() => requireOutcomeReceipts([attempt(), target]), /eligibility/);
+});
+
+it("canonicalizes target groups without changing their internal receipt order", () => {
+  const older = {
+    ...target,
+    target: { tag: "v0.0.39-nightly.20260903.1273", sha: D },
+  };
+  const olderAttempt = attempt("history", {
+    targetSha: D,
+    trigger: "unknown",
+    executor: "unknown",
+    mode: "unknown",
+  });
+  const olderStage = stage("apply", "unknown", { targetSha: D, attemptId: "history" });
+  const canonical = canonicalizeOutcomeReceipts(
+    [...clean, ...release(), older, olderAttempt, olderStage],
+    (left, right) => (left.target.sha === D ? -1 : right.target.sha === D ? 1 : 0),
+  );
+
+  assert.deepStrictEqual(
+    canonical.filter((row) => row.kind === "target").map((row) => row.target.tag),
+    [older.target.tag, target.target.tag],
+  );
+  assert.deepStrictEqual(canonical.slice(0, 3), [older, olderAttempt, olderStage]);
+  assert.strictEqual(outcomeStreak(canonical).noAgentCarry, 1);
+  assert.strictEqual(outcomeStreak(canonical).distributed, 1);
+});
+
+it("validates every target pair before sorting", () => {
+  const targets = [
+    target,
+    { ...target, target: { tag: "v1-nightly.2", sha: B } },
+    { ...target, target: { tag: "v1-nightly.3", sha: D } },
+  ];
+  const order = [D, B, A];
+  const compared = new Set<string>();
+  canonicalizeOutcomeReceipts(targets, (left, right) => {
+    compared.add([left.target.sha, right.target.sha].toSorted().join(":"));
+    return order.indexOf(left.target.sha) - order.indexOf(right.target.sha);
+  });
+
+  assert.strictEqual(compared.size, 3);
 });
 
 it("retains the first tag and explicitly reconciles aliases without creating another target", () => {
