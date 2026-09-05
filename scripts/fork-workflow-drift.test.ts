@@ -10,6 +10,7 @@ import {
   scanFailureSummary,
 } from "./fork-scan.ts";
 import {
+  CURRENT_WORKFLOW_REVIEW_VERSION,
   parseWorkflowReviews,
   readWorkflowDrift,
   releaseOutcomeExportProblem,
@@ -46,6 +47,10 @@ const releaseWorkflow = NodeFS.readFileSync(
   new URL("../.github/workflows/hyprws-release.yml", import.meta.url),
   "utf8",
 );
+const workflowReviews = NodeFS.readFileSync(
+  new URL(`../${WORKFLOW_REVIEWS_PATH}`, import.meta.url),
+  "utf8",
+);
 
 const fixture = (
   options: {
@@ -74,7 +79,10 @@ const fixture = (
   const git = {
     run: (args: ReadonlyArray<string>): string => {
       if (args[0] === "show" && args[1] === `HEAD:${WORKFLOW_REVIEWS_PATH}`)
-        return JSON.stringify({ version: options.reviewVersion ?? 2, reviews });
+        return JSON.stringify({
+          version: options.reviewVersion ?? CURRENT_WORKFLOW_REVIEW_VERSION,
+          reviews,
+        });
       if (args[0] === "show" && args[1] === "HEAD:.github/workflows/hyprws-release.yml")
         return options.releaseWorkflow ?? releaseWorkflow;
       if (args[0] === "rev-parse") {
@@ -218,6 +226,12 @@ it("refuses absent, malformed, duplicate and unreasoned reviews", () => {
   );
 });
 
+it("keeps the checked-in workflow reviews on the current schema", () => {
+  const document = JSON.parse(workflowReviews) as { readonly version?: unknown };
+  assert.strictEqual(document.version, CURRENT_WORKFLOW_REVIEW_VERSION);
+  assert.lengthOf(parseWorkflowReviews(workflowReviews), WORKFLOW_COPIES.length);
+});
+
 it("refuses provenance that names a different upstream blob", () => {
   const { git } = fixture({ upstream: before });
   const wrong = {
@@ -238,6 +252,30 @@ it("keeps the release outcome export scoped to its collector and upload path", (
         "        env:\n          GH_TOKEN: ${{ github.token }}\n          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}",
       ),
     ),
+  );
+
+  assert.match(
+    releaseOutcomeExportProblem(releaseWorkflow.replace("    if: always()", "    if: success()"))!,
+    /outcome job must declare exact if: always\(\) without continue-on-error/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(releaseWorkflow.replace("    if: always()", "    if : false"))!,
+    /outcome job must declare exact if: always\(\) without continue-on-error/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace("    if: always()", "    if: always()\n    continue-on-error: true"),
+    )!,
+    /outcome job must declare exact if: always\(\) without continue-on-error/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "      FORK_RELEASE_OUTCOME_FILE: fork-release-outcome-receipts.json",
+        '      FORK_RELEASE_OUTCOME_FILE: ""',
+      ),
+    )!,
+    /FORK_RELEASE_OUTCOME_FILE must equal fork-release-outcome-receipts\.json/,
   );
 
   assert.strictEqual(
@@ -323,10 +361,44 @@ it("keeps the release outcome export scoped to its collector and upload path", (
     releaseOutcomeExportProblem(
       releaseWorkflow.replace(
         "      - name: Verify retained release outcome\n",
+        "      - name: Verify retained release outcome\n        if : false\n",
+      ),
+    )!,
+    /must unconditionally test the retained receipt is nonempty between collection and upload/,
+  );
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow.replace(
+        "      - name: Verify retained release outcome\n",
         "      - name: Verify retained release outcome\n        continue-on-error: true\n",
       ),
     )!,
     /must unconditionally test the retained receipt is nonempty between collection and upload/,
+  );
+
+  const decoyJob = `  outcome-decoy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retain release outcome
+        env:
+          FORK_OUTCOME_EXPORT: \${{ runner.temp }}/\${{ env.FORK_RELEASE_OUTCOME_FILE }}
+      - name: Verify retained release outcome
+        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"
+      - name: Upload distribution evidence
+        uses: actions/upload-artifact@v7
+        with:
+          path: |
+            \${{ runner.temp }}/\${{ env.FORK_RELEASE_OUTCOME_FILE }}
+          if-no-files-found: error
+
+`;
+  assert.match(
+    releaseOutcomeExportProblem(
+      releaseWorkflow
+        .replace("FORK_OUTCOME_EXPORT:", "FORK_OUTCOME_EXPROT:")
+        .replace("  outcome:\n", `${decoyJob}  outcome:\n`),
+    )!,
+    /Retain release outcome env/,
   );
 });
 
