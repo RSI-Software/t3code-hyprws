@@ -565,6 +565,11 @@ the candidate, closes each passing child, and leaves follow-up or polish work op
 A `Signed off` parent comment is recommended when the candidate is accepted in principle, but neither
 that comment nor complete child closure is an automatic publication gate.
 
+Normal UAT rendering omits `--since`; `fork:uat` selects the newest eligible stable tag for the
+candidate's upstream base. `--since` is an explicit historical or human-directed override, and the
+rendered snapshot marks it as `(overridden)` so the comparison boundary is visible before
+preparation.
+
 At the stable sign-off stop, present the selected issue, snapshot branch and SHA, derived tag, prior
 matching tags, all preparation results, the clean/ref checks, and the UAT evidence. If the app cannot
 launch or basic use fails, the human withholds the explicit release go. Ordinary open children,

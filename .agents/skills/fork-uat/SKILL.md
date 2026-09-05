@@ -14,6 +14,12 @@ or move, edit, create, or push a ref. `hyprws` is the default ref; a related iss
    vp run fork:uat [--ref <ref>] [--version vX.Y.Z-hyprws] [--since vX.Y.Z-hyprws.N] [--relates-to N]
    ```
 
+   Omit `--since` for normal UAT work. The command selects the newest eligible stable tag for the
+   ref's upstream base and carries the UAT associated with that tag. Use `--since` only when the
+   human names an exact baseline or when rehearsing a historical migration. Confirm that the draft
+   marks `Previous stable` as `(overridden)` and tell the human why that override is intentional.
+   If automatic selection looks wrong, stop and report it instead of silently pinning another tag.
+
    The target defaults to `vX.Y.Z-hyprws` from the ref's upstream base tag. It writes
    `.dump/fork-uat/uat-<version>.md`. When the previous stable has a UAT issue, accepted and unsettled
    conditions are copied into fresh unchecked task drafts with their prior evidence preserved.
