@@ -298,6 +298,11 @@ Verify the complete browser/Electron gap before retiring the domain.
 
 After every rebase onto upstream, check these before trusting a clean merge.
 
+The named preview guard is `preserves profile partitions and window ownership through the assembled
+preload` in `apps/desktop/src/ipc/methods/preview.fork.test.ts`. It exercises the actual preload,
+IPC validation, WindowPolicy, PreviewManager and BrowserSession over isolated Electron storage.
+Profile clearing must preserve other profiles, while equal hub/project tab IDs remain independent.
+
 | Path                                                                                                                                | Why it matters                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `apps/desktop/src/window/DesktopWindow.ts`                                                                                          | The window service the fork makes plural and the no-focus dev launch seam.      |
@@ -323,7 +328,7 @@ After every rebase onto upstream, check these before trusting a clean merge.
 | `apps/desktop/src/preview/WindowPolicy*.ts`                                                                                         | Fork-owned window ownership, sender authorization, and whole-bridge preload.    |
 | `apps/desktop/src/preview/WindowPolicy.fork.test.ts`                                                                                | Guards routing, authorization, disposal, and assembled bridge preservation.     |
 | `apps/desktop/src/preview/Manager.fork.test.ts`                                                                                     | Exercises real manager tab namespacing and cross-window denial.                 |
-| `apps/desktop/src/ipc/methods/preview.fork.test.ts`                                                                                 | Exercises sender authorization and owned event delivery through IPC.            |
+| `apps/desktop/src/ipc/methods/preview.fork.test.ts`                                                                                 | Guards preload/IPC profile clearing and independent hub/project tab ownership.  |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                                                                            | Narrow preview-policy integrations; bridge assembly stays upstream-shaped.      |
 | `packages/contracts/src/ipc.ts`                                                                                                     | `openProjectWindow` lives here.                                                 |
 | `apps/web/src/routes/project.*`                                                                                                     | Fork-only route subtree.                                                        |
