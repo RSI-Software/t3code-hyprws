@@ -77,6 +77,36 @@ git show refs/fork/churn:fork-churn.json
 
 ### Churn ledger
 
+The v2 ledger keeps `walks` and immutable `seamRecords` in the same `fork-churn.json`.
+Legacy arrays remain readable; no migration invents repair or verification records.
+Before rewriting a named seam, freeze its full census and reviewed identity mapping:
+
+```bash
+node scripts/fork-churn.ts record --input reviewed-seams.json --push
+```
+
+`record` validates and stores a maintainer-attested bundle. It does not run the guard command
+named by a verification record. Its one-line receipt reports added records and the resulting
+ref; replaying an identical bundle adds nothing. `--push` publishes with the captured old lease.
+Malformed input leaves the ref untouched.
+
+The report extends the existing census table with explicit seam states:
+
+| State               | Meaning                                                                                       | Report exit                    |
+| ------------------- | --------------------------------------------------------------------------------------------- | ------------------------------ |
+| observed            | Seen, with no verified repair                                                                 | 0                              |
+| not-observed        | Not in the latest complete census; still unresolved                                           | 0 unless already blocking      |
+| unknown             | Partial or incompatible observation; prior state remains unresolved                           | Prior blocking verdict remains |
+| returned-unresolved | Seen again without comparable repair proof                                                    | 1                              |
+| repair-unverified   | Named change and guard, without comparable passing evidence                                   | Prior blocking verdict remains |
+| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass                  | 0                              |
+| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure | 1                              |
+
+Ordinary replays preserve the path/subject/domain observation identity despite changing SHAs.
+Reviewed mappings preserve that identity through renames, moves and splits. Unknown methods,
+changed targets and absent rows never prove repair. A previous blocking verdict needs comparable
+repair verification to clear it. The full report keeps unresolved seams visible even when absent.
+
 The ledger moved off `docs/internals/fork-churn.json` onto `refs/fork/churn`. The document at
 `docs/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both
 files, along with the `docs(fork-churn): row ...` commits, at a later rebase. Seed the ref once
