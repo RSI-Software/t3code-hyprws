@@ -266,17 +266,23 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         yield* write(path, 'effectIt.effect("fork attachment", () => Effect.void);\n');
         const trailers = "Fork-Domain: project-windows\nFork-Tier: core";
         const bad = commit(`fork independently adds attachment tests\n\n${trailers}`);
-        const scan = (target: string, since: string | null) =>
+        const scan = (
+          target: string,
+          since: string | null,
+          head = "HEAD",
+          sameTreeRewriteOf: string | null = null,
+        ) =>
           NodeChildProcess.spawnSync(
             process.execPath,
             [
               scanScript,
               "--head",
-              "HEAD",
+              head,
               "--target",
               target,
               "--no-typecheck",
               ...(since === null ? [] : ["--since", since]),
+              ...(sameTreeRewriteOf === null ? [] : ["--same-tree-rewrite-of", sameTreeRewriteOf]),
             ],
             { cwd: root, encoding: "utf8" },
           );
@@ -286,6 +292,32 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         assert.strictEqual(rejected.status, 1, rejected.stderr);
         assert.include(rejected.stdout, "upstream-test");
         assert.include(rejected.stdout, "adopted authoring guard");
+        const rewritten = NodeChildProcess.execFileSync(
+          "git",
+          ["commit-tree", git(["rev-parse", `${bad}^{tree}`]), "-p", base],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GIT_AUTHOR_NAME: "Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+              GIT_COMMITTER_NAME: "Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+            },
+            input: `rewrite history\n\n${trailers}\n`,
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        ).trim();
+        const rewrittenUnscoped = scan(target, base, rewritten);
+        assert.strictEqual(rewrittenUnscoped.status, 1, rewrittenUnscoped.stderr);
+        assert.include(rewrittenUnscoped.stdout, "adopted authoring guard");
+        const rewrittenSameTree = scan(target, base, rewritten, bad);
+        assert.strictEqual(rewrittenSameTree.status, 0, rewrittenSameTree.stderr);
+        assert.notInclude(rewrittenSameTree.stdout, "upstream-test");
+        const rewrittenChangedTree = scan(target, base, rewritten, base);
+        assert.strictEqual(rewrittenChangedTree.status, 1, rewrittenChangedTree.stderr);
+        assert.include(rewrittenChangedTree.stderr, "historical rewrite head");
         const historical = scan(target, null);
         assert.strictEqual(historical.status, 0, historical.stderr);
         assert.include(historical.stdout, "upstream-test");
