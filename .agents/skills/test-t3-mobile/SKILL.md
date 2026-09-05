@@ -38,6 +38,8 @@ Bundle or package presence proves the correct variant, not native compatibility.
 
 Run backend commands from the repository root. Use the ignored, worktree-local `.t3` directory or create a fresh directory with the host OS's temporary-directory mechanism. An explicit base directory stores state in `<base-dir>/userdata`; never point testing at shared `~/.t3` state.
 
+For fork validation, use the base checkout for exploration, the implementation worktree for feature verification, or a checkout pinned to the exact candidate SHA for release acceptance. When a `dev:app` web or Electron surface already owns that checkout's backend, reuse its printed server port and `.t3` base directory for mobile pairing instead of starting a second backend. Each mobile client still needs its own pairing credential.
+
 Seed a small number of meaningful Git projects before starting the backend:
 
 ```bash
@@ -66,7 +68,7 @@ Use these client origins:
 - Android Emulator: `http://10.0.2.2:<server-port>`
 - Physical device: bind the backend to `0.0.0.0` and use the host's reachable LAN origin
 
-Enter the complete `http://` origin to make the test transport explicit. Bare IP addresses default to HTTP, while bare hostnames default to HTTPS. When testing web and mobile together, run `vp run dev --home-dir <base-dir> --host 127.0.0.1` instead and do not launch a second backend over the same base directory.
+Enter the complete `http://` origin to make the test transport explicit. Bare IP addresses default to HTTP, while bare hostnames default to HTTPS. When testing web and mobile together without `dev:app`, run `vp run dev --home-dir <base-dir> --host 127.0.0.1` instead and do not launch a second backend over the same base directory.
 
 ## Start or reuse Metro safely
 
