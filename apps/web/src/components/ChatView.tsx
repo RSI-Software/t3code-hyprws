@@ -279,6 +279,7 @@ import {
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
+import { resolveTerminalCheckoutLaunch } from "../terminalCheckoutLaunch.fork";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { projectEnvironment } from "../state/projects";
@@ -897,22 +898,31 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
       }
       const followsCheckout =
         terminalUiState.checkoutModeByTerminalId[session.target.terminalId] !== "pin";
-      const worktreePathForLaunch =
-        followsCheckout && launchContext !== null
-          ? launchContext.worktreePath
-          : summary.worktreePath;
+      const launchLocation = resolveTerminalCheckoutLaunch({
+        mode: followsCheckout ? "follow" : "pin",
+        projectCwd: project.workspaceRoot,
+        selectedWorktreePath: serverThread?.worktreePath,
+        requested: launchContext,
+        current: summary,
+      });
       next.set(session.target.terminalId, {
-        cwd: followsCheckout ? (launchContext?.cwd ?? summary.cwd) : summary.cwd,
-        worktreePath: worktreePathForLaunch,
+        cwd: launchLocation.cwd,
+        worktreePath: launchLocation.worktreePath,
         runtimeEnv: projectScriptRuntimeEnv({
           project: { cwd: project.workspaceRoot },
-          worktreePath: worktreePathForLaunch,
+          worktreePath: launchLocation.worktreePath,
         }),
       });
     }
 
     return next;
-  }, [drawerTerminalSessions, launchContext, project, terminalUiState.checkoutModeByTerminalId]);
+  }, [
+    drawerTerminalSessions,
+    launchContext,
+    project,
+    serverThread?.worktreePath,
+    terminalUiState.checkoutModeByTerminalId,
+  ]);
   const serverOrderedTerminalIds = useMemo(
     () => drawerTerminalSessions.map((session) => session.target.terminalId),
     [drawerTerminalSessions],
@@ -1317,33 +1327,27 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
         knownTerminalSessions.find((session) => session.target.terminalId === terminalId)?.state
           .summary ?? null;
       const followsCheckout = terminalUiState.checkoutModeByTerminalId[terminalId] !== "pin";
-      const terminalWorktreePath = followsCheckout
-        ? (launchContext?.worktreePath ?? summary?.worktreePath ?? threadWorktreePath)
-        : (summary?.worktreePath ?? threadWorktreePath);
-      const terminalCwd =
-        (followsCheckout ? launchContext?.cwd : undefined) ??
-        summary?.cwd ??
-        (project
-          ? projectScriptCwd({
-              project: { cwd: project.workspaceRoot },
-              worktreePath: terminalWorktreePath,
-            })
-          : null);
-      if (!terminalCwd || !project) continue;
+      if (!project) continue;
+      const launchLocation = resolveTerminalCheckoutLaunch({
+        mode: followsCheckout ? "follow" : "pin",
+        projectCwd: project.workspaceRoot,
+        selectedWorktreePath: threadWorktreePath,
+        requested: launchContext,
+        current: summary,
+      });
       locations.set(terminalId, {
-        cwd: terminalCwd,
-        worktreePath: terminalWorktreePath,
+        cwd: launchLocation.cwd,
+        worktreePath: launchLocation.worktreePath,
         runtimeEnv: projectScriptRuntimeEnv({
           project: { cwd: project.workspaceRoot },
-          worktreePath: terminalWorktreePath,
+          worktreePath: launchLocation.worktreePath,
         }),
       });
     }
     return locations;
   }, [
     knownTerminalSessions,
-    launchContext?.cwd,
-    launchContext?.worktreePath,
+    launchContext,
     project,
     surface.terminalIds,
     threadWorktreePath,
