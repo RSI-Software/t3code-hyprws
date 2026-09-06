@@ -10,7 +10,9 @@ import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import * as IpcChannels from "../ipc/channels.ts";
 import { projectWindowIdentity, windowIdentityKey } from "../window/WindowIdentity.ts";
+import { projectWindowPreloadArgument } from "../window/projectWindowArgument.ts";
 import { PreviewTabOwnershipError, type PreviewTabState } from "./Manager.ts";
 import {
   exposePreviewCapability,
@@ -18,13 +20,24 @@ import {
 } from "./WindowPolicy.preload.ts";
 import * as WindowPolicy from "./WindowPolicy.ts";
 
-const { fromWebContents } = vi.hoisted(() => ({
+const { fromWebContents, ipcRenderer } = vi.hoisted(() => ({
   fromWebContents: vi.fn(() => null as Electron.BrowserWindow | null),
+  ipcRenderer: {
+    on: vi.fn<(channel: string, listener: (event: unknown, ...args: never[]) => void) => void>(),
+    invoke: vi.fn(() => Promise.resolve()),
+  },
 }));
 
 vi.mock("electron", () => ({
   BrowserWindow: { fromWebContents },
+  ipcRenderer,
 }));
+
+/** Replays what the main process pushes on a preload channel the bridge subscribed to. */
+const emit = (channel: string, ...args: ReadonlyArray<unknown>) => {
+  for (const [subscribed, listener] of ipcRenderer.on.mock.calls)
+    if (subscribed === channel) listener({}, ...(args as never[]));
+};
 
 const idleState = (tabId: string): PreviewTabState => ({
   tabId,
@@ -118,10 +131,78 @@ const makeWindow = () => {
 describe("desktop preview window policy", () => {
   it("preserves the assembled upstream bridge in every desktop preload", () => {
     const preview = {} as NonNullable<DesktopBridge["preview"]>;
-    const bridge = { preview } as PreviewCapableDesktopBridge;
+    const openExternal = vi.fn();
+    const bridge = { preview, openExternal } as unknown as PreviewCapableDesktopBridge;
 
-    expect(exposePreviewCapability(bridge)).toBe(bridge);
-    expect(exposePreviewCapability(bridge).preview).toBe(preview);
+    const exposed = exposePreviewCapability(bridge);
+
+    // The upstream literal is handed over untouched; the fork only adds to it.
+    expect(exposed.preview).toBe(preview);
+    expect(exposed.openExternal).toBe(openExternal);
+  });
+
+  it("adds project-window capabilities the upstream bridge literal never declares", () => {
+    const originalArgv = process.argv;
+    process.argv = [
+      "electron",
+      projectWindowPreloadArgument({ environmentId: "environment 1", projectId: "project/1" }),
+    ];
+    try {
+      const exposed = exposePreviewCapability({} as PreviewCapableDesktopBridge);
+
+      expect(exposed.projectWindowRef).toStrictEqual({
+        environmentId: "environment 1",
+        projectId: "project/1",
+      });
+      void exposed.openProjectWindow({
+        environmentId: EnvironmentId.make("environment-2"),
+        projectId: ProjectId.make("project-2"),
+      });
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.OPEN_PROJECT_WINDOW_CHANNEL, {
+        environmentId: "environment-2",
+        projectId: "project-2",
+      });
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it("tracks hub demand state per preload and stops after unsubscribe", () => {
+    const exposed = exposePreviewCapability({} as PreviewCapableDesktopBridge);
+    const seen: Array<boolean> = [];
+    const unsubscribe = exposed.onWindowDemandStateChange((demanded) => seen.push(demanded));
+
+    expect(exposed.getWindowDemandState()).toBe(true);
+    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, false);
+    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, false);
+    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, "no");
+    expect(exposed.getWindowDemandState()).toBe(false);
+
+    unsubscribe();
+    emit(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, true);
+
+    // Repeats and non-boolean payloads never reach a listener, and the state
+    // keeps advancing for `getWindowDemandState` after the listener is gone.
+    expect(seen).toStrictEqual([false]);
+    expect(exposed.getWindowDemandState()).toBe(true);
+  });
+
+  it("subscribes the demand channel once no matter how many bridges are exposed", () => {
+    const before = ipcRenderer.on.mock.calls.filter(
+      ([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL,
+    ).length;
+
+    exposePreviewCapability({} as PreviewCapableDesktopBridge);
+    exposePreviewCapability({} as PreviewCapableDesktopBridge);
+
+    // The listener belongs to the preload module, not to a bridge, so a repeat
+    // call never adds a second `ipcRenderer` subscription.
+    expect(
+      ipcRenderer.on.mock.calls.filter(
+        ([channel]) => channel === IpcChannels.WINDOW_DEMAND_STATE_CHANNEL,
+      ).length,
+    ).toBe(before);
+    expect(before).toBe(1);
   });
 
   effectIt.effect("keeps project preview events out of hub compatibility listeners", () => {
