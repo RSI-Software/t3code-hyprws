@@ -75,7 +75,7 @@ const encodeWindowSessionJson = Schema.encodeEffect(WindowSessionJson);
 
 const CURRENT_VERSION = 1;
 
-export function toWindowDocument(entry: WindowRestoreEntry): typeof WindowDocument.Type {
+function toWindowDocument(entry: WindowRestoreEntry): typeof WindowDocument.Type {
   const workspace = entry.workspace;
   return entry.identity.kind === "hub"
     ? { kind: "hub", workspace }
@@ -87,9 +87,7 @@ export function toWindowDocument(entry: WindowRestoreEntry): typeof WindowDocume
       };
 }
 
-export function fromWindowDocument(
-  document: typeof WindowDocument.Type,
-): WindowRestoreEntry | null {
+function fromWindowDocument(document: typeof WindowDocument.Type): WindowRestoreEntry | null {
   const workspace = document.workspace ?? null;
   if (document.kind === "hub") {
     return { identity: HUB_WINDOW_IDENTITY, workspace };
@@ -142,7 +140,7 @@ export class DesktopWindowSession extends Context.Service<
   }
 >()("@t3tools/desktop/window/DesktopWindowSession") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const placement = yield* HyprlandPlacement;
