@@ -365,15 +365,15 @@ attestation, while workflow collectors obtain Git and GitHub evidence directly.
 
 The report extends the existing census table with explicit seam states:
 
-| State               | Meaning                                                                                                                                   | Report exit                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| observed            | Seen, with no verified repair                                                                                                             | 0                                                    |
-| not-observed        | Not in the latest complete census; still unresolved                                                                                       | 0 unless already blocking                            |
-| unknown             | Partial, incompatible or stale pre-repair observation; identity remains unresolved                                                        | Prior blocking verdict remains                       |
-| returned-unresolved | Seen again without comparable repair proof                                                                                                | 1                                                    |
-| repair-unverified   | Named change and guard, without comparable passing evidence                                                                               | 1 for failed guard; prior blocking verdict otherwise |
-| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass; a legacy `before` bridge carries a `bridged: legacy` marker | 0                                                    |
-| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure                                             | 1                                                    |
+| State               | Meaning                                                                                                                                                                                                                                           | Report exit                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| observed            | Seen, with no verified repair                                                                                                                                                                                                                     | 0                                                    |
+| not-observed        | Not in the latest complete census; still unresolved                                                                                                                                                                                               | 0 unless already blocking                            |
+| unknown             | Partial, incompatible or stale pre-repair observation; identity remains unresolved, never blocking by inheritance                                                                                                                                 | 0                                                    |
+| returned-unresolved | Seen again without comparable repair proof                                                                                                                                                                                                        | 1                                                    |
+| repair-unverified   | Named change and guard, without comparable passing evidence                                                                                                                                                                                       | 1 for failed guard; prior blocking verdict otherwise |
+| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass; a legacy `before` bridge carries a `bridged: legacy` marker; a complete census on a new base that does not observe the seam carries the repair across the base move | 0                                                    |
+| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure                                                                                                                                                     | 1                                                    |
 
 Ordinary replays preserve the path/subject/domain observation identity despite changing SHAs.
 Reviewed mappings preserve that identity through renames, moves and splits. Mapping chains
@@ -383,7 +383,8 @@ that identity has actually been observed with the new method, except through the
 above (complete `after`, proven repair ancestry, marked `bridged: legacy`). A census still bound to the frozen
 pre-repair source head remains stale, rather than proving a later regression. Unknown methods,
 changed targets and absent rows never prove repair. A previous blocking verdict needs comparable
-repair verification to clear it. The full report keeps unresolved seams visible even when absent.
+repair verification to clear it, except that a verified repair carried across a base move stays
+resolved (RSI-Software/t3code-hyprws#658). The full report keeps unresolved seams visible even when absent.
 
 The ledger moved off `docs/internals/fork-churn.json` onto `refs/fork/churn`. The document at
 `docs/internals/fork-churn.md` is a frozen mirror; RSI-Software/t3code-hyprws#476 retires both

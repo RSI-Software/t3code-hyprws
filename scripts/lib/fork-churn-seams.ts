@@ -435,6 +435,8 @@ export const assessSeams = (
         ...state,
         tag: observation.tag,
         status: partial || changedMethod ? "unknown" : "not-observed",
+        // An unknown identity awaits fresh evidence; it never inherits a block.
+        blocking: partial || changedMethod ? false : state.blocking,
         reason: partial
           ? "Partial census cannot establish absence."
           : changedMethod
@@ -506,6 +508,8 @@ export const assessSeams = (
         next = {
           ...next,
           status: "unknown",
+          // An unknown identity awaits fresh evidence; it never inherits a block.
+          blocking: false,
           reason:
             "Current census still uses the frozen pre-repair head; current after evidence is required.",
         };
@@ -533,12 +537,32 @@ export const assessSeams = (
             : "Seam returned on a different measurement basis; renewed verification is required.",
         };
       } else if (repaired) {
-        next = {
-          ...next,
-          status: "unknown",
-          reason:
-            "Repair was verified, but the current observation is not comparable or uses a different head.",
-        };
+        const currentComplete = current.evidence?.complete === true;
+        const sameMethod = current.evidence?.method === after.evidence?.method;
+        // An apply moves trunk to a new upstream base, so the next complete census can never be
+        // `comparable(after, current)`; its silence on the repaired path still confirms the fix.
+        const baseMoved =
+          current.evidence?.baseSha !== after.evidence?.baseSha ||
+          current.evidence?.targetSha !== after.evidence?.targetSha;
+        if (!currentPresent && currentComplete && sameMethod && baseMoved) {
+          next = {
+            ...next,
+            status: "verified-repaired",
+            blocking: false,
+            bridged: bridgedLegacy(before, after) ? "legacy" : next.bridged,
+            reason: `Complete census on a new base (${current.evidence?.baseSha.slice(0, 12)} → ${current.evidence?.targetSha.slice(0, 12)}) does not observe the seam; verified repair carried across the base move.`,
+          };
+        } else {
+          next = {
+            ...next,
+            status: "unknown",
+            // An unknown identity awaits fresh evidence; it never inherits a block.
+            blocking: false,
+            reason: currentComplete
+              ? "Repair was verified, but the current observation is not comparable or uses a different head."
+              : "Repair was verified, but the current census is partial or uses a different method.",
+          };
+        }
       } else {
         next = {
           ...next,
