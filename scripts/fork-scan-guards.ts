@@ -66,6 +66,7 @@ export const AUTHORING_GUARD_TARGETS = {
   },
   "mobile-ignored-file-listing": {
     route: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    inspector: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
   },
   "agent-spawn-navigation": { timeline: "apps/web/src/components/chat/MessagesTimeline.tsx" },
   "rich-markdown-boundary": {
@@ -516,7 +517,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.mobileIgnoredFilePolicyAdded) {
       warn(
         "mobile-ignored-file-listing",
-        "keep ignored-file preference and includeIgnored request policy in ignoredWorkspaceFileListing.ts; the route calls useIgnoredWorkspaceFileListing(cwd) and retains its environment and file-inspector gates",
+        "keep ignored-file preference and includeIgnored request policy in ignoredWorkspaceFileListing.ts; the route and inspector call useIgnoredWorkspaceFileListing with their existing cwd and retain their environment and file-inspector gates",
       );
     }
 
