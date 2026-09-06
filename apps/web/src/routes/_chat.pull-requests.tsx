@@ -87,7 +87,10 @@ import {
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
-import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
+import {
+  pullRequestProjectScopeChoices,
+  type PullRequestProjectScopeChoice,
+} from "../components/pullRequest/PullRequestProjectScope";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
 import {
@@ -393,8 +396,19 @@ export function PullRequestsPage({
     [environments],
   );
   const scopedProjects = useMemo(
-    () => pullRequestFilterProjects(projects, environmentLabels, scopedProject),
-    [environmentLabels, projects, scopedProject],
+    () =>
+      pullRequestProjectScopeChoices(
+        projects.map((project): PullRequestProjectScopeChoice => ({
+          environmentId: project.environmentId,
+          id: project.id,
+          title: project.title,
+          workspaceRoot: project.workspaceRoot,
+          faviconPath: project.faviconPath ?? null,
+          projectIcon: project.projectIcon ?? null,
+        })),
+        environmentLabels,
+      ),
+    [environmentLabels, projects],
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
@@ -1735,11 +1749,7 @@ export function PullRequestsPage({
     ...capableEnvironments.map((environment) => ({
       value: environment.environmentId,
       label: environment.label,
-      Icon: environmentMachineIcon(
-        resolveEnvironmentMachineKind(
-          environment.serverConfig?.settings === undefined ? null : environment.serverConfig,
-        ),
-      ),
+      Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
     })),
   ];
   const sortMenu = (
