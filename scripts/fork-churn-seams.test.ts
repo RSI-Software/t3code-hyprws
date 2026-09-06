@@ -1,0 +1,991 @@
+// @effect-diagnostics nodeBuiltinImport:off - Disposable CLI repositories verify durable records and exit contracts.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import { assert, it } from "@effect/vitest";
+import {
+  assessSeams,
+  freezeObservation,
+  requireSeamRecords,
+  seamIdentity,
+  seamRecord,
+  type SeamRecord,
+} from "./lib/fork-churn-seams.ts";
+import { composeSeamBundle, observeStopCensus } from "./lib/fork-churn-compose.ts";
+import { censusTotals } from "./lib/fork-rebase-issues.ts";
+import {
+  parseCensusFiles,
+  parseChurnState,
+  censusChurn,
+  readChurnState,
+  writeChurnLedger,
+  writeChurnState,
+  type CensusSnapshot,
+  type ChurnEntry,
+} from "./fork-churn-ledger.ts";
+import { blockingSeamLines } from "./fork-churn-section.ts";
+import { run } from "./fork-churn.ts";
+import { runCommandText } from "./lib/fork-command.ts";
+import {
+  CHURN_REF,
+  CHURN_LEDGER_FILE,
+  readBotRefFile,
+  writeBotRefFile,
+} from "./lib/fork-bot-refs.ts";
+
+const A = "a".repeat(40),
+  B = "b".repeat(40),
+  C = "c".repeat(40),
+  D = "d".repeat(40);
+const attestation = { actor: "maintainer-agent", evidenceUrl: "https://example.test/review/1" };
+const outcomes = [
+  {
+    kind: "target",
+    target: { tag: "v1", sha: A },
+    eligible: true,
+    reason: "selected tagged target under the fork tag policy",
+  },
+] as const;
+const file = (path = "seam.ts", subject = "feat: preserve fork intent") => ({
+  path,
+  subject,
+  domain: "fork-meta",
+  commit: A,
+  hunks: null,
+});
+const snapshot = (
+  sourceSha: string,
+  files = [file()],
+  targetSha = C,
+  complete = true,
+): CensusSnapshot => ({
+  tag: "v1.0.0",
+  fixedAt: null,
+  files,
+  censusEvidence: {
+    version: 1,
+    method: "sequential-rebase-stage3-provisional",
+    sourceSha,
+    baseSha: D,
+    targetSha,
+    targetTag: "v1.0.0",
+    complete,
+    rows: files.map((row, index) => ({
+      stop: index + 1,
+      commit: row.commit,
+      path: row.path,
+      subject: row.subject,
+      domain: row.domain,
+      kind: "content",
+    })),
+  },
+});
+const before = seamRecord(freezeObservation(snapshot(A)));
+const clear = seamRecord(freezeObservation(snapshot(B, [])));
+const repair = seamRecord({
+  kind: "repair",
+  before: { observation: before.id, row: 0 },
+  changeSha: B,
+  guard: "fork seam fixture",
+  attestation,
+} as const);
+const verification = seamRecord({
+  kind: "verification",
+  repair: repair.id,
+  after: clear.id,
+  guardProof: {
+    sourceSha: B,
+    command: "vp test run seam.fork.test.ts",
+    exitCode: 0,
+    output: "1 passed",
+  },
+  attestation,
+} as const);
+const records = [before, clear, repair, verification];
+/** The artifact `rehearseStopCensus` writes, so the producer is exercised on the real shape. */
+const stopCensus = (observed: CensusSnapshot) => {
+  const evidence = observed.censusEvidence!;
+  return {
+    targetTag: evidence.targetTag,
+    evidence,
+    ...censusTotals(evidence.rows),
+    truncated: !evidence.complete,
+    truncatedBy: evidence.complete ? null : "stop-limit",
+    stopLimit: 40,
+    timeLimitSeconds: 900,
+  };
+};
+const guardProof = {
+  sourceSha: B,
+  command: "vp test run seam.fork.test.ts",
+  exitCode: 0,
+  output: "1 passed",
+};
+const plan = (after: string, proof = guardProof) => ({
+  version: 1,
+  observations: [
+    { alias: "before", census: "before" },
+    { alias: "after", census: after },
+  ],
+  repairs: [
+    {
+      alias: "seam",
+      before: { observation: "before", path: "seam.ts" },
+      changeSha: B,
+      guard: "fork seam fixture",
+      attestation,
+    },
+  ],
+  verifications: [{ repair: "seam", after: "after", guardProof: proof, attestation }],
+});
+const censuses: Record<string, unknown> = {
+  before: stopCensus(snapshot(A)),
+  after: stopCensus(snapshot(B, [])),
+  "other-target": stopCensus(snapshot(B, [], D)),
+  truncated: stopCensus(snapshot(B, [], C, false)),
+};
+const readCensus = (reference: string): unknown => censuses[reference];
+
+const walk = (tag: string, observed: CensusSnapshot): ChurnEntry => ({
+  tag,
+  before: A,
+  after: B,
+  recordUrl: "https://example.test/walk",
+  conflicts: [],
+  decisions: [],
+  censusFiles: observed.files,
+  ...(observed.censusEvidence === undefined ? {} : { censusEvidence: observed.censusEvidence }),
+});
+
+it("keeps absent and returned observations unresolved without inventing a repair", () => {
+  const absent = assessSeams([snapshot(A), snapshot(B, [])], []);
+  assert.strictEqual(absent[0]?.status, "not-observed");
+  assert.isNull(absent[0]?.repairSha);
+  assert.isFalse(absent[0]?.blocking);
+  const returned = assessSeams([snapshot(A), snapshot(B, []), snapshot(C)], []);
+  assert.strictEqual(returned[0]?.status, "returned-unresolved");
+  assert.isTrue(returned[0]?.blocking);
+  const laterUnknown = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(C), snapshot(D, [], C, false)],
+    [],
+  );
+  assert.strictEqual(laterUnknown[0]?.status, "unknown");
+  // An unknown identity awaits fresh evidence; it never inherits a block (RSI-Software/t3code-hyprws#658).
+  assert.isFalse(laterUnknown[0]?.blocking);
+  assert.strictEqual(
+    assessSeams([snapshot(A), snapshot(B), snapshot(C)], [])[0]?.id,
+    seamIdentity(file()),
+  );
+});
+
+it("keeps a verified repair resolved when a complete census moves the base", () => {
+  const E = "e".repeat(40),
+    F = "f".repeat(40);
+  // The apply moves trunk to a new upstream base: a complete census there can never be
+  // `comparable(after, current)`, yet its silence on the repaired path confirms the fix.
+  const carried = assessSeams([snapshot(A), snapshot(B, []), snapshot(E, [], F, true)], records)[0];
+  assert.strictEqual(carried?.status, "verified-repaired");
+  assert.isFalse(carried?.blocking);
+  assert.include(carried!.reason, "new base");
+  assert.deepStrictEqual(
+    blockingSeamLines(censusChurn([walk("v1", snapshot(A))], snapshot(E, [], F, true), records)),
+    [],
+  );
+});
+
+it("blocks a verified repair that returns on the new base and keeps partial censuses unknown", () => {
+  const E = "e".repeat(40),
+    F = "f".repeat(40);
+  const returned = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(E, [file()], F, true)],
+    records,
+  )[0];
+  assert.strictEqual(returned?.status, "returned-unresolved");
+  assert.isTrue(returned?.blocking);
+  const partial = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(E, [], F, false)],
+    records,
+  )[0];
+  assert.strictEqual(partial?.status, "unknown");
+  assert.isFalse(partial?.blocking);
+  // A partial census after a blocking regression still awaits evidence; it clears the block.
+  const afterRegression = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(C), snapshot(E, [], F, false)],
+    records,
+  )[0];
+  assert.strictEqual(afterRegression?.status, "unknown");
+  assert.isFalse(afterRegression?.blocking);
+  const lines = blockingSeamLines(
+    censusChurn([walk("v1", snapshot(A))], snapshot(E, [], F, false), records),
+  );
+  assert.deepStrictEqual(lines, []);
+});
+
+it("separates repair, attested verification and comparable regression", () => {
+  assert.deepStrictEqual(requireSeamRecords(records), records);
+  assert.strictEqual(
+    assessSeams([snapshot(A), snapshot(B, [])], [before, clear, repair])[0]?.status,
+    "repair-unverified",
+  );
+  const verified = assessSeams([snapshot(A), snapshot(B, [])], records)[0];
+  assert.strictEqual(verified?.status, "verified-repaired");
+  assert.isFalse(verified?.blocking);
+  const regressed = assessSeams([snapshot(A), snapshot(B, []), snapshot(C)], records)[0];
+  assert.strictEqual(regressed?.status, "regressed");
+  assert.isTrue(regressed?.blocking);
+  assert.strictEqual(regressed?.repairSha, B);
+  const newTarget = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(C, [file()], D)],
+    records,
+  )[0];
+  assert.strictEqual(newTarget?.status, "returned-unresolved");
+  assert.isTrue(newTarget?.blocking);
+  const changedHead = assessSeams([snapshot(A), snapshot(C, [])], records)[0];
+  assert.strictEqual(changedHead?.status, "unknown");
+});
+
+it("requires full comparable evidence and keeps an attested guard failure blocking", () => {
+  const changed = seamRecord(freezeObservation(snapshot(B, [], D)));
+  // Use the actual payload, without the previous record's digest.
+  const { id: _id, ...proof } = verification;
+  const incompatible = seamRecord({ ...proof, after: changed.id });
+  assert.strictEqual(
+    assessSeams([snapshot(A), snapshot(B, [], D)], [before, changed, repair, incompatible])[0]
+      ?.status,
+    "repair-unverified",
+  );
+  const partial = seamRecord(freezeObservation(snapshot(B, [], C, false)));
+  const partialProof = seamRecord({ ...proof, after: partial.id });
+  assert.strictEqual(
+    assessSeams(
+      [snapshot(A), snapshot(B, [], C, false)],
+      [before, partial, repair, partialProof],
+    )[0]?.status,
+    "repair-unverified",
+  );
+  const failed = seamRecord({
+    ...proof,
+    guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+  });
+  const failedState = assessSeams([snapshot(A), snapshot(B, [])], [...records, failed])[0];
+  assert.strictEqual(failedState?.status, "regressed");
+  assert.isTrue(failedState?.blocking);
+  const neverVerified = assessSeams(
+    [snapshot(A), snapshot(B, [])],
+    [before, clear, repair, failed],
+  )[0];
+  assert.strictEqual(neverVerified?.status, "repair-unverified");
+  assert.isTrue(neverVerified?.blocking);
+});
+
+it("never suppresses an attested guard failure at a measurement boundary", () => {
+  const { id: _id, ...proof } = verification;
+  const changedBase = snapshot(B, []);
+  assert.isDefined(changedBase.censusEvidence);
+  const alternatives = [
+    snapshot(B, [], D),
+    { ...changedBase, censusEvidence: { ...changedBase.censusEvidence!, baseSha: C } },
+    snapshot(B, [], C, false),
+  ];
+  for (const after of alternatives) {
+    const frozen = seamRecord(freezeObservation(after));
+    const failed = seamRecord({
+      ...proof,
+      after: frozen.id,
+      guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+    });
+    const state = assessSeams([snapshot(A), after], [before, frozen, repair, failed])[0];
+    assert.strictEqual(state?.status, "repair-unverified");
+    assert.isTrue(state?.blocking);
+    assert.include(state!.reason, "guard failed");
+  }
+  const legacy = seamRecord(freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }));
+  const { id: _repairId, ...repairPayload } = repair;
+  const legacyRepair = seamRecord({ ...repairPayload, before: { observation: legacy.id, row: 0 } });
+  const failed = seamRecord({
+    ...proof,
+    repair: legacyRepair.id,
+    guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+  });
+  const legacyState = assessSeams([snapshot(B, [])], [legacy, clear, legacyRepair, failed])[0];
+  assert.strictEqual(legacyState?.status, "repair-unverified");
+  assert.isTrue(legacyState?.blocking);
+});
+
+it("retains legacy identity without inventing absence or return across methods", () => {
+  const legacy: CensusSnapshot = { tag: "legacy", fixedAt: null, files: [file()] };
+  const absent = assessSeams([legacy, snapshot(B, [])], [])[0];
+  assert.strictEqual(absent?.status, "unknown");
+  const returned = assessSeams([legacy, snapshot(B, []), snapshot(C)], [])[0];
+  assert.strictEqual(returned?.id, seamIdentity(file()));
+  assert.strictEqual(returned?.status, "observed");
+  assert.isFalse(returned?.blocking);
+  const realReturn = assessSeams(
+    [legacy, snapshot(B, []), snapshot(C), snapshot(D, []), snapshot(A)],
+    [],
+  )[0];
+  assert.strictEqual(realReturn?.status, "returned-unresolved");
+  assert.isTrue(realReturn?.blocking);
+});
+
+it("does not call the frozen pre-repair head a later regression", () => {
+  const stale = assessSeams([snapshot(A)], records)[0];
+  assert.strictEqual(stale?.status, "unknown");
+  assert.isFalse(stale?.blocking);
+  assert.include(stale!.reason, "pre-repair");
+});
+
+it("resolves transitive mappings independently of record order and refuses ambiguous roots", () => {
+  const secondSnapshot = snapshot(B, [file("second.ts")]);
+  const thirdSnapshot = snapshot(C, [file("third.ts")]);
+  const second = seamRecord(freezeObservation(secondSnapshot));
+  const third = seamRecord(freezeObservation(thirdSnapshot));
+  const firstMapping = seamRecord({
+    kind: "mapping",
+    from: { observation: before.id, row: 0 },
+    to: [{ observation: second.id, row: 0 }],
+    attestation,
+  } as const);
+  const secondMapping = seamRecord({
+    kind: "mapping",
+    from: { observation: second.id, row: 0 },
+    to: [{ observation: third.id, row: 0 }],
+    attestation,
+  } as const);
+  for (const mappings of [
+    [firstMapping, secondMapping],
+    [secondMapping, firstMapping],
+  ]) {
+    const mapped = requireSeamRecords([before, second, third, ...mappings]);
+    const states = assessSeams([snapshot(A), snapshot(B, []), thirdSnapshot], mapped);
+    assert.strictEqual(states.length, 1);
+    assert.strictEqual(states[0]?.id, seamIdentity(file()));
+    assert.strictEqual(states[0]?.status, "returned-unresolved");
+  }
+  const ambiguous = seamRecord({
+    kind: "mapping",
+    from: { observation: third.id, row: 0 },
+    to: [{ observation: second.id, row: 0 }],
+    attestation,
+  } as const);
+  assert.throws(
+    () => requireSeamRecords([before, second, third, firstMapping, ambiguous]),
+    /ambiguous reviewed seam mapping/,
+  );
+  assert.throws(
+    () => requireSeamRecords([before, second, third, secondMapping, ambiguous]),
+    /cyclic reviewed seam mapping/,
+  );
+});
+
+it("preserves rename, path move and split aliases with full frozen source rows", () => {
+  const movedFiles = [file("new.ts", "feat: renamed patch"), file("split.ts", "feat: split patch")];
+  const movedSnapshot = snapshot(B, movedFiles);
+  const moved = seamRecord(freezeObservation(movedSnapshot));
+  const mapping = seamRecord({
+    kind: "mapping",
+    from: { observation: before.id, row: 0 },
+    to: movedFiles.map((_, row) => ({ observation: moved.id, row })),
+    attestation,
+  } as const);
+  const mappedRecords = requireSeamRecords([before, moved, mapping]);
+  const states = assessSeams([snapshot(A), snapshot(B, []), movedSnapshot], mappedRecords);
+  assert.strictEqual(states.length, 1);
+  assert.strictEqual(states[0]?.id, seamIdentity(file()));
+  assert.strictEqual(states[0]?.status, "returned-unresolved");
+  const ordinaryNextTag = assessSeams(
+    [snapshot(A), movedSnapshot, snapshot(C, movedFiles, D)],
+    mappedRecords,
+  );
+  assert.strictEqual(ordinaryNextTag.length, 1);
+  const distinct = assessSeams(
+    [snapshot(A), snapshot(B, [file("new.ts", "feat: unrelated new seam")])],
+    [],
+  );
+  assert.strictEqual(distinct.length, 2);
+  assert.isFalse(distinct.some((seam) => seam.blocking));
+  assert.throws(() => requireSeamRecords([mapping]), /missing frozen observation/);
+});
+
+it("rejects altered digests, missing references and inconsistent retained evidence", () => {
+  assert.throws(() => requireSeamRecords([{ ...repair, guard: "different" }]), /digest mismatch/);
+  assert.throws(() => requireSeamRecords([repair]), /missing frozen observation/);
+  assert.throws(
+    () => requireSeamRecords([before, repair, verification]),
+    /missing frozen observation/,
+  );
+  const wrong = seamRecord({ ...freezeObservation(snapshot(B)), files: [] });
+  assert.throws(() => requireSeamRecords([wrong]), /rows or target/);
+  const { id: _id, ...proof } = verification;
+  const wrongHead = seamRecord({ ...proof, guardProof: { ...proof.guardProof, sourceSha: A } });
+  assert.throws(() => requireSeamRecords([before, clear, repair, wrongHead]), /not bound/);
+  const beyond = seamRecord({
+    kind: "mapping",
+    from: { observation: before.id, row: 0 },
+    to: [{ observation: before.id, row: 99 }],
+    attestation,
+  } as const);
+  assert.throws(() => requireSeamRecords([before, beyond]), /outside frozen observation/);
+  const { id: _repairId, ...repairPayload } = repair;
+  assert.throws(
+    () => requireSeamRecords([before, seamRecord({ ...repairPayload, changeSha: "f".repeat(41) })]),
+    /full seam evidence SHA/,
+  );
+});
+
+it("freezes a sequential census into the evidence a repair can be proven against", () => {
+  const observed = observeStopCensus(stopCensus(snapshot(A)));
+  assert.deepStrictEqual(observed, freezeObservation(snapshot(A)));
+  assert.isNotNull(observed.evidence);
+  // The count-only census is the shape that produced a ledger of unprovable observations.
+  const { evidence: _evidence, ...countOnly } = stopCensus(snapshot(A));
+  assert.throws(() => observeStopCensus(countOnly), /carries no evidence/);
+  assert.throws(
+    () => observeStopCensus({ ...stopCensus(snapshot(A)), targetTag: "v9.9.9" }),
+    /target tag disagrees/,
+  );
+  assert.throws(
+    () => observeStopCensus({ ...stopCensus(snapshot(B, [], C, false)), truncated: false }),
+    /truncation disagrees/,
+  );
+  const { truncated: _truncated, ...untruncated } = stopCensus(snapshot(A));
+  assert.throws(() => observeStopCensus(untruncated), /carries no truncated flag/);
+});
+
+it("gives a composed and a reported observation of the same rows one identity", () => {
+  const evidence = snapshot(A).censusEvidence!;
+  const body = `## Sequential rebase census\n\n<!-- sequential-census-v1:${JSON.stringify(
+    evidence,
+  ).replaceAll("<", "\\u003c")} -->\n`;
+  // One mapping, two readers: the report path parses the marker, the producer freezes the census.
+  const reported = freezeObservation({
+    tag: evidence.targetTag,
+    fixedAt: null,
+    files: parseCensusFiles(body),
+  });
+  const composed = observeStopCensus(stopCensus(snapshot(A)));
+  assert.deepStrictEqual(composed.files, reported.files);
+  assert.deepStrictEqual(composed.files.map(seamIdentity), reported.files.map(seamIdentity));
+});
+
+it("composes a reviewed bundle that reaches verified-repaired", () => {
+  const bundle = composeSeamBundle(plan("after"), readCensus);
+  assert.deepStrictEqual(bundle, { version: 1, records });
+  const states = assessSeams([snapshot(A), snapshot(B, [])], bundle.records);
+  assert.strictEqual(states[0]?.status, "verified-repaired");
+  assert.isFalse(states[0]?.blocking);
+  // References are resolved against the ledger the bundle will land on, never re-frozen.
+  const followUp = composeSeamBundle(
+    { version: 1, observations: [], mappings: [], repairs: [], verifications: [] },
+    readCensus,
+    records,
+  );
+  assert.deepStrictEqual(followUp.records, []);
+  // Content addressing makes a rerun idempotent, so a reviewed bundle stays safe to recompose.
+  assert.deepStrictEqual(composeSeamBundle(plan("after"), readCensus, records), bundle);
+});
+
+it("bridges a legacy before to a complete after and marks the repaired row", () => {
+  const legacy = seamRecord(freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }));
+  const { id: _repairId, ...repairPayload } = repair;
+  const legacyRepair = seamRecord({
+    ...repairPayload,
+    before: { observation: legacy.id, row: 0 },
+  });
+  const { id: _proofId, ...proof } = verification;
+  const legacyProof = seamRecord({ ...proof, repair: legacyRepair.id });
+  // Pure validators accept the bridge shape: method comparability is relaxed, ancestry is proven
+  // by `record` against the working checkout, not here.
+  assert.deepStrictEqual(requireSeamRecords([legacy, clear, legacyRepair, legacyProof]), [
+    legacy,
+    clear,
+    legacyRepair,
+    legacyProof,
+  ]);
+  const verified = assessSeams([snapshot(B, [])], [legacy, clear, legacyRepair, legacyProof])[0];
+  assert.strictEqual(verified?.status, "verified-repaired");
+  assert.isFalse(verified?.blocking);
+  assert.strictEqual(verified?.bridged, "legacy");
+  // Non-bridged scoring is untouched.
+  assert.isNull(assessSeams([snapshot(A), snapshot(B, [])], records)[0]?.bridged);
+  // Incomplete after evidence cannot bridge.
+  const partial = seamRecord(freezeObservation(snapshot(B, [], C, false)));
+  const partialProof = seamRecord({ ...proof, repair: legacyRepair.id, after: partial.id });
+  assert.strictEqual(
+    assessSeams([snapshot(B, [], C, false)], [legacy, partial, legacyRepair, partialProof])[0]
+      ?.status,
+    "repair-unverified",
+  );
+  // A non-legacy before with a target mismatch stays incomparable.
+  const otherTarget = seamRecord(freezeObservation(snapshot(B, [], D)));
+  const { id: _mixedId, ...mixedProof } = verification;
+  const mixed = seamRecord({ ...mixedProof, after: otherTarget.id });
+  assert.throws(() => requireSeamRecords([before, otherTarget, repair, mixed]), /not comparable/);
+});
+
+it("refuses bridged record bundles whose repair is not an ancestor of the after head", () => {
+  // A bridged repair must land before the frozen after head; the ancestry proof runs in the
+  // importing checkout, so this fixture uses real commits, not fixed SHAs.
+  const root = repository();
+  try {
+    const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+    const repairSha = runCommandText("git", ["commit-tree", tree, "-m", "fix: repair the seam"], {
+      cwd: root,
+    }).trim();
+    const afterSha = runCommandText(
+      "git",
+      ["commit-tree", tree, "-p", repairSha, "-m", "chore: later head"],
+      { cwd: root },
+    ).trim();
+    const divergentSha = runCommandText(
+      "git",
+      ["commit-tree", tree, "-m", "chore: divergent head"],
+      { cwd: root },
+    ).trim();
+    const legacyObservation = seamRecord(
+      freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }),
+    );
+    const { id: _bridgedRepairId, ...bridgedRepairPayload } = repair;
+    const bridgedRepair = seamRecord({
+      ...bridgedRepairPayload,
+      before: { observation: legacyObservation.id, row: 0 },
+      changeSha: repairSha,
+    });
+    const afterEvidence = snapshot(afterSha, []);
+    const afterObservation = seamRecord(freezeObservation(afterEvidence));
+    const { id: _bridgedProofId, ...bridgedProof } = verification;
+    const bridgedVerification = seamRecord({
+      ...bridgedProof,
+      repair: bridgedRepair.id,
+      after: afterObservation.id,
+      guardProof: { ...bridgedProof.guardProof, sourceSha: afterSha },
+    });
+    const input = NodePath.join(root, "bridged.json");
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({
+        version: 1,
+        records: [legacyObservation, afterObservation, bridgedRepair, bridgedVerification],
+      }),
+    );
+    assert.strictEqual(run(["record", "--input", input], root), 0);
+    assert.strictEqual(readChurnState(root).seamRecords.length, 4);
+    const divergentEvidence = snapshot(divergentSha, []);
+    const divergentObservation = seamRecord(freezeObservation(divergentEvidence));
+    const divergentVerification = seamRecord({
+      ...bridgedProof,
+      repair: bridgedRepair.id,
+      after: divergentObservation.id,
+      guardProof: { ...bridgedProof.guardProof, sourceSha: divergentSha },
+    });
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({
+        version: 1,
+        records: [divergentObservation, divergentVerification],
+      }),
+    );
+    assert.strictEqual(run(["record", "--input", input], root), 1);
+    assert.strictEqual(readChurnState(root).seamRecords.length, 4);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a passing verification the after census cannot support", () => {
+  assert.throws(() => composeSeamBundle(plan("other-target"), readCensus), /not comparable/);
+  assert.throws(() => composeSeamBundle(plan("truncated"), readCensus), /not comparable/);
+  // An attested failure stays recordable across the same boundary; losing it would hide the miss.
+  const failed = composeSeamBundle(
+    plan("other-target", { ...guardProof, exitCode: 1, output: "guard failed" }),
+    readCensus,
+  );
+  assert.strictEqual(failed.records.length, 4);
+  const state = assessSeams([snapshot(A), snapshot(B, [], D)], failed.records)[0];
+  assert.strictEqual(state?.status, "repair-unverified");
+  assert.isTrue(state?.blocking);
+});
+
+it("keeps a truncated census unknown rather than reporting the seam gone", () => {
+  const bundle = composeSeamBundle(
+    {
+      version: 1,
+      observations: [
+        { alias: "before", census: "before" },
+        { alias: "after", census: "truncated" },
+      ],
+    },
+    readCensus,
+  );
+  const partial = bundle.records.flatMap((record) =>
+    record.kind === "observation" ? [record] : [],
+  )[1];
+  assert.strictEqual(partial?.tag, "v1.0.0");
+  assert.isFalse(partial?.evidence?.complete);
+  const states = assessSeams([snapshot(A), snapshot(B, [], C, false)], bundle.records);
+  assert.strictEqual(states[0]?.status, "unknown");
+  // The same silence from a complete census is absence; only completeness may claim it.
+  assert.strictEqual(assessSeams([snapshot(A), snapshot(B, [])], [])[0]?.status, "not-observed");
+});
+
+it("names census rows by path and refuses a selector that is not exactly one row", () => {
+  const split = stopCensus(snapshot(B, [file("new.ts"), file("split.ts")]));
+  const mapping = (to: ReadonlyArray<unknown>) => ({
+    version: 1,
+    observations: [
+      { alias: "before", census: "before" },
+      { alias: "moved", census: "moved" },
+    ],
+    mappings: [{ from: { observation: "before", path: "seam.ts" }, to, attestation }],
+  });
+  const read = (reference: string): unknown =>
+    reference === "moved" ? split : readCensus(reference);
+  const bundle = composeSeamBundle(
+    mapping([
+      { observation: "moved", path: "new.ts" },
+      { observation: "moved", row: 1 },
+    ]),
+    read,
+  );
+  const composed = bundle.records.flatMap((record) =>
+    record.kind === "mapping" ? [record] : [],
+  )[0];
+  assert.deepStrictEqual(composed?.to, [
+    { observation: bundle.records[1]!.id, row: 0 },
+    { observation: bundle.records[1]!.id, row: 1 },
+  ]);
+  assert.throws(
+    () => composeSeamBundle(mapping([{ observation: "moved", path: "absent.ts" }]), read),
+    /matched 0 rows/,
+  );
+  assert.throws(
+    () => composeSeamBundle(mapping([{ observation: "unknown", path: "new.ts" }]), read),
+    /unknown observation reference/,
+  );
+});
+
+const repository = (seed = true): string => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-seam-cli-"));
+  runCommandText("git", ["init", "--quiet", root]);
+  runCommandText("git", ["config", "user.name", "Fixture"], { cwd: root });
+  runCommandText("git", ["config", "user.email", "fixture@example.test"], { cwd: root });
+  if (seed) writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "fixture");
+  return root;
+};
+
+it("records evidence idempotently and preserves it through walk and legacy readers", () => {
+  const root = repository();
+  try {
+    const input = NodePath.join(root, "records.json");
+    const outcomeInput = NodePath.join(root, "outcomes.json");
+    NodeFS.writeFileSync(outcomeInput, JSON.stringify({ version: 1, receipts: outcomes }));
+    assert.strictEqual(run(["outcome", "--input", outcomeInput], root), 0);
+    NodeFS.writeFileSync(input, JSON.stringify({ version: 1, records }));
+    assert.strictEqual(run(["record", "--input", input], root), 0);
+    const ref = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root });
+    assert.deepStrictEqual(readChurnState(root).seamRecords, records);
+    assert.strictEqual(run(["record", "--input", input], root), 0);
+    assert.strictEqual(runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }), ref);
+    const walks = [walk("v1", snapshot(A))];
+    writeChurnLedger(root, walks, "walk");
+    assert.deepStrictEqual(readChurnState(root), {
+      version: 3,
+      walks,
+      seamRecords: records,
+      outcomes,
+    });
+    assert.deepStrictEqual(parseChurnState(JSON.stringify(walks)), {
+      version: 3,
+      walks,
+      seamRecords: [],
+      outcomes: [],
+    });
+    const good = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({ version: 1, records: [{ ...repair, guard: "corrupted" }] }),
+    );
+    assert.strictEqual(run(["record", "--input", input], root), 1);
+    assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), good);
+    assert.strictEqual(run(["record", "--unknown"], root), 2);
+    assert.strictEqual(run(["--help"], "/missing-repository"), 0);
+    assert.strictEqual(run(["-h"], "/missing-repository"), 0);
+    assert.strictEqual(run(["--unknown"], "/missing-repository"), 2);
+    const docs = NodePath.join(root, "docs", "internals");
+    NodeFS.mkdirSync(docs, { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(docs, "fork-delta.md"),
+      "## fork-meta\n\n### Retirement condition\n",
+    );
+    assert.strictEqual(run([], root), 0);
+    assert.strictEqual(run(["--check"], root), 0);
+    assert.strictEqual(run(["render", "--check"], root), 0);
+    assert.strictEqual(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE), good);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("preserves records while seeding v2 and migrating legacy subjects", () => {
+  const root = repository(false);
+  try {
+    const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+    const commit = runCommandText("git", ["commit-tree", tree, "-m", "feat: legacy subject"], {
+      cwd: root,
+    }).trim();
+    const legacy = {
+      ...walk("legacy", snapshot(A)),
+      censusFiles: [{ path: "legacy.ts", hunks: 1, commit, domain: "fork-meta" }],
+    };
+    const { censusEvidence: _evidence, ...legacyWalk } = legacy;
+    const input = NodePath.join(root, "seed.json");
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({ version: 2, walks: [legacyWalk], seamRecords: records }),
+    );
+    assert.strictEqual(run(["seed", "--from", input], root), 0);
+    assert.deepStrictEqual(readChurnState(root).seamRecords, records);
+    // Force a genuinely subjectless legacy row to exercise the later migration writer.
+    writeChurnState(
+      root,
+      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes },
+      "legacy subjects",
+    );
+    assert.strictEqual(run(["migrate-subjects"], root), 0);
+    assert.deepStrictEqual(readChurnState(root).seamRecords, records);
+    assert.deepStrictEqual(readChurnState(root).outcomes, outcomes);
+    assert.strictEqual(
+      readChurnState(root).walks[0]?.censusFiles[0]?.subject,
+      "feat: legacy subject",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("publishes record bundles with a lease taken against the advertised ledger head", () => {
+  const root = repository();
+  try {
+    const remote = NodePath.join(root, "remote.git");
+    runCommandText("git", ["init", "--quiet", "--bare", remote], { cwd: root });
+    runCommandText("git", ["remote", "add", "origin", remote], { cwd: root });
+    runCommandText("git", ["push", "--quiet", "origin", `${CHURN_REF}:${CHURN_REF}`], {
+      cwd: root,
+    });
+    const input = NodePath.join(root, "records.json");
+    NodeFS.writeFileSync(input, JSON.stringify({ version: 1, records }));
+    assert.strictEqual(run(["record", "--input", input, "--push"], root), 0);
+    const expectedOld = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.strictEqual(
+      runCommandText("git", ["ls-remote", "origin", CHURN_REF], { cwd: root }).split("\t")[0],
+      expectedOld,
+    );
+    const tree = runCommandText("git", ["rev-parse", `${CHURN_REF}^{tree}`], { cwd: root }).trim();
+    const rival = runCommandText("git", ["commit-tree", tree, "-p", expectedOld, "-m", "rival"], {
+      cwd: root,
+    }).trim();
+    runCommandText("git", ["push", "--quiet", "origin", `${rival}:${CHURN_REF}`], { cwd: root });
+    const fresh = seamRecord(freezeObservation(snapshot(D, [file("new.ts")])));
+    NodeFS.writeFileSync(input, JSON.stringify({ version: 1, records: [fresh] }));
+    // The rival advanced origin; a normal rerun refreshes onto it instead of refusing.
+    assert.strictEqual(run(["record", "--input", input, "--push"], root), 0);
+    const published = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", `${CHURN_REF}~1`], { cwd: root }).trim(),
+      rival,
+    );
+    assert.strictEqual(
+      runCommandText("git", ["ls-remote", "origin", CHURN_REF], { cwd: root }).split("\t")[0],
+      published,
+    );
+    assert.deepStrictEqual(readChurnState(root).seamRecords, [...records, fresh]);
+    // Replaying the same bundle adds nothing and leaves both refs where they are.
+    assert.strictEqual(run(["record", "--input", input, "--push"], root), 0);
+    assert.strictEqual(
+      runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
+      published,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("exercises report comments and failure exits for absence, return and verified regression", () => {
+  const root = repository();
+  // Origin is an isolated fixture repository, so report freshness is verifiable.
+  runCommandText("git", ["remote", "add", "origin", root], { cwd: root });
+  const oldPath = process.env.PATH;
+  const oldBody = process.env.SEAM_FIXTURE_BODY;
+  const oldOutput = process.env.SEAM_FIXTURE_OUTPUT;
+  try {
+    const bin = NodePath.join(root, "bin");
+    NodeFS.mkdirSync(bin);
+    NodeFS.writeFileSync(
+      NodePath.join(bin, "gh"),
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv.includes('view')) process.stdout.write(JSON.stringify({body: process.env.SEAM_FIXTURE_BODY, comments: []}));
+else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv[i+1],process.env.SEAM_FIXTURE_OUTPUT); process.stdout.write('https://example.test/comment'); }
+`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:${oldPath ?? ""}`;
+    process.env.SEAM_FIXTURE_OUTPUT = NodePath.join(root, "posted.md");
+    const changedTarget = snapshot(B, [], D);
+    const changed = seamRecord(freezeObservation(changedTarget));
+    const { id: _id, ...proof } = verification;
+    const failed = seamRecord({
+      ...proof,
+      after: changed.id,
+      guardProof: { ...proof.guardProof, exitCode: 1, output: "guard failed" },
+    });
+    const legacy: CensusSnapshot = { tag: "legacy", fixedAt: null, files: [file()] };
+    const cases: ReadonlyArray<{
+      snapshots: ReadonlyArray<CensusSnapshot>;
+      current: CensusSnapshot;
+      records: ReadonlyArray<SeamRecord>;
+      status: string;
+      exit: number;
+    }> = [
+      {
+        snapshots: [snapshot(A)],
+        current: snapshot(B, []),
+        records: [],
+        status: "not-observed",
+        exit: 0,
+      },
+      {
+        snapshots: [snapshot(A), snapshot(B, [])],
+        current: snapshot(C),
+        records: [],
+        status: "returned-unresolved",
+        exit: 1,
+      },
+      {
+        snapshots: [snapshot(A)],
+        current: snapshot(B, []),
+        records,
+        status: "verified-repaired",
+        exit: 0,
+      },
+      {
+        snapshots: [snapshot(A), snapshot(B, [])],
+        current: snapshot(C),
+        records,
+        status: "regressed",
+        exit: 1,
+      },
+      {
+        snapshots: [snapshot(A)],
+        current: changedTarget,
+        records: [before, changed, repair, failed],
+        status: "repair-unverified",
+        exit: 1,
+      },
+      {
+        snapshots: [legacy],
+        current: snapshot(B, []),
+        records: [],
+        status: "unknown",
+        exit: 0,
+      },
+      {
+        snapshots: [legacy, snapshot(B, [])],
+        current: snapshot(C),
+        records: [],
+        status: "| observed |",
+        exit: 0,
+      },
+      {
+        snapshots: [snapshot(A)],
+        current: snapshot(A),
+        records,
+        status: "pre-repair",
+        exit: 0,
+      },
+    ];
+    for (const item of cases) {
+      writeChurnState(
+        root,
+        {
+          version: 3,
+          walks: (item.records.length > 0 ? [] : item.snapshots).map((snapshot, i) =>
+            walk(i === item.snapshots.length - 1 ? item.current.tag : `old-${i}`, snapshot),
+          ),
+          seamRecords: item.records,
+          outcomes: [],
+        },
+        "case",
+      );
+      process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(item.current.censusEvidence)} -->`;
+      const receiptPath = NodePath.join(root, "report-receipt.json");
+      assert.strictEqual(
+        run(["report", "--issue", "1", "--receipt", receiptPath], root),
+        item.exit,
+      );
+      assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
+        publication: "succeeded",
+        policy: item.exit === 0 ? "succeeded" : "failed",
+        url: "https://example.test/comment",
+      });
+      const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
+      assert.include(posted, item.status);
+      if (item.records.length === 0) assert.notInclude(posted, "was fixed at");
+    }
+    // A completed walk with the same tag and provenance as its frozen snapshot
+    // anchors the histories and preserves the verified report policy pass.
+    writeChurnState(
+      root,
+      {
+        version: 3,
+        walks: [walk(clear.tag, snapshot(B, []))],
+        seamRecords: records,
+        outcomes: [],
+      },
+      "anchored mixed chronology",
+    );
+    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
+    const anchoredReceipt = NodePath.join(root, "anchored-receipt.json");
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", anchoredReceipt], root), 0);
+    assert.include(
+      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
+      "verified-repaired",
+    );
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(anchoredReceipt, "utf8")), {
+      publication: "succeeded",
+      policy: "succeeded",
+      url: "https://example.test/comment",
+    });
+    // The verified frozen repair cannot order an unanchored completed walk.
+    writeChurnState(
+      root,
+      {
+        version: 3,
+        walks: [walk("v1.0.0", snapshot(C))],
+        seamRecords: records,
+        outcomes: [],
+      },
+      "ambiguous mixed chronology",
+    );
+    process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
+    const ambiguousReceipt = NodePath.join(root, "ambiguous-receipt.json");
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 1);
+    assert.include(
+      NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
+      "chronology is ambiguous",
+    );
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(ambiguousReceipt, "utf8")), {
+      publication: "succeeded",
+      policy: "failed",
+      url: "https://example.test/comment",
+    });
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+    if (oldBody === undefined) delete process.env.SEAM_FIXTURE_BODY;
+    else process.env.SEAM_FIXTURE_BODY = oldBody;
+    if (oldOutput === undefined) delete process.env.SEAM_FIXTURE_OUTPUT;
+    else process.env.SEAM_FIXTURE_OUTPUT = oldOutput;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
