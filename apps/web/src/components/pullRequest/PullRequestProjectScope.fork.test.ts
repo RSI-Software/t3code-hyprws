@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   normalizePullRequestProjectScopePatch,
+  pullRequestProjectScopeChoices,
   resolvePullRequestProjectScope,
 } from "./PullRequestProjectScope";
 
@@ -20,8 +21,22 @@ const environments = [
   { environmentId: environmentTwo, serverConfig: {} },
 ];
 const projects = [
-  { id: projectOne, environmentId: environmentOne },
-  { id: projectTwo, environmentId: environmentTwo },
+  {
+    id: projectOne,
+    environmentId: environmentOne,
+    title: "t3code",
+    workspaceRoot: "/work/one",
+    faviconPath: null,
+    projectIcon: null,
+  },
+  {
+    id: projectTwo,
+    environmentId: environmentTwo,
+    title: "t3code",
+    workspaceRoot: "/work/two",
+    faviconPath: null,
+    projectIcon: null,
+  },
 ];
 
 describe("pull request project scope", () => {
@@ -98,5 +113,39 @@ describe("pull request project scope", () => {
       environmentId: undefined,
       projectId: undefined,
     });
+  });
+});
+
+describe("pull request project filter choices", () => {
+  const labels = new Map([
+    [environmentOne, "one"],
+    [environmentTwo, "two"],
+  ]);
+
+  it("keeps one entry per project and only relabels title collisions", () => {
+    const choices = pullRequestProjectScopeChoices(
+      [...projects, { ...projects[0]!, id: "project-1-worktree" as ProjectId }],
+      labels,
+    );
+
+    // Three checkouts of one repository stay three rows; only the colliding
+    // title is told apart by the environment it lives on.
+    expect(choices.map(({ id, environmentId, title }) => ({ id, environmentId, title }))).toEqual([
+      { id: projectOne, environmentId: environmentOne, title: "t3code · one" },
+      { id: "project-1-worktree", environmentId: environmentOne, title: "t3code · one" },
+      { id: projectTwo, environmentId: environmentTwo, title: "t3code · two" },
+    ]);
+  });
+
+  it("leaves unique titles alone and orders them alphabetically", () => {
+    const choices = pullRequestProjectScopeChoices(
+      [
+        { ...projects[0]!, title: "Zebra" },
+        { ...projects[1]!, title: "Alpha" },
+      ],
+      labels,
+    );
+
+    expect(choices.map((choice) => choice.title)).toEqual(["Alpha", "Zebra"]);
   });
 });
