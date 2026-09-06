@@ -441,7 +441,10 @@ The handoff search item is registered by `githubIssueSettingsSearch.ts` through
 `useAvailableSettingsSearchItems`, after upstream availability filtering. The adopted
 `github-issue-settings-search` authoring guard rejects adding its item back into the
 upstream settings registry. Keep the extension's ordering, fallback and deduplication
-when repairing the original registry patch.
+when repairing the original registry patch. Original patch `ebdfd053f4` still carries
+the five-line registry hunk; repair `a8959850503` moved registration to the extension
+and guard commit `88196dd6eea` rejects the old shape. Comparable before/after proof
+awaits the `fork-churn compose` producer (RSI-Software/t3code-hyprws#572 lane).
 
 ### Retirement condition
 
