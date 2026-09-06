@@ -105,7 +105,10 @@ import {
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
-import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
+import {
+  pullRequestProjectScopeChoices,
+  type PullRequestProjectScopeChoice,
+} from "../components/pullRequest/PullRequestProjectScope";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
 import {
@@ -1472,11 +1475,7 @@ export function PullRequestsPage({
     ...capableEnvironments.map((environment) => ({
       value: environment.environmentId,
       label: environment.label,
-      Icon: environmentMachineIcon(
-        resolveEnvironmentMachineKind(
-          environment.serverConfig?.settings === undefined ? null : environment.serverConfig,
-        ),
-      ),
+      Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
     })),
   ];
   const sortMenu = (
