@@ -467,6 +467,47 @@ it("prints the bot block after candidates for every mode", () => {
   }
 });
 
+it("unblock-list prints the lease it takes and the walk freeze", () => {
+  const root = fixtureRoot();
+  const outputPath = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-out-")),
+    "report.json",
+  );
+  const runner = new FakeRunner();
+  setListResponses(runner, root);
+  setBotResponses(runner, "candidate");
+  // The list lease probe reads the same live head the orient bind takes.
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  try {
+    const { output } = captureStdout(() =>
+      execute(["unblock-list", "--output", outputPath], root, runner),
+    );
+    assert.include(output, `Freeze: walk lease taken at \`${C}\` (origin/hyprws)`);
+    assert.include(output, "hyprws takes no landing until unblock-apply or an explicit void");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(outputPath), { recursive: true, force: true });
+  }
+});
+
+it("unblock-check repeats the lease beside the candidate", () => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
+  try {
+    const { output } = captureStdout(() =>
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+    );
+    assert.include(
+      output,
+      `Freeze: walk lease \`${C}\` beside the candidate above — hyprws takes no landing until unblock-apply or an explicit void`,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("uses candidate mode when the repository variable is missing", () => {
   const root = fixtureRoot();
   const outputPath = NodePath.join(
@@ -4723,6 +4764,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
       assert.match(message, /report leased at c+/);
       assert.match(message, /origin\/hyprws is now a+/);
       assert.match(message, /restart at vp run fork:sync unblock-list/);
+      assert.match(message, /walk freeze in docs\/operations\/fork-sync\.md/);
       assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
       assert.match(message, /orphaned/);
       // Do NOT emit an rm command.
