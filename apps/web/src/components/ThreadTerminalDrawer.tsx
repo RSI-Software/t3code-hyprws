@@ -951,19 +951,17 @@ export function TerminalViewport({
               );
             });
           };
-          void openTerminalPreview(
-            text,
-            fallbackToBrowser,
-            event.metaKey || event.ctrlKey,
-          ).catch((error: unknown) => {
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Unable to open link",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-          });
+          void openTerminalPreview(text, fallbackToBrowser, event.metaKey || event.ctrlKey).catch(
+            (error: unknown) => {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Unable to open link",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            },
+          );
           return;
         }
         const target = resolveTerminalPath(text);
