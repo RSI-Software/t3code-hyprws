@@ -228,6 +228,16 @@ const THREAD_NAVIGATION_DECLARATION = /\b(?:function|const|let)\s+resolveThreadR
 // These are the original scope rewrite's policy branches, not upstream list
 // filtering or the adapter's narrow calls. The removed search module duplicated
 // the upstream route validator; its original path must stay retired.
+//
+// The picker derivation (title-collision relabelling, repository collapse keys)
+// and any project-scoped refresh copy live in PullRequestProjectScope; the
+// route and filter menu only call them. Upstream owns refreshList and
+// refreshFromHost, so a fork-named refresh function or the retired per-query
+// refresh fan-out is a duplicated policy body.
+const PULL_REQUEST_FILTER_DERIVATION =
+  /\b(?:titleCounts|distinguishTitles|byRepository|canonicalKey)\b/;
+const PULL_REQUEST_SCOPED_REFRESH =
+  /\b(?:function\s+|(?:const|let|var)\s+)(?!refreshList\b|refreshFromHost\b)\w*[Rr]efresh\w*|\b(?:baseline|facet|authored|reviewing)Query\.refresh\s*\(/;
 const isPullRequestProjectScopeAddition = (path: string, content: string): boolean => {
   const targets = AUTHORING_GUARD_TARGETS["pull-request-project-scope"];
   if (/^\s*(?:\/\/|\/\*|\*)/.test(content) || content.trim().length === 0) return false;
@@ -238,10 +248,19 @@ const isPullRequestProjectScopeAddition = (path: string, content: string): boole
     return (
       /\b(?:const|let)\s+forcedProjectScope\b/.test(content) ||
       /\bforcedProject(?:Scope|Ref)\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
-      /["'][^"']*\/pullRequestListRoute(?:\.ts)?["']/.test(content)
+      /["'][^"']*\/pullRequestListRoute(?:\.ts)?["']/.test(content) ||
+      PULL_REQUEST_FILTER_DERIVATION.test(content) ||
+      PULL_REQUEST_SCOPED_REFRESH.test(content)
     );
   }
-  return path === targets.filters && /\bprojects\s*(?:===?|!==?)\s*null\b/.test(content);
+  if (path === targets.filters) {
+    return (
+      /\bprojects\s*(?:===?|!==?)\s*null\b/.test(content) ||
+      PULL_REQUEST_FILTER_DERIVATION.test(content) ||
+      PULL_REQUEST_SCOPED_REFRESH.test(content)
+    );
+  }
+  return false;
 };
 
 // The timeline keeps CTA presentation and widened callback arguments. Target
