@@ -2,12 +2,17 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
-  githubIssueSurface,
   migratePersistedRightPanelState,
   selectActiveRightPanelSurface,
+  selectSelectedRightPanelSurface,
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
+import {
+  githubIssueSurface,
+  normalizeAgentsSurfaceFork,
+  updatePullRequestTabStatus,
+} from "./rightPanelStore.fork";
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
@@ -59,6 +64,24 @@ describe("rightPanelStore", () => {
       selectedAgentId: null,
       rosterFocusAgentId: "agent-1",
     });
+  });
+  it("backfills a pre-widen Agents surface and round-trips a widened one", () => {
+    // A v13/v14 panel stored the surface before it carried drill-down state.
+    const stored = { id: "agents", kind: "agents" };
+    expect(normalizeAgentsSurfaceFork(stored)).toEqual([
+      { id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null },
+    ]);
+    const widened = {
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: "agent-1",
+      rosterFocusAgentId: "agent-2",
+    } as const;
+    expect(normalizeAgentsSurfaceFork(widened)).toEqual([widened]);
+    // Anything but a stored string is drill-down state the roster cannot resolve.
+    expect(
+      normalizeAgentsSurfaceFork({ selectedAgentId: 7, rosterFocusAgentId: undefined }),
+    ).toEqual([{ id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null }]);
   });
   it("normalizes persisted GitHub issue surfaces to their reference-keyed tab", () => {
     const id = githubIssueSurface({
@@ -220,5 +243,61 @@ describe("rightPanelStore", () => {
       githubIssueSurface(second).id,
     ]);
     expect(state.activeSurfaceId).toBe(githubIssueSurface(first).id);
+  });
+
+  describe("updatePullRequestTabStatus", () => {
+    const status = (isDraft: boolean) => ({
+      projectId: "project-a",
+      repository: "pingdotgg/t3code",
+      number: 4909,
+      state: "open" as const,
+      isDraft,
+    });
+
+    // Regression for the tab wearing no state: this failed when the status was written under a
+    // key rebuilt from the pull request while the tab strip reads it under the surface's own id.
+    it("keys a status under the same id a surface opened from an environment carries", () => {
+      const target = {
+        environmentId: "remote",
+        projectId: "project-a",
+        repository: "pingdotgg/t3code",
+        number: 4909,
+      };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("keys a status under the same id a thread surface with no environment carries", () => {
+      const target = { projectId: "project-a", repository: "pingdotgg/t3code", number: 4909 };
+      useRightPanelStore.getState().openPullRequest(refA, target);
+      const surface = selectSelectedRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      expect(surface).not.toBeNull();
+
+      const statuses = updatePullRequestTabStatus({}, surface!.id, status(false));
+      expect(statuses[surface!.id]).toEqual(status(false));
+    });
+
+    it("returns the identical map when the tab's state and draft flag are unchanged", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(false));
+      expect(second).toBe(first);
+    });
+
+    it("replaces the entry when the draft flag changes", () => {
+      const first = updatePullRequestTabStatus({}, "pull-request:1", status(false));
+      const second = updatePullRequestTabStatus(first, "pull-request:1", status(true));
+      expect(second).not.toBe(first);
+      expect(second["pull-request:1"]).toEqual(status(true));
+    });
   });
 });
