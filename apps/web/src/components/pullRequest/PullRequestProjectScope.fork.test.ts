@@ -122,18 +122,21 @@ describe("pull request project filter choices", () => {
     [environmentTwo, "two"],
   ]);
 
-  it("keeps one entry per project and only relabels title collisions", () => {
+  it("keeps one row per checkout of the same repository", () => {
     const choices = pullRequestProjectScopeChoices(
       [...projects, { ...projects[0]!, id: "project-1-worktree" as ProjectId }],
       labels,
     );
 
-    // Three checkouts of one repository stay three rows; only the colliding
-    // title is told apart by the environment it lives on.
-    expect(choices.map(({ id, environmentId, title }) => ({ id, environmentId, title }))).toEqual([
-      { id: projectOne, environmentId: environmentOne, title: "t3code · one" },
-      { id: "project-1-worktree", environmentId: environmentOne, title: "t3code · one" },
-      { id: projectTwo, environmentId: environmentTwo, title: "t3code · two" },
+    // A project window is rooted at one checkout, so two worktrees of the same
+    // repository must stay two selectable rows. Upstream collapses rows only when
+    // `repositoryIdentity.canonicalKey` matches, which these fixtures never carry;
+    // upstream owns the title escalation itself and is covered in
+    // pullRequestProjectFilter.logic.test.ts.
+    expect(choices.map(({ id, environmentId }) => ({ id, environmentId }))).toEqual([
+      { id: projectOne, environmentId: environmentOne },
+      { id: "project-1-worktree", environmentId: environmentOne },
+      { id: projectTwo, environmentId: environmentTwo },
     ]);
   });
 
