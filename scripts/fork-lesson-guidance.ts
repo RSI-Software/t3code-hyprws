@@ -238,7 +238,13 @@ const boundaries: ReadonlyArray<{
   {
     paths: ["apps/server/src/provider/Drivers/CodexDriver.ts"],
     boundary:
-      "Codex discovered-agent model selection metadata only: apps/server/src/provider/Layers/CodexAgentOptions.fork.ts; startup/resume, child-work results, identity and launcher environment joins require their own scoped review",
+      "Codex discovered-agent model selection metadata only: apps/server/src/provider/Layers/CodexAgentOptions.fork.ts, composed through its decorator so upstream's snapshot pipeline and platform-service acquisition stay intact; startup/resume, child-work results, identity and launcher environment joins require their own scoped review",
+    owner: 583,
+  },
+  {
+    paths: ["apps/server/src/provider/Layers/ClaudeAdapter.ts"],
+    boundary:
+      "Claude custom-agent launch arguments only: apps/server/src/provider/Layers/ClaudeAgentOptions.fork.ts, and child render detail only: apps/server/src/provider/Layers/ClaudeChildItemDetail.fork.ts; startup/resume, child-work results, identity and launcher environment joins require their own scoped review",
     owner: 583,
   },
   {
