@@ -1,6 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectFaviconPath,
+  ProjectIconOverride,
+  ProjectId,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
 
 import { allEnvironmentShellsBootstrappedAtom } from "../../state/shell";
 import { environmentShellBootstrappedAtom } from "../../state/windowProjectBootstrap.fork";
@@ -10,6 +16,7 @@ import {
   useWindowProjectListScope,
 } from "../../windowProjectScope";
 import { findScopedProject, resolveProjectScope } from "./pullRequestList.logic";
+import { pullRequestFilterProjects } from "./pullRequestProjectFilter.logic";
 
 export interface PullRequestProjectScopeSearch {
   readonly environmentId?: EnvironmentId;
@@ -125,6 +132,22 @@ export function usePullRequestProjectScope({
     onScopeChange,
     showHubScopeFilters: forcedProjectRef === null,
   };
+}
+
+export interface PullRequestProjectScopeChoice {
+  readonly environmentId: EnvironmentId;
+  readonly id: ProjectId;
+  readonly title: string;
+  readonly workspaceRoot: string;
+  readonly faviconPath: ProjectFaviconPath | null;
+  readonly projectIcon: ProjectIconOverride | null;
+}
+
+export function pullRequestProjectScopeChoices<Project extends PullRequestProjectScopeChoice>(
+  projects: ReadonlyArray<Project>,
+  environmentLabels: ReadonlyMap<EnvironmentId, string>,
+) {
+  return pullRequestFilterProjects(projects, environmentLabels);
 }
 
 export function normalizePullRequestProjectScopePatch<
