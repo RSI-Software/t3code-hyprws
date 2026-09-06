@@ -51,3 +51,17 @@ export function withClaudeAgentOptions(
     }),
   }));
 }
+
+/**
+ * A selected agent overrides whatever `--agent` the configured launch args
+ * carry, and "default" clears it. Startup and resume build their launch args
+ * from the same place, so a selection survives a resumed session.
+ */
+export function withClaudeAgentLaunchArgs(
+  configured: Record<string, string | null>,
+  selectedAgent: string | undefined,
+): Record<string, string | null> {
+  if (selectedAgent === undefined) return configured;
+  const { agent: _configuredAgent, ...withoutAgent } = configured;
+  return selectedAgent === "default" ? withoutAgent : { ...withoutAgent, agent: selectedAgent };
+}
