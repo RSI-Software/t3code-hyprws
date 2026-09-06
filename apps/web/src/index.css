@@ -521,23 +521,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-@utility live-activity-focus-counter {
-  width: 100%;
-  animation: live-activity-focus-counter 2.2s linear infinite;
-  animation-play-state: var(--visible-animation-state, paused);
-  will-change: var(--visible-animation-will-change, auto);
-
-  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
-    animation: none;
-    will-change: auto;
-  }
-}
-
-@utility live-activity-focus-aligned {
-  width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
-  margin-left: var(--live-activity-focus-width);
-}
-
 @property --assistant-citation-highlight-opacity {
   syntax: "<number>";
   inherits: true;
@@ -1399,7 +1382,9 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   }
 }
 
-/* Recompute contrast wherever a subtree owns its own semantic color palette. */
+/* Contrast stays in ordinary custom properties so both Tailwind utilities and
+   global/imperative chrome styles resolve the same adjusted role. Redeclare on
+   the sidebar because it owns a local semantic palette. */
 :root,
 [data-app-sidebar] {
   --contrast-toolbar-foreground: color-mix(

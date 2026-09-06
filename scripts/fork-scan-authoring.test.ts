@@ -140,6 +140,24 @@ const authoringCases = [
     domain: "project-windows",
   },
   {
+    name: "pull-request picker derivation",
+    sourcePath: "apps/web/src/routes/_chat.pull-requests.tsx",
+    inlineImplementation: "const titleCounts = new Map();",
+    forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
+    integrationCall: "const choices = pullRequestFilterProjects(projects, labels);",
+    rule: "pull-request-project-scope",
+    domain: "project-windows",
+  },
+  {
+    name: "pull-request scoped refresh",
+    sourcePath: "apps/web/src/routes/_chat.pull-requests.tsx",
+    inlineImplementation: "baselineQuery.refresh();",
+    forkPath: "apps/web/src/components/pullRequest/PullRequestProjectScope.ts",
+    integrationCall: "refreshList(true);",
+    rule: "pull-request-project-scope",
+    domain: "project-windows",
+  },
+  {
     name: "project-window bootstrap",
     sourcePath: "apps/web/src/state/shell.ts",
     inlineImplementation:
