@@ -10,9 +10,7 @@ import { usePullRequestCloseBatch } from "~/components/pullRequest/usePullReques
 import { SidebarPointerSensor } from "~/components/Sidebar.pointer";
 import { resolveSidebarSweepKeys } from "~/components/Sidebar.logic";
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
-import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { pullRequestHostOf, resolveEnvironmentMachineKind, ThreadId } from "@t3tools/contracts";
+import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -23,9 +21,9 @@ import type {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestListState,
-  ScopedProjectRef,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUpIcon,
@@ -38,6 +36,7 @@ import {
   ListChecksIcon,
   PenLineIcon,
   UsersIcon,
+  Plug2Icon,
   Maximize2Icon,
   Minimize2Icon,
   SearchIcon,
@@ -104,10 +103,7 @@ import {
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
-import {
-  pullRequestProjectScopeChoices,
-  type PullRequestProjectScopeChoice,
-} from "../components/pullRequest/PullRequestProjectScope";
+import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
 import {
@@ -125,11 +121,6 @@ import {
   PullRequestRow,
   type PullRequestRowTarget,
 } from "../components/pullRequest/PullRequestRow";
-import { WindowProjectScopeToggle } from "../components/WindowProjectScopeToggle";
-import {
-  normalizePullRequestProjectScopePatch,
-  usePullRequestProjectScope,
-} from "../components/pullRequest/PullRequestProjectScope";
 import { PullRequestsUnavailableState } from "../components/pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatusSeed } from "../components/RightPanelTabs";
 import {
@@ -184,6 +175,12 @@ import { Separator } from "~/components/ui/separator";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import {
+  WindowProjectScopeToggle,
+  normalizePullRequestProjectScopePatch,
+  usePullRequestProjectWindowScope,
+  type ScopedProjectRef,
+} from "./pullRequestProjectScope.fork"; // fork-hook: project-windows/pull-request-page-scope-import
 
 function getShortcutContext() {
   return {
@@ -206,8 +203,7 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedProjectId?: ProjectId;
   readonly selectedHost?: string;
   readonly selectedEnvironmentId?: EnvironmentId;
-  /** Project-window list scope. Absent keeps the physical project scope. */
-  readonly scope?: "all"; // fork-hook: project-windows/pull-request-window-scope
+  readonly scope?: "all"; // fork-hook: project-windows/pull-request-scope-search-field
 }
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -358,7 +354,7 @@ function HubPullRequestsRouteView() {
     <PullRequestsPage
       forcedProjectRef={null}
       search={search}
-      onNavigate={(update) => void navigate({ search: update, replace: true })}
+      onNavigate={(options) => void navigate(options)}
     />
   );
 }
@@ -370,7 +366,10 @@ export function PullRequestsPage({
 }: {
   readonly forcedProjectRef: ScopedProjectRef | null;
   readonly search: PullRequestsSearch;
-  readonly onNavigate: (update: (previous: PullRequestsSearch) => PullRequestsSearch) => void;
+  readonly onNavigate: (options: {
+    search: (previous: PullRequestsSearch) => PullRequestsSearch;
+    replace: boolean;
+  }) => void;
 }) {
   const modifiers = useShortcutModifierState(true);
   const speedMode =
@@ -1456,7 +1455,7 @@ export function PullRequestsPage({
   );
   const hostEntries = hosts.length > 0 ? hosts : expectedHosts;
   const hostMenuOptions: ReadonlyArray<PullRequestFilterOption<string>> = [
-    { value: "", label: "All hosts", Icon: LayersIcon },
+    { value: "", label: "All", Icon: Plug2Icon },
     ...hostEntries.map((entry) => {
       const summary = hosts.find((host) => host.host === entry.host);
       return {
@@ -1491,14 +1490,14 @@ export function PullRequestsPage({
   const projectScopeToggle = (
     <WindowProjectScopeToggle
       forcedProjectRef={forcedProjectRef}
-      listScope={projectScope.listScope}
+      listScope={listScope}
       onNavigate={(urlScope) =>
-        projectScope.onScopeChange(urlScope, (scopePatch) =>
+        onScopeChange(urlScope, (scopePatch) =>
           updateListScope({ ...scopePatch, environmentId: undefined }),
         )
       }
     />
-  );
+  ); // fork-hook: project-windows/pull-request-scope-toggle
   const filtersMenu = (
     <PullRequestFiltersMenuInSidebarOrder
       onOpenChange={setFiltersOpen}
@@ -1534,14 +1533,12 @@ export function PullRequestsPage({
       hostOptions={hostMenuOptions}
       onHost={(host) => updateListScope({ host })}
       server={scopedEnvironmentId ?? undefined}
-      serverOptions={projectScope.showHubScopeFilters ? serverMenuOptions : []}
+      serverOptions={showHubScopeFilters ? serverMenuOptions : []}
       onServer={(server) => updateListScope({ environmentId: server, projectId: undefined })}
       projects={scopedProjects}
-      projectId={projectScope.showHubScopeFilters ? scopedProjectId : undefined}
-      projectEnvironmentId={
-        projectScope.showHubScopeFilters ? scopedProject?.environmentId : undefined
-      }
-      showProjectFilter={projectScope.showHubScopeFilters}
+      projectId={showHubScopeFilters ? scopedProjectId : undefined}
+      projectEnvironmentId={showHubScopeFilters ? scopedProject?.environmentId : undefined}
+      showProjectFilter={showHubScopeFilters} // fork-hook: project-windows/pull-request-filter-visibility
       unavailable={unavailableProjects}
       onProject={(projectId, environmentId) =>
         updateListScope(environmentId === undefined ? { projectId } : { projectId, environmentId })
@@ -1674,7 +1671,7 @@ export function PullRequestsPage({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isCommandPaletteOpen()) return;
       const command = resolveShortcutCommand(event, keybindings, {
-        context: { terminalFocus: isTerminalFocused() },
+        context: getShortcutContext(),
       });
       if (command === "rightPanel.close") closeActiveSurfaceFromShortcut(event);
       if (command === "rightPanel.toggle") toggleRightPanelFromShortcut(event);
@@ -1748,6 +1745,8 @@ export function PullRequestsPage({
               key={renderedPullRequestSurface.id}
               environmentId={panelEnvironmentId}
               onGuideShown={onGuideShown}
+              getShortcutContext={getShortcutContext}
+              shortcutsEnabled={activePullRequestSurface?.id === renderedPullRequestSurface.id}
               onSelectPullRequest={(reference) => {
                 if (rightPanelRef === null) return;
                 useRightPanelStore.getState().openPullRequest(rightPanelRef, {
@@ -2203,6 +2202,7 @@ function CompactFilterMenu<Value extends string>({
   triggerIcon,
   triggerLabel,
   outlined = false,
+  iconOnly = false,
   value,
   options,
   onChange,
@@ -2212,6 +2212,7 @@ function CompactFilterMenu<Value extends string>({
   triggerIcon?: ReactNode;
   triggerLabel?: string;
   outlined?: boolean;
+  iconOnly?: boolean;
   value: Value;
   options: ReadonlyArray<PullRequestFilterOption<Value>>;
   onChange: (value: Value) => void;
@@ -2233,7 +2234,9 @@ function CompactFilterMenu<Value extends string>({
         }
         className={cn("min-w-0", className)}
       >
-        {triggerLabel ? (
+        {iconOnly ? (
+          <current.Icon aria-hidden className="size-4" />
+        ) : triggerLabel ? (
           <>
             {triggerIcon}
             <span>{triggerLabel}</span>
@@ -2502,12 +2505,24 @@ function PullRequestsColumn({
         <WorkspacePageContainer width="expanded" className="min-h-full gap-4">
           <div className="flex flex-col gap-3">
             <div ref={inFlowSearchRef} className="flex flex-wrap items-center gap-2">
+              {/* fork-hook: project-windows/pull-request-scope-toggle */}
               {projectScopeToggle}
+              {/* fork-hook-end */}
               <div className="min-w-0 basis-full @lg/pr-list:basis-0 @lg/pr-list:flex-1">
                 {searchInput}
               </div>
               {sortMenu}
               {filtersMenu}
+              <CompactFilterMenu
+                label="Filter by provider"
+                outlined
+                iconOnly={host !== undefined}
+                triggerIcon={<Plug2Icon aria-hidden className="size-4" />}
+                triggerLabel="All"
+                value={host ?? ""}
+                options={hostMenuOptions}
+                onChange={(next) => onHost(next === "" ? undefined : next)}
+              />
               {!condensed ? (
                 <PullRequestRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               ) : null}
