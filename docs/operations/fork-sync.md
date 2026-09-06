@@ -142,6 +142,16 @@ new-base side. Re-run the generator on the completed replay when either side cha
 manifests or the lockfile; it must be stable before apply. No generated index or version stamp is
 currently registered—add one only with its deterministic generator and an update to this table.
 
+`vp run fork:lockfile` proves the same regeneration on a feature branch, before the lockfile ever
+reaches a stop: it refuses an uncommitted `pnpm-lock.yaml`, reruns the generator, compares with the
+same drift classes the replay verification uses, and restores the committed bytes either way. Run it
+on any branch that changes a package manifest. A hand-merged lockfile, or one carried forward as a
+replayed historical patch, fails it here instead of costing a lane later.
+
+Only `importers` drift fails it. The generator re-resolves every open range, so unrelated transitive
+pins move on the registry's schedule and land in `snapshots:`; that difference is a note, not a
+finding, and the check is deliberately not a required one.
+
 ## Bot-owned refs
 
 Do not create, move, delete, or force-push these refs by hand:
