@@ -731,6 +731,14 @@ surface without weakening a gate, then resume the same external report.
 
 ### Walk mode
 
+#### Walk freeze
+
+While a report holds a lease, `hyprws` takes no landing until `unblock-apply` or an explicit
+void. Any movement of `origin/hyprws` past the report's `expected_old` voids the rehearsal and
+restarts at `unblock-list`, costing the full replay. A tooling fix the walk itself needs goes into
+the walk's lane (folded as a fixup) or is run from a branch the walk rehearses against — never
+landed on `hyprws` mid-walk.
+
 Use the existing step-by-step verbs for the interactive path. `vp run fork:sync` owns the mechanics
 as six report transitions. At each judgement stop, the human sees
 the emitted decision surface verbatim, then one triage line per decision: `clear — <recommendation>:

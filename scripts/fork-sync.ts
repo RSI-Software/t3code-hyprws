@@ -430,7 +430,7 @@ const voidedLeaseMessage = (
 ): string => {
   const trash =
     worktree !== undefined ? `\nStale rehearsal worktree is pending trash: trash ${worktree}` : "";
-  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; restart at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}`;
+  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; restart at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the walk freeze in docs/operations/fork-sync.md.`;
 };
 
 const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => {
@@ -542,8 +542,9 @@ const unblockList = (
   };
   writeReport(report);
   writeRecord(report);
+  const leaseHead = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   process.stdout.write(
-    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\n`,
+    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\nFreeze: walk lease taken at \`${leaseHead}\` (origin/hyprws) — while this report holds the lease, hyprws takes no landing until unblock-apply or an explicit void; see the walk freeze in docs/operations/fork-sync.md.\n`,
   );
   return report;
 };
@@ -1402,8 +1403,13 @@ const unblockCheck = (
   });
   writeReport(report);
   writeRecord(report);
+  const leaseSha = report.source?.expectedOld ?? report.rewrite?.originSha;
+  const leaseLine =
+    leaseSha === undefined
+      ? "Freeze: report holds no lease — rerun unblock-list."
+      : `Freeze: walk lease \`${leaseSha}\` beside the candidate above — hyprws takes no landing until unblock-apply or an explicit void; see the walk freeze in docs/operations/fork-sync.md.`;
   process.stdout.write(
-    `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}`,
+    `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}${leaseLine}\n`,
   );
   return report;
 };
