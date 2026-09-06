@@ -18,7 +18,7 @@ const HOOK_TIMEOUT = "5 minutes";
  * Worktrunk mode. Its presence is what makes the remove hooks run later, and
  * `git worktree remove` deletes the directory with it.
  */
-export const WORKTRUNK_MARKER_FILE = "t3-worktrunk";
+const WORKTRUNK_MARKER_FILE = "t3-worktrunk";
 
 export type WorktrunkHookOperation = "pre-start" | "post-start" | "pre-remove" | "post-remove";
 
@@ -118,7 +118,7 @@ function failureDetail(output: ProcessRunner.ProcessRunOutput): string {
   return `wt exited with code ${output.code ?? "unknown"}`;
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const processRunner = yield* ProcessRunner.ProcessRunner;

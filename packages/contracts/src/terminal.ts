@@ -293,7 +293,7 @@ export class TerminalCwdStatError extends Schema.TaggedError<TerminalCwdStatErro
   }
 }
 
-export class TerminalManagedRetargetError extends Schema.TaggedErrorClass<TerminalManagedRetargetError>()(
+export class TerminalManagedRetargetError extends Schema.TaggedError<TerminalManagedRetargetError>()(
   "TerminalManagedRetargetError",
   {
     cwd: Schema.String,
