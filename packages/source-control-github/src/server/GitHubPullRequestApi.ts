@@ -2891,6 +2891,7 @@ export const make = Effect.gen(function* () {
           args: ["image", "--version"],
           env: cleanEnvironment,
           maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
+          verifiedHost: input.host, // fork-hook: pull-requests/attachment-media-verified-host
         })
         .pipe(
           // `gh` exits non-zero on an unknown subcommand, which is what a missing extension is.
@@ -2922,6 +2923,7 @@ export const make = Effect.gen(function* () {
               env: cleanEnvironment,
               timeoutMs: ATTACHMENT_UPLOAD_TIMEOUT_MS,
               maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
+              verifiedHost: input.host, // fork-hook: pull-requests/attachment-media-verified-host
             }),
           ),
           Effect.flatMap((result) => {
