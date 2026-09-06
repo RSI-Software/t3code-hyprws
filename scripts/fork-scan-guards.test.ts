@@ -339,7 +339,7 @@ it("keeps a path hot only while the ledger charged for it more than once", () =>
   });
 });
 
-it("warns about inline terminal retention while allowing its fork-owned hook and upstream index", () => {
+it("warns about inline terminal retention and selection while allowing its fork-owned hook and upstream index", () => {
   const sha = "a".repeat(40);
   const make = (file: string, content: string) =>
     collectScanWarnings(
@@ -357,6 +357,8 @@ it("warns about inline terminal retention while allowing its fork-owned hook and
     "export function updateRetainedTerminalAttachment(",
     "const [committed, setCommitted] = useState(initial);",
     "useEffect(() => {",
+    "const summary = metadata.data?.find((terminal) =>",
+    "const match = summaries.find((summary) =>",
   ]) {
     const warnings = make("apps/web/src/state/terminalSessions.ts", content);
     assert.deepStrictEqual(
@@ -372,6 +374,12 @@ it("warns about inline terminal retention while allowing its fork-owned hook and
     make(
       "apps/web/src/state/terminalSessions.ts",
       "const retained = useRetainedTerminalAttachment(input, attach);",
+    ),
+  );
+  assert.isEmpty(
+    make(
+      "apps/web/src/state/terminalSessions.ts",
+      "const summary = selectTerminalSummary(metadata.data, input.terminal);",
     ),
   );
   assert.isEmpty(

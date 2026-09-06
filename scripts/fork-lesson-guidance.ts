@@ -317,7 +317,7 @@ export const preferredLessonBoundary = (path: string) => {
   if (path === "apps/web/src/state/terminalSessions.test.ts")
     return {
       boundary:
-        "terminal indexing and attachment coverage: preserve upstream metadata tests and use terminalAttachmentRetention.fork.test.ts for fork retention behavior",
+        "terminal indexing and attachment coverage: preserve upstream metadata tests and use terminalAttachmentRetention.fork.test.ts plus terminalSummarySelection.fork.test.ts for fork retention and selection behavior",
       owner: 582,
     };
   if (
