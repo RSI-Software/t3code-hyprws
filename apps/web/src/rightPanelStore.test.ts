@@ -13,7 +13,6 @@ import {
   selectThreadPanelOpen,
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
-  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
 
@@ -713,6 +712,10 @@ describe("rightPanelStore", () => {
     ).toMatchObject([{ id: `file:${treePath}`, relativePath: treePath, revealRequestId: 2 }]);
   });
 
+  // Upstream replaces the standalone explorer with peer file surfaces. The fork keeps the upstream
+  // case here, inverted, because `ff0aac6c4eb fix(web): keep the files explorer tab when a file
+  // opens (#84)` keeps the explorer beside them. The fork contract is covered in
+  // rightPanelStore.fork.test.ts.
   it("opens an attachment as a file surface without the standalone explorer", () => {
     const attachment = {
       type: "file" as const,
