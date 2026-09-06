@@ -165,7 +165,7 @@ function timestamp(raw: string): string {
   return raw;
 }
 
-export function normalizeGitHubIssue(raw: RawGitHubIssue) {
+function normalizeGitHubIssue(raw: RawGitHubIssue) {
   return {
     number: raw.number,
     title: raw.title,
