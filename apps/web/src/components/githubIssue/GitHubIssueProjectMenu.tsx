@@ -38,14 +38,7 @@ function ProjectRow({
       closeOnClick
       className={cn(PROJECT_ROW, muted && "text-muted-foreground")}
     >
-      <ProjectFavicon
-        environmentId={project.environmentId}
-        cwd={project.workspaceRoot}
-        projectName={project.title}
-        faviconPath={project.faviconPath}
-        projectIcon={project.projectIcon}
-        className="size-4 shrink-0"
-      />
+      <ProjectFavicon project={project} className="size-4 shrink-0" />
       <span className="min-w-0 truncate text-sm">{project.title}</span>
     </MenuRadioItem>
   );
@@ -93,14 +86,7 @@ export function GitHubIssueProjectMenu({
         }
       >
         {selected ? (
-          <ProjectFavicon
-            environmentId={selected.environmentId}
-            cwd={selected.workspaceRoot}
-            projectName={selected.title}
-            faviconPath={selected.faviconPath}
-            projectIcon={selected.projectIcon}
-            className="size-4 shrink-0"
-          />
+          <ProjectFavicon project={selected} className="size-4 shrink-0" />
         ) : (
           <LayersIcon aria-hidden className="size-4 shrink-0" />
         )}
