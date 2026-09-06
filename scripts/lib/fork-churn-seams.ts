@@ -251,14 +251,28 @@ export const requireSeamPayload = (value: unknown): SeamPayload => {
   }
 };
 
-const comparable = (before: FrozenObservation, after: FrozenObservation): boolean =>
-  before.evidence !== null &&
+/**
+ * The one owned route across the legacy→sequential method boundary
+ * (RSI-Software/t3code-hyprws#654): a `legacy-pairwise-feasibility` walk carries no evidence, so
+ * it can never be strictly comparable. It bridges to a complete after-observation under the
+ * current method; `record` additionally proves the repair landed before the frozen after head,
+ * which this pure predicate cannot check.
+ */
+export const bridgedLegacy = (before: FrozenObservation, after: FrozenObservation): boolean =>
+  before.method === "legacy-pairwise-feasibility" &&
+  before.evidence === null &&
   after.evidence !== null &&
-  before.evidence.complete &&
-  after.evidence.complete &&
-  before.method === after.method &&
-  before.evidence.baseSha === after.evidence.baseSha &&
-  before.evidence.targetSha === after.evidence.targetSha;
+  after.evidence.complete;
+
+const comparable = (before: FrozenObservation, after: FrozenObservation): boolean =>
+  (before.evidence !== null &&
+    after.evidence !== null &&
+    before.evidence.complete &&
+    after.evidence.complete &&
+    before.method === after.method &&
+    before.evidence.baseSha === after.evidence.baseSha &&
+    before.evidence.targetSha === after.evidence.targetSha) ||
+  bridgedLegacy(before, after);
 
 export const requireSeamRecords = (value: unknown): ReadonlyArray<SeamRecord> => {
   if (!Array.isArray(value)) throw new Error("seamRecords must be an array");
@@ -366,6 +380,8 @@ export interface SeamAssessment {
   readonly blocking: boolean;
   readonly repairSha: string | null;
   readonly guard: string | null;
+  /** `legacy` when the verdict crossed the legacy→sequential method boundary; stays visible. */
+  readonly bridged: "legacy" | null;
   readonly reason: string;
 }
 
@@ -400,6 +416,7 @@ export const assessSeams = (
         blocking: returned,
         repairSha: null,
         guard: null,
+        bridged: null,
         reason: returned
           ? "Returned without comparable repair verification."
           : "Observed; no repair is implied.",
@@ -444,6 +461,7 @@ export const assessSeams = (
         blocking: false,
         repairSha: null,
         guard: null,
+        bridged: null,
         reason: "No current census.",
       } satisfies SeamAssessment);
     let next: SeamAssessment = {
@@ -479,7 +497,9 @@ export const assessSeams = (
       if (repaired) verifiedRepair = true;
       const current = latest ?? after;
       const currentPresent = current.files.some((row) => registry.identity(row) === id);
+      // A legacy before has no frozen head, so there is no stale pre-repair head to detect.
       const staleBefore =
+        before.evidence !== null &&
         current.evidence?.sourceSha === before.evidence?.sourceSha &&
         current.evidence?.sourceSha !== after.evidence?.sourceSha;
       if (repaired && staleBefore) {
@@ -499,6 +519,7 @@ export const assessSeams = (
           ...next,
           status: "verified-repaired",
           blocking: false,
+          bridged: bridgedLegacy(before, after) ? "legacy" : next.bridged,
           reason:
             "Complete comparable replay is clear; maintainer attests the guard passed on this head.",
         };

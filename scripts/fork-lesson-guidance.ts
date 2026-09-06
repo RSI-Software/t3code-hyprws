@@ -522,7 +522,7 @@ export const renderLessonGuidance = (source: LessonSource, evidence: LessonEvide
     "Policy references include closed historical issues; they identify reviewed scope, not a live assignment or current issue status.",
     ...rows.map(
       (row) =>
-        `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
+        `  ${row.path} [${row.original ? "original scope; " : ""}${row.observations} retained observation(s)] -> ${row.preferred ? `${row.preferred.boundary} (policy reference #${row.preferred.owner}; issue status is not inferred)` : "unresolved: no reviewed preferred boundary; retain this lesson for review"}${row.assessmentUnavailable ? `; assessment unavailable: ${row.assessmentUnavailable}` : row.assessments.length ? `; evidence: ${row.assessments.map((assessment) => `${assessment.status}${assessment.bridged === "legacy" ? " (bridged: legacy)" : ""}${assessment.guard ? `, guard ${assessment.guard}` : ""}: ${assessment.reason}`).join(" | ")}` : "; no repair assessment available"}`,
     ),
     "",
   ].join("\n");
