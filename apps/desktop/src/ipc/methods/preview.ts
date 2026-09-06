@@ -39,7 +39,7 @@ import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
-export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedErrorClass<PreviewIpcSenderNotAuthorizedError>()(
+export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedError<PreviewIpcSenderNotAuthorizedError>()(
   "PreviewIpcSenderNotAuthorizedError",
   { reason: Schema.Literals(["missing-sender", "unregistered-window"]) },
 ) {
