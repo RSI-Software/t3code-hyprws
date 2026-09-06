@@ -123,6 +123,8 @@ The legacy sidebar offers the same action in each project's context menu.
 You can also run **Open project in new window** from the command palette.
 
 Opening a project that already has a window reveals that window instead of creating a duplicate.
+A project window's sidebar stays pinned to that project: the project filter shows its name and
+cannot be changed, and new threads start in it. The hub window still lists every project.
 Web and mobile clients do not show project-window actions.
 
 ## Inspect agent work

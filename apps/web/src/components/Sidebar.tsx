@@ -3,6 +3,7 @@ import {
   resolveSidebarPhysicalScope,
   setSidebarLogicalScope,
 } from "./sidebar/SidebarPhysicalScope";
+import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -35,7 +36,6 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
-  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -2126,11 +2126,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
-export default function Sidebar({
-  forcedProjectRef = null,
-}: {
-  forcedProjectRef?: ScopedProjectRef | null;
-}) {
+export default function Sidebar() {
+  const forcedProjectRef = useSidebarPhysicalScope();
   const allProjects = useProjects();
   const projects = useMemo(
     () => filterSidebarProjects(allProjects, forcedProjectRef),
