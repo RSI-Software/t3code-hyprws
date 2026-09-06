@@ -1,4 +1,5 @@
-import { useAtomValue } from "@effect/atom-react";
+import { RefreshIcon } from "~/components/ui/refresh-icon";
+import { Spinner } from "~/components/ui/spinner";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { pullRequestHostOf, resolveEnvironmentMachineKind, ThreadId } from "@t3tools/contracts";
 import type {
@@ -13,6 +14,7 @@ import type {
   ScopedProjectRef,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUpIcon,
@@ -27,10 +29,8 @@ import {
   LayersIcon,
   ListChecksIcon,
   PenLineIcon,
-  LoaderIcon,
   Maximize2Icon,
   Minimize2Icon,
-  RefreshCwIcon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -87,7 +87,10 @@ import {
   writePullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { assignProjectsToEnvironments } from "../components/pullRequest/pullRequestProjectAssignment.logic";
-import { pullRequestFilterProjects } from "../components/pullRequest/pullRequestProjectFilter.logic";
+import {
+  pullRequestProjectScopeChoices,
+  type PullRequestProjectScopeChoice,
+} from "../components/pullRequest/PullRequestProjectScope";
 import { environmentMachineIcon } from "../components/EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "../components/pullRequest/PullRequestDetailPanel";
 import {
@@ -393,8 +396,19 @@ export function PullRequestsPage({
     [environments],
   );
   const scopedProjects = useMemo(
-    () => pullRequestFilterProjects(projects, environmentLabels, scopedProject),
-    [environmentLabels, projects, scopedProject],
+    () =>
+      pullRequestProjectScopeChoices(
+        projects.map((project): PullRequestProjectScopeChoice => ({
+          environmentId: project.environmentId,
+          id: project.id,
+          title: project.title,
+          workspaceRoot: project.workspaceRoot,
+          faviconPath: project.faviconPath ?? null,
+          projectIcon: project.projectIcon ?? null,
+        })),
+        environmentLabels,
+      ),
+    [environmentLabels, projects],
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
@@ -1608,7 +1622,11 @@ export function PullRequestsPage({
       ) : firstLoad ? (
         <PullRequestListGhost rows={7} />
       ) : listQuery.error && entries.length === 0 ? (
-        <PullRequestsUnavailableState error={listQuery.error} onRetry={() => listQuery.refresh()} />
+        <PullRequestsUnavailableState
+          error={listQuery.error}
+          refreshing={listQuery.isPending}
+          onRetry={() => listQuery.refresh()}
+        />
       ) : carriedToNothing ? (
         <PullRequestListGhost rows={7} />
       ) : entries.length === 0 ? (
@@ -1685,7 +1703,7 @@ export function PullRequestsPage({
         <div className="flex justify-center py-3 text-xs text-muted-foreground">
           {loadingMore ? (
             <span className="flex items-center gap-2">
-              <LoaderIcon aria-hidden className="size-3.5 animate-spin" />
+              <Spinner aria-hidden className="size-3.5" />
               {sentCursors === null ? "Updating pull requests" : "Loading more"}
             </span>
           ) : canContinue || pageSize < MAX_PAGE_SIZE ? (
@@ -1731,11 +1749,7 @@ export function PullRequestsPage({
     ...capableEnvironments.map((environment) => ({
       value: environment.environmentId,
       label: environment.label,
-      Icon: environmentMachineIcon(
-        resolveEnvironmentMachineKind(
-          environment.serverConfig?.settings === undefined ? null : environment.serverConfig,
-        ),
-      ),
+      Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
     })),
   ];
   const sortMenu = (
@@ -2369,7 +2383,7 @@ function PullRequestRefreshControl({
       onClick={onRefresh}
       disabled={refreshing}
     >
-      <RefreshCwIcon className={cn("size-4", refreshing && "animate-spin")} />
+      <RefreshIcon className="size-4" refreshing={refreshing} />
     </Button>
   );
 }
