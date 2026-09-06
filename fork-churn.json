@@ -9377,6 +9377,535 @@
         ]
       },
       "id": "14f3fa2cd3eeb496ab702386494ecb052bd454823e569dce7266354e66aa5c61"
+    },
+    {
+      "kind": "observation",
+      "method": "sequential-rebase-stage3-provisional",
+      "tag": "v0.0.39-nightly.20260906.1293",
+      "files": [
+        {
+          "path": "apps/web/src/hooks/useHandleNewThread.ts",
+          "hunks": null,
+          "commit": "7c9f58f29114ed7d3d9296ce3a0c96936b2e58aa",
+          "domain": "project-windows",
+          "subject": "refactor(web): centralize thread route navigation"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "hunks": null,
+          "commit": "8ed408c0fe4b34678c3c5cf30a23ccec7c739cd0",
+          "domain": "project-windows",
+          "subject": "fix(web): offer retry when scoped draft start fails"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "hunks": null,
+          "commit": "7cc480d4beb0a8435df23289f85261010505df17",
+          "domain": "project-windows",
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "hunks": null,
+          "commit": "ae3039e3282671fb14ace94a64dc53c151998c95",
+          "domain": "zmux-estate",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session"
+        },
+        {
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "hunks": null,
+          "commit": "7775ff1e3f38676333f20f20586bd443ef352ebc",
+          "domain": "markdown-editing",
+          "subject": "feat(web): add rich Markdown editing (#28)"
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "hunks": null,
+          "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+          "domain": "workspace-files",
+          "subject": "feat(files): reveal ignored workspace files (#73)"
+        },
+        {
+          "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+          "hunks": null,
+          "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+          "domain": "workspace-files",
+          "subject": "feat(files): reveal ignored workspace files (#73)"
+        },
+        {
+          "path": "packages/shared/src/serverSettings.test.ts",
+          "hunks": null,
+          "commit": "b522bae7f840a80967edcbb6c8492fdf2c4e2242",
+          "domain": "upstream-fixes",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "dff8e52eec4cf80e617a4d0ec3e41eb0933cb732",
+          "domain": "project-windows",
+          "subject": "feat(web): scope pull requests to project windows"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "hunks": null,
+          "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+          "domain": "github-issues",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows"
+        },
+        {
+          "path": "apps/server/src/provider/Drivers/AntigravityDriver.ts",
+          "hunks": null,
+          "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+          "domain": "worktrunk-hooks",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+          "hunks": null,
+          "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+          "domain": "worktrunk-hooks",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "hunks": null,
+          "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+          "domain": "worktrunk-hooks",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+          "domain": "worktrunk-hooks",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "hunks": null,
+          "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+          "domain": "worktrunk-hooks",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches"
+        },
+        {
+          "path": "packages/contracts/src/rpc.ts",
+          "hunks": null,
+          "commit": "a628efada4c933ddb788144161efd24b93469cac",
+          "domain": "upstream-fixes",
+          "subject": "fix(web): upload media in pull request descriptions"
+        },
+        {
+          "path": "packages/shared/src/serverSettings.ts",
+          "hunks": null,
+          "commit": "c64e51a7a7799adbc8129c1b07e71e8fc9a33baf",
+          "domain": "worktrunk-hooks",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "6591bc4345dd26f872daf91ce1c354850e123e08",
+          "domain": "fork-meta",
+          "subject": "fix(fork): refresh persisted worktree setup scripts"
+        }
+      ],
+      "evidence": {
+        "version": 1,
+        "method": "sequential-rebase-stage3-provisional",
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "baseSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+        "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+        "targetTag": "v0.0.39-nightly.20260906.1293",
+        "complete": true,
+        "rows": [
+          {
+            "stop": 1,
+            "commit": "7c9f58f29114ed7d3d9296ce3a0c96936b2e58aa",
+            "subject": "refactor(web): centralize thread route navigation",
+            "domain": "project-windows",
+            "path": "apps/web/src/hooks/useHandleNewThread.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 2,
+            "commit": "8ed408c0fe4b34678c3c5cf30a23ccec7c739cd0",
+            "subject": "fix(web): offer retry when scoped draft start fails",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.index.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 3,
+            "commit": "7cc480d4beb0a8435df23289f85261010505df17",
+            "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+            "domain": "project-windows",
+            "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "ae3039e3282671fb14ace94a64dc53c151998c95",
+            "subject": "feat(server): bind thread worktrees to a managed zmux session",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/server.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 5,
+            "commit": "7775ff1e3f38676333f20f20586bd443ef352ebc",
+            "subject": "feat(web): add rich Markdown editing (#28)",
+            "domain": "markdown-editing",
+            "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 6,
+            "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 6,
+            "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 7,
+            "commit": "b522bae7f840a80967edcbb6c8492fdf2c4e2242",
+            "subject": "fix(server): follow external workspace symlinks globally (#66)",
+            "domain": "upstream-fixes",
+            "path": "packages/shared/src/serverSettings.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 8,
+            "commit": "dff8e52eec4cf80e617a4d0ec3e41eb0933cb732",
+            "subject": "feat(web): scope pull requests to project windows",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 10,
+            "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+            "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+            "domain": "worktrunk-hooks",
+            "path": "apps/server/src/provider/Drivers/AntigravityDriver.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 10,
+            "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+            "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+            "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+            "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/ChatView.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+            "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 12,
+            "commit": "a628efada4c933ddb788144161efd24b93469cac",
+            "subject": "fix(web): upload media in pull request descriptions",
+            "domain": "upstream-fixes",
+            "path": "packages/contracts/src/rpc.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 13,
+            "commit": "c64e51a7a7799adbc8129c1b07e71e8fc9a33baf",
+            "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+            "domain": "worktrunk-hooks",
+            "path": "packages/shared/src/serverSettings.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 14,
+            "commit": "6591bc4345dd26f872daf91ce1c354850e123e08",
+            "subject": "fix(fork): refresh persisted worktree setup scripts",
+            "domain": "fork-meta",
+            "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+            "kind": "content"
+          }
+        ]
+      },
+      "id": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 1
+      },
+      "changeSha": "4031bc53d6ca31ba6f01b529d2b25a591b8248c3",
+      "guard": "scripts/fork-scan-guards.test.ts: desktop-preview-ownership boundary over preload.ts",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/637"
+      },
+      "id": "210dc75c7de74667d33e2905a7a102769f508738abace5ef6d9245a2b79ca696"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 3
+      },
+      "changeSha": "0702024054d5dd632a379a88daa882b097c95bae",
+      "guard": "scripts/fork-scan-guards.test.ts: provider-agent-boundary (driver)",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "f835506e65cd15e2faa09ee8dd3180de825b900b948970d1dbe7acab80df783a"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 4
+      },
+      "changeSha": "0702024054d5dd632a379a88daa882b097c95bae",
+      "guard": "scripts/fork-scan-guards.test.ts: provider-agent-boundary (adapter)",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "90b0aed6e6d499baca6769aaf666ee13dbeed0a5057692f44ee085b7e5eed09d"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 9
+      },
+      "changeSha": "13772fde47b59871532d950fee4376ae1cbe474f",
+      "guard": "apps/web/src/components/files/richMarkdownDependencies.fork.test.ts: manifest holds exact Milkdown set",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "9557f9d20654fb8a0b5f5e108527f6d354c06be31e6050ecc1db04e8cd7366ea"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 11
+      },
+      "changeSha": "13772fde47b59871532d950fee4376ae1cbe474f",
+      "guard": "scripts/fork-scan-guards.test.ts: rich-Markdown scan rows",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "2dd4845b51ff5e91d05f263429779cdbfa9ba97b405ecfe94e84493d5ca8cfb0"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 12
+      },
+      "changeSha": "014feed710a5b57c76e80de3cd3269138768ee24",
+      "guard": "scripts/fork-scan-guards.test.ts: thread-route-navigation boundary (ChatView import add/add is upstream evolution, cleared by rehearsal absence)",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/634"
+      },
+      "id": "188fc54f4e481b790690a00e0ff29ccfa6e379c8d319b5f178f87e9583b76a54"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 16
+      },
+      "changeSha": "13343ecc2d1e33ad02b3ef882406146438980881",
+      "guard": "scripts/fork-scan-guards.test.ts: sidebar-physical-scope boundary (SidebarChrome.tsx)",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/635"
+      },
+      "id": "e10cc643b01aa8c3bab13f1481d8e0204c90335d5e28dbf2e709f17d90e2f24e"
+    },
+    {
+      "kind": "repair",
+      "before": {
+        "observation": "20ca4d3b48a366ad19144746b0eb442694f9600d5fe6d75afa568ea41155498f",
+        "row": 22
+      },
+      "changeSha": "13772fde47b59871532d950fee4376ae1cbe474f",
+      "guard": "scripts/fork-lockfile.test.ts: pnpm-lock.yaml regenerates unchanged",
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "f7eca0ef55bf1dcf4263ef33a89f434bb921c247ce0e68456f21a59683b990ac"
+    },
+    {
+      "kind": "verification",
+      "repair": "210dc75c7de74667d33e2905a7a102769f508738abace5ef6d9245a2b79ca696",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/desktop/src/preview/WindowPolicy.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  11 passed (11)\n   Start at  02:08:23\n   Duration  471ms (transform 204ms, setup 38ms, import 366ms, tests 11ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/637"
+      },
+      "id": "27687bb48be7bcd37b7d80a960b3f42132eb486e3edc9007446158bbca628452"
+    },
+    {
+      "kind": "verification",
+      "repair": "f835506e65cd15e2faa09ee8dd3180de825b900b948970d1dbe7acab80df783a",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/server/src/provider/Drivers/CodexDriver.fork.test.ts apps/server/src/provider/Layers/ClaudeAdapter.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  2 passed (2)\n      Tests  11 passed (11)\n   Start at  02:08:24\n   Duration  630ms (transform 417ms, setup 71ms, import 858ms, tests 35ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "dfba1d2fa72f7104469551e3e61dd3578c2f110b2943ac31ae225d79cfe75f5d"
+    },
+    {
+      "kind": "verification",
+      "repair": "90b0aed6e6d499baca6769aaf666ee13dbeed0a5057692f44ee085b7e5eed09d",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/server/src/provider/Drivers/CodexDriver.fork.test.ts apps/server/src/provider/Layers/ClaudeAdapter.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  2 passed (2)\n      Tests  11 passed (11)\n   Start at  02:08:24\n   Duration  630ms (transform 417ms, setup 71ms, import 858ms, tests 35ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "6de166e72e4e7f4301ad229052c16fe34aeca76a0542f7de9244d33a029d0a45"
+    },
+    {
+      "kind": "verification",
+      "repair": "9557f9d20654fb8a0b5f5e108527f6d354c06be31e6050ecc1db04e8cd7366ea",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/components/files/richMarkdownDependencies.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  02:08:24\n   Duration  140ms (transform 15ms, setup 37ms, import 6ms, tests 42ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "4057992a1f047f45496bce88bca8e7ef7344f3edb85b82f4c5366d6f7f69b4df"
+    },
+    {
+      "kind": "verification",
+      "repair": "2dd4845b51ff5e91d05f263429779cdbfa9ba97b405ecfe94e84493d5ca8cfb0",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/components/files/richMarkdownDependencies.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  02:08:24\n   Duration  140ms (transform 15ms, setup 37ms, import 6ms, tests 42ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "1a3afc90df183ccdf9c6b72070725611c82c8fd025c79334dcd22db8b329d090"
+    },
+    {
+      "kind": "verification",
+      "repair": "188fc54f4e481b790690a00e0ff29ccfa6e379c8d319b5f178f87e9583b76a54",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/threadRoutes.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  02:08:25\n   Duration  590ms (transform 223ms, setup 34ms, import 497ms, tests 2ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/634"
+      },
+      "id": "12260054ec7f3312b4f5b82413c3a5aeb4179a1dd9e492f5a6f5e9e9e89ed6f8"
+    },
+    {
+      "kind": "verification",
+      "repair": "e10cc643b01aa8c3bab13f1481d8e0204c90335d5e28dbf2e709f17d90e2f24e",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run scripts/fork-scan-guards.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  25 passed (25)\n   Start at  02:08:15\n   Duration  203ms (transform 63ms, setup 35ms, import 94ms, tests 19ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/635"
+      },
+      "id": "34cc9f48d7b221233461a17c0d3ef6242cb98e0431f1e9f88581e5ca4fd39b15"
+    },
+    {
+      "kind": "verification",
+      "repair": "f7eca0ef55bf1dcf4263ef33a89f434bb921c247ce0e68456f21a59683b990ac",
+      "after": "3eff9f98c4582e540aff23800fc9f8caaacc7c50fa25b9767ed039b734030b04",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run scripts/fork-lockfile.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  10 passed (10)\n   Start at  02:08:26\n   Duration  288ms (transform 121ms, setup 35ms, import 197ms, tests 3ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "d415d24af399c714bfd548b348d84f037718699bb9cc3f29f77fc8ffcbe4e9e6"
     }
   ],
   "outcomes": [
