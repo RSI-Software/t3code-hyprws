@@ -118,7 +118,8 @@ import {
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { extractChildItemResultText, makeChildItemRenderDetail } from "../childItemRenderDetail.ts";
+import { claudeChildItemRenderDetail } from "./ClaudeChildItemDetail.fork.ts"; // fork-hook: custom-agents/claude-child-detail-import
+import { withClaudeAgentLaunchArgs } from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-launch-args-import
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const encodeHistoryArgs = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -1002,55 +1003,6 @@ function classifyToolItemType(
     return "image_view";
   }
   return "dynamic_tool_call";
-}
-
-function stringField(input: Record<string, unknown>, ...keys: ReadonlyArray<string>) {
-  for (const key of keys) {
-    if (typeof input[key] === "string") {
-      return input[key];
-    }
-  }
-  return undefined;
-}
-
-function claudeChildItemRenderDetail(
-  tool: ToolInFlight,
-  workspaceRoot: string | undefined,
-  resultSource?: unknown,
-  structuredResultSource?: unknown,
-) {
-  const path = stringField(tool.input, "file_path", "notebook_path", "path");
-  const command =
-    tool.itemType === "command_execution" ? stringField(tool.input, "command", "cmd") : undefined;
-  const diff = stringField(tool.input, "diff", "patch");
-  const before = stringField(tool.input, "old_string", "oldText");
-  const after = stringField(tool.input, "new_string", "newText", "new_source");
-  const primaryResult = extractChildItemResultText(resultSource);
-  const structuredResult = extractChildItemResultText(structuredResultSource);
-  const result =
-    structuredResult.value &&
-    (!primaryResult.value || structuredResult.value.length > primaryResult.value.length)
-      ? structuredResult
-      : primaryResult;
-  const changedFiles =
-    tool.itemType === "file_change" && path
-      ? [
-          {
-            path,
-            kind: stringField(tool.input, "kind", "operation") ?? "modified",
-            ...(diff ? { diff } : {}),
-            ...(before !== undefined ? { before } : {}),
-            ...(after !== undefined ? { after } : {}),
-          },
-        ]
-      : undefined;
-  return makeChildItemRenderDetail({
-    ...(workspaceRoot ? { workspaceRoot } : {}),
-    ...(command ? { command } : {}),
-    ...(result.value ? { result: result.value } : {}),
-    ...(changedFiles ? { changedFiles } : {}),
-    truncated: result.truncated,
-  });
 }
 
 function isReadOnlyToolName(toolName: string): boolean {
@@ -2899,7 +2851,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         const renderDetail = nextTool.agentId
           ? claudeChildItemRenderDetail(nextTool, context.session.cwd)
-          : undefined;
+          : undefined; // fork-hook: custom-agents/claude-child-detail-updated
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
           type: "item.updated",
@@ -3014,7 +2966,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const renderDetail = tool.agentId
         ? claudeChildItemRenderDetail(tool, context.session.cwd)
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-started
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.started",
@@ -3102,7 +3054,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             toolResult.block.content,
             toolUseResult,
           )
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-completed
 
       const updatedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -4821,7 +4773,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "dangerously-skip-permissions": launchArgSkipPermissions,
         ...extraArgsWithHonoredRemoved
       } = configuredExtraArgs;
-      const { agent: _configuredAgent, ...extraArgsWithoutAgent } = extraArgsWithHonoredRemoved;
       const selectedModel =
         input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
       const modelSelection = selectedModel
@@ -4831,12 +4782,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }
         : undefined;
       const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
-      const extraArgs =
-        selectedAgent === undefined
-          ? extraArgsWithHonoredRemoved
-          : selectedAgent === "default"
-            ? extraArgsWithoutAgent
-            : { ...extraArgsWithoutAgent, agent: selectedAgent };
+      const extraArgs = withClaudeAgentLaunchArgs(extraArgsWithHonoredRemoved, selectedAgent); // fork-hook: custom-agents/claude-launch-args
       const caps = getClaudeCatalogModelCapabilities(modelCatalog, modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection
