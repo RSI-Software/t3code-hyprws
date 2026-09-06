@@ -261,6 +261,13 @@ scope and physical keys. Missing project metadata keeps the physical key instead
 the all-project scope. The caller owns selection storage and its setter, so a tagged replay
 can retain upstream persistence and readiness handling without a fork replacement. Grouping,
 search, menus, manual order and navigation remain in their existing derivation points.
+
+The scope reaches those renderers ambiently through
+`apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`. The project route provides it
+and each sidebar reads it, so `AppSidebarLayout`, `Sidebar` and `LegacySidebar` keep the exact
+upstream declarations they had — carrying the ref as a prop meant deleting and re-declaring all
+three, and `AppSidebarLayout.tsx` alone paid for it every time upstream touched that render tree.
+No provider means the hub, so the web client is unchanged without a project window.
 The `sidebar-physical-scope` authoring guard rejects direct physical matching added back to
 either upstream renderer while permitting the adapter calls.
 
@@ -372,6 +379,8 @@ Profile clearing must preserve other profiles, while equal hub/project tab IDs r
 | `apps/web/src/components/Sidebar.logic.test.ts`                                                                                     | Existing fixture exports stay available for the fork-owned tests.                                                             |
 | `apps/web/src/components/sidebar/SidebarPhysicalScope.ts`                                                                           | Fork-owned exact physical scope adapter; accepts caller-owned logical state.                                                  |
 | `apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts`                                                                 | Scope, missing metadata, search, grouping, hub setter and ordering proofs.                                                    |
+| `apps/web/src/components/sidebar/SidebarPhysicalScopeContext.tsx`                                                                   | Fork-owned ambient scope; keeps the upstream sidebar declarations untouched.                                                  |
+| `apps/web/src/routes/project.$environmentId.$projectId.tsx`                                                                         | Fork-owned project route; provides the physical scope around upstream's layout.                                               |
 | `apps/web/src/components/Sidebar.tsx`                                                                                               | Applies the active project-window scope to the shared sidebar.                                                                |
 | `apps/web/src/components/LegacySidebar.tsx`                                                                                         | Keeps project scope in the legacy sidebar.                                                                                    |
 | `apps/web/src/composerDraftStore.ts`                                                                                                | Persists drafts within project-window thread scope.                                                                           |
@@ -391,7 +400,6 @@ Profile clearing must preserve other profiles, while equal hub/project tab IDs r
 | `apps/desktop/src/updates/DesktopUpdates.test.ts`                                                                                   | Covers the session capture that survives `quitAndInstall`.                                                                    |
 | `apps/desktop/src/window/DesktopApplicationMenu.test.ts`                                                                            | Covers the menu entries that open a project window.                                                                           |
 | `apps/desktop/src/window/DesktopWindow.test.ts`                                                                                     | Covers plural windows, preview namespacing, and the dev launch seam.                                                          |
-| `apps/web/src/components/AppSidebarLayout.tsx`                                                                                      | Carries the physical project sidebar scope.                                                                                   |
 | `apps/web/src/components/pullRequest/PullRequestListFilters.tsx`                                                                    | Narrow visibility flag delegates project-window scope to the fork adapter.                                                    |
 | `apps/web/src/components/pullRequest/PullRequestListFilters.fork.test.tsx`                                                          | Guards the scoped picker seam without extending the upstream test file.                                                       |
 | `apps/web/src/routes/_chat.draft.$draftId.tsx`                                                                                      | Hub draft route that must keep the project routes reachable.                                                                  |

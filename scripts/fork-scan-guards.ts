@@ -49,6 +49,8 @@ export const AUTHORING_GUARD_TARGETS = {
   "sidebar-physical-scope": {
     sidebar: "apps/web/src/components/Sidebar.tsx",
     legacy: "apps/web/src/components/LegacySidebar.tsx",
+    chrome: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    layout: "apps/web/src/components/AppSidebarLayout.tsx",
   },
   "thread-route-navigation": {
     chat: "apps/web/src/components/ChatView.tsx",
@@ -263,6 +265,19 @@ const isPullRequestProjectScopeAddition = (path: string, content: string): boole
   return false;
 };
 
+// Threading the physical ref through the upstream sidebar declarations is what made every upstream
+// edit to them conflict: the signature had to be deleted and re-declared. A `forcedProjectRef`
+// prop type, default parameter or JSX prop is that shape. Reading the ambient scope
+// (`const forcedProjectRef = useSidebarPhysicalScope()`) and handing it to SidebarPhysicalScope is
+// the intended integration and stays clear of both branches.
+const SIDEBAR_PHYSICAL_SCOPE_PROP_TYPE =
+  /(?:^|[{,])\s*forcedProjectRef\??\s*:\s*(?:readonly\s+)?[A-Z]/;
+const SIDEBAR_PHYSICAL_SCOPE_ASSIGNMENT = /\bforcedProjectRef\s*=(?!=)/;
+const SIDEBAR_PHYSICAL_SCOPE_LOCAL_READ = /\b(?:const|let|var)\s+forcedProjectRef\s*=(?!=)/g;
+const isSidebarPhysicalScopeProp = (content: string): boolean =>
+  SIDEBAR_PHYSICAL_SCOPE_PROP_TYPE.test(content) ||
+  SIDEBAR_PHYSICAL_SCOPE_ASSIGNMENT.test(content.replace(SIDEBAR_PHYSICAL_SCOPE_LOCAL_READ, ""));
+
 // The timeline keeps CTA presentation and widened callback arguments. Target
 // selection and its click closure belong behind AgentSpawnNavigation's handler.
 const AGENT_SPAWN_SELECTION =
@@ -383,7 +398,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         isAuthoringGuardTarget("sidebar-physical-scope", path) &&
         !/^\s*(?:\/\/|\*)/.test(content) &&
         (/\bforcedProjectRef\s*\?*\.\s*(?:environmentId|projectId)\b/.test(content) ||
-          /\b(?:const|let)\s+forcedProjectGroup\b/.test(content))
+          /\b(?:const|let)\s+forcedProjectGroup\b/.test(content) ||
+          isSidebarPhysicalScopeProp(content))
       ) {
         sidebarPhysicalScopeAdded = true;
       }

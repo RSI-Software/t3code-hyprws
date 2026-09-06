@@ -24,6 +24,7 @@ import {
 } from "./ThreadStatusIndicators";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { filterSidebarProjects, filterSidebarThreads } from "./sidebar/SidebarPhysicalScope";
+import { useSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScopeContext";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -47,7 +48,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   ProjectId,
-  type ScopedProjectRef,
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
   type SidebarProjectGroupingMode,
@@ -3172,11 +3172,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   );
 });
 
-export default function LegacySidebar({
-  forcedProjectRef = null,
-}: {
-  forcedProjectRef?: ScopedProjectRef | null;
-}) {
+export default function LegacySidebar() {
+  const forcedProjectRef = useSidebarPhysicalScope();
   const allProjects = useProjects();
   const projects = useMemo(
     () => filterSidebarProjects(allProjects, forcedProjectRef),

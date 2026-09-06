@@ -20,6 +20,7 @@ import {
 } from "./Sidebar.logic";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { localEnvironmentId, makeLatestTurn } from "./Sidebar.logic.test.ts";
+import { resolveSidebarPhysicalScope } from "./sidebar/SidebarPhysicalScope";
 
 describe("sidebar thread drag ordering", () => {
   it.each(["created_at", "updated_at", "manual"] as const)(
@@ -392,6 +393,43 @@ describe("isProjectInSidebarScope", () => {
         null,
       ),
     ).toBe(true);
+  });
+
+  // The window's scope reaches these derivation points as a key set, not as a sidebar prop, so a
+  // window whose project snapshot has not arrived still reads only its own saved order.
+  it("narrows saved manual order to the window's own project before its group exists", () => {
+    const { projectKeys } = resolveSidebarPhysicalScope({
+      forcedProjectRef,
+      logicalScopeKey: "a-hub-scope-that-outlived-its-project",
+      projectGroups: [],
+    });
+    const key = `${forcedProjectRef.environmentId}:${forcedProjectRef.projectId}`;
+    const orderByProject = {
+      [key]: ["thread-b", "thread-a"],
+      [`${localEnvironmentId}:${forcedProjectRef.projectId}`]: ["thread-d", "thread-c"],
+    };
+
+    expect([...projectKeys!]).toEqual([key]);
+    expect(hasSavedSidebarThreadOrder({ orderByProject, scopedProjectKeys: projectKeys })).toBe(
+      true,
+    );
+    expect(
+      hasSavedSidebarThreadOrder({
+        orderByProject: { [key]: ["thread-a"] },
+        scopedProjectKeys: projectKeys,
+      }),
+    ).toBe(false);
+    expect(
+      orderThreadsByProjectPreference({
+        threads: [
+          { id: "thread-a", projectKey: key },
+          { id: "thread-b", projectKey: key },
+        ],
+        preferredIdsByProject: orderByProject,
+        getId: (thread) => thread.id,
+        getProjectKey: (thread) => thread.projectKey,
+      }).map((thread) => thread.id),
+    ).toEqual(["thread-b", "thread-a"]);
   });
 });
 
