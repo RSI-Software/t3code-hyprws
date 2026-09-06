@@ -297,7 +297,6 @@ function renderAgentControl(
       provider,
       models,
       model,
-      modelOptions,
       planModeEnabled,
     })
   ) {
@@ -311,7 +310,6 @@ function renderAgentControl(
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
-      modelOptions={modelOptions}
       planModeEnabled={planModeEnabled}
     />
   );
