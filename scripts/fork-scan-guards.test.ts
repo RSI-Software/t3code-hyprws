@@ -428,13 +428,18 @@ it("rejects handoff registration in the upstream settings registry and permits i
 
 it("rejects inline mobile ignored-file policy while permitting its helper and upstream route gates", () => {
   const route = "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx";
+  const inspector = "apps/mobile/src/features/files/thread-file-navigator-pane.tsx";
   const helper = "apps/mobile/src/features/files/ignoredWorkspaceFileListing.ts";
   for (const [file, content, rejected] of [
     [route, "+const showIgnoredFiles = preferences.value.showIgnoredFiles === true;", true],
     [route, "+input: { cwd, includeIgnored: true },", true],
     [route, "+input: { cwd, includeIgnored: false },", true],
     [route, "+input: { cwd, includeIgnored },", true],
+    [inspector, "+const showIgnoredFiles = preferences.value.showIgnoredFiles === true;", true],
+    [inspector, "+input: { cwd: props.cwd, includeIgnored: true },", true],
+    [inspector, "+input: { cwd: props.cwd, includeIgnored },", true],
     [route, "+const listing = useIgnoredWorkspaceFileListing(cwd);", false],
+    [inspector, "+const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd);", false],
     [
       route,
       "+environmentId !== null && workspaceFileListing !== null && !fileInspector.supported",
