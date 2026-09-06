@@ -634,6 +634,14 @@ the real scan CLI fixtures prove rejected additions and accepted boundary calls.
 During historical repair, derive the lockfile from the accepted manifests with `vp i`;
 do not replay the old generated dependency patch or add another lockfile mechanism.
 
+The manifest declares the granular `@milkdown/*` packages the boundary imports, never the
+`@milkdown/kit` umbrella or `@milkdown/react`: the umbrella re-exports what is already imported,
+and the React wrapper depends on `@milkdown/crepe`, which drags a Vue runtime and CodeMirror into a
+React-only app and hundreds of lines into the fork's lockfile delta. The binding that wrapper
+provided is one mount effect in `MarkdownRichEditor.tsx`. `richMarkdownDependencies.fork.test.ts`
+holds the manifest to exactly the imported set, and `vp run fork:lockfile` proves the lockfile still
+records the specifiers that manifest declares.
+
 Run `vp run fork:delta` for the commit list.
 
 ### Retirement condition
@@ -655,7 +663,8 @@ The replacement must use the existing file-save path and avoid loading its edito
 | `apps/web/src/components/files/richMarkdownEditorLinks.fork.test.ts`                 | Guards workspace-contained, escaping, Windows, and external rich-editor links.     |
 | `apps/web/src/components/files/markdownFrontmatter.ts`, `markdownSerializerFixes.ts` | Fork-only frontmatter and list round-trip support.                                 |
 | `apps/web/src/components/files/markdown-rich-editor.css`                             | Fork-only rich editor presentation.                                                |
-| `apps/web/package.json`                                                              | Accepted Milkdown, frontmatter, and round-trip-test manifests.                     |
+| `apps/web/src/components/files/richMarkdownDependencies.fork.test.ts`                | Holds the Milkdown manifest to the packages the boundary imports.                  |
+| `apps/web/package.json`                                                              | Accepted granular Milkdown, frontmatter, and round-trip-test manifests.            |
 | `pnpm-lock.yaml`                                                                     | Generated from accepted manifests by the registered lockfile policy, never merged. |
 | `apps/web/src/components/ChatMarkdown.tsx`                                           | Upstream preview changes may replace this domain.                                  |
 | `docs/README.md`                                                                     | Indexes the fork's Markdown editing documentation.                                 |

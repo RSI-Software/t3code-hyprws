@@ -55,6 +55,7 @@
     "fork:preflight": "node scripts/fork-preflight.ts",
     "fork:orient": "node scripts/fork-orient.ts",
     "fork:scan": "node scripts/fork-scan.ts",
+    "fork:lockfile": "node scripts/fork-lockfile.ts",
     "fork:sync": "node scripts/fork-sync.ts",
     "fork:auto-rebase": "node scripts/fork-auto-rebase.ts",
     "fork:sync-gate": "node scripts/fork-sync-gate.ts",
