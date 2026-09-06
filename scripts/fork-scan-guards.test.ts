@@ -181,6 +181,94 @@ it("keeps editor loading, surfaces and link normalization behind the rich Markdo
   }
 });
 
+it("keeps desktop preview window ownership and bridge capability behind WindowPolicy", () => {
+  const preload = "apps/desktop/src/preload.ts";
+  const ipc = "apps/desktop/src/ipc/methods/preview.ts";
+  const manager = "apps/desktop/src/preview/Manager.ts";
+  const policy = "apps/desktop/src/preview/WindowPolicy.ts";
+  const policyPreload = "apps/desktop/src/preview/WindowPolicy.preload.ts";
+  const sha = "a".repeat(40);
+  for (const [path, addition, expected] of [
+    [
+      preload,
+      "+  openProjectWindow: (projectRef) => ipcRenderer.invoke(CHANNEL, projectRef),",
+      true,
+    ],
+    [preload, "+  projectWindowRef: readProjectWindowPreloadParts(process.argv),", true],
+    [preload, "+  getWindowDemandState: () => windowDemandState,", true],
+    [preload, "+  onWindowDemandStateChange: (listener) => {", true],
+    [
+      preload,
+      "+ipcRenderer.on(IpcChannels.WINDOW_DEMAND_STATE_CHANNEL, (_event, demanded) => {",
+      true,
+    ],
+    [
+      preload,
+      '+import { readProjectWindowPreloadParts } from "./window/projectWindowArgument.ts";',
+      true,
+    ],
+    [ipc, "+  const senderWindow = BrowserWindow.fromWebContents(event.sender);", true],
+    [ipc, "+  const identity = yield* electronWindow.identityFor(senderWindow);", true],
+    [ipc, "+const resolvePreviewForSender = Effect.fn(name)(function* (event) {", true],
+    [manager, "+export const makeWindowOwnership = Effect.fn(name)(function* (create) {", true],
+    [manager, "+const scopedManager = (entry) => ({", true],
+    [manager, "+  const authorizeTab = Effect.fn(name)(function* (entry, tabId) {", true],
+    [manager, '+export const HUB_WINDOW_IDENTITY = { kind: "hub" };', true],
+    [manager, "+export function windowIdentityKey(identity) {", true],
+    // The narrow integration call and import stay valid in every upstream file.
+    [
+      preload,
+      '+import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";',
+      false,
+    ],
+    [
+      preload,
+      '+contextBridge.exposeInMainWorld("desktopBridge", exposePreviewCapability(desktopBridge));',
+      false,
+    ],
+    [
+      ipc,
+      "+  return yield* PreviewWindowPolicy.resolvePreviewForSender(event, window, manager, error);",
+      false,
+    ],
+    [
+      ipc,
+      "+  yield* PreviewWindowPolicy.installEventForwarding(electronWindow, manager, channels);",
+      false,
+    ],
+    [
+      manager,
+      "+  const ownership = yield* PreviewWindowPolicy.makeWindowOwnership(create, error);",
+      false,
+    ],
+    [
+      manager,
+      "+    setMainWindow: (window) => ownership.setWindow(PreviewWindowPolicy.HUB_WINDOW_IDENTITY, window),",
+      false,
+    ],
+    // The fork-owned boundary pair is where all of this belongs.
+    [policyPreload, "+  getWindowDemandState: () => windowDemandState,", false],
+    [policy, "+export const makeWindowOwnership = Effect.fn(name)(function* (create) {", false],
+    [policy, "+  const senderWindow = BrowserWindow.fromWebContents(event.sender);", false],
+    // Removals and comments never trigger an authoring warning.
+    [preload, "-  getWindowDemandState: () => windowDemandState,", false],
+    [manager, "+// export function windowIdentityKey(identity) {", false],
+  ] as const) {
+    const warnings = collectScanWarnings(
+      guardInput({
+        patchesBySha: parseCommitPatches(
+          patch(sha, `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n${addition}`),
+        ),
+      }),
+    );
+    assert.strictEqual(
+      warnings.some((warning) => warning.rule === "desktop-preview-ownership"),
+      expected,
+      `${path}: ${addition}`,
+    );
+  }
+});
+
 it("guards provider agent implementations while allowing provider-specific siblings and calls", () => {
   const sha = "a".repeat(40);
   const layers = "apps/server/src/provider/Layers";
