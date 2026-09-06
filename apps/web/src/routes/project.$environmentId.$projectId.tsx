@@ -3,6 +3,7 @@ import { Outlet, createFileRoute, redirect, useNavigate, useParams } from "@tans
 import { useEffect } from "react";
 
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { SidebarPhysicalScopeProvider } from "../components/sidebar/SidebarPhysicalScopeContext";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
 import { resolveThreadRouteTarget } from "../threadRoutes";
@@ -55,9 +56,11 @@ export function ProjectRouteContent({
   return (
     <>
       <ChatRouteGlobalShortcuts forcedProjectRef={projectRef} />
-      <AppSidebarLayout forcedProjectRef={projectRef}>
-        {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
-      </AppSidebarLayout>
+      <SidebarPhysicalScopeProvider projectRef={projectRef}>
+        <AppSidebarLayout>
+          {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+        </AppSidebarLayout>
+      </SidebarPhysicalScopeProvider>
     </>
   );
 }
