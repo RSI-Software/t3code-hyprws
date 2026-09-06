@@ -1370,18 +1370,18 @@ it("produces Gate 4 decisions structurally rather than with a typed rg command",
   assert.include(surface, "Grounding pending: desktop label");
 });
 
-it("requires a fresh independent Opus review for a nightly apply", () => {
+it("requires a fresh review verdict for a nightly apply", () => {
   const root = fixtureRoot();
   const proposer = {
-    iface: "codex",
-    provider: "openai",
-    model: "gpt-5.6-sol",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "walk-1",
   };
   const reviewer = {
-    iface: "claude",
-    provider: "anthropic",
-    model: "claude-opus-5",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "review-2",
   };
   const base = report(root, {
@@ -1396,7 +1396,7 @@ it("requires a fresh independent Opus review for a nightly apply", () => {
   });
   try {
     const proposal = renderRecord(base);
-    assert.throws(() => validateNightlyReview(proposal, base), /independent review is missing/);
+    assert.throws(() => validateNightlyReview(proposal, base), /review is missing/);
     const evidence = {
       target: base.target!.tag,
       targetSha: B,
@@ -1420,11 +1420,24 @@ it("requires a fresh independent Opus review for a nightly apply", () => {
     };
     const record = renderRecord(reviewed);
     validateNightlyReview(record, reviewed);
-    assert.include(record, "Proposer: agent `codex/openai/gpt-5.6-sol`, session `walk-1`");
-    assert.include(record, "Reviewer: agent `claude/anthropic/claude-opus-5`, session `review-2`");
+    assert.include(record, "Proposer: agent `pi/meta/muse-spark`, session `walk-1`");
+    assert.include(record, "Reviewer: agent `pi/meta/muse-spark`, session `review-2`");
     for (const item of NIGHTLY_REVIEW_EVIDENCE) assert.include(record, `  - ${item}`);
     for (const rule of NIGHTLY_WITHHOLD_RULES) assert.include(record, `  - ${rule}`);
 
+    // Any reviewer identity is evidence only; the only identity refusal is
+    // a verdict from the proposing session itself.
+    for (const otherReviewer of [
+      { ...reviewer, iface: "claude", provider: "anthropic", model: "claude-opus-5" },
+      { ...reviewer, iface: "codex", provider: "openai", model: "gpt-5.6-sol" },
+      { ...reviewer, model: "another-model" },
+    ]) {
+      const other = {
+        ...reviewed,
+        nightlyReview: { ...reviewed.nightlyReview!, reviewer: otherReviewer },
+      } satisfies SyncReport;
+      validateNightlyReview(renderRecord(other), other);
+    }
     assert.throws(
       () =>
         validateNightlyReview(record, {
@@ -1434,39 +1447,8 @@ it("requires a fresh independent Opus review for a nightly apply", () => {
             reviewer: { ...reviewer, session: proposer.session },
           },
         }),
-      /cannot approve their own proposal/,
+      /shares the proposer's session/,
     );
-    for (const model of [
-      "claude-sonnet-4.6",
-      "claude-3-opus-20240229",
-      "not-claude-opus-4.6",
-      "claude-opus-ish",
-    ]) {
-      assert.throws(
-        () =>
-          validateNightlyReview(record, {
-            ...reviewed,
-            nightlyReview: {
-              ...reviewed.nightlyReview!,
-              reviewer: { ...reviewer, model },
-            },
-          }),
-        /reviewer is not Claude Opus/,
-      );
-    }
-    for (const invalidReviewer of [
-      { ...reviewer, iface: "pi" },
-      { ...reviewer, provider: "openai-codex" },
-    ]) {
-      assert.throws(
-        () =>
-          validateNightlyReview(record, {
-            ...reviewed,
-            nightlyReview: { ...reviewed.nightlyReview!, reviewer: invalidReviewer },
-          }),
-        /reviewer is not Claude Opus/,
-      );
-    }
 
     const botCarried = { ...base, botCarried: true } satisfies SyncReport;
     validateNightlyReview(renderRecord(botCarried), botCarried);
@@ -1484,6 +1466,8 @@ it("requires a fresh independent Opus review for a nightly apply", () => {
       () => validateNightlyReview(renderRecord(withheld), withheld),
       /review was withheld/,
     );
+    // A new seam verdict-row still voids the review: the count lives in
+    // the bound half even though each summary is free prose.
     const changed = {
       ...reviewed,
       silentSeams: [{ path: "apps/web/src/a.ts", summary: "late change", touchesBehaviour: false }],
@@ -1507,7 +1491,47 @@ it("requires a fresh independent Opus review for a nightly apply", () => {
           record.replace("- Reviewed at:", "- Unbound reviewer note\n- Reviewed at:"),
           reviewed,
         ),
-      /exact reviewed provenance/,
+      /reviewed provenance/,
+    );
+    // Free prose never enters the digest: a bare reference at sign-off,
+    // wrapped in backticks afterwards, keeps the sign-off. A verdict-row
+    // change still voids it.
+    const seamed = {
+      ...reviewed,
+      silentSeams: [
+        {
+          path: "apps/web/src/a.ts",
+          summary: "see RSI-Software/t3code-hyprws#650",
+          touchesBehaviour: false,
+        },
+      ],
+    } satisfies SyncReport;
+    const { nightlyReview: _dropped, ...seamedProposal } = seamed;
+    const seamedEvidence = {
+      ...evidence,
+      recordDigest: nightlyProposalDigest(renderRecord(seamedProposal)),
+    };
+    const seamedReview = {
+      ...seamed,
+      nightlyReview: { ...seamed.nightlyReview!, evidence: seamedEvidence },
+    } satisfies SyncReport;
+    const liveRecord = renderRecord(seamedReview);
+    assert(liveRecord.includes("see RSI-Software/t3code-hyprws#650"), liveRecord.slice(-600));
+    validateNightlyReview(liveRecord, seamedReview);
+    const wrapped = liveRecord.replace(
+      "see RSI-Software/t3code-hyprws#650",
+      "see `RSI-Software/t3code-hyprws#650`",
+    );
+    assert.strictEqual(nightlyProposalDigest(wrapped), nightlyProposalDigest(liveRecord));
+    validateNightlyReview(wrapped, seamedReview);
+    // A moved lease still voids the review even though prose does not.
+    const leaseChange = liveRecord.replace(
+      `\`expected_old\`: \`${C}\``,
+      `\`expected_old\`: \`${"d".repeat(40)}\``,
+    );
+    assert.throws(
+      () => validateNightlyReview(leaseChange, seamedReview),
+      /evidence is stale against the report/,
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -1554,9 +1578,9 @@ it("binds runtime provenance to the active ghb host handoff", () => {
 it("drives unblock-review through the command entry point with live runtime provenance", () => {
   const root = fixtureRoot();
   const proposer = {
-    iface: "codex",
-    provider: "openai",
-    model: "gpt-5.6-sol",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "walk-1",
   };
   const base = report(root, {
@@ -1577,9 +1601,9 @@ it("drives unblock-review through the command entry point with live runtime prov
       schema: "ghb.host-handoff.v1",
       host: {
         role: "host",
-        iface: "claude",
-        provider: "anthropic",
-        model: "claude-opus-5",
+        iface: "pi",
+        provider: "meta",
+        model: "muse-spark",
         session: "review-2",
       },
     }),
@@ -1601,20 +1625,116 @@ it("drives unblock-review through the command entry point with live runtime prov
     );
     const reviewed = JSON.parse(NodeFS.readFileSync(base.reportPath, "utf8")) as SyncReport;
     assert.deepStrictEqual(reviewed.nightlyReview?.reviewer, {
-      iface: "claude",
-      provider: "anthropic",
-      model: "claude-opus-5",
+      iface: "pi",
+      provider: "meta",
+      model: "muse-spark",
       session: "review-2",
     });
     assert.strictEqual(reviewed.nightlyReview?.status, "withheld");
     assert.isFalse(NodeFS.existsSync(`${base.reportPath}.outcome.json`));
     assert.include(
       NodeFS.readFileSync(base.recordPath, "utf8"),
-      "Reviewer: agent `claude/anthropic/claude-opus-5`, session `review-2`",
+      "Reviewer: agent `pi/meta/muse-spark`, session `review-2`",
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a review verdict from the proposing session and on a moved lease", () => {
+  const root = fixtureRoot();
+  const proposer = {
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
+    session: "walk-1",
+  };
+  const base = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3-nightly.20260904.1", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/nightly-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    proposedBy: proposer,
+    verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
+  });
+  NodeFS.writeFileSync(base.reportPath, JSON.stringify(base));
+  const reviewRunner = (session: string): FakeRunner => {
+    const runner = new FakeRunner();
+    runner.set("ghb", ["attest", "handoff"], {
+      stdout: JSON.stringify({
+        schema: "ghb.host-handoff.v1",
+        host: { role: "host", iface: "pi", provider: "meta", model: "muse-spark", session },
+      }),
+    });
+    return runner;
+  };
+  try {
+    // Same session as the proposer: refused.
+    NodeFS.writeFileSync(base.recordPath, renderRecord(base));
+    assert.throws(
+      () =>
+        execute(
+          ["unblock-review", "--report", base.reportPath, "--sign-off"],
+          root,
+          reviewRunner("walk-1"),
+        ),
+      /proposing session/,
+    );
+    // A moved lease voids the sign-off before any head check runs.
+    NodeFS.writeFileSync(base.recordPath, renderRecord(base));
+    const leaseRunner = reviewRunner("review-2");
+    leaseRunner.set("git", ["rev-parse", "origin/hyprws^{commit}"], {
+      stdout: `${"d".repeat(40)}\n`,
+    });
+    assert.throws(
+      () =>
+        execute(["unblock-review", "--report", base.reportPath, "--sign-off"], root, leaseRunner),
+      /staleness: origin\/hyprws moved past the report's lease/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("binds the proposer at check time so a checked report signs off directly", () => {
+  const state = replayedRun();
+  const nightlyTarget = JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"));
+  nightlyTarget.target = { tag: "v1.2.3-nightly.20260904.1", sha: nightlyTarget.target.sha };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(nightlyTarget));
+  state.runner.set("ghb", ["attest", "handoff"], {
+    stdout: JSON.stringify({
+      schema: "ghb.host-handoff.v1",
+      host: {
+        role: "host",
+        iface: "pi",
+        provider: "meta",
+        model: "muse-spark",
+        session: "walk-1",
+      },
+    }),
+  });
+  setCiSuccess(state.runner, state.branch);
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.deepStrictEqual(checked.proposedBy, {
+      iface: "pi",
+      provider: "meta",
+      model: "muse-spark",
+      session: "walk-1",
+    });
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -1864,7 +1984,7 @@ it("surfaces every gate 4 stop instead of the first one it finds", () => {
   }
 });
 
-it("takes canonical walker decisions to the independent nightly review boundary", () => {
+it("takes canonical walker decisions to the nightly review boundary", () => {
   const root = fixtureRoot();
   const tag = "v0.0.39-nightly.20260904.1";
   const branch = `rehearse/${tag}-from-${C.slice(0, 12)}`;
@@ -1876,6 +1996,7 @@ it("takes canonical walker decisions to the independent nightly review boundary"
     lane: { branch, worktree: root },
     installedHead: B,
     ciHead: B,
+    proposedBy: { iface: "pi", provider: "meta", model: "muse-spark", session: "walk-1" },
     orientation: [
       `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
       `  [candidate] \`${subject}\` (fork-meta)`,
@@ -1897,24 +2018,12 @@ it("takes canonical walker decisions to the independent nightly review boundary"
   runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
   runner.set("git", ["rev-parse", `refs/tags/${tag}^{commit}`], { stdout: `${B}\n` });
   runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  runner.set("ghb", ["attest", "handoff"], {
-    stdout: JSON.stringify({
-      schema: "ghb.host-handoff.v1",
-      host: {
-        role: "host",
-        iface: "codex",
-        provider: "openai",
-        model: "gpt-5.6-sol",
-        session: "walk-1",
-      },
-    }),
-  });
   try {
     const { output, result } = captureStdout(() =>
       run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
     );
     assert.strictEqual(result, 2);
-    assert.include(output, "Independent Claude Opus review required");
+    assert.include(output, "Nightly review required");
     assert.notInclude(output, "Gate 4 refusal");
     const bundle = JSON.parse(
       NodeFS.readFileSync(`${checked.reportPath}.outcome.json`, "utf8"),
@@ -1925,12 +2034,7 @@ it("takes canonical walker decisions to the independent nightly review boundary"
     );
     const proposed = validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")));
     assert.deepStrictEqual(proposed.recordDecisions, checked.recordDecisions);
-    assert.deepInclude(proposed.proposedBy, {
-      iface: "codex",
-      provider: "openai",
-      model: "gpt-5.6-sol",
-      session: "walk-1",
-    });
+    assert.deepStrictEqual(proposed.proposedBy, checked.proposedBy);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
@@ -2810,7 +2914,9 @@ it("refuses apply when the pushed lane moved after the CI verdict", () => {
         ),
       /pushed rehearsal lane moved after the CI verdict/,
     );
-    assert.isFalse(runner.calls.some(({ command }) => command === "vp"));
+    assert.isFalse(
+      runner.calls.some(({ command, args }) => command === "vp" && args.includes("fork:sync-gate")),
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });

@@ -77,7 +77,7 @@ vp run fork:sync unblock-auto --resume --report <emitted-report>
 
 The lane binds its exact manifest receipt, existing base tag, real blocking marker and retained
 base outcome declaration. It refuses relaxed count/path proofs or a different issue. For a nightly
-base, auto emits the independent Opus stop; that distinct session uses `unblock-review`, then the
+base, auto emits the review stop; another session records `unblock-review`, then the
 host resumes auto for the leased apply and reconciliation. The record digest covers construction
 and outcome provenance. A changed candidate needs a new manifest/proposal, not a refreshed head
 with the old receipt. A source movement voids the proposal. Existing unbound reports can still be
@@ -702,14 +702,15 @@ reported the next operator task. It does not mean the entire upstream lane was c
 Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. Alone, it selects the
 open walk target (or the newest offered tag), accepts a coherent orientation, stages rerere and
 generated resolutions, takes the pushed-lane CI verdict, and records the walking agent's clear keep
-decisions. For a nightly target it then stops exactly once at the independent-review boundary; after
-a distinct Claude Opus session signs the bound evidence, resume applies with the existing lease,
-dispatches one reconciliation run, identifies its URL, and does not wait for completion.
+decisions. For a nightly target, `unblock-check` binds the walking agent as proposer and the walk
+then stops exactly once at the review boundary; after another session records a verdict on the
+bound evidence, resume applies with the existing lease, dispatches one reconciliation run,
+identifies its URL, and does not wait for completion.
 
-The walking host hands the emitted report and record paths to Claude Opus. The reviewer inspects the
-generated target, live blocking marker, every non-mechanical verdict, rehearsal evidence, pushed-lane
-CI on the exact installed head, every silent seam, and the live `expected_old` lease. It then records
-one of:
+The walking host hands the emitted report and record paths to any reviewer in another session.
+The reviewer inspects the generated target, live blocking marker, every non-mechanical verdict,
+rehearsal evidence, pushed-lane CI on the exact installed head, every silent seam, and the live
+`expected_old` lease. It then records one of:
 
 ```bash
 vp run fork:sync unblock-review --report <report> --sign-off
@@ -725,14 +726,17 @@ domain or tier topology change, any bypass, or evidence that cannot be verified.
 automation also pauses before review when it can detect those judgement surfaces. After sign-off the
 walking host runs `vp run fork:sync unblock-auto --resume --report <report>`.
 
-Apply names this control the **nightly independent-review guard**. It refuses a missing or withheld
-review, a reviewer that is not Opus, the proposing session reviewing itself, any change to the
-reviewed record/bindings, moved rehearsal or CI heads, and a moved lease. A new proposal or movement
-requires a new independent review; never copy review fields between reports.
+Apply names this control the **nightly review gate**: one recorded verdict on a `checked` report.
+`unblock-apply` runs `fork:upstream-refs` on the record before the review gate, so a
+refs-only prose fix on the same bindings keeps the verdict and never costs a second review.
+It refuses a missing or withheld review, a verdict from the proposing session, any change to the
+reviewed bindings, moved rehearsal or CI heads, and a moved lease. The digest binds header bindings, conflict and decision rows, silent-seam verdict rows,
+and verification lines; free prose never enters it, so a refs-only prose fix on the same bindings keeps the verdict. A new proposal or movement requires
+a new review; never copy review fields between reports.
 
-An objective bot-carried walk is exempt from the independent-review guard because it has no
+An objective bot-carried walk is exempt from the review gate because it has no
 agent judgement verdict. Any conflict or judgement stops the workflow before apply. Restart
-that target in a host agent session; the host proposal and independent Opus review then become
+that target in a host agent session; the host proposal and review then become
 mandatory. This preserves unattended clean nightlies without treating a workflow process as a
 reviewer.
 
@@ -787,10 +791,9 @@ word for every decision and stops; its recommendation is never recorded as the h
    or log degrades to what the run already reported rather than replacing the verdict. The report
    stays at the stage it reached and the stop prints its `unblock-auto --resume --report` command.
    It then renders the decision and grounding surface.
-5. For a nightly target, a walk-mode host first runs
-   `vp run fork:sync unblock-auto --resume --report <report>` to bind its proposal identity and emit
-   the review stop. `unblock-review` then binds the proposal record, target, blocking SHA,
-   `expected_old`, installed/CI head, and rehearsal branch to a distinct Claude Opus session. A
+5. For a nightly target, `unblock-check` already bound the proposer, so `unblock-review` signs
+   the `checked` report straight off. It binds the proposal record, target, blocking SHA,
+   `expected_old`, installed/CI head, and rehearsal branch to the reviewer's session. A
    withheld review is durable and cannot apply. A non-nightly judgement path retains its recorded
    human decision boundary.
 6. After the required sign-off, `unblock-apply` calls `fork:sync-gate` and refuses a lane moved since
@@ -813,12 +816,12 @@ rewriting historical ledger rows.
 The report and record stay outside the repository and new rehearsals never add to
 `docs/operations/fork-sync-records/`.
 
-For an objective nightly walk, the host owns target selection and the proposal while one independent
-Claude Opus session owns review and sign-off. A reviewer sign-off is never counted as a human
+For an objective nightly walk, the host owns target selection and the proposal while another
+session owns the review verdict. A reviewer sign-off is never counted as a human
 choice. Real semantic ambiguity, retirement/product judgement, grounding, user-visible change,
 domain/tier/topology change, bypass, or unverifiable evidence still pauses for human direction. Every
 other transition refuses stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned
-importer drift, failed checks, or missing/stale/self-approved/withheld review. A stale lease voids the
+importer drift, failed checks, or a missing/stale/same-session/withheld review. A stale lease voids the
 report; restart at `unblock-list` instead of refreshing it.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
 leased push starts the bot run that reconciles the resolved blocking SHA and any later block. After
@@ -961,6 +964,13 @@ Never run the hard reset in a feature worktree or a checkout with uncommitted wo
   semantic review surface, and a fork commit is retired only by a recorded human decision.
 - **Stable release fails:** leave the candidate issue open, fix the workflow or runner, and rerun the
   failed release. Do not move or replace the tag after a release has been published.
+
+## Deferred
+
+- Churn ledger rows still land by hand after apply (`fork:churn append`, skill step 6).
+  The append binds `--tag` to the live census `targetTag`, not the applied tag in the
+  report, and `unblock-apply` does not write or dispatch the row itself. Wiring the
+  row into apply (or explicitly keeping it manual) is follow-up work, not this gate.
 
 ## Version ordering caveat
 

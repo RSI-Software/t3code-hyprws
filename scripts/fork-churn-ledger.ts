@@ -95,7 +95,7 @@ export interface ChurnEntry {
   readonly censusEvidence?: SequentialCensusEvidence;
   /** Seams the walk repaired without a conflict; absent on entries written before #476. */
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
-  /** Distinct proposer/reviewer provenance for a humanless nightly apply (#531). */
+  /** Proposer/reviewer provenance for a humanless nightly apply. */
   readonly nightlyReview?: NightlyReview;
 }
 

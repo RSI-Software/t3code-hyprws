@@ -181,7 +181,7 @@ it("preserves arbitrary message bytes and metadata while removing only invalid s
 
 it.layer(NodeServices.layer)("rewrite-build", (it) => {
   it.effect(
-    "carries a constructed nightly rewrite through check, independent review and the exact apply lease",
+    "carries a constructed nightly rewrite through check, review and the exact apply lease",
     () =>
       Effect.gen(function* () {
         const { root, directory, fs, manifest } = yield* fixture();
@@ -356,20 +356,17 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
               root,
               runner,
             ),
-          /independent review is missing/,
+          /nightly apply refused: review is missing/,
         );
         assert.throws(
           () => execute(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
           /walk stopped/,
         );
-        assert.include(
-          yield* fs.readFileString(checked.recordPath),
-          "## Nightly independent review",
-        );
+        assert.include(yield* fs.readFileString(checked.recordPath), "## Nightly review");
         assert.throws(
           () =>
             execute(["unblock-review", "--report", checked.reportPath, "--sign-off"], root, runner),
-          /requires Claude Opus/,
+          /proposing session|reviewer shares the proposer/,
         );
         reviewer = true;
         movedMarker = true;
@@ -420,7 +417,12 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         const originalRecord = yield* fs.readFileString(reviewed.recordPath);
         yield* fs.writeFileString(
           reviewed.recordPath,
-          originalRecord.replace("Build manifest SHA-256", "Tampered manifest"),
+          // Move the bound lease: free prose never enters the review
+          // digest, but binding rows do.
+          originalRecord.replace(
+            `- \`expected_old\`: \`${reviewed.rewrite!.originSha}\``,
+            `- \`expected_old\`: \`${"a".repeat(40)}\``,
+          ),
         );
         assert.throws(
           () =>
