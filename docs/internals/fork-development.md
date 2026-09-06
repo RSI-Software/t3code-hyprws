@@ -294,6 +294,9 @@ Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
 
+While a fork-sync report holds a walk lease, `hyprws` takes no landing at all; see the
+[walk freeze](../operations/fork-sync.md#walk-freeze).
+
 ## Upstream citations
 
 GitHub turns a live cross-repo reference into an event on the item it names.
