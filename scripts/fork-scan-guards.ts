@@ -9,8 +9,9 @@
 // - replaced-export: the commit deletes an upstream-owned exported declaration
 //   and re-declares it, so every later upstream edit to it lands invisibly.
 // - lockfile: the commit carries a lockfile change.
-// - terminal-attachment-boundary: fork retention state grows inside upstream's
-//   terminal metadata/index module instead of its fork-owned hook.
+// - terminal-attachment-boundary: fork retention state or its exact-target
+//   attachment match grows inside upstream's terminal metadata/index module
+//   instead of its fork-owned hook and selector.
 //
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
@@ -204,11 +205,12 @@ const EXPORT_DECLARATION =
 // effectIt is the repository's @effect/vitest alias beside vite-plus/test's it.
 const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
 
-// Keep the check scoped to added state/effect calls and the old inline state
-// declarations. Upstream memoized metadata indexing and the retained hook call
-// remain free to evolve without triggering it.
+// Keep the check scoped to added state/effect calls, the old inline state
+// declarations, and the fork's exact-target attachment match. Upstream memoized
+// metadata indexing and the retained hook and summary selection calls remain
+// free to evolve without triggering it.
 const TERMINAL_ATTACHMENT_STATE =
-  /\b(?:useState|useEffect)\s*(?:<[^>]*>)?\s*\(|\b(?:interface|type)\s+RetainedTerminalAttachmentState\b|\b(?:function|const)\s+updateRetainedTerminalAttachment\b/;
+  /\b(?:useState|useEffect)\s*(?:<[^>]*>)?\s*\(|\b(?:interface|type)\s+RetainedTerminalAttachmentState\b|\b(?:function|const)\s+updateRetainedTerminalAttachment\b|\.find\(\s*\(\s*(?:terminal|summary)/;
 
 // Keep provider-specific agent normalization/options out of upstream provider
 // setup. Imports and adapter calls are the intended, small integration seam.
@@ -469,7 +471,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.terminalAttachmentStateAdded) {
       warn(
         "terminal-attachment-boundary",
-        `${TERMINAL_METADATA_PATH} gains attachment retention state; keep it in terminalAttachmentRetention.fork.ts and preserve upstream metadata indexing and tests`,
+        `${TERMINAL_METADATA_PATH} gains attachment retention state or its exact-target attachment match; keep retention in terminalAttachmentRetention.fork.ts, selection in terminalSummarySelection.fork.ts, and preserve upstream metadata indexing and tests`,
       );
     }
     if (patch.providerAgentImplementationAdded) {
