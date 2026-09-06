@@ -4,6 +4,7 @@ import type {
   ProjectId,
   PullRequestFilterOptionsInput,
   PullRequestInvolvement,
+  ProjectIconOverride,
   PullRequestListFilters,
   PullRequestListState,
   SourceControlProviderKind,
@@ -515,7 +516,7 @@ export function PullRequestFiltersMenu({
   projectEnvironmentId: EnvironmentId | undefined;
   unavailable: ReadonlyMap<string, string>;
   onProject: (projectId: ProjectId | undefined, environmentId: EnvironmentId | undefined) => void;
-  /** Fork integration: project windows own this choice in their project/all-project toggle. */
+  /** Project windows own this choice in their project/all-project toggle. */
   showProjectFilter?: boolean;
 }) {
   const selectedLabels = (filters.labels ?? []).flatMap((group) => group);
@@ -646,6 +647,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
+        {/* fork-hook: project-windows/pull-request-filter-visibility */}
         {showProjectFilter ? (
           <>
             <MenuSeparator />
@@ -663,6 +665,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
+        {/* fork-hook-end */}
       </MenuPopup>
     </Menu>
   );
