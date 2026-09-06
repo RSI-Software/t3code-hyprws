@@ -85,6 +85,36 @@ const authoringCases = [
     domain: "custom-agents",
   },
   {
+    name: "Codex driver agent discovery wiring",
+    sourcePath: "apps/server/src/provider/Drivers/CodexDriver.ts",
+    inlineImplementation:
+      "const makeCodexAgentOptionsDecorator = (input) => Effect.gen(function* () { return input; });",
+    forkPath: "apps/server/src/provider/Layers/CodexAgentOptions.fork.ts",
+    integrationCall:
+      "const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator(discoveryInput);",
+    rule: "provider-agent-boundary",
+    domain: "custom-agents",
+  },
+  {
+    name: "Claude adapter agent launch arguments",
+    sourcePath: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    inlineImplementation: "const withClaudeAgentLaunchArgs = (configured, agent) => configured;",
+    forkPath: "apps/server/src/provider/Layers/ClaudeAgentOptions.fork.ts",
+    integrationCall: "const extraArgs = withClaudeAgentLaunchArgs(configuredFlags, selectedAgent);",
+    rule: "provider-agent-boundary",
+    domain: "custom-agents",
+  },
+  {
+    name: "Claude adapter child render detail",
+    sourcePath: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    inlineImplementation:
+      "function claudeChildItemRenderDetail(tool, workspaceRoot) { return tool.input; }",
+    forkPath: "apps/server/src/provider/Layers/ClaudeChildItemDetail.fork.ts",
+    integrationCall: "const renderDetail = claudeChildItemRenderDetail(tool, context.session.cwd);",
+    rule: "provider-agent-boundary",
+    domain: "custom-agents",
+  },
+  {
     name: "physical sidebar scope",
     sourcePath: "apps/web/src/components/Sidebar.tsx",
     inlineImplementation: "const forcedProjectGroup = projectGroups.find(matchesPhysicalProject);",
