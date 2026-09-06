@@ -439,6 +439,113 @@ it("composes a reviewed bundle that reaches verified-repaired", () => {
   assert.deepStrictEqual(composeSeamBundle(plan("after"), readCensus, records), bundle);
 });
 
+it("bridges a legacy before to a complete after and marks the repaired row", () => {
+  const legacy = seamRecord(freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }));
+  const { id: _repairId, ...repairPayload } = repair;
+  const legacyRepair = seamRecord({
+    ...repairPayload,
+    before: { observation: legacy.id, row: 0 },
+  });
+  const { id: _proofId, ...proof } = verification;
+  const legacyProof = seamRecord({ ...proof, repair: legacyRepair.id });
+  // Pure validators accept the bridge shape: method comparability is relaxed, ancestry is proven
+  // by `record` against the working checkout, not here.
+  assert.deepStrictEqual(requireSeamRecords([legacy, clear, legacyRepair, legacyProof]), [
+    legacy,
+    clear,
+    legacyRepair,
+    legacyProof,
+  ]);
+  const verified = assessSeams([snapshot(B, [])], [legacy, clear, legacyRepair, legacyProof])[0];
+  assert.strictEqual(verified?.status, "verified-repaired");
+  assert.isFalse(verified?.blocking);
+  assert.strictEqual(verified?.bridged, "legacy");
+  // Non-bridged scoring is untouched.
+  assert.isNull(assessSeams([snapshot(A), snapshot(B, [])], records)[0]?.bridged);
+  // Incomplete after evidence cannot bridge.
+  const partial = seamRecord(freezeObservation(snapshot(B, [], C, false)));
+  const partialProof = seamRecord({ ...proof, repair: legacyRepair.id, after: partial.id });
+  assert.strictEqual(
+    assessSeams([snapshot(B, [], C, false)], [legacy, partial, legacyRepair, partialProof])[0]
+      ?.status,
+    "repair-unverified",
+  );
+  // A non-legacy before with a target mismatch stays incomparable.
+  const otherTarget = seamRecord(freezeObservation(snapshot(B, [], D)));
+  const { id: _mixedId, ...mixedProof } = verification;
+  const mixed = seamRecord({ ...mixedProof, after: otherTarget.id });
+  assert.throws(() => requireSeamRecords([before, otherTarget, repair, mixed]), /not comparable/);
+});
+
+it("refuses bridged record bundles whose repair is not an ancestor of the after head", () => {
+  // A bridged repair must land before the frozen after head; the ancestry proof runs in the
+  // importing checkout, so this fixture uses real commits, not fixed SHAs.
+  const root = repository();
+  try {
+    const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+    const repairSha = runCommandText("git", ["commit-tree", tree, "-m", "fix: repair the seam"], {
+      cwd: root,
+    }).trim();
+    const afterSha = runCommandText(
+      "git",
+      ["commit-tree", tree, "-p", repairSha, "-m", "chore: later head"],
+      { cwd: root },
+    ).trim();
+    const divergentSha = runCommandText(
+      "git",
+      ["commit-tree", tree, "-m", "chore: divergent head"],
+      { cwd: root },
+    ).trim();
+    const legacyObservation = seamRecord(
+      freezeObservation({ tag: "legacy", fixedAt: null, files: [file()] }),
+    );
+    const { id: _bridgedRepairId, ...bridgedRepairPayload } = repair;
+    const bridgedRepair = seamRecord({
+      ...bridgedRepairPayload,
+      before: { observation: legacyObservation.id, row: 0 },
+      changeSha: repairSha,
+    });
+    const afterEvidence = snapshot(afterSha, []);
+    const afterObservation = seamRecord(freezeObservation(afterEvidence));
+    const { id: _bridgedProofId, ...bridgedProof } = verification;
+    const bridgedVerification = seamRecord({
+      ...bridgedProof,
+      repair: bridgedRepair.id,
+      after: afterObservation.id,
+      guardProof: { ...bridgedProof.guardProof, sourceSha: afterSha },
+    });
+    const input = NodePath.join(root, "bridged.json");
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({
+        version: 1,
+        records: [legacyObservation, afterObservation, bridgedRepair, bridgedVerification],
+      }),
+    );
+    assert.strictEqual(run(["record", "--input", input], root), 0);
+    assert.strictEqual(readChurnState(root).seamRecords.length, 4);
+    const divergentEvidence = snapshot(divergentSha, []);
+    const divergentObservation = seamRecord(freezeObservation(divergentEvidence));
+    const divergentVerification = seamRecord({
+      ...bridgedProof,
+      repair: bridgedRepair.id,
+      after: divergentObservation.id,
+      guardProof: { ...bridgedProof.guardProof, sourceSha: divergentSha },
+    });
+    NodeFS.writeFileSync(
+      input,
+      JSON.stringify({
+        version: 1,
+        records: [divergentObservation, divergentVerification],
+      }),
+    );
+    assert.strictEqual(run(["record", "--input", input], root), 1);
+    assert.strictEqual(readChurnState(root).seamRecords.length, 4);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("refuses a passing verification the after census cannot support", () => {
   assert.throws(() => composeSeamBundle(plan("other-target"), readCensus), /not comparable/);
   assert.throws(() => composeSeamBundle(plan("truncated"), readCensus), /not comparable/);

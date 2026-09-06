@@ -137,7 +137,7 @@ export const blockingSeamLines = (churn: CensusChurn): ReadonlyArray<string> =>
     .filter((seam) => seam.blocking)
     .map(
       (seam) =>
-        `${seam.status}: ${code(seam.path)} / ${code(seam.subject)} (${seam.domain}): ${seam.reason}`,
+        `${seam.status}${seam.bridged === "legacy" ? " (bridged: legacy)" : ""}: ${code(seam.path)} / ${code(seam.subject)} (${seam.domain}): ${seam.reason}`,
     );
 
 const seamTable = (churn: CensusChurn): ReadonlyArray<string> =>
@@ -150,7 +150,7 @@ const seamTable = (churn: CensusChurn): ReadonlyArray<string> =>
         "| --- | --- | --- | --- |",
         ...churn.seams.map(
           (seam) =>
-            `| ${escapeCell(code(seam.id.slice(0, 12)))} ${escapeCell(code(seam.path))} / ${escapeCell(code(seam.subject))} | ${seam.status} | ${seam.blocking ? "yes" : "no"} | ${escapeCell(seam.guard === null ? seam.reason : `${seam.guard}: ${seam.reason}`)} |`,
+            `| ${escapeCell(code(seam.id.slice(0, 12)))} ${escapeCell(code(seam.path))} / ${escapeCell(code(seam.subject))} | ${seam.status}${seam.bridged === "legacy" ? " (bridged: legacy)" : ""} | ${seam.blocking ? "yes" : "no"} | ${escapeCell(seam.guard === null ? seam.reason : `${seam.guard}: ${seam.reason}`)} |`,
         ),
       ];
 

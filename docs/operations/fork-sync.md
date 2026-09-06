@@ -254,8 +254,21 @@ row indexes. Import full `observation` records before referring to their rows:
 A changed target, base, method or partial replay remains non-comparable even if the recorded
 guard command passed. An attested guard failure always blocks, including across these
 measurement boundaries. The importer validates retained evidence and source binding; it does
-not execute commands or check the repair commit's ancestry.
+not execute commands. The one exception is the legacy bridge below: `record` proves the repair
+commit's ancestry for that bridge only.
 Existing `vp run fork:churn` and `vp run fork:churn --check` still render/check the mirror.
+
+#### Legacy to sequential bridge (RSI-Software/t3code-hyprws#654)
+
+A repair whose `before` row was last observed by a `legacy-pairwise-feasibility` walk
+(`evidence: null`) can be recorded and reach `verified-repaired` when the `after` observation is
+complete under the current method and `record` proves `repair.changeSha` is an ancestor of
+`after.evidence.sourceSha` (`git merge-base --is-ancestor` in the current checkout), refusing
+otherwise. Guard-proof binding is untouched: `guardProof.sourceSha` must still equal
+`after.evidence.sourceSha` with `exitCode === 0`, and attested failures always block. Non-bridged
+verifications keep today's behaviour (no ancestry check). The report keeps the boundary visible
+with a `bridged: legacy` marker on the row, and `compose` accepts the same bridged case so it can
+emit the bundle `record` would accept.
 
 `compose` builds that bundle from local census artifacts, so the evidence is produced rather than
 hand-written:
@@ -352,21 +365,22 @@ attestation, while workflow collectors obtain Git and GitHub evidence directly.
 
 The report extends the existing census table with explicit seam states:
 
-| State               | Meaning                                                                                       | Report exit                                          |
-| ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| observed            | Seen, with no verified repair                                                                 | 0                                                    |
-| not-observed        | Not in the latest complete census; still unresolved                                           | 0 unless already blocking                            |
-| unknown             | Partial, incompatible or stale pre-repair observation; identity remains unresolved            | Prior blocking verdict remains                       |
-| returned-unresolved | Seen again without comparable repair proof                                                    | 1                                                    |
-| repair-unverified   | Named change and guard, without comparable passing evidence                                   | 1 for failed guard; prior blocking verdict otherwise |
-| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass                  | 0                                                    |
-| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure | 1                                                    |
+| State               | Meaning                                                                                                                                   | Report exit                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| observed            | Seen, with no verified repair                                                                                                             | 0                                                    |
+| not-observed        | Not in the latest complete census; still unresolved                                                                                       | 0 unless already blocking                            |
+| unknown             | Partial, incompatible or stale pre-repair observation; identity remains unresolved                                                        | Prior blocking verdict remains                       |
+| returned-unresolved | Seen again without comparable repair proof                                                                                                | 1                                                    |
+| repair-unverified   | Named change and guard, without comparable passing evidence                                                                               | 1 for failed guard; prior blocking verdict otherwise |
+| verified-repaired   | Comparable complete replay is clear and the named guard has an attested pass; a legacy `before` bridge carries a `bridged: legacy` marker | 0                                                    |
+| regressed           | A previously verified repair has comparable conflicting evidence or an attested guard failure                                             | 1                                                    |
 
 Ordinary replays preserve the path/subject/domain observation identity despite changing SHAs.
 Reviewed mappings preserve that identity through renames, moves and splits. Mapping chains
 resolve to their original identity independently of bundle order; cycles and multiple unrelated
 roots are refused. A method change retains identity but cannot establish absence or return until
-that identity has actually been observed with the new method. A census still bound to the frozen
+that identity has actually been observed with the new method, except through the legacy bridge
+above (complete `after`, proven repair ancestry, marked `bridged: legacy`). A census still bound to the frozen
 pre-repair source head remains stale, rather than proving a later regression. Unknown methods,
 changed targets and absent rows never prove repair. A previous blocking verdict needs comparable
 repair verification to clear it. The full report keeps unresolved seams visible even when absent.

@@ -13,7 +13,7 @@ import {
   pushBotRef,
   resolveBotRef,
 } from "./lib/fork-bot-refs.ts";
-import { runCommandText } from "./lib/fork-command.ts";
+import { runCommand, runCommandText } from "./lib/fork-command.ts";
 import {
   censusChurn,
   CONFLICT_CLASSES,
@@ -35,7 +35,7 @@ import {
 } from "./fork-churn-ledger.ts";
 import { CHURN_MARKER, blockingSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { composeSeamBundle } from "./lib/fork-churn-compose.ts";
-import { requireSeamRecords } from "./lib/fork-churn-seams.ts";
+import { bridgedLegacy, requireSeamRecords } from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
@@ -611,6 +611,37 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   return 1;
 };
 
+/**
+ * A bridged legacy→sequential verification must prove the repair landed before the frozen after
+ * head; `comparable()` alone cannot check ancestry, and non-bridged verifications keep today's
+ * behaviour (no ancestry check). Guard binding and exit codes are already validated by
+ * `requireSeamRecords` before this runs.
+ */
+const proveBridgedAncestry = (
+  root: string,
+  records: ReturnType<typeof requireSeamRecords>,
+): void => {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  for (const record of records) {
+    if (record.kind !== "verification" || record.guardProof.exitCode !== 0) continue;
+    const repair = byId.get(record.repair);
+    const after = byId.get(record.after);
+    if (repair?.kind !== "repair" || after?.kind !== "observation") continue;
+    const before = byId.get(repair.before.observation);
+    if (before?.kind !== "observation") continue;
+    if (!bridgedLegacy(before, after) || after.evidence === null) continue;
+    const result = runCommand(
+      "git",
+      ["merge-base", "--is-ancestor", repair.changeSha, after.evidence.sourceSha],
+      { cwd: root },
+    );
+    if (result.status !== 0)
+      throw new Error(
+        `bridged verification refuses: repair ${repair.changeSha} is not an ancestor of the frozen after head ${after.evidence.sourceSha}`,
+      );
+  }
+};
+
 const recordSeams = (args: ReadonlyArray<string>, root: string): number => {
   if (args.filter((value) => value === "--push").length > 1)
     throw new UsageError("duplicate --push");
@@ -631,6 +662,7 @@ const recordSeams = (args: ReadonlyArray<string>, root: string): number => {
   if (lease === null) throw new Error("seed the churn ledger before recording seam evidence");
   const state = readChurnState(root);
   const seamRecords = requireSeamRecords([...state.seamRecords, ...input.records]);
+  proveBridgedAncestry(root, seamRecords);
   const added = seamRecords.length - state.seamRecords.length;
   const commit =
     added === 0
