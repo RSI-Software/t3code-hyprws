@@ -5001,6 +5001,186 @@ it("retire enacts exactly one subject: other count or message changes still fail
   void keptMessages;
 });
 
+const REPLAY_LOG_ARGS = [
+  "-c",
+  "core.commentChar=auto",
+  "log",
+  "--reverse",
+  "--topo-order",
+  "--format=%B%x1e",
+  `${B}..HEAD`,
+];
+
+// The two rewrites `git rebase` applies to a stored message, both measured on the live stack:
+// a `%B` captured without its trailing newline comes back with one, and a blank run before the
+// trailers collapses to a single blank line.
+const DRIFTED_ORIGINAL_MESSAGES =
+  "feat(web): add sidebar group membership actions\nFork-Domain: project-windows\nFork-Tier: core" +
+  "\x1e\n" +
+  "fix(server): reconcile managed sessions after branch changes\n\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\n" +
+  "\x1e";
+
+const CLEANED_REPLAY_MESSAGES =
+  "feat(web): add sidebar group membership actions\nFork-Domain: project-windows\nFork-Tier: core\n" +
+  "\x1e\n" +
+  "fix(server): reconcile managed sessions after branch changes\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\n" +
+  "\x1e";
+
+const driftedReplay = (
+  replayedMessages: string,
+): { runner: FakeRunner; root: string; worktree: string; reportPath: string; branch: string } => {
+  const state = replayedRun();
+  setCiSuccess(state.runner, state.branch);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const next: SyncReport = {
+    ...replayed,
+    originalMessages: DRIFTED_ORIGINAL_MESSAGES,
+    originalCount: 2,
+  };
+  NodeFS.writeFileSync(next.reportPath, JSON.stringify(next));
+  NodeFS.writeFileSync(next.recordPath, renderRecord(next));
+  state.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "2\n",
+  });
+  state.runner.set("git", REPLAY_LOG_ARGS, { stdout: replayedMessages });
+  return state;
+};
+
+it("accepts git's own message cleanup on replay but not an edited trailer", () => {
+  {
+    const s = driftedReplay(CLEANED_REPLAY_MESSAGES);
+    try {
+      execute(["unblock-check", "--report", s.reportPath], s.root, s.runner);
+      assert.strictEqual(
+        validateReport(JSON.parse(NodeFS.readFileSync(s.reportPath, "utf8"))).stage,
+        "checked",
+      );
+    } finally {
+      NodeFS.rmSync(s.root, { recursive: true, force: true });
+      NodeFS.rmSync(s.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(s.reportPath), { recursive: true, force: true });
+    }
+  }
+  // Normalization moves whitespace only: a trailer whose value changed is still a changed message.
+  {
+    const s = driftedReplay(
+      CLEANED_REPLAY_MESSAGES.replace("Fork-Tier: bugfix", "Fork-Tier: core"),
+    );
+    try {
+      assert.throws(
+        () => execute(["unblock-check", "--report", s.reportPath], s.root, s.runner),
+        /replay commit messages changed/,
+      );
+    } finally {
+      NodeFS.rmSync(s.root, { recursive: true, force: true });
+      NodeFS.rmSync(s.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(s.reportPath), { recursive: true, force: true });
+    }
+  }
+});
+
+const finishedRebaseLane = (): {
+  runner: FakeRunner;
+  root: string;
+  worktree: string;
+  gitDir: string;
+  state: SyncReport;
+} => {
+  const root = fixtureRoot();
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  const gitDir = NodePath.join(worktree, ".git");
+  NodeFS.mkdirSync(gitDir, { recursive: true });
+  const state = report(root, {
+    stage: "conflicts",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3-from-cccccccccccc", worktree },
+    originalMessages: "feat: one\x1e",
+    originalCount: 1,
+    conflicts: [
+      {
+        commit: C,
+        subject: "fix(web): preserve scoped behavior",
+        domain: "fork-meta",
+        path: "apps/web/src/a.ts",
+        class: "seam-moved",
+        resolution: "preserve upstream hook",
+        agentSafe: "yes — tested",
+        decidedBy: "human",
+      },
+    ],
+  });
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
+  NodeFS.writeFileSync(state.recordPath, renderRecord(state));
+  const runner = new FakeRunner();
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "--git-dir"], {
+    stdout: `${gitDir}\n`,
+  });
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "1\n",
+  });
+  runner.set("git", REPLAY_LOG_ARGS, { stdout: "feat: one\x1e" });
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${A}\n` });
+  return { runner, root, worktree, gitDir, state };
+};
+
+// A worker that dies between `git rebase --continue` and the replayed write leaves a finished
+// rebase behind, and `--continue` can only answer `No rebase in progress?` from there.
+it("verifies a rehearsal whose rebase already finished instead of continuing it", () => {
+  const { runner, root, worktree, state } = finishedRebaseLane();
+  try {
+    execute(["unblock-rehearse", "--report", state.reportPath], root, runner);
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+      "replayed",
+    );
+    assert.isFalse(runner.calls.some(({ args }) => args.includes("rebase")));
+    assert.isTrue(
+      runner.calls.some(({ args }) =>
+        args.join(" ").includes(`merge-base --is-ancestor ${B} HEAD`),
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a lane that holds no rebase and no replayed stack either", () => {
+  const { runner, root, worktree, state } = finishedRebaseLane();
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "0\n",
+  });
+  try {
+    assert.throws(
+      () => execute(["unblock-rehearse", "--report", state.reportPath], root, runner),
+      /no rebase is in progress and the lane does not hold the replayed stack: it holds 0 commits, expected 1/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("continues the rebase whenever its state directory is still there", () => {
+  const { runner, root, worktree, gitDir, state } = finishedRebaseLane();
+  NodeFS.mkdirSync(NodePath.join(gitDir, "rebase-merge"), { recursive: true });
+  try {
+    execute(["unblock-rehearse", "--report", state.reportPath], root, runner);
+    assert.isTrue(
+      runner.calls.some(
+        ({ command, args }) => command === "git" && args.join(" ").endsWith("rebase --continue"),
+      ),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("neutralises the comment char on every rehearsal git call, not one shell", () => {
   const { runner, root, worktree } = checkedRun();
   try {
