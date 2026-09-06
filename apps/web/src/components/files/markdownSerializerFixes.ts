@@ -1,5 +1,5 @@
-import { bulletListSchema } from "@milkdown/kit/preset/commonmark";
-import { extendListItemSchemaForTask } from "@milkdown/kit/preset/gfm";
+import { bulletListSchema } from "@milkdown/preset-commonmark";
+import { extendListItemSchemaForTask } from "@milkdown/preset-gfm";
 
 // Milkdown can deserialize the mdast `spread` boolean as a string. Passing
 // "false" back to mdast is truthy and turns every tight list into a loose list.
