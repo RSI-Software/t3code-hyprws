@@ -249,6 +249,29 @@ describe("ClaudeAdapterLive", () => {
       Effect.provide(harness.layer),
     );
   });
+  it.effect("keeps configured Claude launch args when no agent is selected", () => {
+    const harness = makeHarness({ claudeConfig: { launchArgs: "--agent legacy --verbose" } });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-5",
+          [],
+        ),
+        runtimeMode: "full-access",
+      });
+      assert.deepEqual(harness.getLastCreateQueryInput()?.options.extraArgs, {
+        agent: "legacy",
+        verbose: null,
+      });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
   it.effect("persists bounded child assistant text under task_id without a synthetic turn", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

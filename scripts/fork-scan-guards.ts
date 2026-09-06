@@ -45,6 +45,8 @@ export const AUTHORING_GUARD_TARGETS = {
   "provider-agent-boundary": {
     claude: "apps/server/src/provider/Layers/ClaudeProvider.ts",
     codex: "apps/server/src/provider/Layers/CodexProvider.ts",
+    driver: "apps/server/src/provider/Drivers/CodexDriver.ts",
+    adapter: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
   },
   "sidebar-physical-scope": {
     sidebar: "apps/web/src/components/Sidebar.tsx",
@@ -216,10 +218,13 @@ const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]
 const TERMINAL_ATTACHMENT_STATE =
   /\b(?:useState|useEffect)\s*(?:<[^>]*>)?\s*\(|\b(?:interface|type)\s+RetainedTerminalAttachmentState\b|\b(?:function|const)\s+updateRetainedTerminalAttachment\b|\.find\(\s*\(\s*(?:terminal|summary)/;
 
-// Keep provider-specific agent normalization/options out of upstream provider
-// setup. Imports and adapter calls are the intended, small integration seam.
+// Keep provider-specific agent normalization/options, the driver's discovery
+// wiring and the adapter's child-detail mapping out of upstream provider setup.
+// Imports and single integration calls are the intended, small seam.
+// `stringField` is deliberately unguarded: it is a generic record reader, not a
+// provider-agent declaration, and upstream may name its own.
 const PROVIDER_AGENT_DECLARATION =
-  /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+(?:parseClaudeInitializationAgents|withClaudeAgentOptions|withCodexAgentOptions)\b/;
+  /^\s*(?:export\s+)?(?:async\s+)?(?:function|const|let|var)\s+(?:parseClaudeInitializationAgents|withClaudeAgentOptions|withCodexAgentOptions|makeCodexAgentOptionsDecorator|withClaudeAgentLaunchArgs|claudeChildItemRenderDetail)\b/;
 // Added import blocks may span lines. Calls through threadRouteNavigation stay
 // valid, including execution-time reads of current params after async work.
 const THREAD_NAVIGATION_IMPORT =
@@ -514,7 +519,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.providerAgentImplementationAdded) {
       warn(
         "provider-agent-boundary",
-        "ClaudeProvider.ts/CodexProvider.ts gains fork agent normalization or model-option implementation; keep it in the provider-specific *AgentOptions.fork.ts sibling and retain only the integration call",
+        "ClaudeProvider.ts/CodexProvider.ts/CodexDriver.ts/ClaudeAdapter.ts gains fork agent normalization, model-option, discovery-wiring or child-detail implementation; keep it in the provider-specific *AgentOptions.fork.ts or ClaudeChildItemDetail.fork.ts sibling and retain only the integration call",
       );
     }
     if (patch.pullRequestProjectScopeAdded) {

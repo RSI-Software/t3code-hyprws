@@ -183,22 +183,64 @@ it("keeps editor loading, surfaces and link normalization behind the rich Markdo
 
 it("guards provider agent implementations while allowing provider-specific siblings and calls", () => {
   const sha = "a".repeat(40);
+  const layers = "apps/server/src/provider/Layers";
   const cases = [
-    ["ClaudeProvider.ts", "+export function parseClaudeInitializationAgents(agents) {", true],
-    ["ClaudeProvider.ts", "+export const withClaudeAgentOptions = (models) => {", true],
-    ["CodexProvider.ts", "+export function withCodexAgentOptions(models) {", true],
-    ["ClaudeAgentOptions.fork.ts", "+export function withClaudeAgentOptions(models) {", false],
-    ["CodexAgentOptions.fork.ts", "+export function withCodexAgentOptions(models) {", false],
-    ["ClaudeProvider.ts", "+const models = withClaudeAgentOptions(baseModels, agents);", false],
     [
-      "CodexProvider.ts",
+      `${layers}/ClaudeProvider.ts`,
+      "+export function parseClaudeInitializationAgents(agents) {",
+      true,
+    ],
+    [`${layers}/ClaudeProvider.ts`, "+export const withClaudeAgentOptions = (models) => {", true],
+    [`${layers}/CodexProvider.ts`, "+export function withCodexAgentOptions(models) {", true],
+    [
+      "apps/server/src/provider/Drivers/CodexDriver.ts",
+      "+const makeCodexAgentOptionsDecorator = (input) => Effect.gen(function* () {",
+      true,
+    ],
+    [
+      `${layers}/ClaudeAdapter.ts`,
+      "+function claudeChildItemRenderDetail(tool, workspaceRoot) {",
+      true,
+    ],
+    [`${layers}/ClaudeAdapter.ts`, "+const withClaudeAgentLaunchArgs = (configured) => {", true],
+    [
+      `${layers}/ClaudeAgentOptions.fork.ts`,
+      "+export function withClaudeAgentOptions(models) {",
+      false,
+    ],
+    [
+      `${layers}/CodexAgentOptions.fork.ts`,
+      "+export const makeCodexAgentOptionsDecorator = Effect.fn()(function* (input) {",
+      false,
+    ],
+    [
+      `${layers}/ClaudeChildItemDetail.fork.ts`,
+      "+export function claudeChildItemRenderDetail(tool, workspaceRoot) {",
+      false,
+    ],
+    [
+      "apps/server/src/provider/Drivers/CodexDriver.ts",
+      "+      const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator({",
+      false,
+    ],
+    [
+      `${layers}/ClaudeAdapter.ts`,
+      '+import { claudeChildItemRenderDetail } from "./ClaudeChildItemDetail.fork.ts";',
+      false,
+    ],
+    [
+      `${layers}/ClaudeProvider.ts`,
+      "+const models = withClaudeAgentOptions(baseModels, agents);",
+      false,
+    ],
+    [
+      `${layers}/CodexProvider.ts`,
       '+import { withCodexAgentOptions } from "./CodexAgentOptions.fork.ts";',
       false,
     ],
-    ["ClaudeProvider.ts", "-export function withClaudeAgentOptions(models) {", false],
+    [`${layers}/ClaudeProvider.ts`, "-export function withClaudeAgentOptions(models) {", false],
   ] as const;
-  for (const [file, line, expected] of cases) {
-    const path = `apps/server/src/provider/Layers/${file}`;
+  for (const [path, line, expected] of cases) {
     const warnings = collectScanWarnings(
       guardInput({
         patchesBySha: parseCommitPatches(
@@ -209,7 +251,7 @@ it("guards provider agent implementations while allowing provider-specific sibli
     assert.strictEqual(
       warnings.some((warning) => warning.rule === "provider-agent-boundary"),
       expected,
-      `${file}: ${line}`,
+      `${path}: ${line}`,
     );
   }
 });
