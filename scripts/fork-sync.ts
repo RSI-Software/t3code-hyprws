@@ -16,7 +16,6 @@ import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-b
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   SystemCommandRunner as SystemRunner,
-  type CommandResult,
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
 
@@ -675,6 +674,20 @@ const currentCommit = (
 const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<string> =>
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
+/**
+ * A rebase is running exactly while its state directory exists; `REBASE_HEAD` outlives the
+ * finish and cannot answer this. A git directory that will not resolve proves nothing, so it
+ * reports "running" and the caller continues the rebase, which is what a stopped lane needs.
+ */
+const rebaseInProgress = (runner: CommandRunner, cwd: string): boolean => {
+  const gitDir = git(runner, cwd, ["rev-parse", "--git-dir"], true);
+  if (gitDir === "") return true;
+  const root = NodePath.isAbsolute(gitDir) ? gitDir : NodePath.join(cwd, gitDir);
+  return ["rebase-merge", "rebase-apply"].some((state) =>
+    NodeFS.existsSync(NodePath.join(root, state)),
+  );
+};
+
 export const conflictResolutionIsReady = (
   path: string,
   _staged: ReadonlySet<string>,
@@ -839,6 +852,36 @@ const matchedRetiredCount = (messages: string, retired: ReadonlySet<string>): nu
   return count;
 };
 
+/**
+ * Normalize one `%B` message the way `git commit --cleanup=default` does: trailing whitespace
+ * goes, a run of blank lines collapses to one, and leading and trailing blank lines go. Only
+ * whitespace moves, so every line's text — `Fork-Domain` and `Fork-Tier` trailers included —
+ * still has to match exactly.
+ */
+const normalizeCommitMessage = (message: string): string => {
+  const normalized: Array<string> = [];
+  for (const raw of message.split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    if (line === "" && (normalized.length === 0 || normalized[normalized.length - 1] === ""))
+      continue;
+    normalized.push(line);
+  }
+  while (normalized.length > 0 && normalized[normalized.length - 1] === "") normalized.pop();
+  return normalized.join("\n");
+};
+
+/**
+ * `git rebase` recommits every message through its own cleanup, so a stored message that was
+ * not already normalized comes back with a trailing newline added or a blank run collapsed.
+ * Comparing both sides through the same normalization keeps that rewrite from reading as a
+ * changed message while a real edit to any line still fails the walk.
+ */
+const normalizeReplayMessages = (messages: string): string =>
+  messages.split("\x1e").map(normalizeCommitMessage).join("\x1e");
+
+const expectedReplayCount = (report: SyncReport, retired: ReadonlySet<string>): number =>
+  (report.originalCount ?? 0) - matchedRetiredCount(report.originalMessages ?? "", retired);
+
 export const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
@@ -849,7 +892,7 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
     throw new Error("replay binding is incomplete");
   const retired = retiredSubjectsForReport(report);
   const matched = matchedRetiredCount(report.originalMessages ?? "", retired);
-  const expectedCount = (report.originalCount ?? 0) - matched;
+  const expectedCount = expectedReplayCount(report, retired);
   const count = Number(
     git(runner, report.lane.worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true),
   );
@@ -862,7 +905,41 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   }
   const messages = replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`);
   const expectedMessages = filterRetiredMessages(report.originalMessages ?? "", retired);
-  if (messages !== expectedMessages) throw new Error("replay commit messages changed");
+  if (normalizeReplayMessages(messages) !== normalizeReplayMessages(expectedMessages))
+    throw new Error("replay commit messages changed");
+};
+
+/**
+ * A worker that dies between `git rebase --continue` and the replayed write leaves a finished
+ * rebase behind, and resuming it cannot continue a rebase that is no longer running. Falling
+ * through to verification is safe only once the lane already holds the whole replayed stack, so
+ * a lane that never started, or that stopped part-way, still refuses here.
+ */
+const assertReplayedWithoutRebase = (report: SyncReport, runner: CommandRunner): void => {
+  if (
+    report.target === undefined ||
+    report.lane === undefined ||
+    report.originalCount === undefined
+  )
+    throw new Error("replay binding is incomplete");
+  const worktree = report.lane.worktree;
+  const restart = "no rebase is in progress and the lane does not hold the replayed stack";
+  if (
+    runner.run(
+      "git",
+      ["-c", "core.commentChar=auto", "merge-base", "--is-ancestor", report.target.sha, "HEAD"],
+      worktree,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG },
+    ).status !== 0
+  )
+    throw new Error(`${restart}: ${report.target.tag} is not an ancestor of the lane head`);
+  const expectedCount = expectedReplayCount(report, retiredSubjectsForReport(report));
+  const count = Number(
+    git(runner, worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true),
+  );
+  if (count !== expectedCount)
+    throw new Error(`${restart}: it holds ${count} commits, expected ${expectedCount}`);
 };
 
 export const retiredSubjectsForTest = retiredSubjectsForReport;
@@ -942,6 +1019,7 @@ const unblockRehearse = (
   } else if (report.stage === "conflicts") {
     if (report.lane === undefined) throw new Error("rehearsal lane is missing");
     const lane = report.lane;
+    const rebasing = rebaseInProgress(runner, lane.worktree);
     const recordRows = parseConflictRows(NodeFS.readFileSync(report.recordPath, "utf8"));
     const pending = report.conflicts.filter(
       (row) =>
@@ -972,7 +1050,9 @@ const unblockRehearse = (
       if (unmerged.has(row.path)) throw new Error(`conflict remains unmerged: ${row.path}`);
       throw new Error(`resolved conflict is not staged or restored to HEAD: ${row.path}`);
     }
-    if (pending.some(({ path }) => isGeneratedPath(path))) {
+    // A finished rebase already carries the regenerated lockfile in its commits; regenerating it
+    // again would only dirty the lane.
+    if (rebasing && pending.some(({ path }) => isGeneratedPath(path))) {
       git(
         runner,
         lane.worktree,
@@ -1002,10 +1082,13 @@ const unblockRehearse = (
     };
     const retiredForRehearse = retiredSubjectsForReport(report);
     const pendingRetired = pending.some((row) => retiredForRehearse.has(row.subject));
-    let continued: CommandResult;
-    if (pendingRetired) {
+    if (!rebasing) {
+      // The replay outlived the worker that ran it: verify the lane it left instead of
+      // continuing a rebase that already finished.
+      assertReplayedWithoutRebase(report, runner);
+    } else if (pendingRetired) {
       // The rebase drops the emptied commit knowingly via --skip, not by accident
-      continued = runner.run(
+      const continued = runner.run(
         "git",
         rehearsalRebaseArgs(["rebase", "--skip"]),
         lane.worktree,
@@ -1015,7 +1098,7 @@ const unblockRehearse = (
       if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
         throw new Error(`git rebase --skip failed without conflicts: ${continued.stderr.trim()}`);
     } else {
-      continued = runner.run(
+      const continued = runner.run(
         "git",
         rehearsalRebaseArgs(["rebase", "--continue"]),
         lane.worktree,
