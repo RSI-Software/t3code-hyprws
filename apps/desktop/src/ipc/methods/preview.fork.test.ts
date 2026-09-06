@@ -292,6 +292,45 @@ describe("fork preview IPC ownership", () => {
     );
   });
 
+  effectIt.effect("returns automation status for long runtime tab ids", () => {
+    const identity = projectWindowIdentity(
+      EnvironmentId.make("environment-1"),
+      ProjectId.make("project-1"),
+    );
+    const sender = {} as Electron.WebContents;
+    const senderWindow = {} as Electron.BrowserWindow;
+    fromWebContents.mockReturnValue(senderWindow);
+
+    return Effect.gen(function* () {
+      const tabId =
+        `["environment-1","thread:delegated-task:${"a".repeat(120)}",` +
+        `"server-epoch-1","preview-1"]`;
+      const status = {
+        available: false,
+        visible: true,
+        tabId,
+        url: null,
+        title: null,
+        loading: false,
+      };
+
+      expect(tabId.length).toBeGreaterThan(128);
+      expect(
+        yield* PreviewIpc.automationStatus.handler({ tabId }, { sender }).pipe(
+          Effect.provideService(ElectronWindow.ElectronWindow, {
+            identityFor: () => Effect.succeed(Option.some(identity)),
+          } as never),
+          Effect.provideService(PreviewManager.PreviewManager, {
+            forWindow: () =>
+              Effect.succeed({
+                automationStatus: () => Effect.succeed(status),
+              } as never),
+          } as never),
+        ),
+      ).toEqual(status);
+    });
+  });
+
   effectIt.effect("rejects an unregistered sender before resolving preview state", () => {
     const sender = {} as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
