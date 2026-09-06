@@ -1605,7 +1605,9 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   }
 }
 
-/* Recompute contrast wherever a subtree owns its own semantic color palette. */
+/* Contrast stays in ordinary custom properties so both Tailwind utilities and
+   global/imperative chrome styles resolve the same adjusted role. Redeclare on
+   the sidebar because it owns a local semantic palette. */
 :root,
 [data-app-sidebar] {
   --contrast-toolbar-foreground: color-mix(
