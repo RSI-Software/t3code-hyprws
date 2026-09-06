@@ -11,7 +11,10 @@ import {
   seamRecord,
   type SeamRecord,
 } from "./lib/fork-churn-seams.ts";
+import { composeSeamBundle, observeStopCensus } from "./lib/fork-churn-compose.ts";
+import { censusTotals } from "./lib/fork-rebase-issues.ts";
 import {
+  parseCensusFiles,
   parseChurnState,
   readChurnState,
   writeChurnLedger,
@@ -97,6 +100,50 @@ const verification = seamRecord({
   attestation,
 } as const);
 const records = [before, clear, repair, verification];
+/** The artifact `rehearseStopCensus` writes, so the producer is exercised on the real shape. */
+const stopCensus = (observed: CensusSnapshot) => {
+  const evidence = observed.censusEvidence!;
+  return {
+    targetTag: evidence.targetTag,
+    evidence,
+    ...censusTotals(evidence.rows),
+    truncated: !evidence.complete,
+    truncatedBy: evidence.complete ? null : "stop-limit",
+    stopLimit: 40,
+    timeLimitSeconds: 900,
+  };
+};
+const guardProof = {
+  sourceSha: B,
+  command: "vp test run seam.fork.test.ts",
+  exitCode: 0,
+  output: "1 passed",
+};
+const plan = (after: string, proof = guardProof) => ({
+  version: 1,
+  observations: [
+    { alias: "before", census: "before" },
+    { alias: "after", census: after },
+  ],
+  repairs: [
+    {
+      alias: "seam",
+      before: { observation: "before", path: "seam.ts" },
+      changeSha: B,
+      guard: "fork seam fixture",
+      attestation,
+    },
+  ],
+  verifications: [{ repair: "seam", after: "after", guardProof: proof, attestation }],
+});
+const censuses: Record<string, unknown> = {
+  before: stopCensus(snapshot(A)),
+  after: stopCensus(snapshot(B, [])),
+  "other-target": stopCensus(snapshot(B, [], D)),
+  truncated: stopCensus(snapshot(B, [], C, false)),
+};
+const readCensus = (reference: string): unknown => censuses[reference];
+
 const walk = (tag: string, observed: CensusSnapshot): ChurnEntry => ({
   tag,
   before: A,
@@ -337,6 +384,130 @@ it("rejects altered digests, missing references and inconsistent retained eviden
   assert.throws(
     () => requireSeamRecords([before, seamRecord({ ...repairPayload, changeSha: "f".repeat(41) })]),
     /full seam evidence SHA/,
+  );
+});
+
+it("freezes a sequential census into the evidence a repair can be proven against", () => {
+  const observed = observeStopCensus(stopCensus(snapshot(A)));
+  assert.deepStrictEqual(observed, freezeObservation(snapshot(A)));
+  assert.isNotNull(observed.evidence);
+  // The count-only census is the shape that produced a ledger of unprovable observations.
+  const { evidence: _evidence, ...countOnly } = stopCensus(snapshot(A));
+  assert.throws(() => observeStopCensus(countOnly), /carries no evidence/);
+  assert.throws(
+    () => observeStopCensus({ ...stopCensus(snapshot(A)), targetTag: "v9.9.9" }),
+    /target tag disagrees/,
+  );
+  assert.throws(
+    () => observeStopCensus({ ...stopCensus(snapshot(B, [], C, false)), truncated: false }),
+    /truncation disagrees/,
+  );
+  const { truncated: _truncated, ...untruncated } = stopCensus(snapshot(A));
+  assert.throws(() => observeStopCensus(untruncated), /carries no truncated flag/);
+});
+
+it("gives a composed and a reported observation of the same rows one identity", () => {
+  const evidence = snapshot(A).censusEvidence!;
+  const body = `## Sequential rebase census\n\n<!-- sequential-census-v1:${JSON.stringify(
+    evidence,
+  ).replaceAll("<", "\\u003c")} -->\n`;
+  // One mapping, two readers: the report path parses the marker, the producer freezes the census.
+  const reported = freezeObservation({
+    tag: evidence.targetTag,
+    fixedAt: null,
+    files: parseCensusFiles(body),
+  });
+  const composed = observeStopCensus(stopCensus(snapshot(A)));
+  assert.deepStrictEqual(composed.files, reported.files);
+  assert.deepStrictEqual(composed.files.map(seamIdentity), reported.files.map(seamIdentity));
+});
+
+it("composes a reviewed bundle that reaches verified-repaired", () => {
+  const bundle = composeSeamBundle(plan("after"), readCensus);
+  assert.deepStrictEqual(bundle, { version: 1, records });
+  const states = assessSeams([snapshot(A), snapshot(B, [])], bundle.records);
+  assert.strictEqual(states[0]?.status, "verified-repaired");
+  assert.isFalse(states[0]?.blocking);
+  // References are resolved against the ledger the bundle will land on, never re-frozen.
+  const followUp = composeSeamBundle(
+    { version: 1, observations: [], mappings: [], repairs: [], verifications: [] },
+    readCensus,
+    records,
+  );
+  assert.deepStrictEqual(followUp.records, []);
+  // Content addressing makes a rerun idempotent, so a reviewed bundle stays safe to recompose.
+  assert.deepStrictEqual(composeSeamBundle(plan("after"), readCensus, records), bundle);
+});
+
+it("refuses a passing verification the after census cannot support", () => {
+  assert.throws(() => composeSeamBundle(plan("other-target"), readCensus), /not comparable/);
+  assert.throws(() => composeSeamBundle(plan("truncated"), readCensus), /not comparable/);
+  // An attested failure stays recordable across the same boundary; losing it would hide the miss.
+  const failed = composeSeamBundle(
+    plan("other-target", { ...guardProof, exitCode: 1, output: "guard failed" }),
+    readCensus,
+  );
+  assert.strictEqual(failed.records.length, 4);
+  const state = assessSeams([snapshot(A), snapshot(B, [], D)], failed.records)[0];
+  assert.strictEqual(state?.status, "repair-unverified");
+  assert.isTrue(state?.blocking);
+});
+
+it("keeps a truncated census unknown rather than reporting the seam gone", () => {
+  const bundle = composeSeamBundle(
+    {
+      version: 1,
+      observations: [
+        { alias: "before", census: "before" },
+        { alias: "after", census: "truncated" },
+      ],
+    },
+    readCensus,
+  );
+  const partial = bundle.records.flatMap((record) =>
+    record.kind === "observation" ? [record] : [],
+  )[1];
+  assert.strictEqual(partial?.tag, "v1.0.0");
+  assert.isFalse(partial?.evidence?.complete);
+  const states = assessSeams([snapshot(A), snapshot(B, [], C, false)], bundle.records);
+  assert.strictEqual(states[0]?.status, "unknown");
+  // The same silence from a complete census is absence; only completeness may claim it.
+  assert.strictEqual(assessSeams([snapshot(A), snapshot(B, [])], [])[0]?.status, "not-observed");
+});
+
+it("names census rows by path and refuses a selector that is not exactly one row", () => {
+  const split = stopCensus(snapshot(B, [file("new.ts"), file("split.ts")]));
+  const mapping = (to: ReadonlyArray<unknown>) => ({
+    version: 1,
+    observations: [
+      { alias: "before", census: "before" },
+      { alias: "moved", census: "moved" },
+    ],
+    mappings: [{ from: { observation: "before", path: "seam.ts" }, to, attestation }],
+  });
+  const read = (reference: string): unknown =>
+    reference === "moved" ? split : readCensus(reference);
+  const bundle = composeSeamBundle(
+    mapping([
+      { observation: "moved", path: "new.ts" },
+      { observation: "moved", row: 1 },
+    ]),
+    read,
+  );
+  const composed = bundle.records.flatMap((record) =>
+    record.kind === "mapping" ? [record] : [],
+  )[0];
+  assert.deepStrictEqual(composed?.to, [
+    { observation: bundle.records[1]!.id, row: 0 },
+    { observation: bundle.records[1]!.id, row: 1 },
+  ]);
+  assert.throws(
+    () => composeSeamBundle(mapping([{ observation: "moved", path: "absent.ts" }]), read),
+    /matched 0 rows/,
+  );
+  assert.throws(
+    () => composeSeamBundle(mapping([{ observation: "unknown", path: "new.ts" }]), read),
+    /unknown observation reference/,
   );
 });
 

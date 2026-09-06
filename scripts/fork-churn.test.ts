@@ -24,7 +24,7 @@ import {
   writeBotRefFile,
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
-import { parseSilentSeams } from "./fork-churn-ledger.ts";
+import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
   NIGHTLY_REVIEW_EVIDENCE,
@@ -1094,4 +1094,100 @@ it("takes the REST comment id from the permalink, not the node id the query repo
     "5516722153",
   );
   assert.throws(() => commentRestId("IC_kwDOUADyEs8AAAABSNJ_6Q"), /carries no REST id/);
+});
+
+/** The artifact `fork:auto-rebase` retains, trimmed to what the producer reads. */
+const stopCensusFixture = (sourceSha: string, paths: ReadonlyArray<string>, complete = true) => ({
+  targetTag: "v1.0.0",
+  evidence: {
+    version: 1,
+    method: "sequential-rebase-stage3-provisional",
+    sourceSha,
+    baseSha: "d".repeat(40),
+    targetSha: "c".repeat(40),
+    targetTag: "v1.0.0",
+    complete,
+    rows: paths.map((path, index) => ({
+      stop: index + 1,
+      commit: A,
+      subject: "feat: preserve fork intent",
+      domain: "fork-meta",
+      path,
+      kind: "content",
+    })),
+  },
+  conflictingForkCommitCount: paths.length === 0 ? 0 : 1,
+  conflictingFileCount: paths.length,
+  truncated: !complete,
+  truncatedBy: complete ? null : "stop-limit",
+  stopLimit: 40,
+  timeLimitSeconds: 900,
+});
+
+it("composes evidence-bearing seam records that the single import path accepts", () => {
+  const root = ledgerRepository([]);
+  try {
+    const write = (name: string, value: unknown): string => {
+      NodeFS.writeFileSync(NodePath.join(root, name), JSON.stringify(value));
+      return name;
+    };
+    write("before.json", stopCensusFixture(A, ["seam.ts"]));
+    write("after.json", stopCensusFixture(B, []));
+    write("truncated.json", stopCensusFixture(B, [], false));
+    const plan = (after: string) => ({
+      version: 1,
+      observations: [
+        { alias: "before", census: "before.json" },
+        { alias: "after", census: after },
+      ],
+      repairs: [
+        {
+          alias: "seam",
+          before: { observation: "before", path: "seam.ts" },
+          changeSha: B,
+          guard: "vp test run seam.fork.test.ts",
+          attestation: {
+            actor: "maintainer-agent",
+            evidenceUrl: "https://example.test/review/1",
+          },
+        },
+      ],
+      verifications: [
+        {
+          repair: "seam",
+          after: "after",
+          guardProof: {
+            sourceSha: B,
+            command: "vp test run seam.fork.test.ts",
+            exitCode: 0,
+            output: "1 passed",
+          },
+          attestation: {
+            actor: "maintainer-agent",
+            evidenceUrl: "https://example.test/review/1",
+          },
+        },
+      ],
+    });
+    write("plan.json", plan("after.json"));
+    assert.strictEqual(run(["compose", "--plan", "plan.json"], root), 2);
+    assert.strictEqual(run(["compose", "--plan", "plan.json", "--at", "x"], root), 2);
+    assert.strictEqual(run(["compose", "--plan", "plan.json", "--out", "bundle.json"], root), 0);
+    // Composing never writes the ledger; the reviewed bundle still goes through record --input.
+    assert.deepStrictEqual(readChurnState(root).seamRecords, []);
+    assert.strictEqual(run(["record", "--input", "bundle.json"], root), 0);
+    const recorded = readChurnState(root).seamRecords;
+    assert.strictEqual(recorded.length, 4);
+    const observation = recorded.flatMap((record) =>
+      record.kind === "observation" ? [record] : [],
+    )[0];
+    assert.strictEqual(observation?.evidence?.sourceSha, A);
+    // A pass measured against a truncated census cannot prove the repair, so it never reaches disk.
+    write("bad.json", plan("truncated.json"));
+    assert.strictEqual(run(["compose", "--plan", "bad.json", "--out", "bad-bundle.json"], root), 1);
+    assert.isFalse(NodeFS.existsSync(NodePath.join(root, "bad-bundle.json")));
+    assert.deepStrictEqual(readChurnState(root).seamRecords, recorded);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });

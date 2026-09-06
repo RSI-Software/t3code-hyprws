@@ -92,6 +92,22 @@ const tuple = (row: CensusFile): string => {
 };
 export const seamIdentity = (row: CensusFile): string => digest(tuple(row));
 
+/**
+ * The one evidence row to census file mapping. Both the report path and the local producer read
+ * it, so an observation composed from a census and an observation parsed from an issue body share
+ * a `seamIdentity` for the same rows.
+ */
+export const censusFilesFromEvidence = (
+  evidence: SequentialCensusEvidence,
+): ReadonlyArray<CensusFile> =>
+  evidence.rows.map((row) => ({
+    path: row.path,
+    hunks: null,
+    commit: row.commit,
+    subject: row.subject,
+    domain: row.domain ?? "?",
+  }));
+
 export const freezeObservation = (snapshot: CensusSnapshot): FrozenObservation => ({
   kind: "observation",
   tag: snapshot.tag,
@@ -132,7 +148,8 @@ const attestation = (value: unknown): MaintainerAttestation => {
   return { actor: text(row.actor), evidenceUrl };
 };
 
-const payload = (value: unknown): SeamPayload => {
+/** Validates one reviewed payload; producers build records through it so digests stay canonical. */
+export const requireSeamPayload = (value: unknown): SeamPayload => {
   const row = object(value, [
     "id",
     "kind",
@@ -234,12 +251,21 @@ const payload = (value: unknown): SeamPayload => {
   }
 };
 
+const comparable = (before: FrozenObservation, after: FrozenObservation): boolean =>
+  before.evidence !== null &&
+  after.evidence !== null &&
+  before.evidence.complete &&
+  after.evidence.complete &&
+  before.method === after.method &&
+  before.evidence.baseSha === after.evidence.baseSha &&
+  before.evidence.targetSha === after.evidence.targetSha;
+
 export const requireSeamRecords = (value: unknown): ReadonlyArray<SeamRecord> => {
   if (!Array.isArray(value)) throw new Error("seamRecords must be an array");
   const records: Array<SeamRecord> = [];
   const seen = new Set<string>();
   for (const item of value) {
-    const parsed = payload(item);
+    const parsed = requireSeamPayload(item);
     const record = seamRecord(parsed);
     if ((item as Record<string, unknown>).id !== record.id)
       throw new Error("seam record digest mismatch");
@@ -256,6 +282,15 @@ export const requireSeamRecords = (value: unknown): ReadonlyArray<SeamRecord> =>
     const after = registry.observation(record.after);
     if (after.evidence === null || record.guardProof.sourceSha !== after.evidence.sourceSha)
       throw new Error("guard proof is not bound to the frozen verification head");
+    // A passing guard only proves a repair when both censuses answer the same question, so an
+    // incomparable pass is refused here rather than recorded and silently discounted later. An
+    // attested failure stays recordable at any measurement boundary; suppressing it would lose
+    // the only evidence that the guard did not hold.
+    if (
+      record.guardProof.exitCode === 0 &&
+      !comparable(registry.observation(repair.before.observation), after)
+    )
+      throw new Error("passing verification is not comparable to the repair's before observation");
   }
   return records;
 };
@@ -333,15 +368,6 @@ export interface SeamAssessment {
   readonly guard: string | null;
   readonly reason: string;
 }
-
-const comparable = (before: FrozenObservation, after: FrozenObservation): boolean =>
-  before.evidence !== null &&
-  after.evidence !== null &&
-  before.evidence.complete &&
-  after.evidence.complete &&
-  before.method === after.method &&
-  before.evidence.baseSha === after.evidence.baseSha &&
-  before.evidence.targetSha === after.evidence.targetSha;
 
 export const assessSeams = (
   snapshots: ReadonlyArray<CensusSnapshot>,
