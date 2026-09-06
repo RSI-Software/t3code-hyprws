@@ -96,9 +96,48 @@ it("selects the latest clean position and prefers a stable tag on a tie", () => 
   assert.strictEqual(selectNewestTag([]), null);
 });
 
-it("verifies replay count and byte-identical full commit messages", () => {
+it("accepts git's own message cleanup on replay but not an edited line", () => {
   assert.doesNotThrow(() => verifyReplayMetadata(2, 2, "same\n", "same\n"));
   assert.throws(() => verifyReplayMetadata(2, 1, "same", "same"), /commit count changed/);
+
+  // The two rewrites `git rebase` applies to a stored message: a `%B` captured without its
+  // trailing newline comes back with one, and a blank run before the trailers collapses.
+  const driftedOriginal =
+    "feat(web): add sidebar group membership actions\nFork-Domain: project-windows\nFork-Tier: core" +
+    "\x1e\n" +
+    "fix(server): reconcile managed sessions after branch changes\n\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\n" +
+    "\x1e";
+  const cleanedReplay =
+    "feat(web): add sidebar group membership actions\nFork-Domain: project-windows\nFork-Tier: core\n" +
+    "\x1e\n" +
+    "fix(server): reconcile managed sessions after branch changes\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\n" +
+    "\x1e";
+  assert.doesNotThrow(() => verifyReplayMetadata(2, 2, driftedOriginal, cleanedReplay));
+
+  // Normalization moves whitespace only: a trailer whose value changed is still a change.
+  assert.throws(
+    () =>
+      verifyReplayMetadata(
+        2,
+        2,
+        driftedOriginal,
+        cleanedReplay.replace("Fork-Tier: bugfix", "Fork-Tier: core"),
+      ),
+    /commit messages changed/,
+  );
+  assert.throws(
+    () =>
+      verifyReplayMetadata(
+        2,
+        2,
+        driftedOriginal,
+        cleanedReplay.replace(
+          "feat(web): add sidebar group membership actions",
+          "feat(web): add sidebar group membership",
+        ),
+      ),
+    /commit messages changed/,
+  );
 
   const original = `feat: preserve the body
 

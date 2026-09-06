@@ -20,6 +20,7 @@ import {
   type PositionedReleaseTag,
 } from "./lib/fork-policy.ts";
 import { linkInstalledModules } from "./lib/fork-rebase-worktree.ts";
+import { normalizeReplayMessages } from "./lib/fork-replay-messages.ts";
 
 export type PositionedTag = PositionedReleaseTag;
 
@@ -143,7 +144,8 @@ export const verifyReplayMetadata = (
   if (originalCount !== replayedCount) {
     throw new Error(`replay commit count changed: ${originalCount} -> ${replayedCount}`);
   }
-  if (originalLog !== replayedLog) throw new Error("replay commit messages changed");
+  if (normalizeReplayMessages(originalLog) !== normalizeReplayMessages(replayedLog))
+    throw new Error("replay commit messages changed");
 };
 
 const verificationEnvironment = (): NodeJS.ProcessEnv => {
