@@ -233,7 +233,7 @@ export function selectClientForWindow(input: {
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
 
-export class HyprlandRequestError extends Error {
+class HyprlandRequestError extends Error {
   readonly reason: string;
 
   constructor(reason: string) {
