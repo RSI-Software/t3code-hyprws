@@ -4,7 +4,9 @@
 //
 // - hot-seam: the commit touches a path the churn ledger lists as a hot seam.
 // - upstream-test: the commit adds a fork test block to an upstream-owned test
-//   file instead of its `*.fork.test.ts` sibling.
+//   file instead of its `*.fork.test.ts` sibling, or renames a test title in
+//   one of the six slice files below (a rename-only reintroduction nets to
+//   zero added blocks, so the title comparison catches it).
 // - footprint: one commit spreads over more upstream files than the budget.
 // - replaced-export: the commit deletes an upstream-owned exported declaration
 //   and re-declares it, so every later upstream edit to it lands invisibly.
@@ -146,6 +148,10 @@ export interface TestBlockHunk {
   readonly path: string;
   readonly added: number;
   readonly removed: number;
+  // Opener titles on each side, so a same-hunk remove+add with different
+  // titles reads as a rename even when the counts net to zero.
+  readonly addedTitles: ReadonlyArray<string>;
+  readonly removedTitles: ReadonlyArray<string>;
 }
 
 export interface CommitPatch {
@@ -206,6 +212,10 @@ const EXPORT_DECLARATION =
 
 // effectIt is the repository's @effect/vitest alias beside vite-plus/test's it.
 const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
+
+// First quoted string on an opener line: the block title. `it.layer(X)(
+// "title", ...)` still yields "title" because the layer value is unquoted.
+const TEST_TITLE = /["'`]([^"'`]+)["'`]/;
 
 // Keep the check scoped to added state/effect calls, the old inline state
 // declarations, and the fork's exact-target attachment match. Upstream memoized
@@ -315,6 +325,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let targetPath: string | null = null;
     let hunkAddedTestBlocks = 0;
     let hunkRemovedTestBlocks = 0;
+    let hunkAddedTitles: Array<string> = [];
+    let hunkRemovedTitles: Array<string> = [];
     const flushTestBlockHunk = () => {
       const path = targetPath ?? sourcePath;
       if (path !== null && (hunkAddedTestBlocks > 0 || hunkRemovedTestBlocks > 0)) {
@@ -322,10 +334,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
           path,
           added: hunkAddedTestBlocks,
           removed: hunkRemovedTestBlocks,
+          addedTitles: hunkAddedTitles,
+          removedTitles: hunkRemovedTitles,
         });
       }
       hunkAddedTestBlocks = 0;
       hunkRemovedTestBlocks = 0;
+      hunkAddedTitles = [];
+      hunkRemovedTitles = [];
     };
     for (const line of lines) {
       if (line.startsWith("--- ")) {
@@ -412,8 +428,14 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         });
       }
       if (TEST_BLOCK.test(content)) {
-        if (added) hunkAddedTestBlocks += 1;
-        else hunkRemovedTestBlocks += 1;
+        const title = TEST_TITLE.exec(content)?.[1];
+        if (added) {
+          hunkAddedTestBlocks += 1;
+          if (title !== undefined) hunkAddedTitles.push(title);
+        } else {
+          hunkRemovedTestBlocks += 1;
+          if (title !== undefined) hunkRemovedTitles.push(title);
+        }
       }
     }
     flushTestBlockHunk();
@@ -464,6 +486,19 @@ export const UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS = new Set([
 
 export const forkTestSibling = (path: string): string =>
   path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
+
+// The six files this slice touches. Bodies carried from the upstream base
+// tree stay file-local as adapted expectations; any divergent title there
+// contradicts that claim, so the rename exemption does not apply to them.
+// The slice's own rule still forbids pure additions outside the sibling.
+export const UPSTREAM_TEST_TITLE_SENSITIVE_FILES = new Set([
+  "apps/web/src/rightPanelStore.test.ts",
+  "apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts",
+  "apps/desktop/src/ipc/methods/preview.test.ts",
+  "apps/desktop/src/preview/Manager.test.ts",
+  "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+  "apps/server/src/provider/ProviderInstanceEnvironment.test.ts",
+]);
 
 const EMPTY_PATCH: CommitPatch = {
   removedExports: [],
@@ -556,6 +591,29 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       if (count === 0) continue;
       appendedTestBlocks.set(hunk.path, (appendedTestBlocks.get(hunk.path) ?? 0) + count);
     }
+    // A 1-for-1 title swap in the d59c27e7 shape nets to zero added blocks,
+    // so the rename exemption would let a fork reintroduction through. Only
+    // the six slice files below are rename-sensitive: their bodies were
+    // carried from the upstream base tree and adapted, so any divergent
+    // title there contradicts the slice's own rule (upstream owns the title,
+    // fork bodies prove against siblings). Other files keep the old
+    // exemption, where a rename usually tracks an upstream behavior change.
+    const renamedTestTitles = new Map<string, number>();
+    for (const hunk of patch.testBlockHunks) {
+      if (hunk.added === 0 || hunk.removed === 0) continue;
+      if (!UPSTREAM_TEST_TITLE_SENSITIVE_FILES.has(hunk.path)) continue;
+      const removed = new Set(hunk.removedTitles);
+      const added = new Set(hunk.addedTitles);
+      let addedOnly = 0;
+      let removedOnly = 0;
+      for (const title of added) if (!removed.has(title)) addedOnly += 1;
+      for (const title of removed) if (!added.has(title)) removedOnly += 1;
+      // Count swaps once: a 1-for-1 title change is one rename, and any
+      // unpaired remainder is already covered by the net-added count above.
+      const renamed = Math.min(addedOnly, removedOnly);
+      if (renamed === 0) continue;
+      renamedTestTitles.set(hunk.path, (renamedTestTitles.get(hunk.path) ?? 0) + renamed);
+    }
     for (const [path, count] of [...appendedTestBlocks].toSorted(([left], [right]) =>
       left.localeCompare(right),
     )) {
@@ -565,6 +623,19 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "upstream-test",
         `${path} gains ${count} fork test block(s); move them to ${forkTestSibling(path)}`,
+      );
+    }
+    for (const [path, count] of [...renamedTestTitles].toSorted(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      if (!(input.upstreamTestFiles ?? input.upstreamFiles).has(path)) continue;
+      if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
+      if (UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS.has(path)) continue;
+      // Identical titles on both sides are a benign same-name edit; only
+      // divergent titles signal a fork reintroduction.
+      warn(
+        "upstream-test",
+        `${path} renames ${count} test title(s); move the fork case to ${forkTestSibling(path)} and restore the upstream title`,
       );
     }
 

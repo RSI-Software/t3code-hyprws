@@ -681,6 +681,34 @@ it("counts Effect aliases and follows target ownership for independent test addi
   );
 });
 
+it("flags a renamed test title in a slice file as a fork reintroduction", () => {
+  const path = "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts";
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -718 +733 @@ describe(",
+        '-  it("does not adopt a drifted checkout when the worktree is shared by another thread", async () => {',
+        '+  it("adopts drift for idle branch-bound threads sharing the worktree", async () => {',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set([path]),
+      }),
+    ).map(({ rule, detail }) => `${rule} ${detail}`),
+    [
+      `upstream-test ${path} renames 1 test title(s); move the fork case to ${forkTestSibling(path)} and restore the upstream title`,
+    ],
+  );
+});
+
 it("leaves a renamed upstream test alone when its removed and added openers share a hunk", () => {
   const patches = parseCommitPatches(
     patch(
@@ -692,6 +720,33 @@ it("leaves a renamed upstream test alone when its removed and added openers shar
         '-it("routes a hub thread", () => {',
         '-  assert.strictEqual(route, "/thread");',
         '+it("routes a project thread", () => {',
+        '+  assert.strictEqual(route, "/project/thread");',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: patches,
+        upstreamFiles: new Set(["apps/web/src/threadRoutes.test.ts"]),
+      }),
+    ),
+    [],
+  );
+});
+
+it("leaves a same-title upstream test edit alone when its openers share a hunk", () => {
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        "--- a/apps/web/src/threadRoutes.test.ts",
+        "+++ b/apps/web/src/threadRoutes.test.ts",
+        "@@ -10,3 +10,3 @@",
+        '-it("routes a hub thread", () => {',
+        '-  assert.strictEqual(route, "/thread");',
+        '+it("routes a hub thread", () => {',
         '+  assert.strictEqual(route, "/project/thread");',
         "",
       ].join("\n"),
