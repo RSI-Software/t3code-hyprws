@@ -283,6 +283,7 @@ it("guards direct thread navigation policy while preserving boundary calls and u
     "components/ChatView.tsx",
     "components/CommandPalette.tsx",
     "hooks/useHandleNewThread.ts",
+    "hooks/useThreadActions.ts",
   ];
   const cases = [
     ['+import { resolveThreadRouteFamily } from "../threadRoutes";', true],
@@ -291,6 +292,9 @@ it("guards direct thread navigation policy while preserving boundary calls and u
     ["+select: (params) => {\n+ return resolveThreadRouteFamily(params);\n+},", true],
     ["+function resolveThreadRouteFamily(params) {", true],
     ['+import { resolveThreadRouteFamily } from "../lib/threadRouteNavigation";', false],
+    ['+import { resolveThreadRouteDeparture } from "../lib/threadRouteNavigation";', false],
+    ['+import { resolveThreadRouteRef } from "../threadRoutes";', false],
+    ["+...resolveThreadRouteDeparture(getCurrentRouteParams(), fallbackThreadRef),", false],
     ["+const family = useThreadRouteFamily();", false],
     ["+...resolveThreadRouteFamily(getCurrentRouteParams()).draft(draftId),", false],
     ["+const target = useParams({ strict: false, select: resolveThreadRouteTarget });", false],
