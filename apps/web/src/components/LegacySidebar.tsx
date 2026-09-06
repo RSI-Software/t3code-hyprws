@@ -132,6 +132,7 @@ import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
+  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteFamily,
   resolveThreadRouteTarget,
