@@ -244,7 +244,7 @@ const failureDetail = Effect.fn("ZmuxSessionBinder.failureDetail")(function* (
     .join("; ");
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const hostEnvironment = yield* HostProcessEnvironment;
