@@ -12,7 +12,6 @@ import {
   reorderProjects,
   resolveProjectExpanded,
   setProjectExpanded,
-  setThreadGroupMembership,
   type UiState,
 } from "./uiStateStore";
 
@@ -105,25 +104,6 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
-      threadOrderByProject: {
-        "environment:project-1": [
-          "environment:thread-2",
-          "",
-          "environment:thread-1",
-          "environment:thread-2",
-        ],
-        invalid: [] as string[],
-      },
-      threadGroupsByProject: {
-        "environment:project-1": [
-          {
-            id: "group-1",
-            title: " Related work ",
-            threadIds: ["environment:thread-2", "environment:thread-1"],
-            collapsed: false,
-          },
-        ],
-      },
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -143,19 +123,9 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
-      threadOrderByProject: {
-        "environment:project-1": ["environment:thread-2", "environment:thread-1"],
-      },
-      threadGroupsByProject: {
-        "environment:project-1": [
-          {
-            id: "group-1",
-            title: "Related work",
-            threadIds: ["environment:thread-2", "environment:thread-1"],
-            collapsed: false,
-          },
-        ],
-      },
+      // Fork state a parsed UiState always carries; see uiStateStore.fork.test.ts.
+      threadOrderByProject: {},
+      threadGroupsByProject: {},
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -261,10 +231,6 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
-      threadOrderByProject: {
-        "environment:project-1": ["environment:thread-2", "environment:thread-1"],
-      },
-      threadGroupsByProject: {},
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
