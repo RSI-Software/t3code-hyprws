@@ -144,6 +144,36 @@ describe("DesktopClerk", () => {
     });
   });
 
+  it.effect("registers the second-instance handler in the primary instance", () => {
+    storageMock.mockReturnValue(storageAdapter);
+    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    const quit = vi.fn();
+    const registeredEvents: string[] = [];
+    const electronApp = {
+      quit: Effect.sync(quit),
+      on: (eventName: string) =>
+        Effect.sync(() => {
+          registeredEvents.push(eventName);
+        }),
+    } as unknown as ElectronApp.ElectronApp["Service"];
+    const electronWindow = {} as ElectronWindow.ElectronWindow["Service"];
+
+    return Effect.gen(function* () {
+      const clerk = yield* DesktopClerk.DesktopClerk;
+      const exit = yield* Effect.exit(Effect.scoped(clerk.configure(() => Effect.void)));
+
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.equal(quit.mock.calls.length, 0);
+      // The fork also registers "open-url" for project deep links, covered in
+      // DesktopClerk.fork.test.ts, so this asserts upstream's handler is present.
+      assert.include(registeredEvents, "second-instance");
+    }).pipe(
+      Effect.provide(makeDesktopClerkLayer()),
+      Effect.provideService(ElectronApp.ElectronApp, electronApp),
+      Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+    );
+  });
+
   it.effect("quits and interrupts startup in a secondary instance", () => {
     storageMock.mockReturnValue(storageAdapter);
     createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: false });

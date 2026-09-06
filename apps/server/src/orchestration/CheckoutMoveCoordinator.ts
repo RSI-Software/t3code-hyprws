@@ -7,7 +7,7 @@ import * as Schema from "effect/Schema";
 import { CheckoutMutationCoordinator } from "../git/CheckoutMutationCoordinator.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
-export class CheckoutMoveValidationError extends Schema.TaggedErrorClass<CheckoutMoveValidationError>()(
+export class CheckoutMoveValidationError extends Schema.TaggedError<CheckoutMoveValidationError>()(
   "CheckoutMoveValidationError",
   { reason: Schema.String },
 ) {}
