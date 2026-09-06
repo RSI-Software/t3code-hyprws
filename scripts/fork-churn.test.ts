@@ -84,17 +84,17 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
 });
 
-it("keeps nightly proposer and independent reviewer separate in the record and ledger", () => {
+it("keeps nightly proposer and reviewer separate in the record and ledger", () => {
   const proposer = {
-    iface: "codex",
-    provider: "openai",
-    model: "gpt-5.6-sol",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "walk-1",
   };
   const reviewer = {
-    iface: "claude",
-    provider: "anthropic",
-    model: "claude-opus-5",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "review-2",
   };
   const nightlyReview = {
@@ -137,8 +137,8 @@ it("keeps nightly proposer and independent reviewer separate in the record and l
   );
   assert.deepStrictEqual(parsed?.nightlyReview, nightlyReview);
   const section = renderChurnSection(parsed === undefined ? [] : [parsed]);
-  assert.include(section, "agent `codex/openai/gpt-5.6-sol` session `walk-1`");
-  assert.include(section, "agent `claude/anthropic/claude-opus-5` session `review-2`");
+  assert.include(section, "agent `pi/meta/muse-spark` session `walk-1`");
+  assert.include(section, "agent `pi/meta/muse-spark` session `review-2`");
   assert.notInclude(section, "| human | 1 |");
 });
 
@@ -153,9 +153,9 @@ it("rejects incomplete or malformed nightly review ledger provenance", () => {
     censusFiles: [],
   };
   const identity = {
-    iface: "claude",
-    provider: "anthropic",
-    model: "claude-opus-5",
+    iface: "pi",
+    provider: "meta",
+    model: "muse-spark",
     session: "review-2",
   };
   const withheld = {

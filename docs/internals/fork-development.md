@@ -474,12 +474,12 @@ When the newest upstream tag is unreachable, the bot creates or updates the fork
 entry point. Its gates orient on the newest selected upstream tag beyond the block, rehearse on
 `rehearse/<tag>`, scan every active domain, and take the CI verdict on the pushed lane head.
 
-For an objective nightly walk, the walking host proposes the generated decisions and a separate
-Claude Opus session reviews the risky boundary. The durable record binds both agents' provider,
+For an objective nightly walk, the walking host proposes the generated decisions and another
+session records the review verdict. The durable record binds both sides' provider,
 model, and session to the target, blocking marker, every non-mechanical verdict, rehearsal evidence,
 exact pushed-lane CI head, silent seams, and live `expected_old`. The reviewer is not recorded as
-human and is not collapsed into the walking agent. Apply's **nightly independent-review guard**
-refuses missing, stale, self-approved, or withheld review.
+human and is not collapsed into the walking agent. Apply's **nightly review gate**
+refuses a missing, stale, same-session, or withheld review.
 
 Undefined fork intent, a non-equivalent retire, user-visible behaviour change, a fork domain or tier
 topology change, any bypass, or evidence that cannot be verified remains a pause for human
@@ -495,7 +495,7 @@ Every decision cell names its decider. `unblock-check` carries the cells already
 regeneration it performs, and refuses when a filled cell disagrees with the decision the report
 carries. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
 the agent nor the human, and apply refuses it. The churn ledger stores nightly proposal and review
-provenance separately; independent agent review never increments the human decision count.
+provenance separately; agent review never increments the human decision count.
 
 A walk that lands on a later tag also passes the stable tags between the two bases. A stable upstream
 tag is snapshotted and announced by whichever lane moves the fork base past it, so the apply
@@ -511,7 +511,7 @@ No fork commit is skipped, squashed, reordered, or reworded during an unblock, e
 human `retire` verdict, which authorises dropping exactly the subject it names. When upstream may
 have made one obsolete, preserve a buildable result for rehearsal and key the human's keep, retire,
 or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
-semantic review; on the objective nightly lane that review is the independent Opus boundary.
+semantic review; on the objective nightly lane that review is the recorded verdict.
 
 After sign-off and a passing gate, the agent's final push uses the full `expected_old` read exactly
 once at rehearsal start. Gate refusals are never bypassed. A rejected lease means the published

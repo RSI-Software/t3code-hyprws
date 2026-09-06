@@ -73,7 +73,9 @@ export type ConflictClass =
 /** Who signed a row. `TODO` is the absence of provenance, not a third decider. */
 export type DecidedBy = "human" | "agent" | "TODO" | `inherited (${string})`;
 
-/** Runtime identity recorded for each side of the nightly two-agent control. */
+/** Runtime identity recorded for each side of the nightly review control.
+ * No model family is privileged; the gate records identity as evidence and
+ * refuses only a verdict from the proposing session. */
 export interface AgentProvenance {
   readonly iface: string;
   readonly provider: string;
@@ -140,15 +142,6 @@ export const requireAgentProvenance = (value: unknown, field: string): AgentProv
   if (![iface, provider, model, session].every((part) => PROVENANCE_PART.test(part)))
     throw new Error(`invalid ${field}: identity contains unsupported characters`);
   return { iface, provider, model, session };
-};
-
-/** Accept concrete Claude Opus 4+ model IDs, not legacy or descriptive aliases. */
-export const isClaudeOpusModel = (model: string): boolean => {
-  const match = /^claude-(?:(\d+(?:[-.]\d+)*)-)?opus(?:[-.](\d+(?:[-.]\d+)*))(?:-\d{8})?$/i.exec(
-    model,
-  );
-  const version = match?.[1] ?? match?.[2];
-  return version !== undefined && Number.parseInt(version.split(/[.-]/)[0] ?? "", 10) >= 4;
 };
 
 const requireFullSha = (value: unknown, field: string): string => {
@@ -677,7 +670,7 @@ export const renderNightlyReview = (report: SyncReport): ReadonlyArray<string> =
       ? "TODO"
       : `agent \`${escapeCell(value.iface)}/${escapeCell(value.provider)}/${escapeCell(value.model)}\`, session \`${escapeCell(value.session)}\``;
   return [
-    "## Nightly independent review",
+    "## Nightly review",
     "",
     `- Proposer: ${identity(proposer)}`,
     `- Reviewer: ${identity(review?.reviewer)}`,
@@ -919,6 +912,41 @@ const unescapeCell = (value: string, column: string): string => {
 const recordSection = (record: string, heading: string): string =>
   record.split(`${heading}\n`, 2)[1]?.split("\n## ", 1)[0] ?? "";
 
+/** Objective rows the review verdict binds: header bindings (source, target,
+ * lease, rehearsal, stack), the conflict and decision tables, silent seams,
+ * and verification lines. Free prose — grounding claims, orientation text,
+ * citations — is excluded, so a prose-only edit keeps the sign-off. */
+export const reviewBoundRows = (record: string): string => {
+  const section = (heading: string): string => recordSection(record, heading);
+  const header = section("## Header")
+    .split("\n")
+    .filter((line) =>
+      /^- (Source|Target|`expected_old`|Lease|Rehearsal branch|Rebased head|Stack size|`from`)[:-]/.test(
+        line,
+      ),
+    )
+    .join("\n");
+  // Table rows and verification lines carry the verdicts; the summary
+  // after the colon is free prose, so it is cut. A citation wrapped in
+  // backticks afterwards lands in the cut half and keeps the sign-off.
+  // Rewrite records carry their binding rows (from/origin/base, constructed
+  // head, archive SHA, proof verdicts) under the same four headings, so
+  // the table-and-verification filter covers them without a rewrite
+  // special case.
+  const bound = (line: string): string => {
+    if (line.startsWith("|")) return line;
+    const seam = /^(- `[^`]+` \[(?:behaviour|type)\]: )(.*)$/.exec(line);
+    if (seam !== null) return seam[1] ?? line;
+    const verified = /^(- `[^`]+`: )(\w+)$/.exec(line);
+    if (verified !== null) return line;
+    return "";
+  };
+  const tables = ["## Conflicts", "## Fork commits", "## Silent seams", "## Verification"]
+    .map((heading) => section(heading).split("\n").map(bound).filter(Boolean).join("\n"))
+    .join("\n");
+  return `${header}\n${tables}`;
+};
+
 export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> => {
   const section = recordSection(record, "## Conflicts");
   const rows: Array<ConflictRow> = [];
@@ -1111,7 +1139,7 @@ const reviewList = (
 
 /** Parse the durable nightly reviewer provenance from a rendered record. */
 export const parseNightlyReview = (record: string): NightlyReview | undefined => {
-  const review = recordSection(record, "## Nightly independent review");
+  const review = recordSection(record, "## Nightly review");
   const status = /^- Verdict: (signed-off|withheld)$/m.exec(review)?.[1] as
     | NightlyReview["status"]
     | undefined;
@@ -1158,7 +1186,7 @@ export const parseNightlyReview = (record: string): NightlyReview | undefined =>
   });
 };
 
-/** Reads the decision tables and independent-review provenance for a landed walk. */
+/** Reads the decision tables and review provenance for a landed walk. */
 export const parseRecord = (record: string): ParsedRecord => {
   const conflicts = parseConflictRows(record);
   const incomplete = conflicts.find((row) => row.class === "TODO");

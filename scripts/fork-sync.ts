@@ -55,7 +55,6 @@ import {
   filledDecisionCells,
   git,
   gitRaw,
-  isClaudeOpusModel,
   lines,
   NIGHTLY_REVIEW_EVIDENCE,
   NO_GROUNDING_CLAIM,
@@ -72,6 +71,7 @@ import {
   requireAgentProvenance,
   requireNightlyReview,
   requireSuccess,
+  reviewBoundRows,
   rootFor,
   splitTableCells,
   SYNC_HELP,
@@ -1290,7 +1290,7 @@ export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
 
 const unblockCheck = (
   values: ReadonlyMap<string, string>,
-  _cwd: string,
+  cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
   assertOnly(values, ["--report", "--silent-seam"]);
@@ -1393,6 +1393,22 @@ const unblockCheck = (
     throw new Error("pushed rehearsal head does not match the installed tree");
   const ciRun = waitForCiVerdict(runner, worktree, lane.branch, installedHead);
   verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
+  // A `checked` report already binds its proposer: sign-off is valid on any
+  // `checked` report, with no separate resume round-trip to record one.
+  // Non-nightly targets carry no proposer, so the handoff read stays nightly-only.
+  const checkTarget = report.target;
+  const checkIsNightly = checkTarget !== undefined && isNightlyUpstreamTag(checkTarget.tag);
+  let proposedBy = report.proposedBy;
+  if (checkIsNightly && proposedBy === undefined) {
+    try {
+      proposedBy = agentProvenance(runner, cwd);
+    } catch (error) {
+      throw new Error(
+        `nightly proposal provenance unavailable: ${error instanceof Error ? error.message : String(error)}; rerun unblock-check from an agent host session with ghb runtime attestation available`,
+        { cause: error },
+      );
+    }
+  }
   report = preserveRecordDecisions({
     ...report,
     stage: "checked",
@@ -1400,6 +1416,7 @@ const unblockCheck = (
     ciHead: installedHead,
     verification,
     silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
+    ...(checkIsNightly ? { proposedBy } : {}),
   });
   writeReport(report);
   writeRecord(report);
@@ -1465,16 +1482,19 @@ export const validateSignedRecord = (record: string, report: SyncReport): void =
   if (report.installedHead === undefined) throw new Error("report has no checked installed head");
 };
 
-const nightlyReviewSection = /\n?## Nightly independent review\n[\s\S]*?(?=\n## Grounding\n)/;
+const nightlyReviewSection = /\n?## Nightly review\n[\s\S]*?(?=\n## Grounding\n)/;
 
-/** Hash the proposal surface without the review section the signature itself adds. */
+/** Hash the proposal surface the reviewer signed: header bindings (heads,
+ * lease, target), verdict rows, silent seams, and verification lines.
+ * Free prose — grounding claims, orientation text, citations — never
+ * enters the digest, so wrapping a bare reference in backticks keeps the
+ * sign-off while any binding or verdict change still voids it. */
 export const nightlyProposalDigest = (record: string): string =>
-  NodeCrypto.createHash("sha256").update(record.replace(nightlyReviewSection, "\n")).digest("hex");
+  NodeCrypto.createHash("sha256").update(reviewBoundRows(record)).digest("hex");
 
 const writeNightlyReviewRecord = (report: SyncReport, record: string): void => {
   const section = renderNightlyReview(report).join("\n");
-  if (!nightlyReviewSection.test(record))
-    throw new Error("nightly record has no independent-review section");
+  if (!nightlyReviewSection.test(record)) throw new Error("nightly record has no review section");
   NodeFS.writeFileSync(report.recordPath, record.replace(nightlyReviewSection, `\n${section}`), {
     mode: 0o600,
   });
@@ -1502,11 +1522,6 @@ export const agentProvenance = (
   if (host.role !== "host") throw new Error("agent provenance ghb handoff has invalid host role");
   return requireAgentProvenance(host, "agent provenance");
 };
-
-const isClaudeOpusReviewer = (identity: AgentProvenance): boolean =>
-  identity.iface === "claude" &&
-  identity.provider === "anthropic" &&
-  isClaudeOpusModel(identity.model);
 
 const nightlyReviewEvidence = (report: SyncReport, record: string): NightlyReviewEvidence => {
   if (
@@ -1546,7 +1561,7 @@ const recordTarget = (
   return match === null ? undefined : { tag: match[1] ?? "", sha: match[2] ?? "" };
 };
 
-/** #531 apply guard: no nightly apply without a fresh, independent Opus sign-off. */
+/** #531 apply guard: no nightly apply without a fresh review sign-off. */
 export const validateNightlyReview = (record: string, report: SyncReport): void => {
   const recordBinding = recordTarget(record);
   const reportIsNightly = report.target !== undefined && isNightlyUpstreamTag(report.target.tag);
@@ -1564,26 +1579,24 @@ export const validateNightlyReview = (record: string, report: SyncReport): void 
   // stops that workflow before apply and must be restarted as a host-owned proposal.
   if (report.botCarried === true) return;
   if (report.nightlyReview === undefined)
-    throw new Error("nightly apply refused: independent review is missing");
+    throw new Error("nightly apply refused: review is missing");
   const review = requireNightlyReview(report.nightlyReview);
   if (review.status === "withheld")
-    throw new Error(`nightly apply refused: independent review was withheld: ${review.reason}`);
-  if (!isClaudeOpusReviewer(review.reviewer))
-    throw new Error("nightly apply refused: reviewer is not Claude Opus");
+    throw new Error(`nightly apply refused: review was withheld: ${review.reason}`);
   if (report.proposedBy === undefined)
     throw new Error("nightly apply refused: proposer provenance is stale");
   const proposer = requireAgentProvenance(report.proposedBy, "nightly proposer");
   if (JSON.stringify(proposer) !== JSON.stringify(review.proposer))
     throw new Error("nightly apply refused: proposer provenance is stale");
   if (review.proposer.session === review.reviewer.session)
-    throw new Error("nightly apply refused: proposer cannot approve their own proposal");
+    throw new Error("nightly apply refused: reviewer shares the proposer's session");
   const evidence = nightlyReviewEvidence(report, record);
   if (JSON.stringify(review.evidence) !== JSON.stringify(evidence))
-    throw new Error("nightly apply refused: independent review is stale");
+    throw new Error("nightly apply refused: review is stale");
   const rendered = renderNightlyReview(report).join("\n").trim();
   const carried = nightlyReviewSection.exec(record)?.[0].trim();
   if (carried !== rendered)
-    throw new Error("nightly apply refused: record does not carry the exact reviewed provenance");
+    throw new Error("nightly apply refused: record does not carry the reviewed provenance");
 };
 
 const unblockReview = (
@@ -1604,16 +1617,15 @@ const unblockReview = (
   if (report.botCarried === true)
     throw new Error("unblock-review is not used for an objective bot-carried walk");
   if (report.proposedBy === undefined)
-    throw new Error("nightly review has no walking-agent proposer; resume unblock-auto first");
+    throw new Error("nightly review has no walking-agent proposer; rerun unblock-check first");
   const proposer = requireAgentProvenance(report.proposedBy, "nightly proposer");
   if (report.nightlyReview !== undefined)
     throw new Error(
       "nightly review is already recorded; restart the proposal instead of replacing it",
     );
   const reviewer = agentProvenance(runner, cwd);
-  if (!isClaudeOpusReviewer(reviewer)) throw new Error("nightly review requires Claude Opus");
   if (reviewer.session === proposer.session)
-    throw new Error("nightly review refuses self-approval by the proposing session");
+    throw new Error("nightly review refuses a verdict from the proposing session");
   const record = NodeFS.readFileSync(report.recordPath, "utf8");
 
   if (withheld !== null) {
@@ -1811,6 +1823,19 @@ const unblockApply = (
     throw new Error("record path does not match the report binding");
   const record = NodeFS.readFileSync(recordPath, "utf8");
   validateSignedRecord(record, report);
+  if (report.lane === undefined || report.source === undefined)
+    throw new Error("apply binding is incomplete");
+  // Prose hygiene first: the digest in the review gate below binds objective
+  // rows only, so a refs fix on the same bindings never costs a second
+  // review — only a prose edit and a re-apply.
+  requireSuccess(
+    runner,
+    "vp",
+    ["run", "fork:upstream-refs", recordPath],
+    report.lane.worktree,
+    undefined,
+    laneEnv(report.lane.worktree),
+  );
   validateNightlyReview(record, report);
   if (report.target !== undefined && isNightlyUpstreamTag(report.target.tag)) {
     const liveIssue = readIssue(runner, report.repositoryRoot);
@@ -1818,15 +1843,13 @@ const unblockApply = (
       liveIssue.number !== report.issue.number ||
       extractBlockingSha(liveIssue.body) !== report.issue.blockingSha
     )
-      throw new Error("nightly apply refused: independent review blocking marker is stale");
+      throw new Error("nightly apply refused: review blocking marker is stale");
   }
   const isRewrite = report.kind === "rewrite";
   if (isRewrite && !orientationCoheres(report, runner))
     throw new Error(
       "rewrite construction, source, or blocking marker changed; restart the proposal",
     );
-  if (report.lane === undefined || report.source === undefined)
-    throw new Error("apply binding is incomplete");
   if (isRewrite ? report.rewrite === undefined : report.target === undefined)
     throw new Error("apply binding is incomplete");
   if (isRewrite && report.rewrite?.archive === undefined)
@@ -1862,14 +1885,6 @@ const unblockApply = (
     );
   validateAutoLane(report, runner);
   const applyEnv = laneEnv(worktree);
-  requireSuccess(
-    runner,
-    "vp",
-    ["run", "fork:upstream-refs", recordPath],
-    worktree,
-    undefined,
-    applyEnv,
-  );
   // The gate is tag-pinned. A rewrite keeps the fork's current base, so its
   // release tag is the one the gate must see.
   const rewrite = report.rewrite;
@@ -2832,31 +2847,20 @@ const unblockAuto = (
         isNightlyUpstreamTag(report.target.tag) &&
         report.botCarried !== true
       ) {
-        if (report.proposedBy === undefined) {
-          const proposer = (() => {
-            try {
-              return agentProvenance(runner, cwd);
-            } catch (error) {
-              return stopAuto(
-                `${report.reportPath}\n${decisionSurface(record)}Nightly proposal provenance unavailable: ${error instanceof Error ? error.message : String(error)}\nResume from an agent host session with ghb runtime attestation available.\n`,
-                report.reportPath,
-              );
-            }
-          })();
-          report = { ...report, proposedBy: proposer };
-          writeReport(report);
-          writeNightlyReviewRecord(report, record);
-          record = NodeFS.readFileSync(report.recordPath, "utf8");
-        }
+        if (report.proposedBy === undefined)
+          stopAuto(
+            `${report.reportPath}\n${decisionSurface(record)}Report has no proposer; rerun unblock-check to bind one.\n`,
+            report.reportPath,
+          );
         const review = report.nightlyReview;
         if (review === undefined)
           stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}Independent Claude Opus review required. Inspect ${report.reportPath} and ${report.recordPath}, then run:\nnode scripts/fork-sync.ts unblock-review --report ${report.reportPath} --sign-off\nWithhold instead with --withhold '<reason>'.\n`,
+            `${report.reportPath}\n${decisionSurface(record)}Nightly review required. Inspect ${report.reportPath} and ${report.recordPath}, then run:\nnode scripts/fork-sync.ts unblock-review --report ${report.reportPath} --sign-off\nWithhold instead with --withhold '<reason>'.\n`,
             report.reportPath,
           );
         if (review?.status === "withheld")
           stopAuto(
-            `${report.reportPath}\nGate 4 refusal: independent review withheld: ${review.reason ?? "no reason recorded"}\n`,
+            `${report.reportPath}\nGate 4 refusal: review withheld: ${review.reason ?? "no reason recorded"}\n`,
             report.reportPath,
           );
         validateNightlyReview(record, report);
