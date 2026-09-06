@@ -26,10 +26,11 @@ import { projectWindowPreloadArgument } from "../../window/projectWindowArgument
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as PreviewIpc from "./preview.ts";
 
-const { fromWebContents, fromPartition, exposeBridge, invoke } = vi.hoisted(() => ({
+const { fromWebContents, fromId, fromPartition, exposeBridge, invoke } = vi.hoisted(() => ({
   fromWebContents: vi.fn<(_sender: Electron.WebContents) => Electron.BrowserWindow | null>(
     () => null,
   ),
+  fromId: vi.fn<(_id: number) => Electron.WebContents | null>(() => null),
   fromPartition: vi.fn(),
   exposeBridge: vi.fn<(_name: string, _bridge: DesktopBridge) => void>(),
   invoke: vi.fn<(_channel: string, _payload?: unknown) => Promise<unknown>>(),
@@ -43,13 +44,15 @@ vi.mock("electron", () => ({
   nativeImage: { createFromPath: vi.fn() },
   shell: { showItemInFolder: vi.fn() },
   session: { fromPartition },
-  webContents: { fromId: vi.fn(() => null), getFocusedWebContents: vi.fn(() => null) },
+  webContents: { fromId, getFocusedWebContents: vi.fn(() => null) },
 }));
 
 describe("fork preview IPC ownership", () => {
   beforeEach(() => {
     fromWebContents.mockReset();
     fromWebContents.mockReturnValue(null);
+    fromId.mockReset();
+    fromId.mockReturnValue(null);
     fromPartition.mockReset();
     exposeBridge.mockReset();
     invoke.mockReset();
@@ -79,11 +82,14 @@ describe("fork preview IPC ownership", () => {
         environmentId: EnvironmentId.make("environment-1"),
         projectId: ProjectId.make("project-1"),
       };
-      const hubSender = {} as Electron.WebContents;
-      const projectSender = {} as Electron.WebContents;
+      const hubSender = { id: 1 } as Electron.WebContents;
+      const projectSender = { id: 2 } as Electron.WebContents;
       const hubWindow = {} as Electron.BrowserWindow;
       const projectWindow = {} as Electron.BrowserWindow;
       let activeSender = hubSender;
+      fromId.mockImplementation((id) =>
+        id === hubSender.id ? hubSender : id === projectSender.id ? projectSender : null,
+      );
       fromWebContents.mockImplementation((sender) =>
         sender === hubSender ? hubWindow : sender === projectSender ? projectWindow : null,
       );
@@ -207,7 +213,7 @@ describe("fork preview IPC ownership", () => {
             url: "https://hub.example/",
           });
 
-          activeSender = {} as Electron.WebContents;
+          activeSender = { id: 3 } as Electron.WebContents;
           await expect(
             projectPreview.clearCookies(projectRef.environmentId, "personal"),
           ).rejects.toThrow("not an authorized desktop window");
@@ -272,9 +278,10 @@ describe("fork preview IPC ownership", () => {
       EnvironmentId.make("environment-1"),
       ProjectId.make("project-1"),
     );
-    const sender = {} as Electron.WebContents;
+    const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
     const closeTab = vi.fn(() => Effect.void);
+    fromId.mockReturnValue(sender);
     fromWebContents.mockReturnValue(senderWindow);
 
     return PreviewIpc.closeTab.handler({ tabId: "owned-tab" }, { sender }).pipe(
@@ -293,8 +300,9 @@ describe("fork preview IPC ownership", () => {
   });
 
   effectIt.effect("rejects an unregistered sender before resolving preview state", () => {
-    const sender = {} as Electron.WebContents;
+    const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
+    fromId.mockReturnValue(sender);
     fromWebContents.mockReturnValue(senderWindow);
 
     return PreviewIpc.closeTab.handler({ tabId: "other-tab" }, { sender }).pipe(
