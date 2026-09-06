@@ -102,7 +102,7 @@ const nightlyReviews = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<strin
   if (rows.length === 0) return ["None."];
   return [
     "<!-- prettier-ignore -->",
-    "| Tag | Proposer | Independent reviewer | Verdict |",
+    "| Tag | Proposer | Reviewer | Verdict |",
     "| --- | --- | --- | --- |",
     ...rows.map(
       ({ tag, review }) =>
@@ -226,7 +226,7 @@ export const renderChurnSection = (
     "",
     ...decidedBy(entries),
     "",
-    "### Nightly independent review",
+    "### Nightly review",
     "",
     ...nightlyReviews(entries),
     "",
