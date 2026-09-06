@@ -9906,6 +9906,663 @@
         "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
       },
       "id": "d415d24af399c714bfd548b348d84f037718699bb9cc3f29f77fc8ffcbe4e9e6"
+    },
+    {
+      "kind": "observation",
+      "method": "sequential-rebase-stage3-provisional",
+      "tag": "v0.0.39-nightly.20260906.1303",
+      "files": [
+        {
+          "path": "apps/web/src/hooks/useHandleNewThread.ts",
+          "hunks": null,
+          "commit": "7c9f58f29114ed7d3d9296ce3a0c96936b2e58aa",
+          "domain": "project-windows",
+          "subject": "refactor(web): centralize thread route navigation"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "hunks": null,
+          "commit": "6781ec043c35732c8859c3bd62dcff3993ac713d",
+          "domain": "project-windows",
+          "subject": "refactor(web): add physical project sidebar scope"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "hunks": null,
+          "commit": "8ed408c0fe4b34678c3c5cf30a23ccec7c739cd0",
+          "domain": "project-windows",
+          "subject": "fix(web): offer retry when scoped draft start fails"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "hunks": null,
+          "commit": "7cc480d4beb0a8435df23289f85261010505df17",
+          "domain": "project-windows",
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window"
+        },
+        {
+          "path": "apps/server/src/project/RepositoryIdentityResolver.test.ts",
+          "hunks": null,
+          "commit": "256aac6f5b31fb1c35eb792c9c1267364348c953",
+          "domain": "upstream-fixes",
+          "subject": "fix(server): keep pull requests on origin"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "hunks": null,
+          "commit": "ae3039e3282671fb14ace94a64dc53c151998c95",
+          "domain": "zmux-estate",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session"
+        },
+        {
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "hunks": null,
+          "commit": "7775ff1e3f38676333f20f20586bd443ef352ebc",
+          "domain": "markdown-editing",
+          "subject": "feat(web): add rich Markdown editing (#28)"
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "hunks": null,
+          "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+          "domain": "workspace-files",
+          "subject": "feat(files): reveal ignored workspace files (#73)"
+        },
+        {
+          "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+          "hunks": null,
+          "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+          "domain": "workspace-files",
+          "subject": "feat(files): reveal ignored workspace files (#73)"
+        },
+        {
+          "path": "packages/shared/src/serverSettings.test.ts",
+          "hunks": null,
+          "commit": "b522bae7f840a80967edcbb6c8492fdf2c4e2242",
+          "domain": "upstream-fixes",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "dff8e52eec4cf80e617a4d0ec3e41eb0933cb732",
+          "domain": "project-windows",
+          "subject": "feat(web): scope pull requests to project windows"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+          "domain": "github-issues",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "hunks": null,
+          "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+          "domain": "github-issues",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "hunks": null,
+          "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+          "domain": "github-issues",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.logic.ts",
+          "hunks": null,
+          "commit": "642d7ddf695371a38ad7fa3a7a14f3d4587963e9",
+          "domain": "upstream-fixes",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal"
+        },
+        {
+          "path": "apps/server/src/provider/Drivers/AntigravityDriver.ts",
+          "hunks": null,
+          "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+          "domain": "worktrunk-hooks",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+          "hunks": null,
+          "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+          "domain": "worktrunk-hooks",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "hunks": null,
+          "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+          "domain": "worktrunk-hooks",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "hunks": null,
+          "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+          "domain": "worktrunk-hooks",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches"
+        },
+        {
+          "path": "apps/web/src/components/LegacySidebar.tsx",
+          "hunks": null,
+          "commit": "29fd51b7737c1cc9255b9dbd57d4ef48a19f849b",
+          "domain": "upstream-fixes",
+          "subject": "fix(web): confirm batch worktree deletion once (#156)"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "hunks": null,
+          "commit": "29fd51b7737c1cc9255b9dbd57d4ef48a19f849b",
+          "domain": "upstream-fixes",
+          "subject": "fix(web): confirm batch worktree deletion once (#156)"
+        },
+        {
+          "path": "packages/contracts/src/rpc.ts",
+          "hunks": null,
+          "commit": "a628efada4c933ddb788144161efd24b93469cac",
+          "domain": "upstream-fixes",
+          "subject": "fix(web): upload media in pull request descriptions"
+        },
+        {
+          "path": "apps/mobile/src/lib/threadActivity.test.ts",
+          "hunks": null,
+          "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+          "domain": "custom-agents",
+          "subject": "feat(web): open child work from the Agents panel"
+        },
+        {
+          "path": "apps/mobile/src/lib/threadActivity.ts",
+          "hunks": null,
+          "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+          "domain": "custom-agents",
+          "subject": "feat(web): open child work from the Agents panel"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.test.ts",
+          "hunks": null,
+          "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+          "domain": "custom-agents",
+          "subject": "feat(web): open child work from the Agents panel"
+        },
+        {
+          "path": "packages/shared/src/serverSettings.ts",
+          "hunks": null,
+          "commit": "c64e51a7a7799adbc8129c1b07e71e8fc9a33baf",
+          "domain": "worktrunk-hooks",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "6591bc4345dd26f872daf91ce1c354850e123e08",
+          "domain": "fork-meta",
+          "subject": "fix(fork): refresh persisted worktree setup scripts"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+          "hunks": null,
+          "commit": "244de95fcf101abe59b097af8cdb47edfcc27201",
+          "domain": "zmux-estate",
+          "subject": "fix(server): reconcile managed sessions after branch changes"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.ts",
+          "hunks": null,
+          "commit": "244de95fcf101abe59b097af8cdb47edfcc27201",
+          "domain": "zmux-estate",
+          "subject": "fix(server): reconcile managed sessions after branch changes"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+          "hunks": null,
+          "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+          "domain": "zmux-estate",
+          "subject": "feat(server): coordinate durable checkout moves"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "hunks": null,
+          "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+          "domain": "zmux-estate",
+          "subject": "feat(server): coordinate durable checkout moves"
+        },
+        {
+          "path": "apps/server/src/persistence/Layers/ProjectionThreads.ts",
+          "hunks": null,
+          "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+          "domain": "zmux-estate",
+          "subject": "feat(server): coordinate durable checkout moves"
+        },
+        {
+          "path": "apps/server/src/persistence/Migrations.ts",
+          "hunks": null,
+          "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+          "domain": "zmux-estate",
+          "subject": "feat(server): coordinate durable checkout moves"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "hunks": null,
+          "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+          "domain": "zmux-estate",
+          "subject": "feat(server): coordinate durable checkout moves"
+        }
+      ],
+      "evidence": {
+        "version": 1,
+        "method": "sequential-rebase-stage3-provisional",
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "baseSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+        "targetSha": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+        "targetTag": "v0.0.39-nightly.20260906.1303",
+        "complete": true,
+        "rows": [
+          {
+            "stop": 1,
+            "commit": "7c9f58f29114ed7d3d9296ce3a0c96936b2e58aa",
+            "subject": "refactor(web): centralize thread route navigation",
+            "domain": "project-windows",
+            "path": "apps/web/src/hooks/useHandleNewThread.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 2,
+            "commit": "6781ec043c35732c8859c3bd62dcff3993ac713d",
+            "subject": "refactor(web): add physical project sidebar scope",
+            "domain": "project-windows",
+            "path": "apps/web/src/components/Sidebar.logic.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 3,
+            "commit": "8ed408c0fe4b34678c3c5cf30a23ccec7c739cd0",
+            "subject": "fix(web): offer retry when scoped draft start fails",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.index.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "7cc480d4beb0a8435df23289f85261010505df17",
+            "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+            "domain": "project-windows",
+            "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 5,
+            "commit": "256aac6f5b31fb1c35eb792c9c1267364348c953",
+            "subject": "fix(server): keep pull requests on origin",
+            "domain": "upstream-fixes",
+            "path": "apps/server/src/project/RepositoryIdentityResolver.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 6,
+            "commit": "ae3039e3282671fb14ace94a64dc53c151998c95",
+            "subject": "feat(server): bind thread worktrees to a managed zmux session",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/server.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 7,
+            "commit": "7775ff1e3f38676333f20f20586bd443ef352ebc",
+            "subject": "feat(web): add rich Markdown editing (#28)",
+            "domain": "markdown-editing",
+            "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 8,
+            "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 8,
+            "commit": "2aebb267a4bb6fead8de5ea1797f58cb60da33fa",
+            "subject": "feat(files): reveal ignored workspace files (#73)",
+            "domain": "workspace-files",
+            "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "b522bae7f840a80967edcbb6c8492fdf2c4e2242",
+            "subject": "fix(server): follow external workspace symlinks globally (#66)",
+            "domain": "upstream-fixes",
+            "path": "packages/shared/src/serverSettings.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 10,
+            "commit": "dff8e52eec4cf80e617a4d0ec3e41eb0933cb732",
+            "subject": "feat(web): scope pull requests to project windows",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/ChatView.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 11,
+            "commit": "f98ff897ccfb720001e4ac78b9a9f2bf80630bf0",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/rightPanelStore.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 12,
+            "commit": "642d7ddf695371a38ad7fa3a7a14f3d4587963e9",
+            "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+            "domain": "upstream-fixes",
+            "path": "apps/web/src/components/ChatView.logic.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 13,
+            "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+            "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+            "domain": "worktrunk-hooks",
+            "path": "apps/server/src/provider/Drivers/AntigravityDriver.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 13,
+            "commit": "ccb65d2b3ca10af1b56f958c8345b4eddda97815",
+            "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 14,
+            "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+            "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 14,
+            "commit": "3361434bc05b81b52e2ebbd5cc994cba86a8b346",
+            "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+            "domain": "worktrunk-hooks",
+            "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 15,
+            "commit": "29fd51b7737c1cc9255b9dbd57d4ef48a19f849b",
+            "subject": "fix(web): confirm batch worktree deletion once (#156)",
+            "domain": "upstream-fixes",
+            "path": "apps/web/src/components/LegacySidebar.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 15,
+            "commit": "29fd51b7737c1cc9255b9dbd57d4ef48a19f849b",
+            "subject": "fix(web): confirm batch worktree deletion once (#156)",
+            "domain": "upstream-fixes",
+            "path": "apps/web/src/components/Sidebar.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 16,
+            "commit": "a628efada4c933ddb788144161efd24b93469cac",
+            "subject": "fix(web): upload media in pull request descriptions",
+            "domain": "upstream-fixes",
+            "path": "packages/contracts/src/rpc.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 17,
+            "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+            "subject": "feat(web): open child work from the Agents panel",
+            "domain": "custom-agents",
+            "path": "apps/mobile/src/lib/threadActivity.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 17,
+            "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+            "subject": "feat(web): open child work from the Agents panel",
+            "domain": "custom-agents",
+            "path": "apps/mobile/src/lib/threadActivity.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 17,
+            "commit": "384e5b3158914ce6f1a0b2d4a3f82327c0de501c",
+            "subject": "feat(web): open child work from the Agents panel",
+            "domain": "custom-agents",
+            "path": "apps/web/src/rightPanelStore.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 18,
+            "commit": "c64e51a7a7799adbc8129c1b07e71e8fc9a33baf",
+            "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+            "domain": "worktrunk-hooks",
+            "path": "packages/shared/src/serverSettings.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 19,
+            "commit": "6591bc4345dd26f872daf91ce1c354850e123e08",
+            "subject": "fix(fork): refresh persisted worktree setup scripts",
+            "domain": "fork-meta",
+            "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 20,
+            "commit": "244de95fcf101abe59b097af8cdb47edfcc27201",
+            "subject": "fix(server): reconcile managed sessions after branch changes",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 20,
+            "commit": "244de95fcf101abe59b097af8cdb47edfcc27201",
+            "subject": "fix(server): reconcile managed sessions after branch changes",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/Layers/CheckpointReactor.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 21,
+            "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 21,
+            "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/decider.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 21,
+            "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/persistence/Layers/ProjectionThreads.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 21,
+            "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/persistence/Migrations.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 21,
+            "commit": "b8db466dd92069aa74de391500bff1fe8beb17fc",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "packages/contracts/src/orchestration.ts",
+            "kind": "content"
+          }
+        ]
+      },
+      "id": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872"
+    },
+    {
+      "kind": "verification",
+      "repair": "210dc75c7de74667d33e2905a7a102769f508738abace5ef6d9245a2b79ca696",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/desktop/src/preview/WindowPolicy.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  11 passed (11)\n   Start at  02:08:23\n   Duration  471ms (transform 204ms, setup 38ms, import 366ms, tests 11ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/637"
+      },
+      "id": "a1feea2580d1a0b80b73bce9ac96cf7a0f3956382d225b09649aa3a82c50703c"
+    },
+    {
+      "kind": "verification",
+      "repair": "f835506e65cd15e2faa09ee8dd3180de825b900b948970d1dbe7acab80df783a",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/server/src/provider/Drivers/CodexDriver.fork.test.ts apps/server/src/provider/Layers/ClaudeAdapter.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  2 passed (2)\n      Tests  11 passed (11)\n   Start at  02:08:24\n   Duration  630ms (transform 417ms, setup 71ms, import 858ms, tests 35ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "31312291b2cd3f3e02d8e8e2c657d6f17dd9b78dd623e3e834aee618cf91b502"
+    },
+    {
+      "kind": "verification",
+      "repair": "90b0aed6e6d499baca6769aaf666ee13dbeed0a5057692f44ee085b7e5eed09d",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/server/src/provider/Drivers/CodexDriver.fork.test.ts apps/server/src/provider/Layers/ClaudeAdapter.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  2 passed (2)\n      Tests  11 passed (11)\n   Start at  02:08:24\n   Duration  630ms (transform 417ms, setup 71ms, import 858ms, tests 35ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/636"
+      },
+      "id": "8fac70d041a4070381eaeee0045edf854bfdaa724ba88dc0970960a5b2f2c6bb"
+    },
+    {
+      "kind": "verification",
+      "repair": "9557f9d20654fb8a0b5f5e108527f6d354c06be31e6050ecc1db04e8cd7366ea",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/components/files/richMarkdownDependencies.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  02:08:24\n   Duration  140ms (transform 15ms, setup 37ms, import 6ms, tests 42ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "5293ad28686624ed39cabf24dfb95bd4810f8b47e5f1d3570bd6160ac6232143"
+    },
+    {
+      "kind": "verification",
+      "repair": "2dd4845b51ff5e91d05f263429779cdbfa9ba97b405ecfe94e84493d5ca8cfb0",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/components/files/richMarkdownDependencies.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  02:08:24\n   Duration  140ms (transform 15ms, setup 37ms, import 6ms, tests 42ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "ec4fe04f66839bfd376fad7b44800ad303549dfc3a9ab51a691c4701c4786d75"
+    },
+    {
+      "kind": "verification",
+      "repair": "188fc54f4e481b790690a00e0ff29ccfa6e379c8d319b5f178f87e9583b76a54",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run apps/web/src/threadRoutes.fork.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  02:08:25\n   Duration  590ms (transform 223ms, setup 34ms, import 497ms, tests 2ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/634"
+      },
+      "id": "878184775631e800079caeed8345576ad5fcd068e2d9fd186b0efb1a26b42b23"
+    },
+    {
+      "kind": "verification",
+      "repair": "e10cc643b01aa8c3bab13f1481d8e0204c90335d5e28dbf2e709f17d90e2f24e",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run scripts/fork-scan-guards.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  25 passed (25)\n   Start at  02:08:15\n   Duration  203ms (transform 63ms, setup 35ms, import 94ms, tests 19ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/635"
+      },
+      "id": "d5ac0892c109d14d2cf92eae71938687901d3d81888138baad0b18eed57966a6"
+    },
+    {
+      "kind": "verification",
+      "repair": "f7eca0ef55bf1dcf4263ef33a89f434bb921c247ce0e68456f21a59683b990ac",
+      "after": "3a395b984b7cb393909cce1f6e00010b02c0dfacda6528e4b6c9b869bb908872",
+      "guardProof": {
+        "sourceSha": "0e31a5347fbff8cc0eabbf52cdbd14fb5328424d",
+        "command": "vp test run scripts/fork-lockfile.test.ts",
+        "exitCode": 0,
+        "output": "\u001b[1m\u001b[2mnote:\u001b[0m\u001b[0m You are running \u001b[94m`vp test`\u001b[39m as a Vite+ built-in command. If you meant to run the test npm script, use \u001b[94m`vpr test`\u001b[39m instead.\n\n RUN  v4.1.11 /home/user/donjor/t3code-hyprws\n\n\n Test Files  1 passed (1)\n      Tests  10 passed (10)\n   Start at  02:08:26\n   Duration  288ms (transform 121ms, setup 35ms, import 197ms, tests 3ms, environment 0ms)\n\n"
+      },
+      "attestation": {
+        "actor": "jordonretter",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
+      },
+      "id": "3c4463540051b3de1e3e9e0431d3c77e567607a74d3073d2556691ee1f8c5ad6"
     }
   ],
   "outcomes": [
