@@ -247,6 +247,24 @@ measurement boundaries. The importer validates retained evidence and source bind
 not execute commands or check the repair commit's ancestry.
 Existing `vp run fork:churn` and `vp run fork:churn --check` still render/check the mirror.
 
+`compose` builds that bundle from local census artifacts, so the evidence is produced rather than
+hand-written:
+
+```bash
+node scripts/fork-churn.ts compose --plan reviewed-seams-plan.json --out reviewed-seams.json
+```
+
+The plan is `{ "version": 1, "observations": [...], "mappings": [...], "repairs": [...],
+"verifications": [...] }`. Each observation names an `alias` and a `census` path holding the stop
+census a sequential rehearsal wrote. The composer freezes that census whole, so a count-only
+census, a target tag that disagrees with its own evidence, or a missing or contradicted `truncated`
+flag is refused instead of recorded as an evidence-less observation. Mapping, repair and verification
+entries reference an alias or a recorded observation ID, and name a census row by `path`, with
+`commit` when a path repeats or an explicit `row` index. Composing writes a file for review and
+never touches the ledger: `record --input` stays the only import path, guard results stay
+maintainer attestations, and a passing verification that is not comparable to its repair's before
+observation is refused at compose time instead of being recorded and discounted later.
+
 #### Target outcomes through distribution
 
 `vp run fork:churn outcome` records each selected tagged upstream commit once, retaining

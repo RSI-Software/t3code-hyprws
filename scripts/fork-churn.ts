@@ -34,6 +34,7 @@ import {
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
 import { CHURN_MARKER, blockingSeamLines, renderChurnSection } from "./fork-churn-section.ts";
+import { composeSeamBundle } from "./lib/fork-churn-compose.ts";
 import { requireSeamRecords } from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
@@ -380,9 +381,9 @@ const takeFlag = (args: ReadonlyArray<string>, flag: string): [boolean, Readonly
 const append = (args: ReadonlyArray<string>, root: string): void => {
   const [push, rest] = takeFlag(args, "--push");
   const options = parseOptions(rest);
-  const allowed = ["--record", "--issue", "--tag", "--before", "--after"];
+  const allowed = new Set(["--record", "--issue", "--tag", "--before", "--after"]);
   for (const option of options.keys())
-    if (!allowed.includes(option)) throw new UsageError(`unknown option: ${option}`);
+    if (!allowed.has(option)) throw new UsageError(`unknown option: ${option}`);
   const required = (flag: string): string => {
     const value = options.get(flag);
     if (value === undefined) throw new UsageError(`${flag} is required`);
@@ -643,6 +644,39 @@ const recordSeams = (args: ReadonlyArray<string>, root: string): number => {
 };
 
 /**
+ * Builds the reviewed bundle `record --input` imports, from local sequential census artifacts and
+ * a plan that references their rows. This is the only producer of evidence-bearing seam records;
+ * before it existed nothing but the test file called `freezeObservation`, so every recorded
+ * observation carried `evidence: null` and no seam could ever be proven repaired.
+ *
+ * It writes a file rather than the ledger: the bundle is reviewed, then imported through the one
+ * import path, and no guard command runs here.
+ */
+const composeSeams = (args: ReadonlyArray<string>, root: string): number => {
+  const options = parseOptions(args);
+  for (const option of options.keys())
+    if (option !== "--plan" && option !== "--out")
+      throw new UsageError(`unknown option: ${option}`);
+  const planPath = options.get("--plan");
+  const outPath = options.get("--out");
+  if (planPath === undefined || outPath === undefined)
+    throw new UsageError("usage: fork-churn compose --plan <plan.json> --out <bundle.json>");
+  const plan: unknown = JSON.parse(NodeFS.readFileSync(NodePath.resolve(root, planPath), "utf8"));
+  const existing = resolveBotRef(root, CHURN_REF) === null ? [] : readChurnState(root).seamRecords;
+  const bundle = composeSeamBundle(
+    plan,
+    (reference) => JSON.parse(NodeFS.readFileSync(NodePath.resolve(root, reference), "utf8")),
+    existing,
+  );
+  const resolved = NodePath.resolve(root, outPath);
+  NodeFS.writeFileSync(resolved, `${JSON.stringify(bundle, null, 2)}\n`);
+  process.stdout.write(
+    `composed ${bundle.records.length} seam record(s) into ${NodePath.relative(root, resolved)}; review it, then import with fork-churn record --input\n`,
+  );
+  return 0;
+};
+
+/**
  * Move the file-backed ledger onto its bot-owned ref. One-time, and refused once the
  * ref exists, because the ref outruns the frozen file from the first walk onward.
  */
@@ -699,7 +733,7 @@ const migrateSubjects = (args: ReadonlyArray<string>, root: string): number => {
 };
 
 const USAGE =
-  "usage: fork-churn append <options> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push]";
+  "usage: fork-churn append <options> | compose --plan <json> --out <json> | record --input <json> [--push] | outcome --input <json> [--push] | migrate-subjects [--push] | render [--check] | report [--issue <n>] [--receipt <json>] | seed [--from <json>] [--push]";
 
 const HELP = `Record fork rebase evidence and target outcomes through distribution.
 ${USAGE}
@@ -711,6 +745,11 @@ outcome imports immutable {version:1, receipts:[...]} evidence. Alternatively,
 FORK_OUTCOME_EXPORT retains an importable bundle before ledger publication.
 Eligibility is declared independently of bot mode. Missing stages never imply success.
 Output is JSON with retained outcomes, resume action and explicitly eligible streaks.
+
+compose --plan PATH --out PATH builds that bundle from local sequential census
+artifacts, freezing each census as an evidence-bearing observation and resolving
+mapping/repair/verification references by census row. It writes a file for review
+and never touches the ledger; guard results stay maintainer attestations.
 
 record --input PATH imports a reviewed {version:1, records:[...]} bundle.
 It validates content digests and frozen evidence; it does not execute guard commands.
@@ -729,7 +768,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (
       (argv.length === 1 && ["--help", "-h"].includes(argv[0]!)) ||
       (argv.length === 2 &&
-        ["record", "outcome"].includes(argv[0]!) &&
+        ["record", "compose", "outcome"].includes(argv[0]!) &&
         ["--help", "-h"].includes(argv[1]!))
     ) {
       process.stdout.write(HELP);
@@ -738,6 +777,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     // The package alias historically defaulted to render; preserve that invocation.
     const [verb, ...args] = argv.length === 0 || argv[0] === "--check" ? ["render", ...argv] : argv;
     if (verb === "record") return recordSeams(args, root);
+    if (verb === "compose") return composeSeams(args, root);
     if (verb === "append") {
       append(args, root);
       return 0;

@@ -23,6 +23,7 @@ import {
 } from "./lib/fork-rebase-issues.ts";
 import {
   assessSeams,
+  censusFilesFromEvidence,
   requireSeamRecords,
   freezeObservation,
   seamRecord,
@@ -148,14 +149,7 @@ const section = (markdown: string, heading: string): string =>
 
 export const parseCensusFiles = (body: string): ReadonlyArray<CensusFile> => {
   const evidence = parseSequentialCensusEvidence(body);
-  if (evidence !== null)
-    return evidence.rows.map((row) => ({
-      path: row.path,
-      hunks: null,
-      commit: row.commit,
-      subject: row.subject,
-      domain: row.domain ?? "?",
-    }));
+  if (evidence !== null) return censusFilesFromEvidence(evidence);
   const rows: Array<CensusFile> = [];
   const overlap =
     section(body, "## Feasibility overlap") || section(body, "## Sequential rebase census");
