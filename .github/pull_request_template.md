@@ -31,3 +31,46 @@ we may close it without merging it, or never review it.
 - [ ] I explained what changed and why
 - [ ] I included before/after screenshots for any UI changes
 - [ ] I included a video for animation/interaction changes
+
+## Fork trailers
+
+<!-- RSI-Software/t3code-hyprws only. Delete this section on an upstream PR.
+
+     This body becomes the squash commit's message, so hyprws CI fails a pull
+     request whose body does not END with the trailer block. Keep it last:
+     git only reads trailers from the final paragraph.
+
+     Valid Fork-Domain values (copy one exactly; never invent a value):
+       browser-bookmarks
+       custom-agents
+       distribution
+       fork-meta
+       github-issues
+       markdown-editing
+       project-windows
+       thread-ordering
+       upstream-fixes
+       workspace-files
+       worktrunk-hooks
+       zmux-estate
+
+     This list is FORK_DOMAINS in scripts/lib/fork-trailers.ts, and hyprws CI
+     refuses a disagreement between the two. The check cannot tell a wrong domain
+     from a right one, only a known value from an unknown one, so a plausible
+     wrong pick quietly charges another domain's budget ceiling.
+
+     Valid Fork-Tier values: core, qol, bugfix.
+     Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
+
+     Add Fork-Budget: raise <reason> when the squash pushes a domain past a
+     ceiling in docs/internals/fork-budget.md. The budget is a ratchet, so most
+     fork pull requests raise one; fork:delta --check names the domain and the
+     numbers when it is missing.
+
+     Do not copy Base branch or Head branch prompt context into the PR body.
+     Do not add prose, metadata, mentions, or headings after the trailers.
+
+     Replace the placeholders below. CI rejects them unedited. -->
+
+Fork-Domain: DOMAIN
+Fork-Tier: TIER
