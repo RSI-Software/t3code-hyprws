@@ -257,6 +257,49 @@ it("rejects reintroduced physical sidebar derivation and permits the policy adap
       "+ref.environmentId === forcedProjectRef.environmentId",
       false,
     ],
+    // Re-declaring an upstream sidebar export to carry the ref is the shape that made every
+    // upstream edit to those declarations conflict, in all four integration files.
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+export default function Sidebar({ forcedProjectRef = null }) {",
+      true,
+    ],
+    [
+      "apps/web/src/components/AppSidebarLayout.tsx",
+      "+  forcedProjectRef?: ScopedProjectRef | null;",
+      true,
+    ],
+    [
+      "apps/web/src/components/AppSidebarLayout.tsx",
+      "+          <ThreadSidebar forcedProjectRef={forcedProjectRef} />",
+      true,
+    ],
+    [
+      "apps/web/src/components/sidebar/SidebarChrome.tsx",
+      "+  forcedProjectRef: ScopedProjectRef | null;",
+      true,
+    ],
+    // The ambient read and the shorthand hand-off to SidebarPhysicalScope stay allowed.
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+  const forcedProjectRef = useSidebarPhysicalScope();",
+      false,
+    ],
+    [
+      "apps/web/src/components/LegacySidebar.tsx",
+      "+    if (forcedProjectRef === null) return projects;",
+      false,
+    ],
+    [
+      "apps/web/src/components/Sidebar.tsx",
+      "+  }, [clearSelection, forcedProjectRef, projectScopeKey]);",
+      false,
+    ],
+    [
+      "apps/web/src/components/sidebar/SidebarChrome.tsx",
+      "+  const forcedProjectRef = useSidebarPhysicalScope();",
+      false,
+    ],
   ] as const;
   for (const [path, addition, forbidden] of cases) {
     const patchesBySha = parseCommitPatches(

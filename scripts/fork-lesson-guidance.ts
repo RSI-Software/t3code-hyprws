@@ -217,9 +217,10 @@ const boundaries: ReadonlyArray<{
       "apps/web/src/components/Sidebar.tsx",
       "apps/web/src/components/LegacySidebar.tsx",
       "apps/web/src/components/AppSidebarLayout.tsx",
+      "apps/web/src/components/sidebar/SidebarChrome.tsx",
     ],
     boundary:
-      "physical project scope only: apps/web/src/components/sidebar/SidebarPhysicalScope.ts; preserve upstream filtering, grouping and row presentation; adjacent manual ordering remains a separate policy",
+      "physical project scope only: apps/web/src/components/sidebar/SidebarPhysicalScope.ts, provided ambiently by SidebarPhysicalScopeContext.tsx; never re-declare an upstream sidebar export to carry it; preserve upstream filtering, grouping and row presentation; adjacent manual ordering remains a separate policy",
     owner: 584,
   },
   {
