@@ -17569,6 +17569,43 @@
       }
     },
     {
+      "kind": "attempt",
+      "targetSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+      "attemptId": "34031745846/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "13343ecc2d1e33ad02b3ef882406146438980881",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "f8b4c464b4760d73e0ece7e68011c738803d8b69",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.39-nightly.20260906.1292",
@@ -18337,6 +18374,61 @@
       "status": "failed",
       "detail": "churn policy verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34030872304"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "13343ecc2d1e33ad02b3ef882406146438980881",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/651#issuecomment-5558268158"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "d924fe266483e1d400775e3c3ce784f8e90f355f",
+      "attemptId": "34031745846/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "churn policy verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34031745846"
     }
   ]
 }
