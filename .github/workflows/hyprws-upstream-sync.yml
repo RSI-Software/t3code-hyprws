@@ -1,0 +1,370 @@
+name: hyprws upstream sync
+
+# Mirrors upstream/main onto the fork's main, uploads the fork-sync orientation,
+# then rebases the fork stack onto the newest upstream tag inside the clean
+# feasibility window. HYPRWS_AUTO_REBASE selects off, candidate, or on and gates
+# only the rebase push; reporting and tickets always run. An unset variable uses
+# candidate mode. Every job that needs the mode is handed it as an environment
+# value, because a job token may not read repository variables through the API.
+# Auto-rebase drops the checkout token before it runs rebased
+# code; the mirror PAT reaches only the push helper.
+#
+# The churn ledger lives on the bot-owned refs/fork/churn, never in the fork series;
+# each blocked report renders it as a Churn section on the notification issue.
+#
+# With HYPRWS_AUTO_REBASE=on a blocked candidate also gets a carried unblock walk:
+# the bot restores its shared rerere cache, runs unblock-auto non-interactively, and
+# either applies under the walk's own lease or hands the exact stop surface to the
+# notification issue. Bot-owned refs (refs/fork/churn, refs/fork/rerere) carry the
+# ledger and the cache; the fork series never does.
+
+on:
+  push:
+    branches:
+      - hyprws
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hyprws-rebase
+  cancel-in-progress: false
+
+jobs:
+  # Upstream commits touch .github/workflows, which GITHUB_TOKEN may never push,
+  # so this job authenticates with HYPRWS_MIRROR_TOKEN: a fine-grained PAT for
+  # this repository with Contents and Workflows read/write.
+  mirror:
+    name: Mirror main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require mirror token
+        env:
+          MIRROR_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+        run: |
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "::error::HYPRWS_MIRROR_TOKEN secret is missing; see docs/operations/fork-sync.md"
+            exit 1
+          fi
+
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          token: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      # Nothing else ever writes main, so a rejected push means someone did;
+      # the job fails instead of forcing (docs/operations/fork-sync.md).
+      - name: Fast-forward main
+        run: |
+          git fetch --tags upstream main
+          git push origin upstream/main:refs/heads/main
+          git push origin --tags
+
+  generate:
+    name: Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Generate report
+        run: node scripts/fork-rebase-report.ts --fetch
+
+      - name: Summarize
+        run: cat docs/internals/generated/fork-rebase-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-rebase-report
+          path: |
+            docs/internals/generated/fork-rebase-report.json
+            docs/internals/generated/fork-rebase-report.md
+          if-no-files-found: error
+          retention-days: 7
+
+  rebase:
+    name: Auto-rebase
+    needs: [mirror, generate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      status: ${{ steps.rebase.outputs.status }}
+      blocked_tag: ${{ steps.rebase.outputs.blocked_tag }}
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+
+      # checkout v6 stores its extraheader in a RUNNER_TEMP config reached through
+      # local includeIf entries. Remove both before any rebased code can run.
+      - name: Remove checkout credential
+        shell: bash
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          while read -r key credential_config; do
+            case "$credential_config" in
+              "$RUNNER_TEMP"/git-credentials-*.config)
+                git config --local --unset-all "$key"
+                rm -f -- "$credential_config"
+                ;;
+              /github/runner_temp/git-credentials-*.config)
+                git config --local --unset-all "$key"
+                ;;
+            esac
+          done < <(git config --local --get-regexp '^includeIf\.gitdir:' || true)
+
+          test -z "$(git config --show-origin --get-all http.https://github.com/.extraheader || true)"
+          test -z "$(git config --local --get-regexp '^includeIf\.gitdir:' | grep 'git-credentials-.*\.config' || true)"
+          ! compgen -G "$RUNNER_TEMP/git-credentials-*.config" > /dev/null
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase fork stack
+        id: rebase
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          REBASE_MODE: ${{ vars.HYPRWS_AUTO_REBASE || 'candidate' }}
+        run: |
+          set +e
+          vp run fork:auto-rebase --fetch --mode "$REBASE_MODE" --github-output \
+            --summary "$RUNNER_TEMP/fork-auto-rebase.md" \
+            --issue-json "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
+            2> >(tee "$RUNNER_TEMP/fork-auto-rebase-error.log" >&2)
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "status=hard-failure" >> "$GITHUB_OUTPUT"
+            exit "$code"
+          fi
+
+      - name: Summarize auto-rebase
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/fork-auto-rebase.md" ]; then
+            cat "$RUNNER_TEMP/fork-auto-rebase.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            failure=$(tail -n 1 "$RUNNER_TEMP/fork-auto-rebase-error.log" 2>/dev/null || echo "unknown failure")
+            printf 'Auto-rebase failed: `%s`. See the Rebase fork stack step.\n' "$failure" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Reconcile fork notification issues
+        if: ${{ always() && (steps.rebase.outputs.status == 'blocked' || steps.rebase.outputs.status == 'clear' || steps.rebase.outputs.status == 'stable-candidate') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
+        run: node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
+
+      # The ledger is read from refs/fork/churn, which this repository serves
+      # unauthenticated, so the stripped checkout credential is not needed. The
+      # section replaces itself on the notification issue instead of stacking.
+      - name: Post churn section
+        if: ${{ always() && steps.rebase.outputs.status == 'blocked' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json"
+
+      - name: Retain target outcomes
+        if: always()
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-outcome-receipts.json
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-churn.ts outcome --auto-report "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
+            --report-receipt "$RUNNER_TEMP/fork-churn-report-receipt.json" --push
+
+      - name: Upload outcome evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sync-outcomes-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fork-outcome-receipts.json
+            ${{ runner.temp }}/fork-auto-rebase-issues.json*
+            ${{ runner.temp }}/fork-churn-report-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  # The carried unblock walk. It resolves, repairs, and applies in one invocation,
+  # and verifies in its own lane rather than waiting on a pushed CI verdict. It
+  # still gets its own timeout because a replay of the whole stack is long; the
+  # workflow-level hyprws-rebase concurrency group is the lease, and
+  # unblock-auto --bot-carried refuses if any other run holds it.
+  carry:
+    name: Carry unblock walk
+    needs: rebase
+    if: ${{ needs.rebase.outputs.status == 'blocked' && needs.rebase.outputs.blocked_tag != '' && vars.HYPRWS_AUTO_REBASE == 'on' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      # rerere replays the resolutions earlier walks recorded; autoupdate stays off
+      # so every replay still lands in the record as a decided row.
+      - name: Configure Git identity and rerere
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config rerere.enabled true
+          git config rerere.autoupdate false
+
+      - name: Restore rerere cache
+        run: node scripts/fork-carry.ts rerere-restore
+
+      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step so
+      # it never lands in a workflow env block; fork-sync scrubs those keys from every
+      # lane command, which is rebased code.
+      - name: Carry the unblock walk
+        id: carry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          HYPRWS_AUTO_REBASE: ${{ vars.HYPRWS_AUTO_REBASE }}
+          BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
+          REPORT: ${{ runner.temp }}/fork-sync-report.json
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          set +e
+          node scripts/fork-sync.ts unblock-auto --bot-carried --report "$REPORT" \
+            --target "$BLOCKED_TAG" > "$RUNNER_TEMP/carry.log" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/carry.log"
+          case "$code" in
+            0) echo "outcome=applied" >> "$GITHUB_OUTPUT" ;;
+            2) echo "outcome=stop" >> "$GITHUB_OUTPUT" ;;
+            3) echo "outcome=report-only" >> "$GITHUB_OUTPUT" ;;
+            *) echo "outcome=failed" >> "$GITHUB_OUTPUT"; exit "$code" ;;
+          esac
+
+      # Every walk teaches rerere something, whether it applied or stopped, so the
+      # cache is refreshed before the outcome is acted on.
+      - name: Save rerere cache
+        id: rerere_save
+        if: always()
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-carry.ts rerere-save --push
+
+      # An applied walk published its own row and outcomes before it reported `applied`
+      # (RSI-Software/t3code-hyprws#664), so this step only covers the runs that never got
+      # that far: a stop, or a carry that died before it retained a report.
+      - name: Retain the outcomes of a walk that did not apply
+        if: ${{ always() && steps.carry.outputs.outcome != 'applied' }}
+        env:
+          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
+          FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
+          FORK_OUTCOME_CACHE_EXPORT: ${{ steps.rerere_save.outcome }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+          node scripts/fork-churn.ts outcome --sync-report "$RUNNER_TEMP/fork-sync-report.json" --push
+
+      - name: Upload carried outcome evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: carry-outcomes-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fork-carry-outcome-receipts.json
+            ${{ runner.temp }}/fork-sync-report.json*
+            ${{ runner.temp }}/carry.log
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Hand the stop surface to the notification issue
+        if: ${{ steps.carry.outputs.outcome == 'stop' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/fork-carry.ts stop-surface \
+            --report "$RUNNER_TEMP/fork-sync-report.json" \
+            --log "$RUNNER_TEMP/carry.log"
+
+      - name: Summarize the carried walk
+        if: always()
+        env:
+          OUTCOME: ${{ steps.carry.outputs.outcome }}
+          BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
+        run: |
+          {
+            printf '## Carried unblock walk\n\n- outcome: `%s`\n- target: `%s`\n\n```\n' \
+              "${OUTCOME:-none}" "$BLOCKED_TAG"
+            tail -n 80 "$RUNNER_TEMP/carry.log" 2>/dev/null || true
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
