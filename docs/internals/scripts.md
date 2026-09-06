@@ -112,6 +112,22 @@ authenticated.
   exits 1 with every unmet precondition and its fix. Gates call it first and refuse on a failure, so
   a stale ref is named before a gate acts on it rather than after. `--tag-pinned` reports mirror
   currency without requiring it, for a caller already pinned to a tag that cannot move.
+- `vp run fork:lockfile`: Proves the committed `pnpm-lock.yaml` records the specifiers its manifests
+  declare (`scripts/fork-lockfile.ts`). It refuses an uncommitted lockfile rather than overwriting
+  it, reruns `vp install --lockfile-only`, classifies any difference with the same
+  `importers`/`snapshots` split the fork-sync replay verification uses, and restores the committed
+  bytes in every outcome, including a throw or an interrupt. `pnpm-lock.yaml` is the fork's only
+  regenerable path, so a hand-merged or replayed lockfile has no reviewable intent to recover; this
+  fails it on the branch that introduced it instead of at a rebase stop. Run it on any branch that
+  changes a package manifest.
+
+  Only `importers` drift fails. `vp install --lockfile-only` performs a full resolution, so it
+  re-picks every open range in the tree rather than only the ranges a branch touched: regenerating
+  on an older lockfile moves transitive pins no manifest here asked for. That churn lands in
+  `snapshots:`, so a snapshot difference is reported as a note and exits 0. Keep this off the
+  required-check list for the same reason -- a green run would depend on when the registry last
+  moved.
+
 - `vp run fork:orient --target vX.Y.Z`: Gate 1 of the fork-sync flow (`scripts/fork-orient.ts`). It
   runs `fork:preflight`, proves the target exists as a tag and is reachable from `upstream/main` with
   `git merge-base --is-ancestor`, then prints target, source, shared base, mirror currency,
