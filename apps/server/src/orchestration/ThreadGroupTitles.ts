@@ -2,7 +2,7 @@ import type { ModelSelection } from "@t3tools/contracts";
 
 import type { TextGeneration } from "../textGeneration/TextGeneration.ts";
 
-export function buildThreadGroupTitleMessage(memberTitles: readonly string[]): string {
+function buildThreadGroupTitleMessage(memberTitles: readonly string[]): string {
   return [
     "Name a visual sidebar group containing these related T3 Code threads:",
     ...memberTitles.map((title) => `- ${title}`),
