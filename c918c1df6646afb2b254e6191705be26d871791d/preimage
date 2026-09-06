@@ -1,0 +1,242 @@
+# Source control
+
+T3 Code integrates with GitHub, GitLab, Bitbucket, and Azure DevOps to clone and publish
+repositories, create pull requests, and review changes.
+
+## Connect an account
+
+Install Git and configure authentication on the machine running your T3 Code server. For a remote
+environment, do this on the remote machine. After signing in, open **Settings → Source Control**
+and choose **Rescan**.
+
+### GitHub
+
+Install [GitHub CLI](https://cli.github.com/) 2.81.0 or newer, then sign in:
+
+```bash
+gh auth login
+```
+
+### GitLab
+
+Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
+
+```bash
+glab auth login
+```
+
+### Bitbucket
+
+<<<<<<<
+### Manage Code Reviews Without Context Switching
+
+**Create pull requests while you work**
+
+- Push a branch and create a pull request from the Git actions controls in the toolbar
+- T3 Code can suggest titles and descriptions based on your commits
+- With **Repository conventions** selected, generated source control text follows the project's
+  `AGENTS.md` along with recent commit subjects. Claude writers also follow `CLAUDE.md`
+- Supports GitHub Pull Requests, GitLab Merge Requests, Bitbucket Pull Requests, and Azure DevOps Pull Requests
+
+**Choose the collaboration remote**
+
+- When both `origin` and `upstream` exist, T3 Code uses `origin` for review listings and pull-request actions
+- An `upstream` remote remains available for Git fetch and rebase workflows
+- Adding `upstream` does not make it a pull-request target; creating a pull request still requires an explicit action
+
+**Stay on top of open reviews**
+
+- See if your current branch already has an open PR/MR
+- When an agent finishes a turn on your thread's branch, T3 Code checks for a newly opened
+  PR/MR if background activity is enabled for that repository. Known reviews keep their normal
+  refresh schedule.
+- Open several reviews from the **Pull requests** page as tabs in the right panel
+- Your authored reviews stay at the top and use the selected sort within their group. By default,
+  see passing and approved reviews first, passing reviews awaiting approval next, and conflicting
+  reviews last. Smaller changes come first within each readiness group, and finished reviews follow
+  open work when all states are visible.
+- Filter the list by author or labels, rank authors by merges in the loaded results, see label and
+  change-size context on each row, and sort the results currently shown by readiness, update time,
+  creation time, or change size. Your filters, search, scope, and sort are restored when you return.
+- Merge now, or on GitHub, GitLab, and Azure DevOps, leave an auto-merge instruction with a chosen
+  strategy while checks are outstanding; see the completed state in the same control after the
+  pull request merges
+- On GitHub, approve fork workflows that are waiting to run and open a revert pull request for a
+  merged change
+- Timeline line counts stay hidden on merge commits, where GitHub's totals include upstream changes
+  brought in from the base branch
+- While working in a thread, open linked reviews in the same compact right-panel tabs without
+  leaving the conversation
+- Show a file tree next to a review's **Code** tab, or a thread's **Diff** panel, to browse the
+  changed files as folders and jump straight to any of them. The toolbar toggle remembers your
+  choice.
+- Enable **Settings → General → Proactive panels** to open a newly linked review automatically and
+  switch to the completed turn's diff when agent work finishes
+- Open the review directly in your browser with one click
+- If T3 Code cannot load a GitHub pull request, including when GitHub rate limits requests, use
+  **Open on GitHub** in the error view
+- Command-click (Control-click on Windows and Linux) a pull request number in the sidebar to open it in your browser instead of in T3 Code
+- Check out a teammate's branch to review code locally
+
+### Browse and Hand Off GitHub Issues
+
+The **GitHub Issues** page lists issues from GitHub-backed projects across connected environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In a project window, the list starts with that project and the **This project / All projects** toggle widens it without leaving the window.
+
+Open an issue to read its description, labels, assignees, and newest 100 comments. GitHub issue and pull request links in chat show their full `owner/repository#number` identity. Hover a link to open it in the native panel, T3 Browser, or your external browser. Native panels can also read repositories that are not checked out in the active project, using that project's authenticated GitHub host.
+
+Choose the normal-click destination under **Settings → Source Control → GitHub links**. Issues and pull requests support all three destinations; other repository links support T3 Browser and the external browser. The controls on the link remain available for one-click overrides.
+
+Choose **Work on this issue** to open an empty draft in the issue's project. T3 Code puts a short issue reference and instruction in the composer but does not send it. Existing draft work is never overwritten.
+
+To change that text, open **Settings → Source Control → GitHub links** and edit **GitHub issue handoff prompt**. The template supports `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the server environment that owns the issue, so its web and desktop clients use the same prompt.
+
+Issues are read-only in T3 Code: commenting, closing, labeling, and assigning remain on GitHub. The GitHub CLI must be installed and authenticated on each server that holds a project. Run `gh auth login` for GitHub.com or `gh auth login --hostname <host>` for GitHub Enterprise.
+
+**Fix what you wrote, in place**
+
+- Comment while closing an open pull request or reopening a closed one when the host offers that
+  action
+- Rewrite a pull request's title and description from the review itself, in Markdown, with a
+  preview before you save
+- Rewrite your own comments the same way, wherever they are shown
+- Works on GitHub, GitLab, and Bitbucket. Azure DevOps takes a new title and description; its
+  comments stay read-only here, as they already were
+- On GitHub, put a label on a pull request or take one off from the **Labels** row of the review.
+  Changing labels needs triage access or better on the repository
+
+### Know Your Setup at a Glance
+
+The **Source Control settings** page shows you exactly what's connected:
+
+- ✅ Which providers are authenticated and ready
+- ⚠️ What's missing and how to fix it
+- 👤 Which account is signed in (when available)
+
+Run a quick **Rescan** after setting up a new machine or changing credentials.
+
+## Getting Started
+
+### For GitHub (Recommended for most users)
+
+1. Install the GitHub CLI (version 2.81.0 or newer) on the machine running T3 Code:
+   ```bash
+   brew install gh
+   ```
+2. Sign in:
+   ```bash
+   gh auth login
+   ```
+3. Open **Settings → Source Control** in T3 Code and verify GitHub shows as authenticated
+
+You can now clone, publish, and create pull requests.
+
+### For GitLab
+
+1. Install the GitLab CLI:
+   ```bash
+   brew install glab
+   ```
+2. Authenticate:
+   ```bash
+   glab auth login
+   ```
+3. Check **Settings → Source Control** to confirm the connection
+
+### For Bitbucket
+
+Bitbucket uses tokens instead of a CLI tool. Two options, both set as environment variables on the
+machine running T3 Code.
+
+Recommended, a Bitbucket access token:
+=======
+Set an access token in the server's environment:
+>>>>>>>
+
+```bash
+export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
+```
+
+Or use an Atlassian account email and API token with read/write access to repositories and pull
+requests, plus user read access (`read:user:bitbucket`):
+
+```bash
+export T3CODE_BITBUCKET_EMAIL="you@example.com"
+export T3CODE_BITBUCKET_API_TOKEN="your-token"
+```
+
+The access token takes precedence if both are configured. Restart the server after changing these
+variables.
+
+### Azure DevOps
+
+Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/), add the DevOps extension, and sign in:
+
+```bash
+az extension add --name azure-devops
+az login
+```
+
+## Clone or publish a project
+
+Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
+provider or paste a Git URL, then choose where to save it.
+
+For a local Git repository without a remote, **Publish Repository** creates a hosted repository,
+adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
+make your first commit before pushing.
+
+## Create a pull request
+
+Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
+messages, review titles, and descriptions from your changes.
+
+Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
+uses the project's instructions and recent commit subjects.
+
+When a checkout has both `origin` and `upstream`, T3 Code uses `origin` for review listings and
+pull-request actions. `upstream` stays available for fetch and rebase; adding it never makes it a
+pull-request target, and creating a pull request still takes an explicit action.
+
+## Review and merge
+
+Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
+or merge. You can edit review titles and descriptions and your own comments where the host allows it.
+GitLab calls these merge requests.
+
+GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
+supports approving waiting fork workflows and opening a revert pull request for a merged change.
+
+For Azure DevOps, use the host website to view diffs or change comments. Bitbucket does not support
+reopening a declined pull request.
+
+## Browse GitHub issues
+
+Open **GitHub Issues** to read issues from GitHub-backed projects across your connected
+environments. Search by text, filter by Open, Closed, or All, and narrow the hub to one project. In
+a project window the list starts with that project, and the **This project / All projects** toggle
+widens it without leaving the window.
+
+Opening an issue shows its description, labels, assignees, and newest 100 comments. A GitHub issue
+link for a project in your workspace opens in T3 Code; unmatched links and modified clicks go to
+your browser.
+
+**Work on this issue** opens an empty draft in the issue's project with a short issue reference and
+instruction placed in the composer, unsent. Draft work you already have is never overwritten.
+
+Change that text under **Settings → Source Control → GitHub issues**, in **GitHub issue handoff
+prompt**. The template takes `{{number}}`, `{{title}}`, and `{{url}}`. The setting belongs to the
+server environment that owns the issue, so its web and desktop clients use the same prompt.
+
+Issues are read-only here: commenting, closing, labeling, and assigning stay on GitHub. Each server
+holding a project needs GitHub CLI installed and authenticated — `gh auth login` for GitHub.com, or
+`gh auth login --hostname <host>` for GitHub Enterprise.
+
+## Troubleshooting
+
+- **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
+  confirm the running server received the environment variables.
+- **GitHub sign-in cannot be verified:** update GitHub CLI to at least 2.81.0.
+- **Push fails despite a connected account:** check the Git remote's credentials. SSH and HTTPS
+  remotes can require separate setup from the hosting provider's API access.
+- **A review cannot load:** open it on the host website while resolving connectivity, permissions,
+  or rate limits.
