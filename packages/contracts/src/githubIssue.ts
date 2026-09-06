@@ -132,7 +132,7 @@ export const GitHubIssueDetail = Schema.Struct({
 });
 export type GitHubIssueDetail = typeof GitHubIssueDetail.Type;
 
-export class GitHubIssueCliMissingError extends Schema.TaggedErrorClass<GitHubIssueCliMissingError>()(
+export class GitHubIssueCliMissingError extends Schema.TaggedError<GitHubIssueCliMissingError>()(
   "GitHubIssueCliMissingError",
   { cause: Schema.Defect() },
 ) {
@@ -141,7 +141,7 @@ export class GitHubIssueCliMissingError extends Schema.TaggedErrorClass<GitHubIs
   }
 }
 
-export class GitHubIssueCliUnauthenticatedError extends Schema.TaggedErrorClass<GitHubIssueCliUnauthenticatedError>()(
+export class GitHubIssueCliUnauthenticatedError extends Schema.TaggedError<GitHubIssueCliUnauthenticatedError>()(
   "GitHubIssueCliUnauthenticatedError",
   {
     cause: Schema.Defect(),
@@ -157,7 +157,7 @@ export class GitHubIssueCliUnauthenticatedError extends Schema.TaggedErrorClass<
   }
 }
 
-export class GitHubIssueOperationError extends Schema.TaggedErrorClass<GitHubIssueOperationError>()(
+export class GitHubIssueOperationError extends Schema.TaggedError<GitHubIssueOperationError>()(
   "GitHubIssueOperationError",
   {
     operation: Schema.String,

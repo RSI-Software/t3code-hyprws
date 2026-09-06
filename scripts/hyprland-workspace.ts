@@ -3,9 +3,16 @@
 
 import * as NodeTimersPromises from "node:timers/promises";
 
+import { UsageError as WorkspaceReporterUsageError } from "./lib/fork-cli.ts";
 import { readHyprctlWorkspace, type WorkspaceRef } from "./lib/hyprland-workspace.ts";
 
-export { parseHyprlandWorkspaceResponse, readHyprctlWorkspace } from "./lib/hyprland-workspace.ts";
+export { UsageError as WorkspaceReporterUsageError } from "./lib/fork-cli.ts";
+
+export {
+  parseHyprlandWorkspaceResponse,
+  readHyprctlWorkspace,
+  selectHyprlandInstance,
+} from "./lib/hyprland-workspace.ts";
 export type { WorkspaceRef } from "./lib/hyprland-workspace.ts";
 
 const HELP = `Report the focused Hyprland workspace and the command's originating app workspace.
@@ -32,13 +39,6 @@ export type WorkspaceReporterDependencies = {
   readonly writeStdout: (value: string) => void;
   readonly writeStderr: (value: string) => void;
 };
-
-export class WorkspaceReporterUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WorkspaceReporterUsageError";
-  }
-}
 
 export function parseWorkspaceReporterArguments(
   argv: readonly string[],

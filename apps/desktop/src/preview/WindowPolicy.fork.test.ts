@@ -20,8 +20,9 @@ import {
 } from "./WindowPolicy.preload.ts";
 import * as WindowPolicy from "./WindowPolicy.ts";
 
-const { fromWebContents, ipcRenderer } = vi.hoisted(() => ({
+const { fromWebContents, fromId, ipcRenderer } = vi.hoisted(() => ({
   fromWebContents: vi.fn(() => null as Electron.BrowserWindow | null),
+  fromId: vi.fn(() => null as Electron.WebContents | null),
   ipcRenderer: {
     on: vi.fn<(channel: string, listener: (event: unknown, ...args: never[]) => void) => void>(),
     invoke: vi.fn(() => Promise.resolve()),
@@ -31,6 +32,7 @@ const { fromWebContents, ipcRenderer } = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   BrowserWindow: { fromWebContents },
   ipcRenderer,
+  webContents: { fromId },
 }));
 
 /** Replays what the main process pushes on a preload channel the bridge subscribed to. */
@@ -392,13 +394,14 @@ describe("desktop preview window policy", () => {
   });
 
   effectIt.effect("authorizes a registered sender and selects its window manager", () => {
-    const sender = {} as Electron.WebContents;
+    const sender = { id: 1 } as Electron.WebContents;
     const senderWindow = {} as Electron.BrowserWindow;
     const identity = projectWindowIdentity(
       EnvironmentId.make("environment-1"),
       ProjectId.make("project-1"),
     );
     const windowManager = { closeTab: vi.fn() };
+    fromId.mockReturnValue(sender);
     fromWebContents.mockReturnValue(senderWindow);
 
     return Effect.gen(function* () {
@@ -415,7 +418,8 @@ describe("desktop preview window policy", () => {
   });
 
   effectIt.effect("rejects a sender outside the desktop window registry", () => {
-    const sender = {} as Electron.WebContents;
+    const sender = { id: 1 } as Electron.WebContents;
+    fromId.mockReturnValue(sender);
     fromWebContents.mockReturnValue({} as Electron.BrowserWindow);
 
     return WindowPolicy.resolvePreviewForSender(
