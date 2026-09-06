@@ -54,6 +54,7 @@ export const AUTHORING_GUARD_TARGETS = {
     chat: "apps/web/src/components/ChatView.tsx",
     palette: "apps/web/src/components/CommandPalette.tsx",
     newThread: "apps/web/src/hooks/useHandleNewThread.ts",
+    actions: "apps/web/src/hooks/useThreadActions.ts",
   },
   "pull-request-project-scope": {
     route: "apps/web/src/routes/_chat.pull-requests.tsx",
@@ -497,7 +498,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
     if (patch.threadRouteNavigationAdded) {
       warn(
         "thread-route-navigation",
-        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts gains direct route-family policy; use lib/threadRouteNavigation and retain execution-time parameter reads at navigation sites",
+        "ChatView.tsx/CommandPalette.tsx/useHandleNewThread.ts/useThreadActions.ts gains direct route-family policy; use lib/threadRouteNavigation, retain execution-time parameter reads at navigation sites, and keep the call-site budget in docs/internals/thread-route-navigation.md current",
       );
     }
     if (patch.richMarkdownImplementationAdded) {

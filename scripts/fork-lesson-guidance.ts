@@ -196,6 +196,7 @@ const boundaries: ReadonlyArray<{
       "apps/web/src/components/ChatView.tsx",
       "apps/web/src/components/CommandPalette.tsx",
       "apps/web/src/hooks/useHandleNewThread.ts",
+      "apps/web/src/hooks/useThreadActions.ts",
     ],
     boundary:
       "thread-route navigation only: apps/web/src/lib/threadRouteNavigation.ts; resolve route params at execution time; other ChatView policy remains unresolved here",
