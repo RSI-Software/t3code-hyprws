@@ -3,6 +3,7 @@ import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-
 import { useEffect } from "react";
 
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { SidebarPhysicalScopeProvider } from "../components/sidebar/SidebarPhysicalScopeContext";
 import { resolveProjectAvailabilityRedirect, resolveProjectRouteRef } from "../projectRoutes";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
@@ -49,9 +50,11 @@ export function ProjectRouteContent({
   return (
     <>
       <ChatRouteGlobalShortcuts forcedProjectRef={projectRef} />
-      <AppSidebarLayout forcedProjectRef={projectRef}>
-        <Outlet />
-      </AppSidebarLayout>
+      <SidebarPhysicalScopeProvider projectRef={projectRef}>
+        <AppSidebarLayout>
+          <Outlet />
+        </AppSidebarLayout>
+      </SidebarPhysicalScopeProvider>
     </>
   );
 }
