@@ -30,7 +30,6 @@ const { fromPartition } = vi.hoisted(() => ({
 
 vi.mock("electron", () => ({
   BrowserWindow: {
-    fromWebContents,
     getAllWindows: vi.fn(() => []),
   },
   session: {
