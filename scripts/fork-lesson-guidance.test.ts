@@ -57,6 +57,7 @@ it("covers every adopted named guard's real source targets with scoped lesson gu
     "mobile-ignored-file-listing": 536,
     "agent-spawn-navigation": 537,
     "rich-markdown-boundary": 538,
+    "desktop-preview-ownership": 524,
   };
   for (const [rule, targets] of Object.entries(AUTHORING_GUARD_TARGETS)) {
     assert.isAbove(Object.keys(targets).length, 0, rule);

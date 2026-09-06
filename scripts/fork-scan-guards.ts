@@ -14,6 +14,9 @@
 // - terminal-attachment-boundary: fork retention state or its exact-target
 //   attachment match grows inside upstream's terminal metadata/index module
 //   instead of its fork-owned hook and selector.
+// - desktop-preview-ownership: desktop preview window ownership, sender
+//   authorization or project-window bridge capability grows inside upstream's
+//   preload/IPC/manager modules instead of the fork-owned WindowPolicy pair.
 //
 // Warnings are advisory. `fork:scan --strict` is what turns them fatal, so a
 // rule can ship before the stack it describes is clean.
@@ -36,6 +39,7 @@ export type ScanWarningRule =
   | "sidebar-physical-scope"
   | "pull-request-project-scope"
   | "terminal-attachment-boundary"
+  | "desktop-preview-ownership"
   | "thread-route-navigation"
   | "github-issue-settings-search"
   | "mobile-ignored-file-listing";
@@ -75,6 +79,11 @@ export const AUTHORING_GUARD_TARGETS = {
     route: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
     inspector: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
   },
+  "desktop-preview-ownership": {
+    preload: "apps/desktop/src/preload.ts",
+    ipc: "apps/desktop/src/ipc/methods/preview.ts",
+    manager: "apps/desktop/src/preview/Manager.ts",
+  },
   "agent-spawn-navigation": { timeline: "apps/web/src/components/chat/MessagesTimeline.tsx" },
   "rich-markdown-boundary": {
     preview: "apps/web/src/components/files/FilePreviewPanel.tsx",
@@ -110,6 +119,7 @@ export const ADOPTED_AUTHORING_GUARDS: ReadonlySet<ScanWarningRule> = new Set([
   "mobile-ignored-file-listing",
   "agent-spawn-navigation",
   "rich-markdown-boundary",
+  "desktop-preview-ownership",
 ]);
 
 const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
@@ -123,6 +133,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "agent-spawn-navigation",
   "lockfile",
   "terminal-attachment-boundary",
+  "desktop-preview-ownership",
   "thread-route-navigation",
   "pull-request-project-scope",
   "github-issue-settings-search",
@@ -173,6 +184,7 @@ export interface CommitPatch {
   readonly mobileIgnoredFilePolicyAdded?: boolean;
   readonly agentSpawnNavigationAdded?: boolean;
   readonly richMarkdownImplementationAdded?: boolean;
+  readonly desktopPreviewOwnershipAdded?: boolean;
 }
 
 export interface GuardCommit {
@@ -298,6 +310,28 @@ const isSidebarPhysicalScopeProp = (content: string): boolean =>
 const AGENT_SPAWN_SELECTION =
   /\bresolveAgentSpawnOpenTarget\b|\bopenTarget\s*\.\s*(?:selectedAgentId|rosterFocusAgentId)\b/;
 
+// Window identity, sender resolution and the project-window bridge capability
+// belong in WindowPolicy.ts and WindowPolicy.preload.ts. Imports and calls
+// through that pair stay valid; only a re-implementation inside the upstream
+// preload, IPC method module or preview manager warns.
+const DESKTOP_PREVIEW_BRIDGE_CAPABILITY =
+  /\b(?:openProjectWindow|projectWindowRef|getWindowDemandState|onWindowDemandStateChange)\s*[:(]|\b(?:OPEN_PROJECT_WINDOW_CHANNEL|WINDOW_DEMAND_STATE_CHANNEL)\b|["'][^"']*projectWindowArgument(?:\.ts)?["']/;
+const DESKTOP_PREVIEW_SENDER_RESOLUTION =
+  /\bBrowserWindow\s*\.\s*fromWebContents\b|\.\s*identityFor\s*\(|\b(?:function|const|let|var)\s+(?:resolvePreviewForSender|makeWindowOwnership|installEventForwarding)\b/;
+const DESKTOP_PREVIEW_WINDOW_OWNERSHIP =
+  /\b(?:function|const|let|var|interface|type|class)\s+(?:WindowIdentity|windowIdentityKey|projectWindowIdentity|scopedManager|authorizeTab)\b|\bHUB_WINDOW_IDENTITY\s*[:=]/;
+
+const isDesktopPreviewOwnershipAddition = (path: string, content: string): boolean => {
+  const targets = AUTHORING_GUARD_TARGETS["desktop-preview-ownership"];
+  if (/^\s*(?:\/\/|\/\*|\*)/.test(content) || content.trim().length === 0) return false;
+  if (path === targets.preload) return DESKTOP_PREVIEW_BRIDGE_CAPABILITY.test(content);
+  if (path !== targets.ipc && path !== targets.manager) return false;
+  return (
+    DESKTOP_PREVIEW_SENDER_RESOLUTION.test(content) ||
+    DESKTOP_PREVIEW_WINDOW_OWNERSHIP.test(content)
+  );
+};
+
 // The preview owns the narrow boundary mount; editor loading and document-link
 // normalization stay in their fork modules. Calls to the shared resolver remain valid.
 const isRichMarkdownImplementation = (path: string, content: string): boolean => {
@@ -339,6 +373,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     let mobileIgnoredFilePolicyAdded = false;
     let agentSpawnNavigationAdded = false;
     let richMarkdownImplementationAdded = false;
+    let desktopPreviewOwnershipAdded = false;
     // A deletion writes `+++ /dev/null`, so removals are attributed to the
     // source side and additions to the target side rather than to one path.
     let sourcePath: string | null = null;
@@ -401,6 +436,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (added && isRichMarkdownImplementation(path, content))
         richMarkdownImplementationAdded = true;
+      if (added && isDesktopPreviewOwnershipAddition(path, content))
+        desktopPreviewOwnershipAdded = true;
       if (
         added &&
         isAuthoringGuardTarget("terminal-attachment-boundary", path) &&
@@ -481,6 +518,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       ...(mobileIgnoredFilePolicyAdded ? { mobileIgnoredFilePolicyAdded: true } : {}),
       ...(agentSpawnNavigationAdded ? { agentSpawnNavigationAdded: true } : {}),
       ...(richMarkdownImplementationAdded ? { richMarkdownImplementationAdded: true } : {}),
+      ...(desktopPreviewOwnershipAdded ? { desktopPreviewOwnershipAdded: true } : {}),
     });
   }
   return patches;
@@ -580,6 +618,13 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "rich-markdown-boundary",
         "keep rich editor imports and surface implementation in RichMarkdownPreviewBoundary.tsx, and normalizeDotSegments in richMarkdownEditorLinks.ts; preserve upstream preview and shared link behavior",
+      );
+    }
+
+    if (patch.desktopPreviewOwnershipAdded) {
+      warn(
+        "desktop-preview-ownership",
+        "keep desktop preview window ownership and sender authorization in preview/WindowPolicy.ts and the project-window bridge capability in WindowPolicy.preload.ts; expose the upstream bridge literal unchanged and leave upstream browser-profile behavior with upstream",
       );
     }
 
