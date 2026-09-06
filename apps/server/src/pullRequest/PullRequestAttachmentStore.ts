@@ -29,7 +29,7 @@ export class PullRequestAttachmentStore extends Context.Service<
   }
 >()("t3/pullRequest/PullRequestAttachmentStore") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
