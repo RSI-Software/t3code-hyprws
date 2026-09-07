@@ -43,7 +43,9 @@ export type PinThreadInput = CommandInput<"thread.pin">;
 export type UnpinThreadInput = CommandInput<"thread.unpin">;
 export type ReorderPinnedThreadInput = CommandInput<"thread.pin.reorder">;
 export type UpdateThreadMetadataInput = CommandInput<"thread.meta.update">;
-export type MoveThreadCheckoutInput = CommandInput<"thread.checkout-move.request">;
+// The checkout-move command is fork-owned; the export surface here stays
+// identical to what fork clients already import.
+export type { ThreadCheckoutMoveRequestInput as MoveThreadCheckoutInput } from "./checkoutMove.fork.ts";
 export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
 export type StartThreadTurnInput = CommandInput<"thread.turn.start">;
@@ -241,17 +243,7 @@ export const updateThreadMetadata: (input: UpdateThreadMetadataInput) => Command
   });
 });
 
-export const moveThreadCheckout: (input: MoveThreadCheckoutInput) => CommandEffect = Effect.fn(
-  "EnvironmentCommands.moveThreadCheckout",
-)(function* (input) {
-  const metadata = yield* timestampedCommandMetadata(input);
-  return yield* dispatch({
-    ...input,
-    type: "thread.checkout-move.request",
-    commandId: metadata.commandId,
-    createdAt: metadata.createdAt,
-  });
-});
+export { requestThreadCheckoutMove as moveThreadCheckout } from "./checkoutMove.fork.ts";
 
 export const setThreadRuntimeMode: (input: SetThreadRuntimeModeInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.setThreadRuntimeMode",
