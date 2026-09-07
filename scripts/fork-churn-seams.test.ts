@@ -16,12 +16,14 @@ import { censusTotals } from "./lib/fork-rebase-issues.ts";
 import {
   parseCensusFiles,
   parseChurnState,
+  censusChurn,
   readChurnState,
   writeChurnLedger,
   writeChurnState,
   type CensusSnapshot,
   type ChurnEntry,
 } from "./fork-churn-ledger.ts";
+import { blockingSeamLines } from "./fork-churn-section.ts";
 import { run } from "./fork-churn.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import {
@@ -168,11 +170,55 @@ it("keeps absent and returned observations unresolved without inventing a repair
     [],
   );
   assert.strictEqual(laterUnknown[0]?.status, "unknown");
-  assert.isTrue(laterUnknown[0]?.blocking);
+  // An unknown identity awaits fresh evidence; it never inherits a block (RSI-Software/t3code-hyprws#658).
+  assert.isFalse(laterUnknown[0]?.blocking);
   assert.strictEqual(
     assessSeams([snapshot(A), snapshot(B), snapshot(C)], [])[0]?.id,
     seamIdentity(file()),
   );
+});
+
+it("keeps a verified repair resolved when a complete census moves the base", () => {
+  const E = "e".repeat(40),
+    F = "f".repeat(40);
+  // The apply moves trunk to a new upstream base: a complete census there can never be
+  // `comparable(after, current)`, yet its silence on the repaired path confirms the fix.
+  const carried = assessSeams([snapshot(A), snapshot(B, []), snapshot(E, [], F, true)], records)[0];
+  assert.strictEqual(carried?.status, "verified-repaired");
+  assert.isFalse(carried?.blocking);
+  assert.include(carried!.reason, "new base");
+  assert.deepStrictEqual(
+    blockingSeamLines(censusChurn([walk("v1", snapshot(A))], snapshot(E, [], F, true), records)),
+    [],
+  );
+});
+
+it("blocks a verified repair that returns on the new base and keeps partial censuses unknown", () => {
+  const E = "e".repeat(40),
+    F = "f".repeat(40);
+  const returned = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(E, [file()], F, true)],
+    records,
+  )[0];
+  assert.strictEqual(returned?.status, "returned-unresolved");
+  assert.isTrue(returned?.blocking);
+  const partial = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(E, [], F, false)],
+    records,
+  )[0];
+  assert.strictEqual(partial?.status, "unknown");
+  assert.isFalse(partial?.blocking);
+  // A partial census after a blocking regression still awaits evidence; it clears the block.
+  const afterRegression = assessSeams(
+    [snapshot(A), snapshot(B, []), snapshot(C), snapshot(E, [], F, false)],
+    records,
+  )[0];
+  assert.strictEqual(afterRegression?.status, "unknown");
+  assert.isFalse(afterRegression?.blocking);
+  const lines = blockingSeamLines(
+    censusChurn([walk("v1", snapshot(A))], snapshot(E, [], F, false), records),
+  );
+  assert.deepStrictEqual(lines, []);
 });
 
 it("separates repair, attested verification and comparable regression", () => {
