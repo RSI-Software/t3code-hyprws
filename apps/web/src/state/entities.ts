@@ -4,10 +4,8 @@ import type {
   EnvironmentThread,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
-import {
-  type EnvironmentThreadStatus,
-  mergeEnvironmentThread,
-} from "@t3tools/client-runtime/state/threads";
+import { type EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import { mergeEnvironmentThreadWithCheckoutMove } from "@t3tools/client-runtime/state/checkout-move";
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
@@ -143,7 +141,7 @@ export function useThread(
       waitForShell: options?.waitForShell === true,
     }),
   );
-  return useMemo(() => mergeEnvironmentThread(detail, shell), [detail, shell]);
+  return useMemo(() => mergeEnvironmentThreadWithCheckoutMove(detail, shell), [detail, shell]);
 }
 
 export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {
