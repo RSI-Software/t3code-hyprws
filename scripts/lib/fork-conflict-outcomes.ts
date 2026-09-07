@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
 import { isVerifiablePath } from "./fork-repairs.ts";
+import * as NodeCrypto from "node:crypto";
 
 /**
  * The machine half of an unattended walk: it decides one conflicted path the way the fork's
@@ -139,6 +140,66 @@ export type OutcomeResult = ExecutedOutcome | UnresolvedOutcome;
 export const isUnresolved = (result: OutcomeResult): result is UnresolvedOutcome =>
   "reason" in result;
 
+interface ConflictRegion {
+  readonly label: string | null;
+  readonly text: ReadonlyArray<string>;
+}
+
+/**
+ * Split the `<<<<<<<`..`>>>>>>>` hunk regions out of a diff3 merge, without the marker lines.
+ * Labels in the merged text separate the stages; when they are absent the region is kept without
+ * one rather than guessed.
+ */
+const conflictRegions = (diff3: string): ReadonlyArray<ConflictRegion> => {
+  const regions: Array<ConflictRegion> = [];
+  let current: { label: string | null; text: Array<string> } | null = null;
+  for (const line of diff3.split("\n")) {
+    if (line.startsWith("<<<<<<<")) {
+      current = { label: line.slice(7).trim() || null, text: [] };
+      continue;
+    }
+    if (current !== null && line.startsWith(">>>>>>>")) {
+      regions.push(current);
+      current = null;
+      continue;
+    }
+    if (current !== null) current.text.push(line);
+  }
+  return regions;
+};
+
+/** CRLF and per-line trailing whitespace do not move a seam; they should not move its key. */
+const canonicalRegion = (region: ConflictRegion): unknown => ({
+  label: region.label,
+  text: region.text.map((line) => line.replace(/\r$/, "").replace(/\s+$/, "")),
+});
+
+/**
+ * A stable content key for one conflicted seam: the sha256 of its path and its diff3 conflict
+ * hunks. Moving the seam up or down the file, retagging the walk, or re-running git's diff
+ * algorithm leaves the key alone, so a resolution recorded under one tag still names the same
+ * seam on the next. `null` when the merge has no conflict hunks — a conflict-free merge has no
+ * seam to name.
+ */
+export const seamKey = (
+  runner: CommandRunner,
+  worktree: string,
+  seam: {
+    readonly path: string;
+    readonly base: string;
+    readonly ours: string;
+    readonly theirs: string;
+  },
+): string | null => {
+  const merged = mergeFile(runner, worktree, seam, "--diff3");
+  if (merged === null) return null;
+  const regions = conflictRegions(merged.text);
+  if (regions.length === 0) return null;
+  return NodeCrypto.createHash("sha256")
+    .update(JSON.stringify({ path: seam.path, hunks: regions.map(canonicalRegion) }))
+    .digest("hex");
+};
+
 const readStage = (
   runner: CommandRunner,
   worktree: string,
@@ -148,6 +209,18 @@ const readStage = (
   const result = runner.run("git", ["show", `:${stage}:${path}`], worktree);
   if (result.status !== 0 || result.error !== undefined) return null;
   return result.stdout;
+};
+
+/** Read the three index stages of a conflicted path; `null` once the conflict is staged away. */
+export const readConflictStages = (
+  runner: CommandRunner,
+  worktree: string,
+  path: string,
+): ConflictStages | null => {
+  const base = readStage(runner, worktree, path, 1);
+  const ours = readStage(runner, worktree, path, 2);
+  const theirs = readStage(runner, worktree, path, 3);
+  return base === null || ours === null || theirs === null ? null : { base, ours, theirs };
 };
 
 const isText = (value: string): boolean => !value.includes("\0");

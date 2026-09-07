@@ -10,6 +10,7 @@ import {
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY, isNightlyUpstreamTag } from "./lib/fork-policy.ts";
+import { decisionLine, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
 import {
   rewriteArchiveRef,
   validateRewriteArchiveBinding,
@@ -242,6 +243,8 @@ export interface ConflictRow {
   readonly resolution: string;
   readonly agentSafe: string;
   readonly decidedBy: DecidedBy;
+  /** Content key of the conflicted seam, set while the index still holds the conflict stages. */
+  readonly seamKey?: string;
 }
 
 export type OrientationVerdict = "candidate" | "keep" | "retire" | "partial";
@@ -352,6 +355,12 @@ export interface SyncReport {
   readonly originalMessages?: string;
   readonly originalCount?: number;
   readonly conflicts: ReadonlyArray<ConflictRow>;
+  /**
+   * One record per decision this walk made so far (RSI-Software/t3code-hyprws#662): conflicts the
+   * executor or a replay resolved, rows the walk stopped on, retire verdicts. Rendered into the
+   * record and carried onto the ledger row.
+   */
+  readonly decisions?: ReadonlyArray<WalkDecision>;
   readonly orientation?: string;
   readonly orientationDecisions?: ReadonlyArray<OrientationDecisionRow>;
   readonly retireEvidence?: ReadonlyArray<RetireEvidence>;
@@ -416,6 +425,7 @@ export interface WalkRecord {
     readonly fixed: ReadonlyArray<import("./lib/fork-additive.ts").AdditiveFinding>;
     readonly commit?: string;
   };
+  readonly decisions?: ReadonlyArray<WalkDecision>;
   readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
   /**
    * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
@@ -429,6 +439,28 @@ export interface WalkRecord {
   };
 }
 
+/**
+ * The retire half of a walk's decision record, derived from the orientation table both the record
+ * and the walk summary render. Conflict and stop decisions are recorded at the moment they happen;
+ * retire verdicts only exist as table rows, so they are derived at render time. Inherited verdicts
+ * are skipped — the previous walk that answered them already owns that record.
+ */
+export const walkDecisionsOf = (report: SyncReport): ReadonlyArray<WalkDecision> => {
+  const stamp = report.walk?.startedAt ?? new Date().toISOString();
+  const tag = report.target?.tag ?? "unknown";
+  const derived = (report.orientationDecisions ?? [])
+    .filter((row) => row.verdict !== "candidate")
+    .map((row) => ({
+      kind: "retire" as const,
+      subject: row.subject,
+      outcome: row.verdict === "keep" ? "kept" : row.verdict === "retire" ? "retired" : "partial",
+      decidedBy: row.decidedBy === "human" ? ("human" as const) : ("machine" as const),
+      tag,
+      recordedAt: stamp,
+    }));
+  return [...(report.decisions ?? []), ...derived];
+};
+
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
@@ -440,6 +472,7 @@ Unblock verbs:
   unblock-review --report <json> (--sign-off | --withhold <reason>)   (series rewrite only)
   unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
+  record-decisions --report <json> --tag <release-tag>       (stopped lane, human resolutions in the index)
   rewrite-rehearse --from <branch-or-sha> [--manifest <reviewed-json>] [--issue N] [--dry-run]
   rewrite-build --manifest <reviewed-json> [--json]
 
@@ -896,6 +929,13 @@ export const renderRecord = (report: SyncReport): string => {
             `- \`${escapeCell(seam.path)}\` [${seam.touchesBehaviour ? "behaviour" : "type"}]: ${escapeCell(seam.summary)}`,
         )),
     "",
+    "## Decisions",
+    "",
+    ...(() => {
+      const rows = walkDecisionsOf(report);
+      return rows.length === 0 ? ["None."] : rows.map(decisionLine);
+    })(),
+    "",
     "## Repair commits",
     "",
     ...((report.walk?.repairCommits ?? []).length === 0
@@ -1313,10 +1353,15 @@ export const parseNightlyReview = (record: string): NightlyReview | undefined =>
 };
 
 /** Reads the decision tables and review provenance for a landed walk. */
-export const parseRecord = (record: string): ParsedRecord => {
+export const parseRecord = (
+  record: string,
+  { allowIncomplete = false }: { allowIncomplete?: boolean } = {},
+): ParsedRecord => {
   const conflicts = parseConflictRows(record);
   const incomplete = conflicts.find((row) => row.class === "TODO");
-  if (incomplete !== undefined)
+  // A stopped walk's record keeps its declined rows as TODO until the human resolves; only the
+  // pending ledger row that carries those decisions may read such a record (#662).
+  if (incomplete !== undefined && !allowIncomplete)
     throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
   const nightlyReview = parseNightlyReview(record);
   const additive = parseAdditiveSummary(record);

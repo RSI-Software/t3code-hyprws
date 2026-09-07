@@ -58,6 +58,18 @@ import {
 } from "./fork-sync.ts";
 import { inspectRecord } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
+import { run as carryRun } from "./fork-carry.ts";
+import { renderMarkdown } from "./fork-churn.ts";
+import { censusChurn, hotSeams } from "./fork-churn-ledger.ts";
+import { seamKey } from "./lib/fork-conflict-outcomes.ts";
+import {
+  appendDecision,
+  decisionLine,
+  parseDecisionRecords,
+  requireWalkDecisions,
+  walkDecisionIdentity,
+  type WalkDecision,
+} from "./lib/fork-decisions.ts";
 import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
@@ -5665,4 +5677,430 @@ it("unblock-refresh invalidates stale checked evidence and records generated pro
   NodeFS.rmSync(root, { recursive: true, force: true });
   NodeFS.rmSync(lane, { recursive: true, force: true });
   NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+});
+
+const decision = (overrides: Partial<WalkDecision> = {}): WalkDecision => ({
+  kind: "conflict",
+  subject: "a".repeat(64),
+  outcome: "manual",
+  decidedBy: "human",
+  tag: "v0.0.1-nightly.20260901.1",
+  recordedAt: "2026-09-07T03:14:15.926Z",
+  ...overrides,
+});
+
+// The seam key is git's own diff3 hunk split, so these run real git rather than a fake.
+it("keys a seam by content, not by position or whitespace", () => {
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-seam-"));
+  try {
+    const base = "ctx\nold\nctx2\n";
+    const ours = "ctx\nupstream\nctx2\n";
+    const theirs = "ctx\nfork\nctx2\n";
+    const runner = new SystemRunner();
+    const key = seamKey(runner, worktree, { path: "p.txt", base, ours, theirs });
+    assert.isDefined(key);
+    // The same seam one line lower in every side keeps its key.
+    const shifted = seamKey(runner, worktree, {
+      path: "p.txt",
+      base: `lead\n${base}`,
+      ours: `lead\n${ours}`,
+      theirs: `lead\n${theirs}`,
+    });
+    assert.strictEqual(shifted, key);
+    // A conflict-free merge has no seam to name.
+    assert.isNull(seamKey(runner, worktree, { path: "p.txt", base, ours: base, theirs }));
+    // A different conflict on the same path is a different seam.
+    const changed = seamKey(runner, worktree, {
+      path: "p.txt",
+      base,
+      ours: "ctx\nupstream two\nctx2\n",
+      theirs,
+    });
+    assert.notEqual(changed, key);
+  } finally {
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
+it("round-trips decision records through the rendered record", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-decisions-"));
+  try {
+    const records: ReadonlyArray<WalkDecision> = [
+      decision(),
+      decision({
+        kind: "stop",
+        subject: "scripts/seam.txt",
+        path: "scripts/seam.txt",
+        outcome: "conflict",
+      }),
+      decision({
+        decidedBy: "rerere",
+        from: "v0.0.1-nightly.20260801.1",
+      }),
+      decision({
+        kind: "retire",
+        subject: "add fork telemetry",
+        outcome: "retired",
+        decidedBy: "machine",
+      }),
+      decision({ subject: "weird | subject", path: "pa|th\\x" }),
+    ];
+    const reportPath = NodePath.join(root, "report.json");
+    const recordPath = NodePath.join(root, "record.md");
+    const report = validateReport({
+      schemaVersion: 1,
+      stage: "conflicts",
+      kind: "unblock",
+      repositoryRoot: root,
+      reportPath,
+      recordPath,
+      issue: { number: 662, blockingSha: A, title: "blocked" },
+      candidates: [{ tag: decision().tag, sha: A }],
+      target: { tag: decision().tag, sha: A },
+      source: { sha: A, expectedOld: A, sharedBase: A },
+      conflicts: [],
+      verification: [],
+      decisions: records,
+    } as unknown);
+    const parsed = parseDecisionRecords(renderRecord(report));
+    assert.deepStrictEqual(parsed.map(walkDecisionIdentity), records.map(walkDecisionIdentity));
+    // Rendering the parse of a render is the same record: no drift across a save/load cycle.
+    assert.deepStrictEqual(
+      parseDecisionRecords(renderRecord({ ...report, decisions: parsed })).map(
+        walkDecisionIdentity,
+      ),
+      records.map(walkDecisionIdentity),
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("requires well-formed walk decisions and appends without duplicating", () => {
+  assert.throws(() => requireWalkDecisions([{ kind: "nope" }], "walkDecisions"));
+  assert.throws(() => requireWalkDecisions([{ ...decision(), recordedAt: "yesterday" }], "rows"));
+  const first = decision();
+  const carried = appendDecision([first], decision({ from: "t0" }));
+  // Re-deriving the carried decision replaces it instead of appending a second record.
+  const rows = appendDecision(carried, decision({ from: "t0" }));
+  assert.deepStrictEqual(rows.map(walkDecisionIdentity), carried.map(walkDecisionIdentity));
+  assert.strictEqual(
+    decisionLine(first),
+    `- \`${"a".repeat(64)}\` (conflict, manual, human, 2026-09-07T03:14:15.926Z)`,
+  );
+});
+
+it("keeps pending decision rows out of census, hot seams, and the rendered document", () => {
+  const conflict = {
+    path: "scripts/seam.txt",
+    commit: A,
+    subject: "feat: seam",
+    domain: "fork-meta",
+    class: "human",
+    resolution: "resolved by hand",
+    decidedBy: "human",
+  };
+  const pendingRow = {
+    tag: "t1",
+    before: A,
+    after: A,
+    recordUrl: "https://example.test/r1",
+    conflicts: [conflict],
+    decisions: [],
+    censusFiles: [{ path: "scripts/seam.txt", hunks: 1, commit: A, domain: "fork-meta" }],
+    walkDecisions: [decision()],
+    pending: true,
+  };
+  const finishedRow = { ...pendingRow, tag: "t2", pending: undefined };
+  const ledger = parseLedger(JSON.stringify([pendingRow, finishedRow]));
+  assert.deepStrictEqual(
+    ledger.map((row) => row.pending),
+    [true, undefined],
+  );
+  assert.deepStrictEqual(ledger[1]?.walkDecisions?.map(walkDecisionIdentity), [
+    walkDecisionIdentity(decision()),
+  ]);
+  // The pending row's census cannot extend a run, and its stopped conflict is not a hot seam yet.
+  assert.deepStrictEqual(censusChurn([ledger[0]!]).hotPaths, []);
+  assert.deepStrictEqual(hotSeams([ledger[0]!]), []);
+  assert.strictEqual(hotSeams([ledger[1]!]).length, 1);
+  assert.notInclude(renderMarkdown([ledger[0]!], ""), "scripts/seam.txt");
+});
+
+const RECORD_SHIM = `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const argv = process.argv.slice(2);
+const state = process.env.FIXTURE_STATE;
+const body = fs.readFileSync(process.env.FIXTURE_ISSUE_BODY, "utf8");
+const commentsFile = path.join(state, "comments.json");
+const comments = fs.existsSync(commentsFile) ? JSON.parse(fs.readFileSync(commentsFile, "utf8")) : [];
+const issueUrl = "https://example.test/issues/662";
+if (argv[0] === "issue" && argv[1] === "list") {
+  process.stdout.write(JSON.stringify([{ number: 662, title: "blocked", body }]));
+} else if (argv[0] === "issue" && argv[1] === "view") {
+  if (argv.includes("--comments")) process.stdout.write("comments\\n");
+  else process.stdout.write(JSON.stringify({ body, url: issueUrl, comments }));
+} else if (argv[0] === "issue" && argv[1] === "comment") {
+  const file = argv.indexOf("--body-file");
+  const inline = argv.indexOf("--body");
+  const text = file !== -1 ? fs.readFileSync(argv[file + 1], "utf8") : argv[inline + 1];
+  const commentUrl = issueUrl + "#issuecomment-" + (comments.length + 1);
+  comments.push({ url: commentUrl, body: text });
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(commentsFile, JSON.stringify(comments));
+  process.stdout.write(commentUrl + "\\n");
+} else {
+  process.stdout.write("[]\\n");
+}
+`;
+
+const TOOL_SHIM = `#!${process.execPath}
+const fs = require("node:fs");
+const script = process.argv[2] ?? "";
+if (script.endsWith("fork-orient.ts")) {
+  process.stdout.write(fs.readFileSync(process.env.FIXTURE_ORIENT, "utf8"));
+}
+process.exit(0);
+`;
+
+/**
+ * One temp remote, two consecutive tags: the whole shape RSI-Software/t3code-hyprws#662 is about.
+ * Tag A's walk stops `conflict` on a seam the outcome executor may not decide; the human resolves
+ * it by hand and `record-decisions` saves the resolution to the shared rerere ref plus a pending
+ * ledger row; the tag B walk then applies with zero stops, resolving the seam from the record.
+ */
+it("never asks twice: a hand-resolved seam resolves from the record on the next tag", () => {
+  const git = (args: ReadonlyArray<string>, cwd: string): string =>
+    NodeChildProcess.execFileSync("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 })
+      .toString()
+      .trim();
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-record-"));
+  const remote = NodePath.join(root, "remote.git");
+  const bin = NodePath.join(root, "bin");
+  const previous: Record<string, string | undefined> = {
+    PATH: process.env.PATH,
+    HYPRWS_AUTO_REBASE: process.env.HYPRWS_AUTO_REBASE,
+    GITHUB_RUN_ID: process.env.GITHUB_RUN_ID,
+    FIXTURE_STATE: process.env.FIXTURE_STATE,
+    FIXTURE_ISSUE_BODY: process.env.FIXTURE_ISSUE_BODY,
+    FIXTURE_ORIENT: process.env.FIXTURE_ORIENT,
+  };
+  try {
+    NodeFS.mkdirSync(bin, { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(bin, "gh"), RECORD_SHIM, { mode: 0o755 });
+    NodeFS.writeFileSync(NodePath.join(bin, "vp"), TOOL_SHIM, { mode: 0o755 });
+    NodeFS.writeFileSync(NodePath.join(bin, "node"), TOOL_SHIM, { mode: 0o755 });
+    git(["init", "-q", "-b", "main"], root);
+    git(["config", "user.name", "test"], root);
+    git(["config", "user.email", "test@example.invalid"], root);
+    NodeFS.mkdirSync(NodePath.join(root, ".github", "workflows"), { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(root, ".github", "workflows", "hyprws-upstream-sync.yml"),
+      'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
+    );
+    NodeFS.writeFileSync(NodePath.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    NodeFS.mkdirSync(NodePath.join(root, "scripts"), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, "scripts/fixture-seam.txt"), "l1\nshared\nl3\n");
+    NodeFS.writeFileSync(NodePath.join(root, "scripts/fixture-keep-both.ts"), "k1\n");
+    git(["add", "."], root);
+    git(["commit", "-q", "-m", "u0 base"], root);
+    const blockingSha = git(["rev-parse", "HEAD"], root);
+    git(["branch", "upstream/main"], root);
+    NodeFS.writeFileSync(NodePath.join(root, "scripts/fixture-seam.txt"), "l1\nFORK\nl3\n");
+    NodeFS.appendFileSync(NodePath.join(root, "scripts/fixture-keep-both.ts"), "FORK-KEEP\n");
+    git(["add", "."], root);
+    git(
+      [
+        "commit",
+        "-q",
+        "-m",
+        "feat(fork): fixture seam\n\nFork-Domain: fork-meta\nFork-Tier: core\n",
+      ],
+      root,
+    );
+    git(["checkout", "-q", "upstream/main"], root);
+    NodeFS.writeFileSync(NodePath.join(root, "scripts/fixture-seam.txt"), "l1\nUPSTREAM\nl3\n");
+    NodeFS.appendFileSync(NodePath.join(root, "scripts/fixture-keep-both.ts"), "UP-KEEP\n");
+    git(["commit", "-aqm", "u1 upstream"], root);
+    git(["tag", "v0.0.1-nightly.20260901.1"], root);
+    NodeFS.writeFileSync(NodePath.join(root, "scripts/fixture-seam.txt"), "l0\nl1\nUPSTREAM\nl3\n");
+    NodeFS.appendFileSync(NodePath.join(root, "scripts/fixture-keep-both.ts"), "UP-KEEP-2\n");
+    git(["commit", "-aqm", "u2 upstream"], root);
+    git(["tag", "v0.0.1-nightly.20260902.1"], root);
+    git(["checkout", "-q", "main"], root);
+    git(["init", "-q", "--bare", remote], root);
+    git(["remote", "add", "origin", remote], root);
+    git(["push", "-q", "origin", "main:refs/heads/hyprws"], root);
+    git(["fetch", "-q", "origin"], root);
+    writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+    NodeChildProcess.execFileSync("git", ["push", "-q", remote, `${CHURN_REF}:${CHURN_REF}`], {
+      cwd: root,
+    });
+    const issueBody = NodePath.join(root, "issue-body.md");
+    NodeFS.writeFileSync(
+      issueBody,
+      [
+        "Blocked.",
+        `<!-- blocking-sha:${blockingSha} -->`,
+        "",
+        "## Sequential rebase census",
+        "",
+        "<!-- prettier-ignore -->",
+        "| File | Hunks | Fork commit | Domain |",
+        "| --- | ---: | --- | --- |",
+        "| `scripts/fixture-seam.txt` | 1 | `abcdef12345 feat(fork): fixture seam` | fork-meta |",
+        "",
+      ].join("\n"),
+    );
+    const orientation = NodePath.join(root, "orientation.txt");
+    NodeFS.writeFileSync(
+      orientation,
+      [
+        `mirror:  origin/main matches upstream/main at ${blockingSha.slice(0, 12)}`,
+        "",
+        "## Automerged overlap",
+        "",
+        "None.",
+        "",
+      ].join("\n"),
+    );
+    process.env.PATH = `${bin}:${previous.PATH ?? ""}`;
+    process.env.FIXTURE_STATE = NodePath.join(root, "gh-state");
+    process.env.FIXTURE_ISSUE_BODY = issueBody;
+    process.env.FIXTURE_ORIENT = orientation;
+    process.env.HYPRWS_AUTO_REBASE = "on";
+    process.env.GITHUB_RUN_ID = "424242";
+    const runner = new SystemRunner();
+    const tagA = "v0.0.1-nightly.20260901.1";
+    const tagB = "v0.0.1-nightly.20260902.1";
+
+    // Tag A: the walk stops on the seam the executor declines.
+    let stopCode = 0;
+    const stoppedWalk = captureStdout(() =>
+      withCapturedStderr(() => {
+        stopCode = run(["unblock-auto", "--target", tagA, "--bot-carried"], root, runner);
+      }),
+    );
+    assert.strictEqual(stopCode, 2, stoppedWalk.output);
+    const reportPath = /^(\S+\/report\.json)$/m.exec(stoppedWalk.output)?.[1] ?? "";
+    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(reportPath, "utf8")));
+    assert.strictEqual(stopped.stage, "conflicts");
+    assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+    // The walk mints its lane in its own tmpdir; only its path is read here, never deleted.
+    const lane = stopped.lane?.worktree ?? "";
+    assert.match(lane, /^\/tmp\//);
+    // The declined row carries its seam key; the executor's keep-both row is decided and only the
+    // declined seam reaches the human.
+    const seamRow = stopped.conflicts.find((row) => row.path === "scripts/fixture-seam.txt");
+    assert.isDefined(seamRow?.seamKey);
+    assert.strictEqual(seamRow?.agentSafe, "TODO");
+    const keepBothRow = stopped.conflicts.find(
+      (row) => row.path === "scripts/fixture-keep-both.ts",
+    );
+    assert.strictEqual(keepBothRow?.agentSafe, "true");
+    assert.isDefined(
+      (stopped.decisions ?? []).find(
+        (row) => row.outcome === "keep-both" && row.decidedBy === "machine",
+      ),
+    );
+
+    // The human resolves the seam by hand in the lane, then records it.
+    NodeFS.writeFileSync(NodePath.join(lane, "scripts/fixture-seam.txt"), "l1\nRESOLVED\nl3\n");
+    git(["add", "scripts/fixture-seam.txt"], lane);
+    const recorded = execute(
+      ["record-decisions", "--report", reportPath, "--tag", tagA],
+      root,
+      runner,
+    );
+    const humanDecision = (recorded.decisions ?? []).find(
+      (row) =>
+        row.kind === "conflict" &&
+        row.decidedBy === "human" &&
+        row.outcome === "manual" &&
+        row.path === "scripts/fixture-seam.txt",
+    );
+    assert.strictEqual(humanDecision?.subject, seamRow?.seamKey);
+    assert.strictEqual(humanDecision?.outcome, "manual");
+    assert.strictEqual(humanDecision?.tag, tagA);
+    // The shared cache advanced on origin and carries the human's resolution.
+    const rerereListing = git(["ls-tree", "-r", RERERE_REF], remote);
+    const postimageSha =
+      /^100644 blob ([0-9a-f]{40})\t.+postimage$/m.exec(rerereListing)?.[1] ?? "";
+    assert.notEqual(postimageSha, "");
+    assert.include(git(["cat-file", "blob", postimageSha], remote), "RESOLVED");
+    // The ledger carries one pending row with the human decision.
+    const ledgerAfterRecord = parseLedger(
+      readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
+    );
+    assert.strictEqual(ledgerAfterRecord.length, 1);
+    assert.strictEqual(ledgerAfterRecord[0]?.pending, true);
+    assert.strictEqual(ledgerAfterRecord[0]?.tag, tagA);
+    assert.strictEqual(
+      ledgerAfterRecord[0]?.walkDecisions?.filter(
+        (row) =>
+          row.kind === "conflict" && row.decidedBy === "human" && row.subject === seamRow?.seamKey,
+      ).length,
+      1,
+    );
+
+    // Tag B: forget the local cache, restore it from the ref exactly as the carry does, and walk.
+    // The same seam conflicts again one line lower; the record must answer it.
+    NodeFS.rmSync(NodePath.join(root, ".git", "rr-cache"), { recursive: true, force: true });
+    assert.strictEqual(carryRun(["rerere-restore"], root), 0);
+    let applyCode = 0;
+    const appliedWalk = captureStdout(() =>
+      withCapturedStderr(() => {
+        applyCode = run(["unblock-auto", "--target", tagB, "--bot-carried"], root, runner);
+      }),
+    );
+    assert.strictEqual(applyCode, 0, appliedWalk.output);
+    const appliedReportPath = /^(\S+\/report\.json)$/m.exec(appliedWalk.output)?.[1] ?? "";
+    const applied = validateReport(JSON.parse(NodeFS.readFileSync(appliedReportPath, "utf8")));
+    assert.strictEqual(applied.stage, "applied");
+    assert.isUndefined(applied.walk?.stop);
+    // Zero stops: rerere replayed the human resolution and the record names where it came from.
+    const rerereDecision = (applied.decisions ?? []).find(
+      (row) => row.decidedBy === "rerere" && row.subject === seamRow?.seamKey,
+    );
+    assert.strictEqual(rerereDecision?.from, tagA);
+    assert.strictEqual(rerereDecision?.outcome, "manual");
+    assert.isDefined(
+      (applied.decisions ?? []).find(
+        (row) => row.decidedBy === "machine" && row.outcome === "keep-both",
+      ),
+    );
+    // The applied row carries both records; across both rows the seam has exactly one human and
+    // one rerere decision.
+    const ledgerAfter = parseLedger(readBotRefFile(remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(ledgerAfter.map((row) => row.tag).toSorted(), [tagA, tagB]);
+    const rowB = ledgerAfter.find((row) => row.tag === tagB);
+    assert.isUndefined(rowB?.pending);
+    assert.strictEqual(
+      rowB?.walkDecisions?.filter(
+        (row) =>
+          row.subject === seamRow?.seamKey && row.decidedBy === "rerere" && row.from === tagA,
+      ).length,
+      1,
+    );
+    const seamRecords = ledgerAfter
+      .flatMap((row) => row.walkDecisions ?? [])
+      .filter((row) => row.subject === seamRow?.seamKey);
+    assert.deepStrictEqual(seamRecords.map((row) => row.decidedBy).toSorted(), ["human", "rerere"]);
+    assert.strictEqual(git(["rev-parse", "refs/heads/hyprws"], remote), applied.installedHead);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    // Deletion guard: the only path this test removes is its own mkdtemp root, asserted to sit
+    // directly under the OS temp directory. Lane and report directories are minted by the walk in
+    // their own tmpdirs — leave them as strays rather than delete any derived path.
+    if (
+      root.startsWith(`${NodeOS.tmpdir()}${NodePath.sep}`) &&
+      NodeFS.existsSync(root) &&
+      NodeFS.realpathSync(root).startsWith(NodeFS.realpathSync(NodeOS.tmpdir()))
+    )
+      NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
