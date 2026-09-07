@@ -2,10 +2,13 @@ import { git, REPOSITORY, requireSuccess } from "./fork-sync-state.ts";
 import { type CwdCommandRunner as CommandRunner } from "./lib/fork-command.ts";
 
 /**
- * `hyprws CI` is the fork's only full-suite authority. Both the unblock lane's gate 3 and the
- * stable cut's prepare take their `check`, `typecheck`, and `test` verdict from a run on the exact
- * pushed head, because running that battery on the operator machine has killed panes under memory
- * pressure.
+ * `hyprws CI` is the fork's only full-suite authority. The series rewrite lane and the stable cut's
+ * prepare take their `check`, `typecheck`, and `test` verdict from a run on the exact pushed head,
+ * because running that battery on the operator machine has killed panes under memory pressure.
+ *
+ * The unattended unblock walk does not come here. It verifies in the lane it just built, with a
+ * repair pass scoped to what the replay touched, so it never has to push a lane and wait on a
+ * verdict it could not act on. Trunk CI is what checks the walk's apply, after the fact.
  */
 export interface CiRun {
   readonly databaseId: number;

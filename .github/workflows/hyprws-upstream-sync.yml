@@ -229,9 +229,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  # The carried unblock walk. It waits on the rehearsal lane's CI, so it gets its
-  # own timeout; the workflow-level hyprws-rebase concurrency group is the lease,
-  # and unblock-auto --bot-carried refuses if any other run holds it.
+  # The carried unblock walk. It resolves, repairs, and applies in one invocation,
+  # and verifies in its own lane rather than waiting on a pushed CI verdict. It
+  # still gets its own timeout because a replay of the whole stack is long; the
+  # workflow-level hyprws-rebase concurrency group is the lease, and
+  # unblock-auto --bot-carried refuses if any other run holds it.
   carry:
     name: Carry unblock walk
     needs: rebase

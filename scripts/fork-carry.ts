@@ -87,8 +87,8 @@ const STOP_HEADING = "## Carried walk stopped";
 
 /**
  * The stop surface verbatim, so the agent that picks the walk up reads exactly what
- * the walk refused on. The runner's report is gone by then, so the resume line the
- * walk printed is replaced by the local restart.
+ * the walk refused on. The runner's report is gone by then, so every line pointing at a
+ * runner-local report is replaced by the local restart.
  */
 export const renderStopComment = (log: string, tag: string): string =>
   [
@@ -106,7 +106,10 @@ export const renderStopComment = (log: string, tag: string): string =>
     "```",
     log
       .split("\n")
-      .filter((line) => !line.startsWith("resume: node scripts/fork-sync.ts"))
+      .filter(
+        (line) =>
+          !line.startsWith("resume: node scripts/fork-sync.ts") && !line.startsWith("report: /"),
+      )
       .join("\n")
       .trimEnd(),
     "```",
