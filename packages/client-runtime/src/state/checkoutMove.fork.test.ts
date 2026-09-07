@@ -1,12 +1,12 @@
 import { EnvironmentId, ThreadId, type ThreadCheckoutMove } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
-import { mergeEnvironmentThread } from "./threadDetail.ts";
 import {
   boundedTerminalAttachmentId,
   checkoutMoveExpectedRoot,
   isCheckoutMoveInFlight,
   isStaleCheckoutMoveRejection,
+  mergeEnvironmentThreadWithCheckoutMove,
   presentCheckoutMove,
   shouldFollowCommittedCheckout,
 } from "./checkoutMove.ts";
@@ -114,7 +114,7 @@ describe("checkout move client policy", () => {
       checkoutMove: shellMove,
     } as EnvironmentThreadShell;
 
-    expect(mergeEnvironmentThread(detail, shell)).toMatchObject({
+    expect(mergeEnvironmentThreadWithCheckoutMove(detail, shell)).toMatchObject({
       branch: "feature",
       worktreePath: "/repo/feature",
       checkoutMove: shellMove,
