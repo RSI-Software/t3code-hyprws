@@ -25,8 +25,11 @@ import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/f
 import {
   executeConflictOutcome,
   isUnresolved,
+  readConflictStages,
+  seamKey,
   type UnresolvedOutcome,
 } from "./lib/fork-conflict-outcomes.ts";
+import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
 import {
   formatCommand,
   repairCommitMessage,
@@ -99,6 +102,7 @@ import {
   splitTableCells,
   SYNC_HELP,
   uniqueSilentSeams,
+  walkDecisionsOf,
   writeRecord,
   writeReport,
   worktreePath,
@@ -2085,6 +2089,119 @@ const publishWalkOutcomes = (report: SyncReport): SyncReport =>
     runOutcome(["--sync-report", report.reportPath, "--push"], report.repositoryRoot);
   });
 
+/**
+ * The stopped walk's ledger row: pending until the walk completes, so census and hot seams skip
+ * it, and the upgrade on the applied append carries the recorded decisions forward (#662).
+ */
+const publishPendingDecisionRow = (report: SyncReport, tag: string): SyncReport =>
+  ledgerWrite(report, "pending decision row", () =>
+    appendChurnRow(
+      [
+        "--record",
+        report.recordPath,
+        "--issue",
+        String(report.issue.number),
+        "--tag",
+        tag,
+        "--before",
+        report.source?.expectedOld ?? "",
+        "--after",
+        report.source?.sha ?? "",
+        "--pending",
+        "--push",
+      ],
+      report.repositoryRoot,
+    ),
+  );
+
+/**
+ * Export a stopped walk's human resolutions so the next tag resolves without a stop
+ * (RSI-Software/t3code-hyprws#662). Run in the lane after resolving and staging every declined
+ * path: it flushes rerere's recorded resolutions to the shared ref and writes the decisions to
+ * the record and a pending ledger row, each published under its own lease.
+ */
+export const recordDecisions = (
+  values: ReadonlyMap<string, string>,
+  cwd: string,
+  runner: CommandRunner,
+): SyncReport => {
+  assertOnly(values, ["--report", "--tag"]);
+  const reportPath = oneValue(values, "--report", true);
+  const tag = oneValue(values, "--tag", true);
+  if (reportPath === null || tag === null) throw new UsageError("--report and --tag are required");
+  const report = readReport(reportPath);
+  if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict")
+    throw new UsageError("record-decisions requires a conflict-stop report");
+  if (report.target === undefined || report.target.tag !== tag)
+    throw new UsageError(`--tag ${tag} does not match the stopped walk's target`);
+  if (report.lane === undefined) throw new UsageError("the stopped report has no lane");
+  const worktree = report.lane.worktree;
+  const declined = pendingAutoConflictRows(report);
+  if (declined.length === 0)
+    throw new UsageError("the stopped report names no rows a human has to resolve");
+  void cwd;
+  // Stage the recorded resolutions: the human resolved the worktree and staged it; this makes
+  // rerere write each path's postimage so the shared ref can carry the resolution forward.
+  git(runner, worktree, ["-c", "rerere.enabled=true", "rerere"], true);
+  const remaining = new Set(lines(git(runner, worktree, ["rerere", "status"], true)));
+  for (const row of declined)
+    if (remaining.has(row.path) || !rererePathIsClean(row, remaining, worktree, runner))
+      throw new UsageError(
+        `${row.path} still has an unresolved conflict; resolve it, stage it, and rerun record-decisions`,
+      );
+  const snapshot = saveRerereCache(worktree, `rerere: recorded ${tag}`);
+  if (snapshot !== null) {
+    try {
+      const commit = publishRerereSnapshot(worktree, snapshot);
+      process.stdout.write(`${RERERE_REF} at ${commit}\n`);
+    } catch (error) {
+      throw new Error(
+        `environment: publishing ${RERERE_REF} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  // One manual record per declined row, keyed by the seam the walk captured at decline time.
+  const stamp = decisionStamp(report);
+  let decisions: ReadonlyArray<WalkDecision> = report.decisions ?? [];
+  for (const row of declined) {
+    const key = row.seamKey ?? null;
+    decisions = appendDecision(decisions, {
+      kind: "conflict",
+      subject: key ?? row.path,
+      path: row.path,
+      outcome: "manual",
+      decidedBy: "human",
+      ...stamp,
+    });
+  }
+  const recorded: SyncReport = { ...report, decisions };
+  writeReport(recorded);
+  writeRecord(recorded);
+  // The record must be on the issue before the ledger row names it: recordUrl is the pointer a
+  // maintainer follows from the ledger to the human's own words.
+  const recordUrl = requireSuccess(
+    runner,
+    "gh",
+    [
+      "issue",
+      "comment",
+      String(recorded.issue.number),
+      "-R",
+      REPOSITORY,
+      "--body-file",
+      recorded.recordPath,
+    ],
+    worktree,
+  ).trim();
+  process.stdout.write(`record: ${recordUrl}\n`);
+  publishPendingDecisionRow(recorded, tag);
+  for (const row of declined)
+    process.stdout.write(`recorded: ${row.path} (${row.seamKey ?? "no seam key"}) by hand\n`);
+  return recorded;
+};
+
 const unblockApply = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -2714,8 +2831,58 @@ export type AutoConflictResolution =
   | { readonly kind: "resolved"; readonly report: SyncReport }
   | {
       readonly kind: "unresolved";
-      readonly rows: ReadonlyArray<UnresolvedOutcome & { readonly subject: string }>;
+      readonly rows: ReadonlyArray<
+        UnresolvedOutcome & { readonly subject: string; readonly seamKey: string | null }
+      >;
+      /** The report's conflict rows with the executor's decisions applied: only the declined rows
+       * remain for a human, and they carry the seam keys captured while the stages existed. */
+      readonly conflicts: ReadonlyArray<ConflictRow>;
+      /** Records the walk already made before it stopped: the executor's outcomes. */
+      readonly decisions: ReadonlyArray<WalkDecision>;
     };
+
+/** The walk tag and stamp every decision this walk records carries. */
+const decisionStamp = (
+  report: SyncReport,
+): { readonly tag: string; readonly recordedAt: string } => ({
+  tag: report.target?.tag ?? "unknown",
+  recordedAt: report.walk?.startedAt ?? new Date().toISOString(),
+});
+
+/** The outcome a conflict decision records, in the walk's own vocabulary. */
+const decisionOutcome = (take: "ours" | "theirs" | "merge" | "union"): string =>
+  take === "ours" || take === "theirs" ? take : "keep-both";
+
+/** Seam key for a conflicted path while its index stages still exist; `null` otherwise. */
+const seamKeyFor = (runner: CommandRunner, worktree: string, path: string): string | null => {
+  const stages = readConflictStages(runner, worktree, path);
+  return stages === null ? null : seamKey(runner, worktree, { path, ...stages });
+};
+
+/**
+ * What earlier walks recorded per seam key, so a rerere replay names the walk and the outcome it
+ * resolved from instead of silently re-deciding (RSI-Software/t3code-hyprws#662). A missing or
+ * unreadable ledger means no prior record, never a stop.
+ */
+const priorDecisionLookup = (root: string): ((key: string) => WalkDecision | null) => {
+  let prior = new Map<string, WalkDecision>();
+  try {
+    prior = new Map(
+      readChurnLedger(root)
+        .flatMap((row) => row.walkDecisions ?? [])
+        .filter(
+          (row) =>
+            row.kind === "conflict" &&
+            row.decidedBy !== "machine" &&
+            /^[0-9a-f]{64}$/.test(row.subject),
+        )
+        .map((row) => [row.subject, row]),
+    );
+  } catch {
+    return () => null;
+  }
+  return (key: string) => prior.get(key) ?? null;
+};
 
 /**
  * Machine conflict ownership, in two passes. rerere replays what a previous walk already decided;
@@ -2739,23 +2906,74 @@ export const autoResolveConflicts = (
     // No rerere verdict means no reusable resolution, not a stop: every row falls to the executor.
     remaining = new Set(candidates.map(({ path }) => path));
   }
+  const stamp = decisionStamp(report);
+  const priorDecision = priorDecisionLookup(report.repositoryRoot);
+  const keys = new Map<ConflictRow, string>();
+  const decisions: Array<WalkDecision> = [];
   const decided = new Map<ConflictRow, Pick<ConflictRow, "class" | "resolution">>();
-  const unresolved: Array<UnresolvedOutcome & { readonly subject: string }> = [];
+  const unresolved: Array<
+    UnresolvedOutcome & { readonly subject: string; readonly seamKey: string | null }
+  > = [];
   for (const row of candidates) {
+    // The seam key is only computable while the index still carries the conflict stages: once the
+    // row is resolved or staged they are gone, and this key is what ties the row to a record.
+    const key = seamKeyFor(runner, worktree, row.path);
+    if (key !== null) keys.set(row, key);
     if (isRerereRow(row) && rererePathIsClean(row, remaining, worktree, runner)) {
-      decided.set(row, { class: "mechanical", resolution: "rerere replay" });
+      const prior = key === null ? null : priorDecision(key);
+      decided.set(row, {
+        class: "mechanical",
+        resolution:
+          prior === null
+            ? "rerere replay"
+            : `rerere replay: ${prior.tag} resolved ${prior.outcome}`,
+      });
+      decisions.push({
+        kind: "conflict",
+        subject: key ?? row.path,
+        path: row.path,
+        outcome: prior?.outcome ?? "rerere replay",
+        decidedBy: "rerere",
+        ...stamp,
+        ...(prior === null ? {} : { from: prior.tag }),
+      });
       continue;
     }
     // Supersession evidence deliberately plays no part here: gate 4 keeps the commit, so taking
     // the upstream side of its files would keep the commit and drop the behaviour it carries.
     const outcome = executeConflictOutcome(runner, worktree, row.path);
     if (isUnresolved(outcome)) {
-      unresolved.push({ ...outcome, subject: row.subject });
+      unresolved.push({ ...outcome, subject: row.subject, seamKey: key });
       continue;
     }
     decided.set(row, { class: outcome.conflictClass, resolution: outcome.resolution });
+    decisions.push({
+      kind: "conflict",
+      subject: key ?? row.path,
+      path: row.path,
+      outcome: decisionOutcome(outcome.take),
+      decidedBy: "machine",
+      ...stamp,
+    });
   }
-  if (unresolved.length > 0) return { kind: "unresolved", rows: unresolved };
+  if (unresolved.length > 0)
+    return {
+      kind: "unresolved",
+      rows: unresolved,
+      decisions,
+      conflicts: report.conflicts.map((row) => {
+        const outcome = decided.get(row);
+        if (outcome === undefined) return row;
+        const key = keys.get(row);
+        return {
+          ...row,
+          ...outcome,
+          agentSafe: "true",
+          decidedBy: "agent",
+          ...(key === undefined ? {} : { seamKey: key }),
+        };
+      }),
+    };
   // Format the resolutions here, inside the conflict, so the fix is part of the replayed commit.
   const format = formatCommand([...new Set(candidates.map(({ path }) => path))]);
   if (format !== null) {
@@ -2764,12 +2982,20 @@ export const autoResolveConflicts = (
   }
   const next: SyncReport = {
     ...report,
+    ...(decisions.length === 0 ? {} : { decisions: [...(report.decisions ?? []), ...decisions] }),
     conflicts: report.conflicts.map((row) => {
       if (!pending.includes(row)) return row;
       if (row.class === "generated") return { ...row, decidedBy: "agent" };
       const outcome = decided.get(row);
       if (outcome === undefined) return row;
-      return { ...row, ...outcome, agentSafe: "true", decidedBy: "agent" };
+      const key = keys.get(row);
+      return {
+        ...row,
+        ...outcome,
+        agentSafe: "true",
+        decidedBy: "agent",
+        ...(key === undefined ? {} : { seamKey: key }),
+      };
     }),
   };
   writeReport(next);
@@ -3175,9 +3401,37 @@ const walkOnce = (
       executingPhase = "unblock-auto";
       if (report.stage !== "conflicts") continue;
       const resolution = autoResolveConflicts(report, runner);
-      if (resolution.kind === "unresolved")
+      if (resolution.kind === "unresolved") {
+        // The stop itself is a record: the declined rows are the human's to decide, and
+        // record-decisions upgrades this stopped row once the maintainer resolves (#662).
+        const stamp = decisionStamp(report);
+        const stopDecisions: ReadonlyArray<WalkDecision> = resolution.rows.map(({ path }) => ({
+          kind: "stop",
+          subject: path,
+          path,
+          outcome: "conflict",
+          decidedBy: "human",
+          ...stamp,
+        }));
+        // The keys were computed while the stages existed; they must survive onto the stopped
+        // report or record-decisions could no longer name the seam the human resolved. Rows the
+        // executor already decided carry their outcome, so only declined rows reach the human.
+        const seamKeys = new Map(
+          resolution.rows
+            .filter((row) => row.seamKey !== null)
+            .map((row) => [row.path, row.seamKey as string]),
+        );
         return stopWalk(
-          report,
+          {
+            ...report,
+            decisions: [...(report.decisions ?? []), ...resolution.decisions, ...stopDecisions],
+            conflicts: resolution.conflicts.map((row) => {
+              const key = seamKeys.get(row.path);
+              return key === undefined || row.seamKey !== undefined
+                ? row
+                : { ...row, seamKey: key };
+            }),
+          },
           "conflict",
           [
             "The outcome executor cannot produce a result for:",
@@ -3187,6 +3441,7 @@ const walkOnce = (
           ].join("\n"),
           started,
         );
+      }
       report = resolution.report;
     }
 
@@ -3250,6 +3505,9 @@ const walkOnce = (
 
     report = { ...report, walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started } };
     writeReport(report);
+    // The stop surface leads with the report path; so does the applied surface, so a caller can
+    // always find the full report the summary summarizes.
+    process.stdout.write(`${report.reportPath}\n`);
     process.stdout.write(walkSummary(report));
     return report;
   } catch (error) {
@@ -3326,7 +3584,9 @@ const healCurrentTrunkRow = (values: ReadonlyMap<string, string>, runner: Comman
   const live = runner.run("git", ["rev-parse", "origin/hyprws^{commit}"], root);
   if (live.status !== 0 || live.stdout.trim() !== report.installedHead) return;
   fetchBotRef(root, CHURN_REF);
-  if (readChurnLedger(root).some((entry) => entry.tag === tag)) return;
+  const existing = readChurnLedger(root).find((entry) => entry.tag === tag);
+  // A pending row is a stopped walk's decision record; the applied trunk's append upgrades it.
+  if (existing !== undefined && existing.pending !== true) return;
   if (!NodeFS.existsSync(report.recordPath)) {
     process.stderr.write(
       `warning: ${CHURN_REF} has no row for the applied trunk tag ${tag} and ${report.recordPath} is gone; the row needs a backfill\n`,
@@ -3382,6 +3642,11 @@ const additiveSummaryRows = (
 };
 
 /** One block the notification issue can carry verbatim. */
+const decisionSummaryLine = (decision: WalkDecision): string =>
+  `  - \`${decision.subject}\` (${decision.outcome}, ${decision.decidedBy}${
+    decision.from === undefined ? "" : `, from ${decision.from}`
+  })`;
+
 export const walkSummary = (report: SyncReport): string => {
   const walk = report.walk ?? {};
   const rows = report.conflicts.filter(({ class: klass }) => klass !== "generated");
@@ -3396,6 +3661,12 @@ export const walkSummary = (report: SyncReport): string => {
           "- conflicts:",
           ...rows.map((row) => `  - \`${row.path}\` [${row.class}]: ${row.resolution}`),
         ].join("\n"),
+    ...(() => {
+      const decisions = walkDecisionsOf(report);
+      return decisions.length === 0
+        ? "- decisions: none"
+        : ["- decisions:", ...decisions.map(decisionSummaryLine)];
+    })(),
     (walk.repairs ?? []).length === 0
       ? "- repairs: none"
       : [
@@ -3827,6 +4098,7 @@ export const execute = (
   if (verb === "unblock-review") return unblockReview(values, cwd, runner);
   if (verb === "unblock-refresh") return unblockRefresh(values, cwd, runner);
   if (verb === "unblock-apply") return unblockApply(values, cwd, runner);
+  if (verb === "record-decisions") return recordDecisions(values, cwd, runner);
   if (verb === "rewrite-rehearse")
     return rewriteRehearse(values, cwd, runner) as unknown as SyncReport;
   throw new UsageError(`unknown verb: ${verb}`);

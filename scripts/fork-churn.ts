@@ -40,6 +40,7 @@ import { bridgedLegacy, requireSeamRecords } from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
+import { appendDecision, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
 import { canonicalizeOutcomeReceiptsForRoot, runOutcome } from "./fork-churn-outcomes.ts";
 import {
@@ -163,7 +164,12 @@ const formatCommits = (
 
 const percentage = (part: number, total: number): string => `${((part / total) * 100).toFixed(1)}%`;
 
-export const renderMarkdown = (entries: ReadonlyArray<ChurnEntry>, forkDelta: string): string => {
+export const renderMarkdown = (
+  rawEntries: ReadonlyArray<ChurnEntry>,
+  forkDelta: string,
+): string => {
+  // A pending row is a stopped walk's in-progress record; the published document shows walks.
+  const entries = rawEntries.filter((entry) => entry.pending !== true);
   const lines: Array<string> = [
     "# Fork conflict churn",
     "",
@@ -386,7 +392,8 @@ const takeFlag = (args: ReadonlyArray<string>, flag: string): [boolean, Readonly
  */
 export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void => {
   const [push, rest] = takeFlag(args, "--push");
-  const options = parseOptions(rest);
+  const [pending, restAfterPending] = takeFlag(rest, "--pending");
+  const options = parseOptions(restAfterPending);
   const allowed = new Set(["--record", "--issue", "--tag", "--before", "--after"]);
   for (const option of options.keys())
     if (!allowed.has(option)) throw new UsageError(`unknown option: ${option}`);
@@ -408,10 +415,12 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
   // appends to it instead of rebuilding a stale ledger (#631).
   const lease = acquireBotRefLease(root, CHURN_REF, push);
   const entries = readDurableLedger(root);
-  if (entries.some((entry) => entry.tag === tag)) throw new Error(`duplicate tag: ${tag}`);
+  if (entries.some((entry) => entry.tag === tag && entry.pending !== true))
+    throw new Error(`duplicate tag: ${tag}`);
+  const pendingEntry = entries.find((entry) => entry.tag === tag && entry.pending === true);
 
   const record = NodeFS.readFileSync(recordPath, "utf8");
-  const parsed = parseRecord(record);
+  const parsed = parseRecord(record, { allowIncomplete: pending });
   const issueView = JSON.parse(
     runCommandText(
       "gh",
@@ -433,35 +442,46 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       commit,
       subject,
       domain,
-      class: klass as ConflictClass,
+      // A pending row keeps its declined rows: the walk stopped them for a human, so the ledger
+      // names them human until the applied row records how the walk resolved (#662).
+      class: (klass === "TODO" ? "human" : klass) as ConflictClass,
       resolution,
-      decidedBy,
+      decidedBy: decidedBy === "TODO" ? "human" : decidedBy,
     }),
   );
   const silentSeams = parseSilentSeams(record);
   const repairCommits = parseRepairCommits(record);
-  const next = [
-    ...entries,
-    {
-      tag,
-      before,
-      after,
-      recordUrl,
-      conflicts,
-      decisions: parsed.decisions,
-      censusFiles: parseCensusFiles(issueView.body),
-      ...(censusEvidence === null ? {} : { censusEvidence }),
-      ...(silentSeams.length === 0 ? {} : { silentSeams }),
-      ...(repairCommits.length === 0 ? {} : { repairCommits }),
-      ...(parsed.additive === undefined ? {} : { additive: parsed.additive }),
-      ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
-    },
-  ] satisfies ReadonlyArray<ChurnEntry>;
+  // Every decision the walk recorded, carried from the record's own decision lines. A pending
+  // row from the stop keeps its decisions — the upgrade merges rather than drops (#662).
+  let walkDecisions: ReadonlyArray<WalkDecision> = parseDecisionRecords(record);
+  if (pendingEntry !== undefined)
+    for (const decision of pendingEntry.walkDecisions ?? [])
+      walkDecisions = appendDecision(walkDecisions, decision);
+  const row: ChurnEntry = {
+    tag,
+    before,
+    after,
+    recordUrl,
+    conflicts,
+    decisions: parsed.decisions,
+    censusFiles: parseCensusFiles(issueView.body),
+    ...(censusEvidence === null ? {} : { censusEvidence }),
+    ...(silentSeams.length === 0 ? {} : { silentSeams }),
+    ...(repairCommits.length === 0 ? {} : { repairCommits }),
+    ...(parsed.additive === undefined ? {} : { additive: parsed.additive }),
+    ...(walkDecisions.length === 0 ? {} : { walkDecisions }),
+    ...(pending ? { pending: true as const } : {}),
+    ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
+  };
+  const next =
+    pendingEntry === undefined
+      ? [...entries, row]
+      : entries.map((entry) => (entry.tag === tag ? row : entry));
   // The document is a frozen mirror (#476). Precompute it before moving the ref so a
   // malformed delta cannot leave a locally appended row behind after a failed command.
   const documentPath = NodePath.join(root, DOCUMENT_PATH);
   const renderedDocument = NodeFS.existsSync(documentPath) ? renderForRoot(root, next) : null;
-  const commit = writeChurnLedger(root, next, `churn: ${tag}`);
+  const commit = writeChurnLedger(root, next, `churn: ${tag}${pending ? " (decisions)" : ""}`);
   // A null lease only happens on a never-seeded ref, which readDurableLedger already refused.
   if (push && lease !== null) publishBotRefLease(root, lease, commit);
   if (renderedDocument !== null) NodeFS.writeFileSync(documentPath, renderedDocument);

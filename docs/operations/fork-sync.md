@@ -817,6 +817,17 @@ and its two legal stops hand the row to a human instead of deciding it. A walk t
 up in a host agent session, and whatever that session decides by hand is a human decision recorded
 in the record.
 
+Every walk also keeps one durable record per decision (RSI-Software/t3code-hyprws#662): conflict
+rows the executor decided and rerere replays resolved land on the report's `## Decisions` section
+as they happen; a stop records the rows it hands to a human. The stopped session resolves the seam
+in the lane, stages it, and runs `fork:sync record-decisions --report <json> --tag <tag>`, which
+flushes the resolution into the shared rerere ref, posts the record to the blocked issue, and
+writes the ledger row for the stopped tag as `pending`. The next walk resolves the same seam
+content — moved, retagged, or regenerated — from that record: the replay row names the walk and
+the outcome it came from (`from <tag>`), and the applied row upgrades the pending row in place.
+No maintainer is asked to decide the same seam twice; across rows a seam shows exactly one human
+record and one provenance-carrying replay record.
+
 The report is an operator-owned state file, not a cryptographic signature. The command proves the
 active runtime identity when it records review and binds that result to the record, refs, CI head,
 and lease. An operator able to rewrite the external report can fabricate its contents; the control

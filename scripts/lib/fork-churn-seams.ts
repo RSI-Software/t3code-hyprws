@@ -69,7 +69,8 @@ interface SeamVerification {
 export type SeamPayload = FrozenObservation | SeamMapping | SeamRepair | SeamVerification;
 export type SeamRecord = SeamPayload & { readonly id: string };
 
-const canonical = (value: unknown): string => {
+/** JSON canonical form: keys sorted, no insignificant whitespace — shared by seam content keys. */
+export const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (typeof value === "object" && value !== null)
     return `{${Object.entries(value)
@@ -78,7 +79,7 @@ const canonical = (value: unknown): string => {
       .join(",")}}`;
   return JSON.stringify(value);
 };
-const digest = (value: unknown): string =>
+export const digest = (value: unknown): string =>
   NodeCrypto.createHash("sha256").update(canonical(value)).digest("hex");
 export const seamRecord = <T extends SeamPayload>(payload: T): T & { readonly id: string } => ({
   ...payload,

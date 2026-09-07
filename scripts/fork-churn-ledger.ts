@@ -21,6 +21,7 @@ import {
   requireAdditiveRecordRow,
   requireNightlyReview,
 } from "./fork-sync-state.ts";
+import { requireWalkDecisions, type WalkDecision } from "./lib/fork-decisions.ts";
 import {
   parseSequentialCensusEvidence,
   requireSequentialCensusEvidence,
@@ -115,6 +116,17 @@ export interface ChurnEntry {
    * written before RSI-Software/t3code-hyprws#661.
    */
   readonly additive?: AdditiveRecordRow;
+  /**
+   * Every decision the walk recorded — conflicts by seam key, stops, retire verdicts
+   * (RSI-Software/t3code-hyprws#662). The next walk resolves repeats from these.
+   */
+  readonly walkDecisions?: ReadonlyArray<WalkDecision>;
+  /**
+   * True while the walk is still stopped: the row exists so the recorded decisions (and the
+   * rerere ref they were published with) survive the stop, and is upgraded in place when the
+   * walk completes. Consumers that expect a finished walk skip pending rows.
+   */
+  readonly pending?: true;
   /** Proposer/reviewer provenance for a humanless nightly apply. */
   readonly nightlyReview?: NightlyReview;
 }
@@ -382,6 +394,10 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
       entry.nightlyReview === undefined
         ? undefined
         : requireNightlyReview(entry.nightlyReview, `nightlyReview in entry ${entryIndex}`);
+    const walkDecisions =
+      entry.walkDecisions === undefined
+        ? undefined
+        : requireWalkDecisions(entry.walkDecisions, `walkDecisions in entry ${entryIndex}`);
     return {
       tag: requireString(entry.tag, "tag"),
       before: requireString(entry.before, "before"),
@@ -398,6 +414,8 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
       ...(silentSeams === undefined ? {} : { silentSeams }),
       ...(repairCommits === undefined ? {} : { repairCommits }),
       ...(additive === undefined ? {} : { additive }),
+      ...(walkDecisions === undefined ? {} : { walkDecisions }),
+      ...(entry.pending === true ? { pending: true as const } : {}),
       ...(nightlyReview === undefined ? {} : { nightlyReview }),
     } satisfies ChurnEntry;
   });
@@ -575,7 +593,11 @@ export const censusChurn = (
   current: CensusSnapshot | null = null,
   records: ReadonlyArray<SeamRecord> = [],
 ): CensusChurn => {
-  const snapshots = censusSnapshots(entries, current);
+  // A pending row belongs to a walk that has not applied yet; its census cannot extend a run.
+  const snapshots = censusSnapshots(
+    entries.filter((entry) => entry.pending !== true),
+    current,
+  );
   const pathRuns = new Map<
     string,
     { readonly count: number; readonly firstTag: string; readonly lastTag: string }
@@ -638,8 +660,8 @@ export const censusChurn = (
   };
 };
 
-export const hotSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<ChurnHotSeam> =>
-  [...conflictRowsByPath(entries)]
+export const hotSeams = (allEntries: ReadonlyArray<ChurnEntry>): ReadonlyArray<ChurnHotSeam> =>
+  [...conflictRowsByPath(allEntries.filter((entry) => entry.pending !== true))]
     .map(([path, values]) => {
       const conflicts = values.map(({ row }) => row);
       return {
