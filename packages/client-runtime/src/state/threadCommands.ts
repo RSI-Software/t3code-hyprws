@@ -67,7 +67,6 @@ export type {
   DeleteThreadInput,
   InterruptThreadTurnInput,
   LinkThreadPullRequestInput,
-  MoveThreadCheckoutInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   DismissThreadUserInputInput,
