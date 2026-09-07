@@ -137,6 +137,20 @@ it("reports missing and unknown trailers", () => {
   );
 });
 
+it("accepts a walk repair commit the sync appended after the replayed series", () => {
+  const commits = parseForkLog(
+    record(
+      "hhhhhhhhh",
+      "chore(fork-sync): repair fmt after v1.2.3",
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: v1.2.3\n",
+    ),
+  );
+  // The repair declares the walk that wrote it, and the ledger check reads it as any other
+  // fork commit: it is appended, never folded into the commit it repairs.
+  assert.strictEqual(commits[0]?.repair, "v1.2.3");
+  assert.deepStrictEqual(collectFindings(commits), []);
+});
+
 it("validates Fork-Domain and Fork-Upstreamable values", () => {
   const findings = collectFindings(
     parseForkLog(

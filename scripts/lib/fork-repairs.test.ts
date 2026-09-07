@@ -5,6 +5,8 @@ import {
   focusedTests,
   formatCommand,
   isVerifiablePath,
+  repairCommitMessage,
+  repairKind,
   runRepairs,
   touchedWorkspaces,
   verifyPlan,
@@ -180,4 +182,49 @@ it("blames the replay for a typecheck the runner did run", () => {
   );
   assert.strictEqual(spawned.failure?.kind, "environment");
   assert.include(spawned.failure?.detail ?? "", "ENOENT");
+});
+
+it("names the command that dirtied the worktree and writes it up as one attributable commit", () => {
+  const plan = [
+    { command: "vp", args: ["fmt", "apps/web/src/window.ts"] },
+    { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
+  ];
+  let steps = 0;
+  const outcome = runRepairs(runnerFor(new Map()), "/root", plan, undefined, () => {
+    steps += 1;
+    return steps > 1;
+  });
+  // The tree was clean after the formatter and dirty after the typecheck, so the typecheck owns
+  // the commit; the first command to leave dirt is the one named, not the last that ran.
+  assert.strictEqual(outcome.dirtiedBy, "vp run --filter ./apps/web typecheck");
+  assert.strictEqual(outcome.failure, undefined);
+  assert.strictEqual(repairKind(outcome.dirtiedBy ?? ""), "typecheck");
+  assert.strictEqual(repairKind("vp fmt apps/web/src/window.ts"), "fmt");
+  assert.strictEqual(repairKind("vp test run apps/web/src/window.test.ts"), "tests");
+
+  // A pass that leaves the tree clean names nothing, so the walk has nothing to commit.
+  assert.strictEqual(
+    runRepairs(runnerFor(new Map()), "/root", plan, undefined, () => false).dirtiedBy,
+    undefined,
+  );
+
+  assert.strictEqual(
+    repairCommitMessage({
+      kind: "fmt",
+      tag: "v1.2.3",
+      domain: "project-windows",
+      command: "vp fmt apps/web/src/window.ts",
+    }),
+    [
+      "chore(fork-sync): repair fmt after v1.2.3",
+      "",
+      "`vp fmt apps/web/src/window.ts` rewrote the worktree while replaying onto v1.2.3.",
+      "",
+      "Fork-Domain: project-windows",
+      "Fork-Tier: bugfix",
+      "Fork-Upstreamable: no",
+      "Fork-Repair: v1.2.3",
+      "",
+    ].join("\n"),
+  );
 });
