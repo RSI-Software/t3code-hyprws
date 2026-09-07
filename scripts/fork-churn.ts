@@ -453,6 +453,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       ...(censusEvidence === null ? {} : { censusEvidence }),
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
       ...(repairCommits.length === 0 ? {} : { repairCommits }),
+      ...(parsed.additive === undefined ? {} : { additive: parsed.additive }),
       ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;
