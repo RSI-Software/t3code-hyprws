@@ -3709,6 +3709,346 @@ it("adds no commit when the repair pass rewrote nothing", () => {
   }
 });
 
+/**
+ * A real walk over real Git: an upstream history with a previous base and a tagged target, an old
+ * trunk whose `feat: one` fork commit drifts, a bare origin carrying `hyprws` and the churn ref,
+ * and a replayed lane. gh and vp are stubbed, so nothing leaves the machine and no install runs.
+ * The drift shapes decide what the purely-additive check finds: a re-added upstream line repairs
+ * and applies; a shrunk upstream test stops the walk.
+ */
+const ADDITIVE_TAG = "v1.2.3-nightly.20260831.2";
+
+/** Real git in a fixture directory, for the tests to assert on the walk's outcome. */
+const additiveGit = (cwd: string, ...args: ReadonlyArray<string>): string =>
+  NodeChildProcess.execFileSync("git", args, { cwd }).toString().trim();
+
+class AdditiveWalkRunner {
+  private readonly fake = new FakeRunner();
+  private readonly real = new SystemRunner();
+  run(
+    command: string,
+    args: ReadonlyArray<string>,
+    cwd?: string,
+    input?: string,
+    env?: NodeJS.ProcessEnv,
+  ): CommandResult {
+    return command === "git"
+      ? this.real.run(command, args, cwd ?? ".", input, env)
+      : this.fake.run(command, args, cwd ?? ".", input, env);
+  }
+  set(...args: Parameters<FakeRunner["set"]>): void {
+    this.fake.set(...args);
+  }
+}
+
+const additiveWalkFixture = (
+  drift: ReadonlyArray<readonly [string, string]>,
+): {
+  runner: AdditiveWalkRunner;
+  root: string;
+  lane: string;
+  remote: string;
+  reportPath: string;
+  recordPath: string;
+  branch: string;
+  target: string;
+  expectedOld: string;
+  restoreLedger: () => void;
+} => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-additive-root-"));
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "fixture",
+    GIT_AUTHOR_EMAIL: "fixture@example.test",
+    GIT_COMMITTER_NAME: "fixture",
+    GIT_COMMITTER_EMAIL: "fixture@example.test",
+  };
+  const git = (cwd: string, ...args: ReadonlyArray<string>): string =>
+    NodeChildProcess.execFileSync("git", args, { cwd, env }).toString().trim();
+  const write = (directory: string, path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.join(directory, NodePath.dirname(path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(directory, path), contents);
+  };
+  git(root, "init", "-q", "-b", "fixture");
+  git(root, "config", "user.name", "fixture");
+  git(root, "config", "user.email", "fixture@example.test");
+  write(
+    root,
+    ".github/workflows/hyprws-upstream-sync.yml",
+    'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
+  );
+  // Previous upstream base.
+  write(root, "apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n");
+  write(root, "apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
+  write(root, "apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
+  write(
+    root,
+    "apps/server/src/persistence/Migrations.ts",
+    [
+      'import Migration0001 from "./Migrations/001_Base.ts";',
+      "",
+      "export const migrationEntries = [",
+      '  [1, "Base", Migration0001],',
+      "];",
+      "",
+    ].join("\n"),
+  );
+  write(root, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-m", "upstream: base");
+  const previous = git(root, "rev-parse", "HEAD");
+  // The old trunk: c0 plus the fork commit that will drift on the target.
+  git(root, "checkout", "-q", "-b", "trunk");
+  write(root, "apps/web/src/fork.ts", "export const forkOnly = 1;\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-m", "feat: one");
+  const expectedOld = git(root, "rev-parse", "HEAD");
+  // The target: upstream deletes the stale line and grows tests, files and migrations.
+  git(root, "checkout", "-q", "fixture");
+  write(root, "apps/web/src/thing.ts", "export const keep = 1;\n");
+  write(
+    root,
+    "apps/web/src/thing.test.ts",
+    'it("first", () => {});\nit("second", () => {});\nit("third", () => {});\n',
+  );
+  write(root, "apps/web/src/gone.ts", "export const gone = 1;\n");
+  write(root, "apps/server/src/persistence/Migrations/002_Upstream.ts", "export default 2;\n");
+  write(
+    root,
+    "apps/server/src/persistence/Migrations.ts",
+    [
+      'import Migration0001 from "./Migrations/001_Base.ts";',
+      'import Migration0002 from "./Migrations/002_Upstream.ts";',
+      "",
+      "export const migrationEntries = [",
+      '  [1, "Base", Migration0001],',
+      '  [2, "Upstream", Migration0002],',
+      "];",
+      "",
+    ].join("\n"),
+  );
+  git(root, "add", "-A");
+  git(root, "commit", "-m", "upstream: grow");
+  git(root, "tag", ADDITIVE_TAG);
+  const target = git(root, "rev-parse", "HEAD");
+  // Bare origin: hyprws at the old trunk, plus the seeded churn ref.
+  const remote = NodePath.join(root, "origin.git");
+  git(root, "init", "-q", "--bare", remote);
+  git(root, "remote", "add", "origin", remote);
+  git(root, "push", "-q", "origin", "trunk:refs/heads/hyprws");
+  writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+  git(root, "push", "-q", "origin", `${CHURN_REF}:${CHURN_REF}`);
+  git(root, "fetch", "-q", "origin");
+  // The replayed lane: the target plus the drifted fork commit, clean, on its own branch.
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-additive-lane-"));
+  git(root, "clone", "-q", root, lane);
+  const branch = `rehearse/${ADDITIVE_TAG}-from-${expectedOld.slice(0, 12)}`;
+  git(lane, "checkout", "-q", "-B", branch, target);
+  for (const [path, contents] of drift) write(lane, path, contents);
+  git(lane, "add", "-A");
+  git(lane, "commit", "-m", "feat: one");
+  git(lane, "remote", "set-url", "origin", remote);
+  // The carried replayed report the walk picks up.
+  const reportDirectory = NodeFS.mkdtempSync(
+    NodePath.join(NodeOS.tmpdir(), "fork-additive-report-"),
+  );
+  const reportPath = NodePath.join(reportDirectory, "report.json");
+  const recordPath = NodePath.join(reportDirectory, "record.md");
+  const replayed: SyncReport = validateReport({
+    schemaVersion: 1,
+    stage: "replayed",
+    kind: "unblock",
+    repositoryRoot: root,
+    reportPath,
+    recordPath,
+    issue: { number: 352, blockingSha: previous, title: "blocked" },
+    candidates: [{ tag: ADDITIVE_TAG, sha: target }],
+    target: { tag: ADDITIVE_TAG, sha: target },
+    source: { sha: expectedOld, expectedOld, sharedBase: previous },
+    lane: { branch, worktree: lane },
+    originalMessages: "feat: one\u001e",
+    originalCount: 1,
+    orientation: coherentOrientation,
+    conflicts: [],
+    verification: [],
+    reconciliation: { state: "dispatched", baselineRunId: 1 },
+  } as unknown);
+  NodeFS.writeFileSync(reportPath, JSON.stringify(replayed));
+  const runner = new AdditiveWalkRunner();
+  setBotResponses(runner as unknown as FakeRunner, "candidate");
+  runner.set(
+    "gh",
+    ["issue", "comment", "352", "-R", "RSI-Software/t3code-hyprws", "--body-file", recordPath],
+    { stdout: "https://example.test/comment\n" },
+  );
+  // The ledger write spawns real gh for the issue lookup, so shim it like ledgerFixture does.
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    [
+      "#!/usr/bin/env node",
+      'const record = require("node:fs").readFileSync(process.env.FAKE_RECORD_PATH, "utf8");',
+      "process.stdout.write(",
+      "  JSON.stringify({",
+      "    body: process.env.FAKE_ISSUE_BODY,",
+      '    url: "https://example.test/issue",',
+      '    comments: [{ body: record, url: "https://example.test/record" }],',
+      "  }),",
+      ");",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousRecord = process.env.FAKE_RECORD_PATH;
+  const previousBody = process.env.FAKE_ISSUE_BODY;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_RECORD_PATH = recordPath;
+  process.env.FAKE_ISSUE_BODY = [
+    "## Sequential rebase census",
+    "",
+    "| File | Hunks | Fork commit | Domain |",
+    "| --- | ---: | --- | --- |",
+    "| `scripts/fork-sync.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+  ].join("\n");
+  return {
+    runner,
+    root,
+    lane,
+    remote,
+    reportPath,
+    recordPath,
+    branch,
+    target,
+    expectedOld,
+    restoreLedger: () => {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousRecord === undefined) delete process.env.FAKE_RECORD_PATH;
+      else process.env.FAKE_RECORD_PATH = previousRecord;
+      if (previousBody === undefined) delete process.env.FAKE_ISSUE_BODY;
+      else process.env.FAKE_ISSUE_BODY = previousBody;
+    },
+  };
+};
+
+it("repairs a re-added upstream line as an additive commit and applies", () => {
+  const state = additiveWalkFixture([
+    ["apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n"],
+  ]);
+  try {
+    const { output, result } = captureStdout(() =>
+      run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
+    );
+    assert.strictEqual(result, 0);
+    assert.include(output, `- additive: fixed on retry`);
+    assert.include(
+      output,
+      `  - readded apps/web/src/thing.ts: re-adds 1 line(s) upstream deleted — consider keeping ours`,
+    );
+    assert.include(output, `applied: ${ADDITIVE_TAG}`);
+    assert.include(output, "- ledger: published");
+    const report = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    const additive = report.walk?.additive;
+    assert.isDefined(additive);
+    assert.strictEqual(additive?.pass, true);
+    assert.strictEqual(additive?.attempts, 2);
+    assert.deepStrictEqual(
+      additive?.findings.map(({ check, path }) => ({ check, path })),
+      [{ check: "readded", path: "apps/web/src/thing.ts" }],
+    );
+    const repair = report.walk?.repairCommits?.[0];
+    assert.include(repair?.subject ?? "", "chore(fork-sync): repair additive after");
+    assert.strictEqual(additive?.commit, repair?.sha);
+    assert.isUndefined(report.walk?.stop);
+    // The fix removed the re-add, and the commit carries the repair trailers.
+    assert.notInclude(
+      NodeFS.readFileSync(NodePath.join(state.lane, "apps/web/src/thing.ts"), "utf8"),
+      "export const stale = 1;",
+    );
+    const subjects = additiveGit(
+      state.lane,
+      "log",
+      "--reverse",
+      "--format=%s",
+      `${state.target}..HEAD`,
+    ).split("\n");
+    assert.deepStrictEqual(subjects, ["feat: one", repair?.subject ?? ""]);
+    const message = additiveGit(state.lane, "show", "-s", "--format=%B", repair?.sha ?? "HEAD");
+    assert.include(message, "Fork-Domain: fork-meta");
+    assert.include(message, "Fork-Tier: bugfix");
+    assert.include(message, "Fork-Upstreamable: no");
+    assert.include(message, `Fork-Repair: ${ADDITIVE_TAG}`);
+    // The leased trunk push published the repaired head.
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["rev-parse", "refs/heads/hyprws"], {
+        cwd: state.remote,
+      })
+        .toString()
+        .trim(),
+      repair?.sha,
+    );
+    // The churn row carries the additive outcome and the repair commit.
+    const [row] = parseLedger(readBotRefFile(state.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(row?.additive, { pass: true, attempts: 2, findings: 1 });
+    assert.strictEqual(row?.repairCommits?.length, 1);
+  } finally {
+    state.restoreLedger();
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.lane, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stops the walk when the replay shrinks an upstream test file", () => {
+  const state = additiveWalkFixture([
+    ["apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n'],
+  ]);
+  try {
+    const { output, result } = captureStdout(() =>
+      run(
+        ["unblock-auto", "--report", state.reportPath],
+        state.root,
+        state.runner as unknown as never,
+      ),
+    );
+    assert.strictEqual(result, 2);
+    assert.include(output, "Stop (conflict).");
+    assert.include(output, "- additive: failed");
+    assert.include(
+      output,
+      "  - tests apps/web/src/thing.test.ts: test declarations shrunk from 3 to 2",
+    );
+    assert.notInclude(output, "applied:");
+    const report = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    const additive = report.walk?.additive;
+    assert.isDefined(additive);
+    assert.strictEqual(additive?.pass, false);
+    assert.strictEqual(additive?.attempts, 2);
+    assert.deepStrictEqual(additive?.fixed, []);
+    assert.strictEqual(report.walk?.stop?.reason, "conflict");
+    // Nothing was committed on the lane and nothing was pushed: the stop owns the walk.
+    assert.deepStrictEqual(
+      additiveGit(state.lane, "log", "--format=%s", `${state.target}..HEAD`).split("\n"),
+      ["feat: one"],
+    );
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["rev-parse", "refs/heads/hyprws"], {
+        cwd: state.remote,
+      })
+        .toString()
+        .trim(),
+      state.expectedOld,
+    );
+  } finally {
+    state.restoreLedger();
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.lane, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("keeps the replay proof over the fork series when a repair is already appended", () => {
   const state = repairingRun();
   const repair =

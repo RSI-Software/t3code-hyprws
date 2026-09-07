@@ -403,6 +403,19 @@ export interface WalkRecord {
    * series and the head the apply publishes.
    */
   readonly repairCommits?: ReadonlyArray<{ readonly sha: string; readonly subject: string }>;
+  /**
+   * The purely-additive check the walk runs on its own replayed tree, between the replay and the
+   * repair battery (RSI-Software/t3code-hyprws#661). `findings` lists what the check found: the
+   * first-pass findings when the retry made the tree additive again, the remaining ones on a
+   * stop. `commit` is the `additive` repair commit when the machine rewrote the tree.
+   */
+  readonly additive?: {
+    readonly pass: boolean;
+    readonly attempts: 1 | 2;
+    readonly findings: ReadonlyArray<import("./lib/fork-additive.ts").AdditiveFinding>;
+    readonly fixed: ReadonlyArray<import("./lib/fork-additive.ts").AdditiveFinding>;
+    readonly commit?: string;
+  };
   readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
   /**
    * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
@@ -891,6 +904,20 @@ export const renderRecord = (report: SyncReport): string => {
           (commit) => `- \`${commit.sha}\` \`${escapeCell(commit.subject)}\``,
         )),
     "",
+    ...(report.walk?.additive === undefined
+      ? []
+      : [
+          "## Additive",
+          "",
+          `- pass: ${report.walk.additive.pass}`,
+          `- attempts: ${report.walk.additive.attempts}`,
+          `- findings: ${report.walk.additive.findings.length}`,
+          `- fixed: ${report.walk.additive.fixed.length}`,
+          ...(report.walk.additive.commit === undefined
+            ? []
+            : [`- commit: \`${report.walk.additive.commit}\``]),
+          "",
+        ]),
     "## Verification",
     "",
     ...report.verification.map((row) => `- \`${row.command}\`: ${row.result}`),
@@ -1166,7 +1193,41 @@ export interface ParsedRecord {
   readonly conflicts: ReadonlyArray<ConflictRow>;
   readonly decisions: ReadonlyArray<OrientationDecisionRow>;
   readonly nightlyReview?: NightlyReview;
+  readonly additive?: AdditiveRecordRow;
 }
+
+/** The additive outcome a walk record or a churn ledger row carries, counts only. */
+export interface AdditiveRecordRow {
+  readonly pass: boolean;
+  readonly attempts: 1 | 2;
+  readonly findings: number;
+}
+
+export const requireAdditiveRecordRow = (
+  value: unknown,
+  field = "additive record row",
+): AdditiveRecordRow => {
+  if (typeof value !== "object" || value === null) throw new Error(`invalid ${field}`);
+  const row = value as Record<string, unknown>;
+  if (typeof row.pass !== "boolean") throw new Error(`invalid ${field} pass`);
+  if (row.attempts !== 1 && row.attempts !== 2) throw new Error(`invalid ${field} attempts`);
+  if (!Number.isSafeInteger(row.findings) || (row.findings as number) < 0)
+    throw new Error(`invalid ${field} findings`);
+  return { pass: row.pass, attempts: row.attempts, findings: row.findings as number };
+};
+
+/** Parse the rendered `## Additive` section, absent on records written before #661. */
+export const parseAdditiveSummary = (record: string): AdditiveRecordRow | undefined => {
+  const section = recordSection(record, "## Additive");
+  if (section === "") return undefined;
+  const cell = (name: string): string | undefined =>
+    new RegExp(`^- ${name}: (.+)$`, "m").exec(section)?.[1]?.trim();
+  const pass = cell("pass");
+  const attempts = Number(cell("attempts"));
+  const findings = Number(cell("findings"));
+  if (pass !== "true" && pass !== "false") throw new Error("additive record section is incomplete");
+  return requireAdditiveRecordRow({ pass: pass === "true", attempts, findings });
+};
 
 const reviewIdentity = (section: string, label: string): AgentProvenance | undefined => {
   const line = section.split("\n").find((value) => value.startsWith(`- ${label}: `));
@@ -1258,10 +1319,12 @@ export const parseRecord = (record: string): ParsedRecord => {
   if (incomplete !== undefined)
     throw new Error(`conflict row remains incomplete for ${incomplete.path}`);
   const nightlyReview = parseNightlyReview(record);
+  const additive = parseAdditiveSummary(record);
   return {
     conflicts,
     decisions: parseDecisionRows(record),
     ...(nightlyReview === undefined ? {} : { nightlyReview }),
+    ...(additive === undefined ? {} : { additive }),
   };
 };
 

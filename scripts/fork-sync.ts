@@ -21,6 +21,7 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import {
   executeConflictOutcome,
   isUnresolved,
@@ -115,6 +116,7 @@ import {
   type RewriteProof,
   type SilentSeam,
   type SyncReport,
+  type WalkRecord,
   type WalkStopReason,
 } from "./fork-sync-state.ts";
 
@@ -1318,6 +1320,56 @@ const commitWalkRepairs = (
   return [{ sha, subject }];
 };
 
+/**
+ * The purely-additive half of the walk's self-verification (RSI-Software/t3code-hyprws#661). The
+ * first pass reads the replayed tree against the two upstream trees; whatever a mechanical fix can
+ * make additive again is applied and committed as the walk's own `additive` repair commit, and the
+ * check runs exactly once more. The retry is recorded either way: on a pass the findings stay the
+ * first-pass ones (each fixed or dropped), on a stop they are the ones no fix could clear.
+ */
+const runAdditivePhase = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
+): {
+  readonly additive: NonNullable<WalkRecord["additive"]>;
+  readonly repairCommit?: { readonly sha: string; readonly subject: string };
+} => {
+  const trees = {
+    target: (report.target as NonNullable<typeof report.target>).sha,
+    previous: report.source!.sharedBase,
+  };
+  const first = checkAdditive(runner, worktree, trees);
+  if (first.length === 0) return { additive: { pass: true, attempts: 1, findings: [], fixed: [] } };
+  const fixes = applyAdditiveFixes(runner, worktree, trees.target, first);
+  let commit: { readonly sha: string; readonly subject: string } | undefined;
+  if (fixes.paths.length > 0) {
+    // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
+    // appended trailers are proven in the lane exactly like the repair pass's.
+    const [repaired] = commitWalkRepairs(report, runner, worktree, {
+      ran: [],
+      dirtiedBy: "additive",
+    });
+    if (repaired === undefined)
+      throw new Error("additive repairs dirtied the tree but left no commit");
+    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    commit = repaired;
+  }
+  const retry = checkAdditive(runner, worktree, trees);
+  return {
+    additive: {
+      pass: retry.length === 0,
+      attempts: 2,
+      findings: retry.length === 0 ? first : retry,
+      fixed: fixes.fixed,
+      ...(commit === undefined ? {} : { commit: commit.sha }),
+    },
+    ...(commit === undefined ? {} : { repairCommit: commit }),
+  };
+};
+
 export const parseSilentSeam = (value: string): SilentSeam => {
   const separator = value.indexOf("=");
   const kindSeparator = value.lastIndexOf(":");
@@ -1429,7 +1481,7 @@ const unblockCheck = (
   if (lockDriftClass(before, installedAfter) === "importers")
     throw new Error("vp i introduced importer drift after replay");
   if (installedAfter !== before) restoreSnapshotDrift(runner, worktree);
-  const installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
+  let installedHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
   if (report.kind === "rewrite" && installedHead !== report.rewrite?.build?.result)
     throw new Error("installed rewrite differs from its constructed head; rebuild the manifest");
   // Both lanes pin the scan to the tag the stack sits on. A rewrite keeps the
@@ -1452,6 +1504,32 @@ const unblockCheck = (
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
+  }
+  // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
+  // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
+  // repairs what it can make additive again as its own `additive` repair commit, and re-checks
+  // exactly once. A check the machine cannot make pass stops the walk.
+  let additiveCommit: string | undefined;
+  if (report.kind !== "rewrite" && report.target !== undefined && report.source !== undefined) {
+    const phase = runAdditivePhase(report, runner, worktree, verificationEnv);
+    additiveCommit = phase.additive.commit;
+    report = {
+      ...report,
+      walk: {
+        ...(report.walk ?? {}),
+        additive: phase.additive,
+        ...(phase.repairCommit === undefined
+          ? {}
+          : {
+              repairCommits: [...(report.walk?.repairCommits ?? []), phase.repairCommit],
+            }),
+      },
+    };
+    writeReport(report);
+    // The additive commit is the lane head now; the installed-tree binding must follow it or the
+    // head guard below refuses the tree the walk itself just repaired.
+    if (additiveCommit !== undefined) installedHead = additiveCommit;
+    if (!phase.additive.pass) throw new AdditiveStop(phase.additive.findings, report.reportPath);
   }
   // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
   // conflicts it resolved. This is the walk's verification. Trunk CI runs the full battery after
@@ -1536,7 +1614,7 @@ const unblockCheck = (
     // A repair moves the lane head the apply publishes, so the record's head and stack size bind
     // that head. The gate compares them against the checkout, and the fork series is still
     // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0
+    ...(repaired.length === 0 && additiveCommit === undefined
       ? {}
       : {
           rebasedHead: checkedHead,
@@ -2370,6 +2448,22 @@ class RepairStop extends Error {
 }
 
 /**
+ * The purely-additive check found something no mechanical fix may clear — a shrunk upstream test,
+ * an unremovable re-added block, a migration the registry cannot give up its number for. The
+ * findings are the walk's confession: only a maintainer decides them.
+ */
+class AdditiveStop extends Error {
+  readonly findings: ReadonlyArray<AdditiveFinding>;
+  readonly reportPath: string;
+
+  constructor(findings: ReadonlyArray<AdditiveFinding>, reportPath: string) {
+    super("walk stopped at a replay that is not purely additive");
+    this.findings = findings;
+    this.reportPath = reportPath;
+  }
+}
+
+/**
  * `hyprws` moved under the walk, so every binding it holds is void. The walk re-lists and re-reads
  * the moved trunk itself: a restart is mechanical, and asking a human to type it was never a
  * decision anyone made.
@@ -3172,6 +3266,25 @@ const walkOnce = (
           : `The replayed resolutions do not hold: ${error.failure.command}\n${error.failure.detail}`,
         started,
       );
+    if (error instanceof AdditiveStop) {
+      // The check wrote its findings to the report before stopping, so the retained report — not
+      // this invocation's older copy — is what the stop summary must speak from.
+      let stopped = report;
+      try {
+        stopped = readReport(error.reportPath);
+      } catch {
+        // Fall back to the in-memory report; the stop reason still names the findings.
+      }
+      return stopWalk(
+        stopped,
+        "conflict",
+        [
+          "The replayed tree is not purely additive; no mechanical fix makes it pass:",
+          ...error.findings.map(({ check, path, detail }) => `  - ${check} ${path}: ${detail}`),
+        ].join("\n"),
+        started,
+      );
+    }
     if (error instanceof AutoStop || error instanceof AutoBotRefusal || error instanceof WalkStale)
       throw error;
     if (isStaleTrunk(error))
@@ -3254,6 +3367,20 @@ const unblockAuto = (
   throw new Error("unreachable walk restart");
 };
 
+/** The additive outcome rows, shaped the same whether the walk passed on the first pass, fixed on
+ * the retry, or stopped: one row per finding, with the drop's coexistence note on `readded`. */
+const additiveSummaryRows = (
+  additive: NonNullable<WalkRecord["additive"]>,
+): ReadonlyArray<string> => {
+  const rows = additive.findings.map(
+    ({ check, path, detail }) =>
+      `  - ${check} ${path}: ${detail}${check === "readded" ? " — consider keeping ours" : ""}`,
+  );
+  if (!additive.pass) return ["- additive: failed", ...rows];
+  if (additive.attempts === 1) return ["- additive: pass (4 checks)"];
+  return ["- additive: fixed on retry", ...rows];
+};
+
 /** One block the notification issue can carry verbatim. */
 export const walkSummary = (report: SyncReport): string => {
   const walk = report.walk ?? {};
@@ -3282,6 +3409,7 @@ export const walkSummary = (report: SyncReport): string => {
                 (commit) => `  - commit \`${commit.sha}\`: ${commit.subject}`,
               )),
         ].join("\n"),
+    ...(walk.additive === undefined ? [] : additiveSummaryRows(walk.additive)),
     ...(walk.ledger === undefined
       ? []
       : [

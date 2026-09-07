@@ -9,13 +9,18 @@ import {
   writeBotRefFile,
 } from "./lib/fork-bot-refs.ts";
 import type {
+  AdditiveRecordRow,
   ConflictClass,
   DecidedBy,
   NightlyReview,
   OrientationDecisionRow,
   SilentSeam,
 } from "./fork-sync-state.ts";
-import { isInheritedDecidedBy, requireNightlyReview } from "./fork-sync-state.ts";
+import {
+  isInheritedDecidedBy,
+  requireAdditiveRecordRow,
+  requireNightlyReview,
+} from "./fork-sync-state.ts";
 import {
   parseSequentialCensusEvidence,
   requireSequentialCensusEvidence,
@@ -105,6 +110,11 @@ export interface ChurnEntry {
    * applied head is the walk's own work. Absent on entries written before #663.
    */
   readonly repairCommits?: ReadonlyArray<RepairCommit>;
+  /**
+   * The purely-additive check the walk ran before its repairs, counts only. Absent on entries
+   * written before RSI-Software/t3code-hyprws#661.
+   */
+  readonly additive?: AdditiveRecordRow;
   /** Proposer/reviewer provenance for a humanless nightly apply. */
   readonly nightlyReview?: NightlyReview;
 }
@@ -364,6 +374,10 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
               };
             });
           })();
+    const additive =
+      entry.additive === undefined
+        ? undefined
+        : requireAdditiveRecordRow(entry.additive, `additive in entry ${entryIndex}`);
     const nightlyReview =
       entry.nightlyReview === undefined
         ? undefined
@@ -383,6 +397,7 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
           }),
       ...(silentSeams === undefined ? {} : { silentSeams }),
       ...(repairCommits === undefined ? {} : { repairCommits }),
+      ...(additive === undefined ? {} : { additive }),
       ...(nightlyReview === undefined ? {} : { nightlyReview }),
     } satisfies ChurnEntry;
   });

@@ -128,14 +128,16 @@ export interface RepairOutcome {
 }
 
 /** What a repair pass did, named after the command that wrote to the worktree. */
-export type RepairKind = "fmt" | "typecheck" | "tests";
+export type RepairKind = "fmt" | "typecheck" | "tests" | "additive";
 
 export const repairKind = (command: string): RepairKind =>
-  /(^|\s)fmt(\s|$)/.test(command)
-    ? "fmt"
-    : /(^|\s)test(\s|$)/.test(command)
-      ? "tests"
-      : "typecheck";
+  /(^|\s)additive(\s|$)/.test(command)
+    ? "additive"
+    : /(^|\s)fmt(\s|$)/.test(command)
+      ? "fmt"
+      : /(^|\s)test(\s|$)/.test(command)
+        ? "tests"
+        : "typecheck";
 
 export interface RepairCommitInput {
   readonly kind: RepairKind;
