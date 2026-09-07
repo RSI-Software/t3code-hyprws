@@ -11,15 +11,18 @@ import * as Effect from "effect/Effect";
 
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
+  buildInventory,
   buildLedger,
   buildSquashLedger,
   collectWireShapeFindings,
   collectWireShapeFindingsBetween,
   collectFindings,
   forkLogArguments,
+  parseCommitNumstat,
   parseForkLog,
   parseSquashBody,
   readForkLog,
+  renderInventory,
   renderMarkdown,
   renderShas,
   selectDomain,
@@ -620,4 +623,84 @@ it("fails a pull-request body whose last paragraph is prose, not trailers", () =
 it("ignores trailers that sit above the mention instead of ending the body", () => {
   const body = "Fork-Domain: fork-meta\nFork-Tier: qol\n\n@donjor\n";
   assert.strictEqual(squashTrailers(body), "");
+});
+
+it("parses per-commit numstat records, counting binary files but not their lines", () => {
+  const raw = `${RS}abc\n3\t1\tapps/web/src/app.ts\n-\t-\tassets/logo.png\n${RS}def\n0\t0\tdocs/internals/fork-delta.md\n`;
+  const stats = parseCommitNumstat(raw);
+  assert.deepStrictEqual(stats.get("abc"), {
+    files: ["apps/web/src/app.ts", "assets/logo.png"],
+    added: 3,
+    deleted: 1,
+  });
+  assert.deepStrictEqual(stats.get("def"), {
+    files: ["docs/internals/fork-delta.md"],
+    added: 0,
+    deleted: 0,
+  });
+});
+
+it("builds the inventory with shared attribution from the net diffs", () => {
+  const reverted = "c".repeat(40);
+  const commits = [
+    {
+      sha: "a".repeat(40),
+      short: "aaaaaaa",
+      subject: "feat: one",
+      domain: "fork-meta",
+      tier: "qol",
+    },
+    {
+      sha: reverted,
+      short: "ccccccc",
+      subject: "fix: two",
+      domain: "fork-meta",
+      tier: "core",
+    },
+  ];
+  const statsBySha = new Map([
+    ["a".repeat(40), { files: ["shared.ts", "fork-only.ts"], added: 5, deleted: 1 }],
+    [reverted, { files: ["reverted.ts"], added: 2, deleted: 2 }],
+  ]);
+  const inventory = buildInventory({
+    base: "base",
+    head: "head",
+    target: "upstream/main",
+    commits,
+    statsBySha,
+    // reverted.ts is absent from the net fork diff: a later commit undid it.
+    forkChanged: new Set(["shared.ts"]),
+    upstreamChanged: new Set(["shared.ts", "reverted.ts"]),
+  });
+  assert.deepStrictEqual(inventory.domains, [
+    {
+      domain: "fork-meta",
+      commits: 2,
+      added: 7,
+      deleted: 3,
+      files: 3,
+      overlaps: 1,
+    },
+  ]);
+  assert.deepStrictEqual(inventory.commits, [
+    {
+      short: "aaaaaaa",
+      domain: "fork-meta",
+      tier: "qol",
+      upstreamable: "",
+      files: 2,
+      overlaps: 1,
+    },
+    {
+      short: "ccccccc",
+      domain: "fork-meta",
+      tier: "core",
+      upstreamable: "",
+      files: 1,
+      overlaps: 0,
+    },
+  ]);
+  const rendered = renderInventory(inventory);
+  assert.include(rendered, "| Total | 2 | 7 | 3 | 3 | 1 |");
+  assert.include(rendered, "# Fork delta inventory: `head` over `base` against `upstream/main`");
 });

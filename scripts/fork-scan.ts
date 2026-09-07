@@ -15,6 +15,7 @@ import * as NodePath from "node:path";
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
+import { overlapPaths } from "./lib/fork-overlap.ts";
 import {
   readLessonEvidence,
   renderLessonGuidance,
@@ -346,10 +347,9 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     // upstream also changed on the way to the target have to be listed. Both
     // sides are net diffs against the base: a file an intermediate fork commit
     // touched and a later one reverted carries no fork delta to preserve. The
-    // commits still decide which domain owns the file.
-    const shared = [...paths]
-      .filter((path) => input.forkChanged.has(path) && input.upstreamChanged.has(path))
-      .toSorted();
+    // commits still decide which domain owns the file. The overlap definition
+    // lives in lib/fork-overlap.ts, shared with `fork:delta --inventory`.
+    const shared = overlapPaths(paths, input.forkChanged, input.upstreamChanged);
     const covers = (path: string) => patterns.some((pattern) => matchesScanPattern(pattern, path));
     domains.push({
       domain,

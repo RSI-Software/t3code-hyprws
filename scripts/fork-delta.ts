@@ -15,7 +15,9 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+import { overlapPaths } from "./lib/fork-overlap.ts";
 import {
+  FORK_LOG_RECORD_SEPARATOR,
   forkLogArguments,
   isForkDomain,
   isForkUpstreamable,
@@ -295,6 +297,183 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
   return lines.join("\n");
 };
 
+// -- Inventory (`--inventory`) ------------------------------------------------
+
+export interface CommitNumstat {
+  readonly files: ReadonlyArray<string>;
+  readonly added: number;
+  readonly deleted: number;
+}
+
+const EMPTY_NUMSTAT: CommitNumstat = { files: [], added: 0, deleted: 0 };
+
+// One numstat record per commit. `--no-renames` keeps every path a real path, so
+// a renamed file intersects the net fork and upstream diffs — which list the new
+// path only — exactly like fork:scan's `--name-only` commit lists do.
+export const commitNumstatArguments = (shas: ReadonlyArray<string>) =>
+  [
+    "-c",
+    "core.quotePath=false",
+    "show",
+    "--numstat",
+    "--no-renames",
+    `--format=${FORK_LOG_RECORD_SEPARATOR}%H`,
+    ...shas,
+  ] as const;
+
+export const parseCommitNumstat = (raw: string): ReadonlyMap<string, CommitNumstat> => {
+  const stats = new Map<string, CommitNumstat>();
+  for (const record of raw.replace(/\r\n/g, "\n").split(FORK_LOG_RECORD_SEPARATOR)) {
+    const [sha = "", ...rows] = record.split("\n");
+    if (sha.trim().length === 0) continue;
+    let added = 0;
+    let deleted = 0;
+    const files: Array<string> = [];
+    for (const row of rows) {
+      const cells = row.split("\t");
+      const path = (cells[2] ?? "").trim();
+      if (path.length === 0) continue;
+      files.push(path);
+      // Binary files report "-" for both counts; they still count as touched.
+      added += Number.parseInt(cells[0] ?? "", 10) || 0;
+      deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
+    }
+    stats.set(sha.trim(), { files, added, deleted });
+  }
+  return stats;
+};
+
+export interface ForkInventoryCommit {
+  readonly short: string;
+  readonly domain: string;
+  readonly tier: string;
+  readonly upstreamable: string;
+  readonly files: number;
+  readonly overlaps: number;
+}
+
+export interface ForkInventoryDomain {
+  readonly domain: string;
+  readonly commits: number;
+  readonly added: number;
+  readonly deleted: number;
+  readonly files: number;
+  readonly overlaps: number;
+}
+
+export interface ForkInventory {
+  readonly base: string;
+  readonly head: string;
+  readonly target: string;
+  readonly domains: ReadonlyArray<ForkInventoryDomain>;
+  readonly commits: ReadonlyArray<ForkInventoryCommit>;
+}
+
+// Per-domain and per-commit views of the same stack. A commit's overlap count
+// uses its own files against both net diffs; a domain aggregates its commits'
+// lines and files, so a file two of its commits touch is counted once.
+export const buildInventory = (input: {
+  readonly base: string;
+  readonly head: string;
+  readonly target: string;
+  readonly commits: ReadonlyArray<ForkCommit>;
+  readonly statsBySha: ReadonlyMap<string, CommitNumstat>;
+  readonly forkChanged: ReadonlySet<string>;
+  readonly upstreamChanged: ReadonlySet<string>;
+}): ForkInventory => {
+  const commitRows: Array<ForkInventoryCommit> = [];
+  const buckets = new Map<
+    string,
+    { commits: number; added: number; deleted: number; files: Set<string> }
+  >();
+
+  for (const commit of input.commits) {
+    const stats = input.statsBySha.get(commit.sha) ?? EMPTY_NUMSTAT;
+    commitRows.push({
+      short: commit.short,
+      domain: commit.domain ?? "?",
+      tier: commit.tier ?? "?",
+      upstreamable: commit.upstreamable ?? "",
+      files: stats.files.length,
+      overlaps: overlapPaths(stats.files, input.forkChanged, input.upstreamChanged).length,
+    });
+    if (commit.domain === undefined) continue;
+    const bucket = buckets.get(commit.domain) ?? {
+      commits: 0,
+      added: 0,
+      deleted: 0,
+      files: new Set<string>(),
+    };
+    bucket.commits += 1;
+    bucket.added += stats.added;
+    bucket.deleted += stats.deleted;
+    for (const path of stats.files) bucket.files.add(path);
+    buckets.set(commit.domain, bucket);
+  }
+
+  const domains = [...buckets]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([domain, bucket]): ForkInventoryDomain => ({
+      domain,
+      commits: bucket.commits,
+      added: bucket.added,
+      deleted: bucket.deleted,
+      files: bucket.files.size,
+      overlaps: overlapPaths(bucket.files, input.forkChanged, input.upstreamChanged).length,
+    }));
+
+  return {
+    base: input.base,
+    head: input.head,
+    target: input.target,
+    domains,
+    commits: commitRows,
+  };
+};
+
+export const renderInventory = (inventory: ForkInventory): string => {
+  const totals = inventory.domains.reduce(
+    (sum, row) => ({
+      commits: sum.commits + row.commits,
+      added: sum.added + row.added,
+      deleted: sum.deleted + row.deleted,
+      files: sum.files + row.files,
+      overlaps: sum.overlaps + row.overlaps,
+    }),
+    { commits: 0, added: 0, deleted: 0, files: 0, overlaps: 0 },
+  );
+  const lines: Array<string> = [
+    `# Fork delta inventory: \`${inventory.head}\` over \`${inventory.base}\` against \`${inventory.target}\``,
+    "",
+  ];
+  lines.push(
+    `${totals.commits} fork commits across ${inventory.domains.length} domain${inventory.domains.length === 1 ? "" : "s"}. Shared counts a file the fork changed above the shared base that upstream also changed on the way to ${inventory.target} (the fork:scan overlap definition).`,
+    "",
+  );
+  lines.push("## Domains", "");
+  lines.push("| Domain | Commits | Added | Deleted | Files | Shared |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const row of inventory.domains) {
+    lines.push(
+      `| ${row.domain} | ${row.commits} | ${row.added} | ${row.deleted} | ${row.files} | ${row.overlaps} |`,
+    );
+  }
+  lines.push(
+    `| Total | ${totals.commits} | ${totals.added} | ${totals.deleted} | ${totals.files} | ${totals.overlaps} |`,
+    "",
+  );
+  lines.push("## Commits", "");
+  lines.push("| Commit | Domain | Tier | Upstreamable | Files | Shared |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const row of inventory.commits) {
+    lines.push(
+      `| \`${row.short}\` | ${row.domain} | ${row.tier} | ${row.upstreamable} | ${row.files} | ${row.overlaps} |`,
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+};
+
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   stream.pipe(
     Stream.decodeText(),
@@ -337,6 +516,31 @@ export const readForkLog = Effect.fn("readForkLog")(function* (
     return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
   }
   return parseForkLog(result.stdout);
+});
+
+const readDiffPaths = Effect.fn("readInventoryDiffPaths")(function* (from: string, to: string) {
+  const result = yield* runGit(
+    ["-c", "core.quotePath=false", "diff", "--name-only", `${from}..${to}`],
+    process.cwd(),
+  );
+  if (result.exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
+  }
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+});
+
+const readCommitNumstat = Effect.fn("readInventoryCommitNumstat")(function* (
+  shas: ReadonlyArray<string>,
+) {
+  if (shas.length === 0) return new Map<string, CommitNumstat>();
+  const result = yield* runGit(commitNumstatArguments(shas), process.cwd());
+  if (result.exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
+  }
+  return parseCommitNumstat(result.stdout);
 });
 
 const missingRevisionPath = (stderr: string): boolean =>
@@ -462,6 +666,18 @@ const command = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    inventory: Flag.boolean("inventory").pipe(
+      Flag.withDescription(
+        "Print the per-domain and per-commit delta inventory instead of the ledger.",
+      ),
+      Flag.withDefault(false),
+    ),
+    upstream: Flag.string("upstream").pipe(
+      Flag.withDescription(
+        "With --inventory, the upstream target to compare against (default: upstream/main).",
+      ),
+      Flag.optional,
+    ),
     squashBody: Flag.string("squash-body").pipe(
       Flag.withDescription(
         "With --check, verify the base-to-head squash and the pull-request body's final trailer block.",
@@ -469,7 +685,7 @@ const command = Command.make(
       Flag.optional,
     ),
   },
-  ({ base, head, check, json, domain, shas, squashBody }) =>
+  ({ base, head, check, json, domain, shas, squashBody, inventory, upstream }) =>
     Effect.gen(function* () {
       if (Option.isSome(squashBody)) {
         const missingRefs = [
@@ -500,6 +716,31 @@ const command = Command.make(
           return;
         }
         process.stdout.write("ok: prospective squash carries its fork trailers and wire review\n");
+        return;
+      }
+      if (inventory) {
+        const target = Option.getOrElse(upstream, () => "upstream/main");
+        const inventoryHead = Option.getOrElse(head, () => "HEAD");
+        const base = yield* resolveMergeBase(target, inventoryHead, process.cwd());
+        const commits = yield* readForkLog(base, inventoryHead);
+        const [forkChanged, upstreamChanged, statsBySha] = yield* Effect.all(
+          [
+            readDiffPaths(base, inventoryHead),
+            readDiffPaths(base, target),
+            readCommitNumstat(commits.map(({ sha }) => sha)),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const inventoryTable = buildInventory({
+          base,
+          head: inventoryHead,
+          target,
+          commits,
+          statsBySha,
+          forkChanged: new Set(forkChanged),
+          upstreamChanged: new Set(upstreamChanged),
+        });
+        process.stdout.write(renderInventory(inventoryTable));
         return;
       }
       const fileSystem = yield* FileSystem.FileSystem;
