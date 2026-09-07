@@ -72,6 +72,14 @@ Anything else that halts the walk is a bug in the walk. When a walk stops, pick 
 the verbs under **Walk mode** and use the stop shape below; whatever you decide there is a human
 decision and is recorded as one.
 
+Every decision is durable (RSI-Software/t3code-hyprws#662): the executor's outcomes and rerere
+replays land on the record's `## Decisions` section as they happen, and a `conflict` stop records
+the rows it hands to a human. After resolving and staging the declined paths in the lane, run
+`vp run fork:sync record-decisions --report <json> --tag <tag>`: it publishes the resolutions to
+the shared rerere ref, posts the record to the blocker, and writes the tag's ledger row as
+`pending`. The next tag's walk then resolves the same seam from that record and names the walk it
+came from — no maintainer decides the same seam twice.
+
 The review below belongs to the series rewrite, not to this walk. Hand its emitted report and record
 paths to the reviewer in another session. The reviewer must inspect:
 
