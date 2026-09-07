@@ -224,7 +224,9 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    calls `fork:sync-gate`, posts the record, and uses only its expected-old trunk lease. A rejected rewrite trunk lease retains the archive as failed-attempt evidence.
    Rejection voids the report: retain its external files and restart at step 1. Never commit them.
 
-6. Ledger row:
+6. Ledger row: step 5 already published it. The apply appends the row and the outcome record on
+   `refs/fork/churn` in the invocation that moved the trunk, before it reports `applied`, and stops
+   on `environment` if that write cannot land. Run the append by hand only for a row no apply wrote:
 
    ```bash
    node scripts/fork-churn.ts append --record <record> --issue <blocked-issue-number> --tag <tag> --before <expected-old> --after <installed-head> --push
