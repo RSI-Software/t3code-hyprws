@@ -378,7 +378,12 @@ const takeFlag = (args: ReadonlyArray<string>, flag: string): [boolean, Readonly
   args.filter((value) => value !== flag),
 ];
 
-const append = (args: ReadonlyArray<string>, root: string): void => {
+/**
+ * The applied walk's row. `unblock-apply` calls this in the invocation that moved the trunk
+ * (RSI-Software/t3code-hyprws#664), so it throws its own failure rather than reporting an exit
+ * status a caller would have to translate back into a cause.
+ */
+export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void => {
   const [push, rest] = takeFlag(args, "--push");
   const options = parseOptions(rest);
   const allowed = new Set(["--record", "--issue", "--tag", "--before", "--after"]);
@@ -811,7 +816,7 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb === "record") return recordSeams(args, root);
     if (verb === "compose") return composeSeams(args, root);
     if (verb === "append") {
-      append(args, root);
+      appendChurnRow(args, root);
       return 0;
     }
     if (verb === "outcome") return runOutcome(args, root);

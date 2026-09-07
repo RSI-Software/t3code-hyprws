@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import { readChurnState } from "./fork-churn-ledger.ts";
-import { CHURN_REF, CHURN_LEDGER_FILE, writeBotRefFile } from "./lib/fork-bot-refs.ts";
+import { CHURN_REF, CHURN_LEDGER_FILE, RERERE_REF, writeBotRefFile } from "./lib/fork-bot-refs.ts";
 import type { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
 
 const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -201,6 +201,18 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
         assert.strictEqual(resumed.status, 0, resumed.stderr);
         const resumedOutcome = decode(resumed.stdout);
         assert.strictEqual(resumedOutcome.appliedSha, releasedSha);
+        // The lane published the cache itself and the workflow job reports the same export, so
+        // the attempt keeps one cache-export receipt rather than two conflicting readings of it.
+        assert.deepStrictEqual(
+          resumedOutcome.stages
+            .filter(
+              (row) =>
+                row.attemptId === resumedOutcome.attempts.at(-1)!.attemptId &&
+                row.stage === "cache-export",
+            )
+            .map((row) => row.detail),
+          [`in-lane ${RERERE_REF} export published`],
+        );
         assert.notStrictEqual(resumedOutcome.attempts.at(-1)!.attemptId, stoppedAttempt.attemptId);
         assert.strictEqual(
           resumedOutcome.stages.find(
