@@ -113,6 +113,11 @@ Fork-Upstreamable: yes
 | `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit        |
 | `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`           |
 | `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
+| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair   |
+
+`Fork-Repair` marks a commit the sync walk wrote itself for what its repair pass rewrote after
+replaying the fork stack onto that tag, and it is what keeps such a commit out of the fork series
+the replay proofs compare.
 
 `vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
 On a pull request, fork CI also runs
