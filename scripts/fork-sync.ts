@@ -5,14 +5,21 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { captureSyncOutcome } from "./fork-churn-outcomes.ts";
+import { captureSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
 import {
   runRewriteBuild,
   verifyRewriteBuild,
   type RewriteBuildReceipt,
 } from "./lib/fork-rewrite-build.ts";
 
-import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
+import {
+  CHURN_REF,
+  fetchBotRef,
+  publishRerereSnapshot,
+  RERERE_REF,
+  saveRerereCache,
+} from "./lib/fork-bot-refs.ts";
+import { appendChurnRow } from "./fork-churn.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   executeConflictOutcome,
@@ -1778,6 +1785,82 @@ const unblockRefresh = (
   return refreshed;
 };
 
+/**
+ * The trunk has moved and the ledger has not. Everything the walk knows is in the report it
+ * already wrote, so the stop names the applied trunk and the row that is missing rather than the
+ * command that refused (RSI-Software/t3code-hyprws#664).
+ */
+class LedgerUnpublished extends Error {
+  readonly report: SyncReport;
+  constructor(message: string, report: SyncReport) {
+    super(message);
+    this.report = report;
+  }
+}
+
+const firstLine = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).split("\n", 1)[0] ?? "unknown failure";
+
+/**
+ * One ledger write, retried once. A refused expected-old lease restores the local ref before it
+ * reports, so the retry re-reads what origin publishes now and appends to that. A second refusal
+ * is the environment, not a race: the walk stops and says which row `refs/fork/churn` is missing.
+ */
+const ledgerWrite = (report: SyncReport, label: string, write: () => void): SyncReport => {
+  let failure = "";
+  for (const attempt of [0, 1]) {
+    try {
+      write();
+      return report;
+    } catch (error) {
+      failure = `${label}: ${firstLine(error)}`;
+      if (attempt === 0)
+        process.stderr.write(`warning: ${failure}; retrying the ${CHURN_REF} lease once\n`);
+    }
+  }
+  const tag = report.target?.tag ?? "unknown";
+  const stopped: SyncReport = {
+    ...report,
+    walk: { ...(report.walk ?? {}), ledger: { state: "unpublished", tag, reason: failure } },
+  };
+  writeReport(stopped);
+  throw new LedgerUnpublished(
+    `hyprws is applied at ${report.installedHead ?? "unknown"} and ${CHURN_REF} carries no row for ${tag}: ${failure}`,
+    stopped,
+  );
+};
+
+/**
+ * The row the applied walk owes the ledger. It binds the record comment the apply just posted,
+ * so it can only be written after the trunk push, and it is written before the invocation
+ * reports `applied` so no outcome survives only in a runner file.
+ */
+const publishChurnRow = (report: SyncReport, tag: string): SyncReport =>
+  ledgerWrite(report, "churn row", () =>
+    appendChurnRow(
+      [
+        "--record",
+        report.recordPath,
+        "--issue",
+        String(report.issue.number),
+        "--tag",
+        tag,
+        "--before",
+        report.source?.expectedOld ?? "",
+        "--after",
+        report.installedHead ?? "",
+        "--push",
+      ],
+      report.repositoryRoot,
+    ),
+  );
+
+/** The retained outcome receipts for the same walk, from the report this invocation just wrote. */
+const publishWalkOutcomes = (report: SyncReport): SyncReport =>
+  ledgerWrite(report, "outcome record", () => {
+    runOutcome(["--sync-report", report.reportPath, "--push"], report.repositoryRoot);
+  });
+
 const unblockApply = (
   values: ReadonlyMap<string, string>,
   _cwd: string,
@@ -2014,6 +2097,11 @@ const unblockApply = (
     },
   };
   writeReport(report);
+  // The trunk has moved, so the row is owed now. Everything after this line can fail without
+  // losing the walk from the ledger; a step that runs after this invocation cannot
+  // (RSI-Software/t3code-hyprws#664). A rewrite keeps the fork's current base, so it has no new
+  // tag to record and would only collide with the row that base already carries.
+  if (!isRewrite) report = publishChurnRow(report, gateTag);
   announceStableCandidates(stableCandidates);
   requireSuccess(
     runner,
@@ -2034,6 +2122,17 @@ const unblockApply = (
   // Only the rewrite lane ever pushed its rehearsal branch, so only it has one to retire.
   if (isRewrite) git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
   report = resumeRererePublication(report);
+  // Collected after the cache publication so the retained receipts carry its result, and before
+  // `applied` so the invocation never reports a walk the ledger cannot show.
+  if (!isRewrite) {
+    report = publishWalkOutcomes(report);
+    report = {
+      ...report,
+      walk: { ...(report.walk ?? {}), ledger: { state: "published", tag: gateTag } },
+    };
+    writeReport(report);
+    process.stdout.write(`ledger: ${gateTag} row and outcomes on ${CHURN_REF}\n`);
+  }
   process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
   return report;
 };
@@ -2888,7 +2987,10 @@ const walkOnce = (
         ),
       ).value;
       executingPhase = "unblock-auto";
-      process.stdout.write(`applied: ${report.target?.tag ?? "unknown"}\n`);
+      // The apply's own output is captured, so the walk restates the ledger state it reached.
+      process.stdout.write(
+        `ledger: ${report.walk?.ledger?.state ?? "unknown"} on ${CHURN_REF}\napplied: ${report.target?.tag ?? "unknown"}\n`,
+      );
     }
 
     if (report.stage === "applied" && report.rererePublication?.state === "pending")
@@ -2911,6 +3013,10 @@ const walkOnce = (
     process.stdout.write(walkSummary(report));
     return report;
   } catch (error) {
+    // The trunk moved and the ledger did not, so the walk owns the stop: it is the only lane
+    // that still knows which row is missing (RSI-Software/t3code-hyprws#664).
+    if (error instanceof LedgerUnpublished)
+      return stopWalk(error.report, "environment", error.message, started);
     if (error instanceof RepairStop)
       return stopWalk(
         report,
@@ -2932,6 +3038,46 @@ const walkOnce = (
   }
 };
 
+/**
+ * A walk that applied before this one and lost its ledger write left the trunk it moved with no
+ * row. The retained report is the only place that binding still exists, so the next walk pays the
+ * debt before it moves the trunk again. Only the tag the trunk currently carries: an older gap is
+ * a backfill against objects and issue threads this lane cannot re-derive
+ * (RSI-Software/t3code-hyprws#666).
+ */
+const healCurrentTrunkRow = (values: ReadonlyMap<string, string>, runner: CommandRunner): void => {
+  const reportPath = oneValue(values, "--report", false);
+  if (reportPath === null || !NodeFS.existsSync(reportPath)) return;
+  let report: SyncReport;
+  try {
+    report = readReport(reportPath);
+  } catch {
+    return;
+  }
+  const tag = report.target?.tag;
+  if (
+    report.stage !== "applied" ||
+    report.kind === "rewrite" ||
+    tag === undefined ||
+    report.installedHead === undefined ||
+    report.source === undefined
+  )
+    return;
+  const root = report.repositoryRoot;
+  const live = runner.run("git", ["rev-parse", "origin/hyprws^{commit}"], root);
+  if (live.status !== 0 || live.stdout.trim() !== report.installedHead) return;
+  fetchBotRef(root, CHURN_REF);
+  if (readChurnLedger(root).some((entry) => entry.tag === tag)) return;
+  if (!NodeFS.existsSync(report.recordPath)) {
+    process.stderr.write(
+      `warning: ${CHURN_REF} has no row for the applied trunk tag ${tag} and ${report.recordPath} is gone; the row needs a backfill\n`,
+    );
+    return;
+  }
+  publishWalkOutcomes(publishChurnRow(report, tag));
+  process.stdout.write(`ledger: appended the missing ${tag} row to ${CHURN_REF}\n`);
+};
+
 const unblockAuto = (
   values: ReadonlyMap<string, string>,
   cwd: string,
@@ -2939,6 +3085,12 @@ const unblockAuto = (
 ): SyncReport => {
   assertOnly(values, ["--target", "--report", "--bot-carried", "--silent-seam"]);
   const started = Date.now();
+  try {
+    healCurrentTrunkRow(values, runner);
+  } catch (error) {
+    if (!(error instanceof LedgerUnpublished)) throw error;
+    stopWalk(error.report, "environment", error.message, started);
+  }
   // One restart, because a trunk that moves twice inside a single walk is a second walk running,
   // not a race worth retrying against.
   for (const attempt of [0, 1]) {
@@ -2977,6 +3129,13 @@ export const walkSummary = (report: SyncReport): string => {
           "- repairs:",
           ...(walk.repairs ?? []).map((row) => `  - \`${row.command}\`: ${row.result}`),
         ].join("\n"),
+    ...(walk.ledger === undefined
+      ? []
+      : [
+          walk.ledger.state === "published"
+            ? `- ledger: published (\`${walk.ledger.tag}\`)`
+            : `- ledger: unpublished (${walk.ledger.reason ?? "unknown"})`,
+        ]),
     walk.stop === undefined ? "- stop: none" : `- stop (${walk.stop.reason}): ${walk.stop.detail}`,
     "",
   ].join("\n");

@@ -60,8 +60,16 @@ import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
-import { RERERE_REF, readBotRefFile, saveRerereCache } from "./lib/fork-bot-refs.ts";
-import { parseSilentSeams } from "./fork-churn-ledger.ts";
+import {
+  CHURN_LEDGER_FILE,
+  CHURN_REF,
+  RERERE_REF,
+  readBotRefFile,
+  saveRerereCache,
+  writeBotRefFile,
+} from "./lib/fork-bot-refs.ts";
+import { parseLedger, parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
+import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
 import { SYNC_HELP, uniqueSilentSeams } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
@@ -135,6 +143,77 @@ const fixtureRoot = (): string => {
     'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
   );
   return root;
+};
+
+/**
+ * The apply publishes the walk's row and outcome record in its own invocation
+ * (RSI-Software/t3code-hyprws#664), so an apply fixture needs a real origin, a seeded ledger ref,
+ * and a `gh` that answers the record lookup with the record file the apply just posted.
+ * `reachable: false` gives the fixture an origin no lease can read, which is the only way to fail
+ * the ledger write after the trunk has already moved.
+ */
+const ledgerFixture = (
+  root: string,
+  recordPath: string,
+  { reachable = true }: { reachable?: boolean } = {},
+): { remote: string; restore: () => void } => {
+  const remote = NodePath.join(root, "ledger-remote.git");
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "--bare", remote]);
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  NodeChildProcess.execFileSync(
+    "git",
+    ["remote", "add", "origin", reachable ? remote : NodePath.join(root, "absent.git")],
+    { cwd: root },
+  );
+  writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+  if (reachable)
+    NodeChildProcess.execFileSync("git", ["push", "--quiet", remote, `${CHURN_REF}:${CHURN_REF}`], {
+      cwd: root,
+    });
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin, { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    [
+      "#!/usr/bin/env node",
+      'const record = require("node:fs").readFileSync(process.env.FAKE_RECORD_PATH, "utf8");',
+      "process.stdout.write(",
+      "  JSON.stringify({",
+      "    body: process.env.FAKE_ISSUE_BODY,",
+      '    url: "https://example.test/issue",',
+      '    comments: [{ body: record, url: "https://example.test/record" }],',
+      "  }),",
+      ");",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const previousPath = process.env.PATH;
+  const previousRecord = process.env.FAKE_RECORD_PATH;
+  const previousBody = process.env.FAKE_ISSUE_BODY;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  process.env.FAKE_RECORD_PATH = recordPath;
+  process.env.FAKE_ISSUE_BODY = [
+    "## Sequential rebase census",
+    "",
+    "| File | Hunks | Fork commit | Domain |",
+    "| --- | ---: | --- | --- |",
+    "| `scripts/fork-sync.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+  ].join("\n");
+  return {
+    remote,
+    restore: () => {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousRecord === undefined) delete process.env.FAKE_RECORD_PATH;
+      else process.env.FAKE_RECORD_PATH = previousRecord;
+      if (previousBody === undefined) delete process.env.FAKE_ISSUE_BODY;
+      else process.env.FAKE_ISSUE_BODY = previousBody;
+    },
+  };
 };
 
 const report = (root: string, overrides: Partial<SyncReport> = {}): SyncReport => {
@@ -2247,6 +2326,7 @@ it("snapshots the tags between the pre-apply base and the gate tag before the le
   );
   runner.set("git", ["rev-parse", "v1.2.3^{commit}"], { stdout: `${B}\n` });
   runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  const ledger = ledgerFixture(root, checked.recordPath);
   let stderr = "";
   const original = process.stderr.write;
   process.stderr.write = ((chunk: string | Uint8Array) => {
@@ -2272,6 +2352,7 @@ it("snapshots the tags between the pre-apply base and the gate tag before the le
     assert.isAbove(push, base);
   } finally {
     process.stderr.write = original;
+    ledger.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
@@ -2313,6 +2394,7 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
     ],
     { stdout: "https://example.test/comment\n" },
   );
+  const ledger = ledgerFixture(root, checked.recordPath);
   try {
     const applied = execute(
       ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
@@ -2340,8 +2422,154 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
       ),
     );
   } finally {
+    ledger.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("publishes the walk row and its outcomes before it reports applied", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  const ledger = ledgerFixture(root, checked.recordPath);
+  try {
+    const { output, result } = captureStdout(() =>
+      execute(
+        ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+        root,
+        runner,
+      ),
+    );
+
+    // The row reaches the published ref in this invocation, so the trunk the walk moved is
+    // never a walk the ledger cannot show (RSI-Software/t3code-hyprws#664).
+    const published = parseLedger(
+      readBotRefFile(ledger.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
+    );
+    assert.deepStrictEqual(
+      published.map(({ tag, before, after }) => ({ tag, before, after })),
+      [{ tag: "v1.2.3", before: C, after: B }],
+    );
+    assert.strictEqual(result.walk?.ledger?.state, "published");
+    // The retained apply receipt is what a later release binds its distribution to; without it
+    // the release can only report `unknown`.
+    const [summary] = summarizeOutcomes(readChurnState(root).outcomes);
+    assert.strictEqual(summary?.appliedSha, B);
+    assert.isBelow(output.indexOf("ledger: v1.2.3"), output.indexOf("applied: v1.2.3"));
+    assert.include(output, `ledger: v1.2.3 row and outcomes on ${CHURN_REF}`);
+  } finally {
+    ledger.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stops the walk on environment when the trunk moved and the ledger write cannot land", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  const ledger = ledgerFixture(root, checked.recordPath, { reachable: false });
+  let stderr = "";
+  const originalError = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const { output } = captureStdout(() =>
+      assert.strictEqual(run(["unblock-auto", "--report", checked.reportPath], root, runner), 2),
+    );
+    // The trunk moved, so the stop names what it moved to and what the ledger still owes.
+    assert.include(output, "Stop (environment).");
+    assert.include(output, `hyprws is applied at ${B} and ${CHURN_REF} carries no row for v1.2.3`);
+    assert.include(output, "- ledger: unpublished (churn row:");
+    assert.notInclude(output, "applied:");
+    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")));
+    assert.strictEqual(stopped.walk?.ledger?.state, "unpublished");
+    assert.strictEqual(stopped.walk?.stop?.reason, "environment");
+    // A single retry, because a refused lease restores the local ref and the next attempt is
+    // the same write against a re-read ref.
+    assert.strictEqual(stderr.split("retrying the").length - 1, 1);
+  } finally {
+    process.stderr.write = originalError;
+    ledger.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("appends the trunk's own missing row before it walks the next target", () => {
+  const root = fixtureRoot();
+  const applied = report(root, {
+    stage: "applied",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    orientation: coherentOrientation,
+    reconciliation: { state: "dispatched", baselineRunId: 1, runUrl: "https://example.test/run" },
+  });
+  NodeFS.writeFileSync(applied.reportPath, JSON.stringify(applied));
+  NodeFS.writeFileSync(applied.recordPath, renderRecord(applied));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${B}\n` });
+  const ledger = ledgerFixture(root, applied.recordPath);
+  try {
+    const { output } = captureStdout(() =>
+      assert.strictEqual(run(["unblock-auto", "--report", applied.reportPath], root, runner), 0),
+    );
+    assert.include(output, `ledger: appended the missing v1.2.3 row to ${CHURN_REF}`);
+    assert.deepStrictEqual(
+      parseLedger(readBotRefFile(ledger.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "").map(
+        ({ tag }) => tag,
+      ),
+      ["v1.2.3"],
+    );
+  } finally {
+    ledger.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -4268,6 +4496,7 @@ it("does not refuse when origin/hyprws is still at the leased SHA", () => {
   // The record is signed (checked has no decisions), so the only refusal
   // that remains would be the staleness one — which should be silent here.
   runner.set("git", ["status", "--porcelain"], { stdout: "" });
+  const ledger = ledgerFixture(root, checked.recordPath);
   // Stub the gate — the full tree read does not exercise its branches here; the
   // staleness is the _last_ guard before push, so any non-staleness refusal
   // proves the lease was correctly read as live.
@@ -4284,6 +4513,7 @@ it("does not refuse when origin/hyprws is still at the leased SHA", () => {
     }
     assert.isFalse(staleness, "staleness refusal must be silent when hyprws has not moved");
   } finally {
+    ledger.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }

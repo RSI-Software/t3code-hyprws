@@ -381,6 +381,16 @@ export interface WalkRecord {
   readonly baseMove?: { readonly from: string; readonly to: string };
   readonly repairs?: ReadonlyArray<{ readonly command: string; readonly result: string }>;
   readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
+  /**
+   * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
+   * an unpublished ledger is a stop the walk reports, never a later step's silent omission
+   * (RSI-Software/t3code-hyprws#664).
+   */
+  readonly ledger?: {
+    readonly state: "published" | "unpublished";
+    readonly tag: string;
+    readonly reason?: string;
+  };
 }
 
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]

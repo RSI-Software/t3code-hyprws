@@ -4,8 +4,9 @@
 
 // The glue the auto-rebase workflow needs around `unblock-auto --bot-carried`
 // (RSI-Software/t3code-hyprws#444). Every verb is one step of that job: carry the
-// shared rerere cache, record the walk's churn row, or hand a stop back to the
-// notification issue. Nothing here decides anything; the walk already did.
+// shared rerere cache, or hand a stop back to the notification issue. Nothing here
+// decides anything; the walk already did. The churn row left with
+// RSI-Software/t3code-hyprws#664: it belongs to the invocation that moved the trunk.
 
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -18,11 +19,10 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
-import { run as runChurn } from "./fork-churn.ts";
 import type { SyncReport } from "./fork-sync-state.ts";
 
 const USAGE =
-  "usage: fork-carry rerere-restore | rerere-save [--push] | churn-row --report <json> | stop-surface --report <json> --log <file>";
+  "usage: fork-carry rerere-restore | rerere-save [--push] | stop-surface --report <json> --log <file>";
 
 const optionValue = (argv: ReadonlyArray<string>, flag: string): string => {
   const index = argv.indexOf(flag);
@@ -53,34 +53,6 @@ const rerereSave = (argv: ReadonlyArray<string>, root: string): number => {
     `${RERERE_REF} at ${published}${argv.includes("--push") ? " (pushed)" : ""}\n`,
   );
   return 0;
-};
-
-/** The walk applied, so its row joins the ledger on the bot-owned ref. */
-const churnRow = (argv: ReadonlyArray<string>, root: string): number => {
-  const report = readSyncReport(optionValue(argv, "--report"));
-  if (report.stage !== "applied") throw new Error(`carried walk is ${report.stage}, not applied`);
-  const tag = report.target?.tag;
-  const before = report.source?.expectedOld;
-  const after = report.installedHead;
-  if (tag === undefined || before === undefined || after === undefined)
-    throw new Error("applied report is missing its tag, lease, or installed head");
-  return runChurn(
-    [
-      "append",
-      "--record",
-      report.recordPath,
-      "--issue",
-      String(report.issue.number),
-      "--tag",
-      tag,
-      "--before",
-      before,
-      "--after",
-      after,
-      "--push",
-    ],
-    root,
-  );
 };
 
 const STOP_HEADING = "## Carried walk stopped";
@@ -146,7 +118,6 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     const [verb, ...args] = argv;
     if (verb === "rerere-restore") return rerereRestore(root);
     if (verb === "rerere-save") return rerereSave(args, root);
-    if (verb === "churn-row") return churnRow(args, root);
     if (verb === "stop-surface") return stopSurface(args, root);
     throw new Error(USAGE);
   } catch (error) {

@@ -7,7 +7,12 @@ import type { AutoRebaseOptions, AutoRebaseResult } from "./fork-auto-rebase.ts"
 import type { SyncReport } from "./fork-sync-state.ts";
 import { readReport } from "./fork-sync-state.ts";
 import { runCommandText, runCommand } from "./lib/fork-command.ts";
-import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
+import {
+  acquireBotRefLease,
+  CHURN_REF,
+  publishBotRefLease,
+  RERERE_REF,
+} from "./lib/fork-bot-refs.ts";
 import { readChurnState, writeChurnState } from "./fork-churn-ledger.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { UsageError } from "./lib/fork-cli.ts";
@@ -327,7 +332,7 @@ export const syncOutcomeReceipts = (
       report.stage === "applied" ? report.installedHead : undefined,
     ),
   );
-  if (report.rererePublication)
+  if (report.rererePublication) {
     receipts.push(
       stage(
         attempt,
@@ -336,6 +341,18 @@ export const syncOutcomeReceipts = (
         report.rererePublication.error ?? `rerere publication ${report.rererePublication.state}`,
       ),
     );
+    // The applied walk publishes the shared cache itself, so the export the workflow used to
+    // report separately is the same publication, read from the report that owns it
+    // (RSI-Software/t3code-hyprws#664).
+    receipts.push(
+      stage(
+        attempt,
+        "cache-export",
+        report.rererePublication.state === "published" ? "succeeded" : "pending",
+        `in-lane ${RERERE_REF} export ${report.rererePublication.state}`,
+      ),
+    );
+  }
   return requireOutcomeReceipts(receipts);
 };
 
@@ -488,6 +505,14 @@ export const releaseOutcomeReceipts = (
     input.appliedSha !== null &&
     completeAssets;
   const failed = [input.verification, input.build, input.publication].includes("failed");
+  // A published release stands on an applied trunk, and every applied walk now publishes its own
+  // apply receipt in the invocation that moved the trunk. So a release that reaches publication
+  // with no retained apply is a ledger the walk never wrote, not an outcome nobody can classify;
+  // recording it as `unknown` would retire the question (RSI-Software/t3code-hyprws#664).
+  if (!failed && input.publication === "succeeded" && input.appliedSha === null)
+    throw new Error(
+      `release ${input.tag} published ${input.releasedSha} with no retained apply receipt on ${CHURN_REF}; append the missing walk row before recording this distribution`,
+    );
   const evidence =
     input.appliedSha && input.verification === "succeeded"
       ? {
@@ -513,9 +538,7 @@ export const releaseOutcomeReceipts = (
           ? "failed"
           : input.publication === "not-attempted"
             ? "not-attempted"
-            : input.appliedSha === null
-              ? "unknown"
-              : "failed",
+            : "failed",
       complete
         ? "tag commit and every expected asset verified against GitHub publication"
         : `release incomplete: preflight=${input.verification}, build=${input.build}, publication=${input.publication}, assets=${completeAssets}, tagMatches=${input.tagSha === input.releasedSha}, retainedApply=${input.appliedSha !== null}`,
@@ -672,7 +695,17 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
     if (process.env.FORK_OUTCOME_CACHE_EXPORT) {
       const attempts = receipts.filter((row): row is OutcomeAttempt => row.kind === "attempt");
       const attempt = attempts.at(-1);
-      if (attempt)
+      // A report that carries its own publication already reported the export, and the workflow's
+      // job status is a second reading of that same attempt. Two readings of one stage are
+      // conflicting immutable evidence, so the lane's own receipt stands
+      // (RSI-Software/t3code-hyprws#664).
+      const reported = receipts.some(
+        (row) =>
+          row.kind === "stage" &&
+          row.stage === "cache-export" &&
+          row.attemptId === attempt?.attemptId,
+      );
+      if (attempt && !reported)
         receipts = [
           ...receipts,
           stage(

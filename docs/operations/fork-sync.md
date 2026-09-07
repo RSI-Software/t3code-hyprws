@@ -414,7 +414,8 @@ so after fetching the remote winner the migration can be retried; never replace 
 with an unleased force push. `report` stays read-only with respect to the ledger and refuses a
 subjectless ledger instead of consulting historical Git objects.
 
-After each walk, `node scripts/fork-churn.ts append ... --push` adds the row and publishes the ref.
+`unblock-apply` appends the walk's row and publishes the ref in the invocation that moved the
+trunk, so `node scripts/fork-churn.ts append ... --push` is only for a row no apply wrote.
 Each report run posts a `## Churn` section on the open block issue with the conflict class mix, the
 agent/human split, the silent seams, and the hot-seam movement since the previous report. The
 section replaces itself, so the issue carries one live view.
@@ -887,8 +888,10 @@ stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned impor
 checks, or a missing/stale/same-session/withheld review. A stale lease voids the report: the walk
 re-lists from the moved trunk by itself, and a single verb restarts at `unblock-list`.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
-leased push starts the bot run that reconciles the resolved blocking SHA and any later block. After
-apply, append the walk to `refs/fork/churn` with `--push`; the next sync report renders it.
+leased push starts the bot run that reconciles the resolved blocking SHA and any later block. The
+apply publishes the walk's row and outcome record on `refs/fork/churn` before it reports `applied`,
+and stops on `environment` naming the moved trunk when that write cannot land; the next sync report
+renders the row.
 
 ## Cut a stable release
 
@@ -1027,13 +1030,6 @@ Never run the hard reset in a feature worktree or a checkout with uncommitted wo
   semantic review surface, and a fork commit is retired only by a recorded human decision.
 - **Stable release fails:** leave the candidate issue open, fix the workflow or runner, and rerun the
   failed release. Do not move or replace the tag after a release has been published.
-
-## Deferred
-
-- Churn ledger rows still land by hand after apply (`fork:churn append`, skill step 6).
-  The append binds `--tag` to the live census `targetTag`, not the applied tag in the
-  report, and `unblock-apply` does not write or dispatch the row itself. Wiring the
-  row into apply (or explicitly keeping it manual) is follow-up work, not this gate.
 
 ## Version ordering caveat
 

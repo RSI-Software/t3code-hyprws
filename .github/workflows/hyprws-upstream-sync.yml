@@ -285,6 +285,7 @@ jobs:
           HYPRWS_AUTO_REBASE: ${{ vars.HYPRWS_AUTO_REBASE }}
           BLOCKED_TAG: ${{ needs.rebase.outputs.blocked_tag }}
           REPORT: ${{ runner.temp }}/fork-sync-report.json
+          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/fork-carry-outcome-receipts.json
         run: |
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
@@ -317,20 +318,11 @@ jobs:
           export GIT_CONFIG_VALUE_0
           node scripts/fork-carry.ts rerere-save --push
 
-      - name: Append the churn row
-        if: ${{ always() && steps.carry.outputs.outcome == 'applied' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
-        run: |
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_VALUE_0
-          node scripts/fork-carry.ts churn-row --report "$RUNNER_TEMP/fork-sync-report.json"
-
-      - name: Retain carried outcomes
-        if: always()
+      # An applied walk published its own row and outcomes before it reported `applied`
+      # (RSI-Software/t3code-hyprws#664), so this step only covers the runs that never got
+      # that far: a stop, or a carry that died before it retained a report.
+      - name: Retain the outcomes of a walk that did not apply
+        if: ${{ always() && steps.carry.outputs.outcome != 'applied' }}
         env:
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
           FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
