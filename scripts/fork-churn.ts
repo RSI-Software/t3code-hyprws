@@ -24,6 +24,7 @@ import {
   parseCensusTag,
   parseLedger,
   parseChurnState,
+  parseRepairCommits,
   parseSilentSeams,
   readChurnLedger,
   readChurnState,
@@ -438,6 +439,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     }),
   );
   const silentSeams = parseSilentSeams(record);
+  const repairCommits = parseRepairCommits(record);
   const next = [
     ...entries,
     {
@@ -450,6 +452,7 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
       censusFiles: parseCensusFiles(issueView.body),
       ...(censusEvidence === null ? {} : { censusEvidence }),
       ...(silentSeams.length === 0 ? {} : { silentSeams }),
+      ...(repairCommits.length === 0 ? {} : { repairCommits }),
       ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
     },
   ] satisfies ReadonlyArray<ChurnEntry>;

@@ -26,7 +26,14 @@ import {
   isUnresolved,
   type UnresolvedOutcome,
 } from "./lib/fork-conflict-outcomes.ts";
-import { formatCommand, runRepairs, verifyPlan, type RepairFailure } from "./lib/fork-repairs.ts";
+import {
+  formatCommand,
+  repairCommitMessage,
+  repairKind,
+  runRepairs,
+  verifyPlan,
+  type RepairFailure,
+} from "./lib/fork-repairs.ts";
 import {
   SystemCommandRunner as SystemRunner,
   type CwdCommandRunner as CommandRunner,
@@ -45,8 +52,8 @@ import {
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
-import { normalizeReplayMessages } from "./lib/fork-replay-messages.ts";
-import { parseForkTrailers } from "./lib/fork-trailers.ts";
+import { normalizeReplayMessages, withoutRepairMessages } from "./lib/fork-replay-messages.ts";
+import { isForkDomain, parseForkTrailers } from "./lib/fork-trailers.ts";
 import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
 
 import {
@@ -61,6 +68,7 @@ import { humanVerdictsBySubject, readChurnLedger, readChurnState } from "./fork-
 import {
   assertOnly,
   BLOCK_LABEL,
+  BOT_COMMIT_CONFIG,
   commandText,
   COMMENT_CONFIG,
   DECISION_ACTIONS,
@@ -882,9 +890,20 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   const retired = retiredSubjectsForReport(report);
   const matched = matchedRetiredCount(report.originalMessages ?? "", retired);
   const expectedCount = expectedReplayCount(report, retired);
-  const count = Number(
-    git(runner, report.lane.worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true),
+  // The walk appends its own repair commits after the replay, so both proofs run over the fork
+  // series alone. A rerun that already carries a repair still has to show the same fork commits.
+  const series = withoutRepairMessages(
+    replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`),
   );
+  const count =
+    Number(
+      git(
+        runner,
+        report.lane.worktree,
+        ["rev-list", "--count", `${report.target.sha}..HEAD`],
+        true,
+      ),
+    ) - series.removed;
   if (count !== expectedCount) {
     if (matched === 0)
       throw new Error(`replay commit count changed: ${report.originalCount} -> ${count}`);
@@ -892,9 +911,8 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
       `replay commit count changed: ${report.originalCount} -> ${count} (expected ${expectedCount} after ${matched} retired)`,
     );
   }
-  const messages = replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`);
   const expectedMessages = filterRetiredMessages(report.originalMessages ?? "", retired);
-  if (normalizeReplayMessages(messages) !== normalizeReplayMessages(expectedMessages))
+  if (normalizeReplayMessages(series.messages) !== normalizeReplayMessages(expectedMessages))
     throw new Error("replay commit messages changed");
 };
 
@@ -924,9 +942,12 @@ const assertReplayedWithoutRebase = (report: SyncReport, runner: CommandRunner):
   )
     throw new Error(`${restart}: ${report.target.tag} is not an ancestor of the lane head`);
   const expectedCount = expectedReplayCount(report, retiredSubjectsForReport(report));
-  const count = Number(
-    git(runner, worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true),
-  );
+  const repairs = withoutRepairMessages(
+    replayMessages(runner, worktree, `${report.target.sha}..HEAD`),
+  ).removed;
+  const count =
+    Number(git(runner, worktree, ["rev-list", "--count", `${report.target.sha}..HEAD`], true)) -
+    repairs;
   if (count !== expectedCount)
     throw new Error(`${restart}: it holds ${count} commits, expected ${expectedCount}`);
 };
@@ -1218,6 +1239,85 @@ export const gateVerificationEnv = (
 
 const laneEnv = (worktree: string): NodeJS.ProcessEnv => gateVerificationEnv(process.env, worktree);
 
+/** Git under the walk's own identity, for the commits the walk writes rather than replays. */
+const botGit = (runner: CommandRunner, cwd: string, args: ReadonlyArray<string>): string =>
+  requireSuccess(runner, "git", ["-c", "core.commentChar=auto", ...args], cwd, undefined, {
+    ...process.env,
+    ...COMMENT_CONFIG,
+    ...BOT_COMMIT_CONFIG,
+  }).trim();
+
+/**
+ * The domain a repair belongs to: the one the fork commits owning the rewritten files declare.
+ * Mixed ownership, an unknown domain, or a file no fork commit owns is `fork-meta`, because the
+ * repair is then the walk's own bookkeeping rather than a change to one domain.
+ */
+export const repairDomain = (
+  runner: CommandRunner,
+  worktree: string,
+  base: string,
+  paths: ReadonlyArray<string>,
+): string => {
+  const owners = new Map<string, string>();
+  const raw = gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${base}..HEAD`],
+    true,
+  );
+  for (const record of raw.split("\x1e").slice(1)) {
+    const [, body = "", files = ""] = record.split("\x1f");
+    const trailers = parseForkTrailers(body);
+    // A repair owns no domain of its own; the fork commit under it still does.
+    if (trailers.repair !== undefined) continue;
+    for (const file of lines(files)) if (!owners.has(file)) owners.set(file, trailers.domain ?? "");
+  }
+  const domains = new Set(paths.map((path) => owners.get(path) ?? ""));
+  const only = domains.size === 1 ? [...domains][0] : undefined;
+  return isForkDomain(only) ? only : "fork-meta";
+};
+
+/**
+ * Commit whatever a repair pass rewrote, as the walk's own commit. Nothing is amended and nothing
+ * is squashed into a replayed fork commit: the SHAs the rehearsal proved stay exactly as they are,
+ * and the repair arrives with an author, a subject and the trailers that say which walk made it
+ * (RSI-Software/t3code-hyprws#663). A conflict resolution is not a repair — rebase semantics put
+ * it inside the commit being replayed, and `autoResolveConflicts` leaves it there.
+ */
+const commitWalkRepairs = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  outcome: {
+    readonly ran: ReadonlyArray<{ readonly command: string }>;
+    readonly dirtiedBy?: string;
+  },
+): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
+  const tag = report.target?.tag;
+  const base = report.target?.sha;
+  if (tag === undefined || base === undefined) throw new Error("repair commit has no target tag");
+  if (git(runner, worktree, ["status", "--porcelain"], true).length === 0) return [];
+  botGit(runner, worktree, ["add", "-A"]);
+  const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
+  if (paths.length === 0) return [];
+  const command =
+    outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
+  const message = repairCommitMessage({
+    kind: repairKind(command),
+    tag,
+    domain: repairDomain(runner, worktree, base, paths),
+    command,
+  });
+  botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
+  const [sha = "", subject = ""] = git(
+    runner,
+    worktree,
+    ["show", "-s", "--format=%H%x1f%s", "HEAD"],
+    true,
+  ).split("\x1f");
+  return [{ sha, subject }];
+};
+
 export const parseSilentSeam = (value: string): SilentSeam => {
   const separator = value.indexOf("=");
   const kindSeparator = value.lastIndexOf(":");
@@ -1364,13 +1464,39 @@ const unblockCheck = (
         .map(({ path }) => path),
     ]),
   ].sort();
-  const repairs = runRepairs(runner, worktree, verifyPlan(worktree, repairPaths), verificationEnv);
+  const repairs = runRepairs(
+    runner,
+    worktree,
+    verifyPlan(worktree, repairPaths),
+    verificationEnv,
+    () => git(runner, worktree, ["status", "--porcelain"], true).length > 0,
+  );
   for (const run of repairs.ran) verification.push({ command: run.command, result: run.result });
   if (repairs.failure !== undefined) {
     report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
     writeReport(report);
     throw new RepairStop(repairs.failure, report.reportPath);
   }
+  // Everything the pass rewrote becomes the walk's own commit, appended after the fork series it
+  // repairs. The series rewrite is excluded: its head is a constructed manifest result, so an
+  // extra commit there would contradict the proposal its reviewer signed.
+  const repaired =
+    report.kind === "rewrite" ? [] : commitWalkRepairs(report, runner, worktree, repairs);
+  const repairCommits = [
+    ...(report.walk?.repairCommits ?? []).filter(
+      (previous) => !repaired.some(({ sha }) => sha === previous.sha),
+    ),
+    ...repaired,
+  ];
+  if (repaired.length > 0) {
+    // Prove the appended trailers in the lane rather than leaving them to trunk CI.
+    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
+  }
+  // A repair commit is the lane head by construction, so the head the walk publishes needs no
+  // second read of `HEAD`.
+  const checkedHead = repaired[repaired.length - 1]?.sha ?? installedHead;
   // The series rewrite is a human-driven proposal with no machine path: it rewrites the whole fork
   // stack at once, so its reviewer still signs a CI verdict on a pushed lane. The unblock walk does
   // not; its lane repair above is the verification, and trunk CI confirms after the apply.
@@ -1383,11 +1509,11 @@ const unblockCheck = (
       ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${lane.branch}`],
       true,
     );
-    if (remoteLaneHead(runner, worktree, lane.branch, true) !== installedHead)
+    if (remoteLaneHead(runner, worktree, lane.branch, true) !== checkedHead)
       throw new Error("pushed rehearsal head does not match the installed tree");
-    const ciRun = waitForCiVerdict(runner, worktree, lane.branch, installedHead);
+    const ciRun = waitForCiVerdict(runner, worktree, lane.branch, checkedHead);
     verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
-    ciHead = installedHead;
+    ciHead = checkedHead;
     // A `checked` report already binds its proposer: sign-off is valid on any `checked` report,
     // with no separate resume round-trip to record one.
     if (proposedBy === undefined) {
@@ -1401,16 +1527,36 @@ const unblockCheck = (
       }
     }
   }
-  if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== installedHead)
+  if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== checkedHead)
     throw new Error("HEAD changed after the installed-tree check");
   report = preserveRecordDecisions({
     ...report,
     stage: "checked",
-    installedHead,
+    installedHead: checkedHead,
+    // A repair moves the lane head the apply publishes, so the record's head and stack size bind
+    // that head. The gate compares them against the checkout, and the fork series is still
+    // exactly what the replay proved: `## Repair commits` names everything appended after it.
+    ...(repaired.length === 0
+      ? {}
+      : {
+          rebasedHead: checkedHead,
+          stackSize: Number(
+            git(
+              runner,
+              worktree,
+              ["rev-list", "--count", `${report.target?.sha ?? ""}..HEAD`],
+              true,
+            ),
+          ),
+        }),
     ...(ciHead === undefined ? {} : { ciHead }),
     ...(proposedBy === undefined ? {} : { proposedBy }),
     verification,
-    walk: { ...(report.walk ?? {}), repairs: verification },
+    walk: {
+      ...(report.walk ?? {}),
+      repairs: verification,
+      ...(repairCommits.length === 0 ? {} : { repairCommits }),
+    },
     silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
   });
   writeReport(report);
@@ -3128,6 +3274,13 @@ export const walkSummary = (report: SyncReport): string => {
       : [
           "- repairs:",
           ...(walk.repairs ?? []).map((row) => `  - \`${row.command}\`: ${row.result}`),
+          // The commits the repair left behind, named so the reader can tell the walk's own work
+          // from the fork series it replayed.
+          ...((walk.repairCommits ?? []).length === 0
+            ? ["  - commits: none"]
+            : (walk.repairCommits ?? []).map(
+                (commit) => `  - commit \`${commit.sha}\`: ${commit.subject}`,
+              )),
         ].join("\n"),
     ...(walk.ledger === undefined
       ? []
