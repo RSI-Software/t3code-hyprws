@@ -54,6 +54,11 @@ export interface ChurnConflict {
   readonly decidedBy: DecidedBy;
 }
 
+export interface RepairCommit {
+  readonly sha: string;
+  readonly subject: string;
+}
+
 export interface CensusHotPath {
   readonly path: string;
   readonly consecutiveTags: number;
@@ -95,6 +100,11 @@ export interface ChurnEntry {
   readonly censusEvidence?: SequentialCensusEvidence;
   /** Seams the walk repaired without a conflict; absent on entries written before #476. */
   readonly silentSeams?: ReadonlyArray<SilentSeam>;
+  /**
+   * Commits the walk appended for what its repairs rewrote, so the row says which part of the
+   * applied head is the walk's own work. Absent on entries written before #663.
+   */
+  readonly repairCommits?: ReadonlyArray<RepairCommit>;
   /** Proposer/reviewer provenance for a humanless nightly apply. */
   readonly nightlyReview?: NightlyReview;
 }
@@ -190,6 +200,12 @@ export const parseCensusTag = (body: string): string => {
   if (tag === undefined) throw new Error("sequential rebase census has no target tag");
   return tag;
 };
+
+/** The repair commits a record names, in the order the walk appended them. */
+export const parseRepairCommits = (record: string): ReadonlyArray<RepairCommit> =>
+  [...section(record, "## Repair commits").matchAll(/^- `([0-9a-f]{7,64})` `(.*)`$/gm)].map(
+    (match) => ({ sha: match[1] ?? "", subject: unescapeCell(match[2] ?? "") }),
+  );
 
 export const parseSilentSeams = (record: string): ReadonlyArray<SilentSeam> =>
   [...section(record, "## Silent seams").matchAll(/^- `(.+?)` \[(behaviour|type)\]: (.*)$/gm)].map(
@@ -334,6 +350,20 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
               };
             });
           })();
+    const repairCommits =
+      entry.repairCommits === undefined
+        ? undefined
+        : (() => {
+            if (!Array.isArray(entry.repairCommits))
+              throw new Error(`invalid repairCommits in entry ${entryIndex}`);
+            return entry.repairCommits.map((item) => {
+              const row = (item ?? {}) as Record<string, unknown>;
+              return {
+                sha: requireString(row.sha, "repair commit sha"),
+                subject: requireString(row.subject, "repair commit subject"),
+              };
+            });
+          })();
     const nightlyReview =
       entry.nightlyReview === undefined
         ? undefined
@@ -352,6 +382,7 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
             censusEvidence: requireSequentialCensusEvidence(entry.censusEvidence),
           }),
       ...(silentSeams === undefined ? {} : { silentSeams }),
+      ...(repairCommits === undefined ? {} : { repairCommits }),
       ...(nightlyReview === undefined ? {} : { nightlyReview }),
     } satisfies ChurnEntry;
   });

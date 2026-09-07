@@ -766,7 +766,9 @@ resolved paths, then `typecheck` for each touched workspace and the focused test
 touched sources. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
-resolutions the walk staged do not hold.
+resolutions the walk staged do not hold. Whatever a repair rewrites is committed on top of the
+replayed stack as the walk's own bot commit carrying `Fork-Repair: <tag>`, never folded into a
+replayed fork commit, so the record and the churn row name the exact SHA that changed the tree.
 
 `HYPRWS_AUTO_REBASE=off` and `candidate` still suppress the trunk push, so a walk in either mode is
 a dry run that ends at the report.

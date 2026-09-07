@@ -123,7 +123,45 @@ export interface RepairFailure {
 export interface RepairOutcome {
   readonly ran: ReadonlyArray<RepairRun>;
   readonly failure?: RepairFailure;
+  /** The first command after which the worktree was dirty, when the caller can observe that. */
+  readonly dirtiedBy?: string;
 }
+
+/** What a repair pass did, named after the command that wrote to the worktree. */
+export type RepairKind = "fmt" | "typecheck" | "tests";
+
+export const repairKind = (command: string): RepairKind =>
+  /(^|\s)fmt(\s|$)/.test(command)
+    ? "fmt"
+    : /(^|\s)test(\s|$)/.test(command)
+      ? "tests"
+      : "typecheck";
+
+export interface RepairCommitInput {
+  readonly kind: RepairKind;
+  readonly tag: string;
+  readonly domain: string;
+  readonly command: string;
+}
+
+/**
+ * A repair is the walk's own commit, never an amend of the fork commit it follows: the replayed
+ * SHAs stay exactly what the rehearsal proved. `Fork-Upstreamable: no` is structural — a repair
+ * exists only to keep this fork's replay green, so it is never a candidate to send anywhere — and
+ * `Fork-Repair` is what the replay proofs read to keep it out of the fork series.
+ */
+export const repairCommitMessage = ({ kind, tag, domain, command }: RepairCommitInput): string =>
+  [
+    `chore(fork-sync): repair ${kind} after ${tag}`,
+    "",
+    `\`${command}\` rewrote the worktree while replaying onto ${tag}.`,
+    "",
+    `Fork-Domain: ${domain}`,
+    "Fork-Tier: bugfix",
+    "Fork-Upstreamable: no",
+    `Fork-Repair: ${tag}`,
+    "",
+  ].join("\n");
 
 /**
  * Only the runner itself failing is the environment's fault: a missing command (`127`) or a spawn
@@ -143,8 +181,11 @@ export const runRepairs = (
   worktree: string,
   plan: ReadonlyArray<RepairCommand>,
   env?: NodeJS.ProcessEnv,
+  /** Injected so the pass can name the command that dirtied the tree without knowing about Git. */
+  isDirty?: () => boolean,
 ): RepairOutcome => {
   const ran: Array<RepairRun> = [];
+  let dirtiedBy: string | undefined;
   for (const step of plan) {
     const label = commandText(step.command, step.args);
     let status: number;
@@ -170,10 +211,12 @@ export const runRepairs = (
     }
     if (status === 0) {
       ran.push({ command: label, result: "passed" });
+      if (dirtiedBy === undefined && isDirty?.() === true) dirtiedBy = label;
       continue;
     }
     return {
       ran,
+      ...(dirtiedBy === undefined ? {} : { dirtiedBy }),
       failure: {
         kind: status === MISSING_COMMAND_STATUS ? "environment" : "repair",
         command: label,
@@ -181,5 +224,5 @@ export const runRepairs = (
       },
     };
   }
-  return { ran };
+  return { ran, ...(dirtiedBy === undefined ? {} : { dirtiedBy }) };
 };

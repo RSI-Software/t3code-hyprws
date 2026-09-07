@@ -25,6 +25,23 @@ export const COMMENT_CONFIG = {
   GIT_CONFIG_VALUE_0: "auto",
 } as const;
 
+/**
+ * The identity every commit the walk writes itself carries, mirroring the one the sync workflow
+ * configures before it moves the trunk. Forcing it through the environment means a repair the
+ * human lane produces is attributed to the walk too, rather than to whoever ran the command.
+ */
+export const FORK_BOT_IDENTITY = {
+  name: "github-actions[bot]",
+  email: "41898282+github-actions[bot]@users.noreply.github.com",
+} as const;
+
+export const BOT_COMMIT_CONFIG = {
+  GIT_AUTHOR_NAME: FORK_BOT_IDENTITY.name,
+  GIT_AUTHOR_EMAIL: FORK_BOT_IDENTITY.email,
+  GIT_COMMITTER_NAME: FORK_BOT_IDENTITY.name,
+  GIT_COMMITTER_EMAIL: FORK_BOT_IDENTITY.email,
+} as const;
+
 export type SyncStage = "listed" | "oriented" | "conflicts" | "replayed" | "checked" | "applied";
 export type SyncKind = "unblock" | "rewrite";
 
@@ -380,6 +397,12 @@ export interface WalkRecord {
   /** The base the stack sat on before the walk, and the tag it moved to. */
   readonly baseMove?: { readonly from: string; readonly to: string };
   readonly repairs?: ReadonlyArray<{ readonly command: string; readonly result: string }>;
+  /**
+   * The commits the walk appended for what its repairs rewrote. Every one is the walk's own; a
+   * replayed fork commit is never amended, so this list is also the difference between the fork
+   * series and the head the apply publishes.
+   */
+  readonly repairCommits?: ReadonlyArray<{ readonly sha: string; readonly subject: string }>;
   readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
   /**
    * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
@@ -858,6 +881,14 @@ export const renderRecord = (report: SyncReport): string => {
       : (report.silentSeams ?? []).map(
           (seam) =>
             `- \`${escapeCell(seam.path)}\` [${seam.touchesBehaviour ? "behaviour" : "type"}]: ${escapeCell(seam.summary)}`,
+        )),
+    "",
+    "## Repair commits",
+    "",
+    ...((report.walk?.repairCommits ?? []).length === 0
+      ? ["None."]
+      : (report.walk?.repairCommits ?? []).map(
+          (commit) => `- \`${commit.sha}\` \`${escapeCell(commit.subject)}\``,
         )),
     "",
     "## Verification",

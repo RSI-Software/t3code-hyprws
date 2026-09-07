@@ -37,6 +37,7 @@ import {
   parseSilentSeam,
   preserveRecordDecisions,
   reconcileAfterApply,
+  repairDomain,
   resumeRererePublication,
   rehearsalConflictRows,
   rehearsalConflictStop,
@@ -68,7 +69,12 @@ import {
   saveRerereCache,
   writeBotRefFile,
 } from "./lib/fork-bot-refs.ts";
-import { parseLedger, parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
+import {
+  parseLedger,
+  parseRepairCommits,
+  parseSilentSeams,
+  readChurnState,
+} from "./fork-churn-ledger.ts";
 import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
 import { SYNC_HELP, uniqueSilentSeams } from "./fork-sync-state.ts";
 
@@ -3532,6 +3538,219 @@ it("stops the walk exactly twice: the lane cannot test, or the replay does not h
       NodeFS.rmSync(state.worktree, { recursive: true, force: true });
       NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
     }
+  }
+});
+
+const REPAIRED = "e".repeat(40);
+const REPAIR_SUBJECT = "chore(fork-sync): repair typecheck after v1.2.3";
+const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
+  "-c",
+  "core.commentChar=auto",
+  ...args,
+];
+
+it("attributes a repair to the domain that owns the files it rewrote", () => {
+  const runner = new FakeRunner();
+  const log = rehearsal(["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${B}..HEAD`]);
+  runner.set("git", log, {
+    stdout:
+      `\x1e${C}\x1fFork-Domain: project-windows\nFork-Tier: core\n\x1f\napps/desktop/src/window/DesktopWindow.ts\n` +
+      `\x1e${A}\x1fFork-Domain: custom-agents\nFork-Tier: core\n\x1f\napps/web/src/agents/List.tsx\n`,
+  });
+  assert.strictEqual(
+    repairDomain(runner, "/lane", B, ["apps/desktop/src/window/DesktopWindow.ts"]),
+    "project-windows",
+  );
+  // Two domains say nothing about which one the repair belongs to, and a file no fork commit
+  // owns says nothing at all, so both are the fork's own bookkeeping.
+  assert.strictEqual(
+    repairDomain(runner, "/lane", B, [
+      "apps/desktop/src/window/DesktopWindow.ts",
+      "apps/web/src/agents/List.tsx",
+    ]),
+    "fork-meta",
+  );
+  assert.strictEqual(
+    repairDomain(runner, "/lane", B, ["packages/shared/src/upstream.ts"]),
+    "fork-meta",
+  );
+});
+
+/** A replayed walk whose repair pass leaves the worktree dirty. */
+const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
+  const state = repairingRun();
+  state.runner.set("git", rehearsal(["status", "--porcelain"]), {
+    stdout: " M scripts/fork-sync.ts\n",
+  });
+  state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
+    stdout: "scripts/fork-sync.ts\n",
+  });
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    { stdout: `\x1e${C}\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\nscripts/fork-sync.ts\n` },
+  );
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${REPAIRED}\x1f${REPAIR_SUBJECT}\n`,
+  });
+  // The installed-tree read still sees the replayed head; the guard after the repair sees the
+  // commit the walk just appended.
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
+    { stdout: `${A}\n` },
+    { stdout: `${REPAIRED}\n` },
+  ]);
+  // The replay proof counts the fork series; the stack size the record binds counts the head.
+  state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
+    { stdout: "1\n" },
+    { stdout: "2\n" },
+  ]);
+  return state;
+};
+
+it("commits what a repair rewrote as the walk's own attributable commit", () => {
+  const state = dirtyRepairRun();
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    const commits = state.runner.calls.filter(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    assert.strictEqual(commits.length, 1);
+    const [commit] = commits;
+    assert.deepStrictEqual(commit?.args.slice(0, 5), [
+      "-c",
+      "core.commentChar=auto",
+      "commit",
+      "--no-verify",
+      "-m",
+    ]);
+    // The walk signs its own commit rather than inheriting whoever ran the command.
+    assert.strictEqual(commit?.env?.GIT_AUTHOR_NAME, "github-actions[bot]");
+    assert.strictEqual(
+      commit?.env?.GIT_AUTHOR_EMAIL,
+      "41898282+github-actions[bot]@users.noreply.github.com",
+    );
+    assert.strictEqual(commit?.env?.GIT_COMMITTER_NAME, "github-actions[bot]");
+    assert.strictEqual(
+      commit?.env?.GIT_COMMITTER_EMAIL,
+      "41898282+github-actions[bot]@users.noreply.github.com",
+    );
+    const message = commit?.args[5] ?? "";
+    assert.include(message, REPAIR_SUBJECT);
+    assert.include(message, "Fork-Domain: fork-meta");
+    assert.include(message, "Fork-Tier: bugfix");
+    assert.include(message, "Fork-Repair: v1.2.3");
+    // A replayed fork commit is never rewritten to carry a repair.
+    assert.isFalse(
+      state.runner.calls.some(({ args }) =>
+        args.some((arg) => arg === "--amend" || arg === "--autosquash" || arg.startsWith("fixup!")),
+      ),
+    );
+    // The ledger check runs again over the appended commit, in the lane, before the report closes.
+    const deltaChecks = state.runner.calls.filter(
+      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
+    );
+    assert.strictEqual(deltaChecks.length, 2);
+
+    assert.deepStrictEqual(checked.walk?.repairCommits, [
+      { sha: REPAIRED, subject: REPAIR_SUBJECT },
+    ]);
+    // What the apply publishes is the repaired head, and the record binds it.
+    assert.strictEqual(checked.installedHead, REPAIRED);
+    assert.strictEqual(checked.rebasedHead, REPAIRED);
+    assert.strictEqual(checked.stackSize, 2);
+    const record = NodeFS.readFileSync(checked.recordPath, "utf8");
+    assert.deepStrictEqual(parseRepairCommits(record), [
+      { sha: REPAIRED, subject: REPAIR_SUBJECT },
+    ]);
+
+    // The apply gate accepts the appended commit and still refuses a fork commit that changed.
+    const binding = {
+      targetTag: "v1.2.3",
+      targetSha: B,
+      expectedOld: C,
+      rebasedHead: REPAIRED,
+      stackSize: "2",
+    };
+    assert.deepStrictEqual(inspectRecord(record, binding), []);
+    assert.deepStrictEqual(inspectRecord(record, { ...binding, rebasedHead: A }), [
+      `Rebased head mismatch: record ${REPAIRED}, checkout ${A}`,
+    ]);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("adds no commit when the repair pass rewrote nothing", () => {
+  const state = repairingRun();
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.isFalse(
+      state.runner.calls.some(({ command, args }) => command === "git" && args.includes("commit")),
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+    assert.strictEqual(checked.installedHead, A);
+    const record = NodeFS.readFileSync(checked.recordPath, "utf8");
+    assert.deepStrictEqual(parseRepairCommits(record), []);
+    assert.include(record, "## Repair commits\n\nNone.");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("keeps the replay proof over the fork series when a repair is already appended", () => {
+  const state = repairingRun();
+  const repair =
+    "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: v1.2.3\n";
+  // A rerun sees the previous walk's repair commit on the lane. The fork series is unchanged, so
+  // the proof passes; the count it compares excludes the walk's own commit.
+  state.runner.set("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), { stdout: "2\n" });
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one\x1e\nchore(fork-sync): repair fmt after v1.2.3\n\n${repair}\x1e` },
+  );
+  try {
+    assert.doesNotThrow(() =>
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("refuses a rewritten fork commit even with a repair appended", () => {
+  const state = repairingRun();
+  const repair =
+    "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: v1.2.3\n";
+  state.runner.set("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), { stdout: "2\n" });
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one, edited\x1e\nchore(fork-sync): repair fmt after v1.2.3\n\n${repair}\x1e` },
+  );
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /replay commit messages changed/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
