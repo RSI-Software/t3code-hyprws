@@ -283,8 +283,16 @@ export const syncOutcomeReceipts = (
   );
   const checkFailed = failure?.phase === "unblock-check";
   const applyFailed = failure?.phase === "unblock-apply" && report.stage !== "applied";
+  // The series rewrite verifies on a pushed lane, so its receipt is the CI head. The unattended
+  // walk verifies in the lane it just built, so its receipt is the installed head the guards and
+  // scoped repairs passed against.
+  const verificationHead =
+    report.ciHead ?? (report.kind === "rewrite" ? undefined : report.installedHead);
   const verified =
-    !checkFailed && report.ciHead !== undefined && report.ciHead === report.installedHead;
+    !checkFailed &&
+    verificationHead !== undefined &&
+    verificationHead === report.installedHead &&
+    (report.stage === "checked" || report.stage === "applied");
   receipts.push(
     stage(
       attempt,
@@ -299,9 +307,11 @@ export const syncOutcomeReceipts = (
       checkFailed
         ? failure.detail
         : verified
-          ? "retained checked CI head"
-          : `walk stopped at ${report.stage}; no matching CI-head receipt`,
-      verified ? report.ciHead : undefined,
+          ? report.ciHead === undefined
+            ? "retained checked lane head"
+            : "retained checked CI head"
+          : `walk stopped at ${report.stage}; no matching verified-head receipt`,
+      verified ? verificationHead : undefined,
     ),
   );
   receipts.push(

@@ -43,7 +43,6 @@ import {
   rehearsalRebaseArgs,
   renderRecord,
   resolveAutoTarget,
-  gateFourStopReasons,
   resolveUnblockTarget,
   run,
   SystemRunner,
@@ -57,12 +56,13 @@ import {
   type SyncReport,
 } from "./fork-sync.ts";
 import { inspectRecord } from "./fork-sync-gate.ts";
+import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { type RebaseGitHubClient } from "./fork-rebase-notify.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
 import { RERERE_REF, readBotRefFile, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { parseSilentSeams } from "./fork-churn-ledger.ts";
-import { uniqueSilentSeams } from "./fork-sync-state.ts";
+import { SYNC_HELP, uniqueSilentSeams } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -1038,7 +1038,8 @@ it("auto-classifies and stages rerere rows as mechanical agent decisions", () =>
   NodeFS.writeFileSync(NodePath.join(root, "apps/web/src/reused.ts"), "resolved\n");
   try {
     const next = autoResolveConflicts(state, runner);
-    assert.deepInclude(next?.conflicts[0], {
+    assert.strictEqual(next.kind, "resolved");
+    assert.deepInclude(next.kind === "resolved" ? next.report.conflicts[0] : undefined, {
       class: "mechanical",
       resolution: "rerere replay",
       agentSafe: "true",
@@ -1056,15 +1057,8 @@ it("auto-classifies and stages rerere rows as mechanical agent decisions", () =>
   }
 });
 
-it("treats a rerere file with leftover markers as a conflict stop", () => {
-  const root = fixtureRoot();
-  const path = "apps/web/src/reused.ts";
-  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
-  NodeFS.writeFileSync(
-    NodePath.join(root, path),
-    "<<<<<<< ours\nresolved?\n=======\nother\n>>>>>>> theirs\n",
-  );
-  const state = report(root, {
+const conflictState = (root: string, path: string): SyncReport =>
+  report(root, {
     stage: "conflicts",
     lane: { branch: "rehearse/v1.2.3", worktree: root },
     conflicts: [
@@ -1080,9 +1074,81 @@ it("treats a rerere file with leftover markers as a conflict stop", () => {
       },
     ],
   });
-  const runner = new FakeRunner();
+
+const RERERE_REMAINING = [
+  "-c",
+  "core.commentChar=auto",
+  "-c",
+  "rerere.enabled=true",
+  "rerere",
+  "remaining",
+] as const;
+
+it("hands every row rerere did not replay to the outcome executor", () => {
+  const root = fixtureRoot();
+  const path = "apps/web/src/reused.ts";
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  // Leftover markers, a path rerere still lists, a failing diff --check and a rerere that exits
+  // nonzero all mean the same thing now: no reusable resolution, so the executor decides the row.
+  NodeFS.writeFileSync(
+    NodePath.join(root, path),
+    "<<<<<<< ours\nresolved?\n=======\nother\n>>>>>>> theirs\n",
+  );
+  const state = conflictState(root, path);
+  const cases: ReadonlyArray<(runner: FakeRunner) => void> = [
+    () => {},
+    (runner) => runner.set("git", [...RERERE_REMAINING], { stdout: `${path}\n` }),
+    (runner) =>
+      runner.set("git", ["-c", "core.commentChar=auto", "diff", "--check", "--", path], {
+        status: 1,
+        stderr: "whitespace error",
+      }),
+    (runner) => runner.set("git", [...RERERE_REMAINING], { status: 1, stderr: "rerere failed" }),
+  ];
   try {
-    assert.isNull(autoResolveConflicts(state, runner));
+    for (const arrange of cases) {
+      const runner = new FakeRunner();
+      arrange(runner);
+      // Only the fork moved at this seam, so the fork side stands.
+      runner.set("git", ["show", `:1:${path}`], { stdout: "shared\n" });
+      runner.set("git", ["show", `:2:${path}`], { stdout: "shared\n" });
+      runner.set("git", ["show", `:3:${path}`], { stdout: "shared\nfork\n" });
+      const resolved = autoResolveConflicts(state, runner);
+      assert.strictEqual(resolved.kind, "resolved");
+      assert.deepInclude(resolved.kind === "resolved" ? resolved.report.conflicts[0] : undefined, {
+        class: "mechanical",
+        resolution: "outcome executor: only the fork moved",
+        agentSafe: "true",
+        decidedBy: "agent",
+      });
+      assert.strictEqual(NodeFS.readFileSync(NodePath.join(root, path), "utf8"), "shared\nfork\n");
+      NodeFS.writeFileSync(
+        NodePath.join(root, path),
+        "<<<<<<< ours\nresolved?\n=======\nother\n>>>>>>> theirs\n",
+      );
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("stops the walk on the row the outcome executor declines, naming it and why", () => {
+  const root = fixtureRoot();
+  const path = "apps/web/src/reused.ts";
+  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, path), "unresolved\n");
+  const state = conflictState(root, path);
+  const runner = new FakeRunner();
+  runner.set("git", [...RERERE_REMAINING], { stdout: `${path}\n` });
+  // No merge base on this path: an add/add or a rename, which stays a maintainer's shape.
+  runner.set("git", ["show", `:1:${path}`], { status: 1, stderr: "no such path" });
+  try {
+    const outcome = autoResolveConflicts(state, runner);
+    assert.strictEqual(outcome.kind, "unresolved");
+    if (outcome.kind !== "unresolved") return;
+    assert.strictEqual(outcome.rows[0]?.path, path);
+    assert.include(outcome.rows[0]?.reason ?? "", "no common ancestor");
     assert.isFalse(runner.calls.some(({ args }) => args.includes("add")));
     assert.deepInclude(state.conflicts[0], { class: "TODO", decidedBy: "human" });
   } finally {
@@ -1091,83 +1157,87 @@ it("treats a rerere file with leftover markers as a conflict stop", () => {
   }
 });
 
-it("requires rerere remaining and diff-check validation before auto staging", () => {
+it("has no resume verb: an in-flight report is picked up, not passed a flag", () => {
   const root = fixtureRoot();
-  const path = "apps/web/src/reused.ts";
-  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
-  NodeFS.writeFileSync(NodePath.join(root, path), "resolved\n");
-  const state = report(root, {
-    stage: "conflicts",
-    lane: { branch: "rehearse/v1.2.3", worktree: root },
-    conflicts: [
-      {
-        commit: C,
-        subject: "fix(web): preserve scoped behavior",
-        domain: "fork-meta",
-        path,
-        class: "TODO",
-        resolution: "review rerere's recorded resolution and stage",
-        agentSafe: "TODO",
-        decidedBy: "human",
-      },
-    ],
+  const state = report(root, { stage: "oriented", target: { tag: "v1.2.3", sha: B } });
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  const stderr = withCapturedStderr(() => {
+    assert.strictEqual(
+      run(["unblock-auto", "--resume", "--report", state.reportPath], root, runner),
+      2,
+    );
   });
-  const rerereArgs = [
-    "-c",
-    "core.commentChar=auto",
-    "-c",
-    "rerere.enabled=true",
-    "rerere",
-    "remaining",
-  ] as const;
   try {
-    const remaining = new FakeRunner();
-    remaining.set("git", rerereArgs, { stdout: `${path}\n` });
-    assert.isNull(autoResolveConflicts(state, remaining));
-
-    const badDiff = new FakeRunner();
-    badDiff.set("git", rerereArgs, { stdout: "" });
-    badDiff.set("git", ["-c", "core.commentChar=auto", "diff", "--check", "--", path], {
-      status: 1,
-      stderr: "whitespace error",
-    });
-    assert.isNull(autoResolveConflicts(state, badDiff));
+    assert.include(stderr, "invalid arguments after unblock-auto");
+    assert.notInclude(SYNC_HELP, "--resume");
+    // Nothing was listed: the walk refused the flag before it touched the trunk.
+    assert.isFalse(runner.calls.some(({ args }) => args.includes("--show-toplevel")));
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
   }
 });
 
-it("takes the conflict stop path when rerere remaining exits nonzero", () => {
+it("stops on a lane it cannot replay rather than re-listing forever", () => {
   const root = fixtureRoot();
-  const path = "apps/web/src/reused.ts";
-  NodeFS.mkdirSync(NodePath.join(root, "apps", "web", "src"), { recursive: true });
-  NodeFS.writeFileSync(NodePath.join(root, path), "resolved\n");
   const state = report(root, {
-    stage: "conflicts",
-    lane: { branch: "rehearse/v1.2.3", worktree: root },
-    conflicts: [
-      {
-        commit: C,
-        subject: "fix(web): preserve scoped behavior",
-        domain: "fork-meta",
-        path,
-        class: "TODO",
-        resolution: "review rerere's recorded resolution and stage",
-        agentSafe: "TODO",
-        decidedBy: "human",
-      },
-    ],
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+    installedHead: B,
+    // The trunk stands exactly where the report leased it; the mirror is what is behind.
+    orientation: `mirror:       origin/main 1e740e48a5f9, upstream/main ${A.slice(0, 12)}\n`,
   });
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
+  NodeFS.writeFileSync(state.recordPath, renderRecord(state));
   const runner = new FakeRunner();
-  runner.set(
-    "git",
-    ["-c", "core.commentChar=auto", "-c", "rerere.enabled=true", "rerere", "remaining"],
-    { status: 1, stderr: "rerere failed" },
-  );
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
   try {
-    assert.isNull(autoResolveConflicts(state, runner));
-    assert.isFalse(runner.calls.some(({ args }) => args.includes("add")));
+    let code = 0;
+    const { output } = captureStdout(() => {
+      const stderr = withCapturedStderr(() => {
+        code = run(["unblock-auto", "--report", state.reportPath], root, runner);
+      });
+      assert.strictEqual(code, 2, stderr);
+    });
+    assert.include(output, "Stop (environment).");
+    assert.include(output, "the trunk did not move");
+    assert.notInclude(output, "restart: hyprws moved under the walk");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("re-lists from the moved trunk instead of asking for a restart", () => {
+  const root = fixtureRoot();
+  const state = report(root, {
+    stage: "oriented",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+  });
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
+  const runner = new FakeRunner();
+  setListResponses(runner, root);
+  setBotResponses(runner, "candidate");
+  // The trunk moved under the in-flight report, so everything it measured is against a base
+  // that is gone.
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${B}\n` });
+  try {
+    const { output } = captureStdout(() =>
+      withCapturedStderr(() => {
+        run(["unblock-auto", "--report", state.reportPath], root, runner);
+      }),
+    );
+    assert.include(output, "restart: hyprws moved under the walk");
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+      "listed",
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
@@ -1575,169 +1645,6 @@ it("binds runtime provenance to the active ghb host handoff", () => {
   assert.throws(() => agentProvenance(runner, "/repo"), /unsupported ghb handoff schema/);
 });
 
-it("drives unblock-review through the command entry point with live runtime provenance", () => {
-  const root = fixtureRoot();
-  const proposer = {
-    iface: "pi",
-    provider: "meta",
-    model: "muse-spark",
-    session: "walk-1",
-  };
-  const base = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3-nightly.20260904.1", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch: `rehearse/nightly-from-${C.slice(0, 12)}`, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    proposedBy: proposer,
-    verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
-  });
-  NodeFS.writeFileSync(base.reportPath, JSON.stringify(base));
-  NodeFS.writeFileSync(base.recordPath, renderRecord(base));
-  const runner = new FakeRunner();
-  runner.set("ghb", ["attest", "handoff"], {
-    stdout: JSON.stringify({
-      schema: "ghb.host-handoff.v1",
-      host: {
-        role: "host",
-        iface: "pi",
-        provider: "meta",
-        model: "muse-spark",
-        session: "review-2",
-      },
-    }),
-  });
-  try {
-    assert.strictEqual(
-      run(
-        [
-          "unblock-review",
-          "--report",
-          base.reportPath,
-          "--withhold",
-          "evidence cannot be verified",
-        ],
-        root,
-        runner,
-      ),
-      0,
-    );
-    const reviewed = JSON.parse(NodeFS.readFileSync(base.reportPath, "utf8")) as SyncReport;
-    assert.deepStrictEqual(reviewed.nightlyReview?.reviewer, {
-      iface: "pi",
-      provider: "meta",
-      model: "muse-spark",
-      session: "review-2",
-    });
-    assert.strictEqual(reviewed.nightlyReview?.status, "withheld");
-    assert.isFalse(NodeFS.existsSync(`${base.reportPath}.outcome.json`));
-    assert.include(
-      NodeFS.readFileSync(base.recordPath, "utf8"),
-      "Reviewer: agent `pi/meta/muse-spark`, session `review-2`",
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("refuses a review verdict from the proposing session and on a moved lease", () => {
-  const root = fixtureRoot();
-  const proposer = {
-    iface: "pi",
-    provider: "meta",
-    model: "muse-spark",
-    session: "walk-1",
-  };
-  const base = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3-nightly.20260904.1", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch: `rehearse/nightly-from-${C.slice(0, 12)}`, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    proposedBy: proposer,
-    verification: [{ command: "hyprws CI https://example.test/run/1", result: "passed" }],
-  });
-  NodeFS.writeFileSync(base.reportPath, JSON.stringify(base));
-  const reviewRunner = (session: string): FakeRunner => {
-    const runner = new FakeRunner();
-    runner.set("ghb", ["attest", "handoff"], {
-      stdout: JSON.stringify({
-        schema: "ghb.host-handoff.v1",
-        host: { role: "host", iface: "pi", provider: "meta", model: "muse-spark", session },
-      }),
-    });
-    return runner;
-  };
-  try {
-    // Same session as the proposer: refused.
-    NodeFS.writeFileSync(base.recordPath, renderRecord(base));
-    assert.throws(
-      () =>
-        execute(
-          ["unblock-review", "--report", base.reportPath, "--sign-off"],
-          root,
-          reviewRunner("walk-1"),
-        ),
-      /proposing session/,
-    );
-    // A moved lease voids the sign-off before any head check runs.
-    NodeFS.writeFileSync(base.recordPath, renderRecord(base));
-    const leaseRunner = reviewRunner("review-2");
-    leaseRunner.set("git", ["rev-parse", "origin/hyprws^{commit}"], {
-      stdout: `${"d".repeat(40)}\n`,
-    });
-    assert.throws(
-      () =>
-        execute(["unblock-review", "--report", base.reportPath, "--sign-off"], root, leaseRunner),
-      /staleness: origin\/hyprws moved past the report's lease/,
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(base.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("binds the proposer at check time so a checked report signs off directly", () => {
-  const state = replayedRun();
-  const nightlyTarget = JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"));
-  nightlyTarget.target = { tag: "v1.2.3-nightly.20260904.1", sha: nightlyTarget.target.sha };
-  NodeFS.writeFileSync(state.reportPath, JSON.stringify(nightlyTarget));
-  state.runner.set("ghb", ["attest", "handoff"], {
-    stdout: JSON.stringify({
-      schema: "ghb.host-handoff.v1",
-      host: {
-        role: "host",
-        iface: "pi",
-        provider: "meta",
-        model: "muse-spark",
-        session: "walk-1",
-      },
-    }),
-  });
-  setCiSuccess(state.runner, state.branch);
-  try {
-    const checked = execute(
-      ["unblock-check", "--report", state.reportPath],
-      state.root,
-      state.runner,
-    );
-    assert.strictEqual(checked.stage, "checked");
-    assert.deepStrictEqual(checked.proposedBy, {
-      iface: "pi",
-      provider: "meta",
-      model: "muse-spark",
-      session: "walk-1",
-    });
-  } finally {
-    NodeFS.rmSync(state.root, { recursive: true, force: true });
-    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
-  }
-});
-
 it("asks a record for decisions and a go, never a login or a date", () => {
   const root = fixtureRoot();
   const checked = report(root, {
@@ -1832,212 +1739,35 @@ it("still asks for grounding when a row carries a claim", () => {
   );
 });
 
-it("Gate 4 auto-keeps keep and stops on retire or partial verdicts", () => {
+it("Gate 4 decides every orientation row and asks for nothing", () => {
   const root = fixtureRoot();
-  const decision = (verdict: "keep" | "retire" | "partial"): SyncReport =>
+  const subject = "feat(web): scoped project windows";
+  const rows = (
+    verdict: "keep" | "retire" | "partial" | "candidate",
+    decidedBy: "TODO" | "human" | "agent" | `inherited (${string})` = "TODO",
+  ): SyncReport =>
     report(root, {
-      orientationDecisions: [
-        {
-          subject: `feat: ${verdict}`,
-          domain: "fork-meta",
-          verdict,
-          decidedBy: "human",
-        },
-      ],
+      orientationDecisions: [{ subject, domain: "fork-meta", verdict, decidedBy }],
     });
   try {
-    assert.isEmpty(gateFourStopReasons(decision("keep")));
-    assert.deepInclude(autoGateFour(decision("keep"))?.orientationDecisions?.[0], {
-      verdict: "keep",
-      decidedBy: "agent",
+    // A ledger verdict is the human's answer already; the walk executes it and says so.
+    for (const verdict of ["keep", "retire", "partial"] as const)
+      assert.deepInclude(autoGateFour(rows(verdict)).orientationDecisions?.[0], {
+        verdict,
+        decidedBy: "human",
+      });
+    // An inherited verdict keeps naming the walk it came from.
+    assert.deepInclude(autoGateFour(rows("keep", "inherited (v1.2.2)")).orientationDecisions?.[0], {
+      decidedBy: "inherited (v1.2.2)",
     });
-    assert.include(gateFourStopReasons(decision("retire")).join("\n"), "retire");
-    assert.include(gateFourStopReasons(decision("partial")).join("\n"), "partial");
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("Gate 4 parses candidate overlap fail-closed", () => {
-  const root = fixtureRoot();
-  const candidate = (overlap?: string): SyncReport =>
-    report(root, {
-      orientation:
-        overlap === undefined
-          ? "  [candidate] `feat: candidate` (fork-meta)\n"
-          : `  [candidate] \`feat: candidate\` (fork-meta)\n      behaviour-overlap: ${overlap}\n`,
-      orientationDecisions: [
-        {
-          subject: "feat: candidate",
-          domain: "fork-meta",
-          verdict: "candidate",
-          decidedBy: "human",
-        },
-      ],
-    });
-  try {
-    assert.include(gateFourStopReasons(candidate()).join("\n"), "no parsed behaviour overlap");
-    assert.include(
-      gateFourStopReasons(candidate("none")).join("\n"),
-      "no parsed behaviour overlap",
-    );
-    assert.isEmpty(gateFourStopReasons(candidate("weak hunk overlap: file.ts@1~2")));
-    assert.include(
-      gateFourStopReasons(candidate("medium overlap: file.ts")).join("\n"),
-      "behaviour-overlap: medium overlap: file.ts",
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("Gate 4 auto-keeps hard overlap only for a mechanical conflict path", () => {
-  const root = fixtureRoot();
-  const path = "packages/contracts/src/settings.test.ts";
-  const base = report(root, {
-    orientation: [
-      "  [candidate] `feat(files): reveal ignored workspace files (#73)` (workspace-files)",
-      `      behaviour-overlap: hard: ${path} (1 hunk)`,
-    ].join("\n"),
-    orientationDecisions: orientationDecisionRows(
-      "  [candidate] `feat(files): reveal ignored workspace files (#73)` (workspace-files)",
-    ),
-  });
-  const conflict = {
-    commit: C,
-    subject: "feat(files): reveal ignored workspace files (#73)",
-    domain: "workspace-files",
-    path,
-    class: "mechanical" as const,
-    resolution: "rerere replay",
-    agentSafe: "true",
-    decidedBy: "agent" as const,
-  };
-  try {
-    assert.include(
-      gateFourStopReasons(base).join("\n"),
-      "hard overlap lacks a mechanical conflict",
-    );
-    const decided = autoGateFour({ ...base, conflicts: [conflict] });
-    assert.deepInclude(decided?.orientationDecisions?.[0], {
+    // A candidate is the machine's own keep, and it never becomes a stop.
+    assert.deepInclude(autoGateFour(rows("candidate")).orientationDecisions?.[0], {
       verdict: "candidate",
       action: "keep (mechanical seam)",
       decidedBy: "agent",
     });
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-it("surfaces every gate 4 stop instead of the first one it finds", () => {
-  const root = fixtureRoot();
-  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
-  const path = "packages/contracts/src/settings.test.ts";
-  const checked = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    orientation: [
-      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
-      "  [candidate] `feat(web): hidden behind the first stop` (workspace-files)",
-      `      behaviour-overlap: hard: ${path} (1 hunk)`,
-      "",
-    ].join("\n"),
-    orientationDecisions: [
-      {
-        subject: "fix(server): split upstream",
-        domain: "fork-meta",
-        verdict: "partial",
-        decidedBy: "TODO",
-      },
-      {
-        subject: "feat(web): hidden behind the first stop",
-        domain: "workspace-files",
-        verdict: "candidate",
-        decidedBy: "TODO",
-      },
-    ],
-  });
-  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
-  const runner = new FakeRunner();
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
-  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  try {
-    assert.lengthOf(gateFourStopReasons(checked), 2);
-    const { output, result } = captureStdout(() =>
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-    );
-    assert.strictEqual(result, 2);
-    // A stop the operator cannot see costs a whole round trip, so one surface carries them all.
-    assert.include(output, "Gate 4 refusal: orientation verdict requires judgement: partial");
-    assert.include(output, `Gate 4 refusal: hard overlap lacks a mechanical conflict for`);
-    assert.include(output, path);
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("takes canonical walker decisions to the nightly review boundary", () => {
-  const root = fixtureRoot();
-  const tag = "v0.0.39-nightly.20260904.1";
-  const branch = `rehearse/${tag}-from-${C.slice(0, 12)}`;
-  const subject = "feat(web): reviewed target-tree overlap";
-  const checked = report(root, {
-    stage: "checked",
-    target: { tag, sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    proposedBy: { iface: "pi", provider: "meta", model: "muse-spark", session: "walk-1" },
-    orientation: [
-      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
-      `  [candidate] \`${subject}\` (fork-meta)`,
-      "",
-    ].join("\n"),
-    orientationDecisions: [
-      { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
-    ],
-    recordDecisions: [
-      { subject: "fix(web): absorbed fixture delta", action: "retire", decidedBy: "agent" },
-      { subject, action: "keep", decidedBy: "agent" },
-    ],
-    verification: [{ command: "hyprws CI https://example.test/runs/42", result: "passed" }],
-  });
-  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
-  const runner = new FakeRunner();
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  runner.set("git", ["rev-parse", `refs/tags/${tag}^{commit}`], { stdout: `${B}\n` });
-  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  try {
-    const { output, result } = captureStdout(() =>
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-    );
-    assert.strictEqual(result, 2);
-    assert.include(output, "Nightly review required");
-    assert.notInclude(output, "Gate 4 refusal");
-    const bundle = JSON.parse(
-      NodeFS.readFileSync(`${checked.reportPath}.outcome.json`, "utf8"),
-    ) as { receipts: Array<{ kind: string; stage?: string; status?: string }> };
-    assert.strictEqual(
-      bundle.receipts.find((row) => row.kind === "stage" && row.stage === "apply")?.status,
-      "not-attempted",
-    );
-    const proposed = validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")));
-    assert.deepStrictEqual(proposed.recordDecisions, checked.recordDecisions);
-    assert.deepStrictEqual(proposed.proposedBy, checked.proposedBy);
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -2151,7 +1881,7 @@ it("tests retire candidates against the target tree instead of proximity", () =>
   }
 });
 
-it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a present one", () => {
+it("Gate 4 keeps a candidate whether or not the target tree already carries it", () => {
   const root = fixtureRoot();
   const orientation = "  [candidate] `feat: candidate` (fork-meta)\n";
   const state = (matches: RetireEvidence["matches"]): SyncReport =>
@@ -2164,20 +1894,21 @@ it("Gate 4 auto-keeps a candidate absent from the target tree and stops on a pre
     });
   try {
     const absent = state([]);
-    assert.isEmpty(gateFourStopReasons(absent));
-    assert.deepInclude(autoGateFour(absent)?.orientationDecisions?.[0], {
+    assert.deepInclude(autoGateFour(absent).orientationDecisions?.[0], {
       verdict: "candidate",
       action: "keep (target tree absent)",
       decidedBy: "agent",
     });
     assert.include(renderRecord(absent), "retire-candidate; target-tree: absent");
 
+    // Upstream carrying the same identifiers is evidence for the fork delta's retirement ledger,
+    // not a stop: the walk keeps the commit, records the sighting, and lands the tag.
     const present = state([{ identifier: "ForkOnlyHelper", location: "apps/web/src/x.ts:14" }]);
-    assert.include(
-      gateFourStopReasons(present).join("\n"),
-      "retire candidate is present in the target tree: `feat: candidate`: ForkOnlyHelper at apps/web/src/x.ts:14",
-    );
-    assert.isNull(autoGateFour(present));
+    assert.deepInclude(autoGateFour(present).orientationDecisions?.[0], {
+      verdict: "candidate",
+      action: "keep (target tree present)",
+      decidedBy: "agent",
+    });
     assert.include(renderRecord(present), "target-tree: ForkOnlyHelper at apps/web/src/x.ts:14");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -2292,19 +2023,17 @@ it("Gate 4 carries the complete slice-4 orientation with a type-only silent seam
     ],
   });
   try {
-    assert.isEmpty(gateFourStopReasons(state));
     const decided = autoGateFour(state);
-    assert.isNotNull(decided);
     assert.lengthOf(
-      decided?.orientationDecisions?.filter(
+      decided.orientationDecisions?.filter(
         ({ verdict, action }) => verdict === "candidate" && action === "keep (mechanical seam)",
       ) ?? [],
       3,
     );
-    const record = renderRecord(decided ?? state);
+    const record = renderRecord(decided);
     assert.include(record, "[type]: return upstream DesktopPreviewRecordingSource");
     assert.include(record, "| keep (mechanical seam) |");
-    validateSignedRecord(record, decided ?? state);
+    validateSignedRecord(record, decided);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
@@ -2330,196 +2059,13 @@ it("silent seam evidence distinguishes type adaptation from behaviour", () => {
     ],
   };
   try {
-    assert.isEmpty(gateFourStopReasons(typeOnly));
-    assert.include(gateFourStopReasons(behaviour).join("\n"), "silent seam touches behaviour");
+    // A behaviour-touching seam is recorded, not a stop: the walk cannot ask, and the record and
+    // the ledger row are what a maintainer reads afterwards.
+    assert.include(renderRecord(typeOnly), "`apps/a.ts` [type]: adapt upstream return type");
     assert.include(renderRecord(behaviour), "`apps/a.ts` [behaviour]: changed visible behavior");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(typeOnly.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("unblock-auto stops once with Gate 4 evidence for a behaviour seam", () => {
-  const root = fixtureRoot();
-  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
-  const checked = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    orientation: `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}\n`,
-    silentSeams: [
-      { path: "apps/web/src/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
-    ],
-  });
-  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
-  const runner = new FakeRunner();
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
-  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  try {
-    const { output, result } = captureStdout(() =>
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-    );
-    assert.strictEqual(result, 2);
-    assert.include(output, "`apps/web/src/a.ts` [behaviour]: changed visible behavior");
-    assert.include(output, "Gate 4 refusal: silent seam touches behaviour");
-    assert.isTrue(
-      validateReport(JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")))
-        .behaviourSeamStopPresented,
-    );
-
-    let stderr = "";
-    const original = process.stderr.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr += chunk.toString();
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      const second = captureStdout(() =>
-        run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-      );
-      assert.strictEqual(second.result, 1);
-      assert.notInclude(second.output, "Gate 4 refusal: silent seam touches behaviour");
-      assert.include(stderr, "checked rehearsal head moved");
-    } finally {
-      process.stderr.write = original;
-    }
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("fills the record on a resume from a presented behaviour-seam stop", () => {
-  const root = fixtureRoot();
-  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
-  const subject = "feat(web): preserve behavior";
-  const checked = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch, worktree: root },
-    installedHead: B,
-    ciHead: B,
-    orientation: [
-      `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}`,
-      `  [candidate] \`${subject}\` (fork-meta)`,
-      "      behaviour-overlap: weak hunk overlap: apps/web/src/a.ts@1~2",
-      "",
-    ].join("\n"),
-    orientationDecisions: [
-      { subject, domain: "fork-meta", verdict: "candidate", decidedBy: "TODO" },
-    ],
-    silentSeams: [
-      { path: "apps/web/src/a.ts", summary: "changed visible behavior", touchesBehaviour: true },
-    ],
-  });
-  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
-  const runner = new FakeRunner();
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
-  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  const forkCommitRows = (record: string): ReadonlyArray<string> =>
-    (record.split("## Fork commits\n", 2)[1] ?? "")
-      .split("\n## ", 1)[0]
-      ?.split("\n")
-      .filter((line) => line.startsWith("| `")) ?? [];
-  try {
-    assert.strictEqual(
-      captureStdout(() =>
-        run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-      ).result,
-      2,
-    );
-    assert.isTrue(
-      forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8")).some((row) =>
-        row.includes("| TODO |"),
-      ),
-    );
-
-    const original = process.stderr.write;
-    process.stderr.write = (() => true) as typeof process.stderr.write;
-    try {
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner);
-    } finally {
-      process.stderr.write = original;
-    }
-    const rows = forkCommitRows(NodeFS.readFileSync(checked.recordPath, "utf8"));
-    assert.lengthOf(rows, 1);
-    // The resume owes the same fill the unpresented path runs, so no cell is left for the apply.
-    assert.notInclude(rows[0] ?? "", "TODO");
-    assert.include(rows[0] ?? "", "| keep (mechanical seam) |");
-    assert.include(rows[0] ?? "", "| agent |");
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("auto-keeps weak overlap but stops for a retire-candidate conflict", () => {
-  const root = fixtureRoot();
-  const weak = report(root, {
-    stage: "checked",
-    installedHead: B,
-    orientation:
-      "  [candidate] `feat(web): preserve behavior` (fork-meta)\n      behaviour-overlap: weak hunk overlap: apps/web/src/a.ts@1~2\n",
-    orientationDecisions: [
-      {
-        subject: "feat(web): preserve behavior",
-        domain: "fork-meta",
-        verdict: "candidate",
-        decidedBy: "human",
-      },
-    ],
-  });
-  const decided = autoGateFour(weak);
-  assert.deepInclude(decided?.orientationDecisions?.[0], {
-    verdict: "candidate",
-    action: "keep (mechanical seam)",
-    decidedBy: "agent",
-  });
-
-  const blocked = report(root, {
-    stage: "checked",
-    installedHead: B,
-    conflicts: [
-      {
-        commit: C,
-        subject: "fix(web): choose behavior",
-        domain: "fork-meta",
-        path: "apps/web/src/a.ts",
-        class: "retire-candidate",
-        resolution: "human choice",
-        agentSafe: "no",
-        decidedBy: "human",
-      },
-    ],
-  });
-  NodeFS.writeFileSync(blocked.reportPath, JSON.stringify(blocked));
-  NodeFS.writeFileSync(blocked.recordPath, renderRecord(blocked));
-  const blockedRunner = new FakeRunner();
-  setBotResponses(blockedRunner, "candidate");
-  try {
-    const { output, result } = captureStdout(() =>
-      run(["unblock-auto", "--resume", "--report", blocked.reportPath], root, blockedRunner),
-    );
-    assert.strictEqual(result, 2);
-    assert.include(output, decisionSurface(renderRecord(blocked)));
-    assert.include(
-      output,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${blocked.reportPath}\n`,
-    );
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(weak.reportPath), { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(blocked.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -2584,10 +2130,7 @@ it("unblock-apply refuses a RUNNING bot with status 3", () => {
       3,
     );
     assert.include(stderr, "bot run is in progress");
-    assert.include(
-      stderr,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${checked.reportPath}\n`,
-    );
+    assert.include(stderr, `report: ${checked.reportPath}\n`);
     assert.deepStrictEqual(
       runner.calls.slice(0, 2).map(({ args }) => args),
       [modeArgs, runListArgs],
@@ -2785,10 +2328,10 @@ it("requires signed decisions and calls the existing sync gate before apply", ()
       ({ command, args }) => command === "git" && args.includes("push"),
     );
     assert.include(push?.args ?? [], `--force-with-lease=refs/heads/hyprws:${C}`);
-    assert.isDefined(
-      runner.calls.find(
-        ({ command, args }) =>
-          command === "git" && args.join(" ").endsWith(`push origin --delete ${branch}`),
+    // The walk lane is local, so there is no remote rehearsal branch to publish or clean up.
+    assert.isFalse(
+      runner.calls.some(
+        ({ command, args }) => command === "git" && args.join(" ").includes(`refs/heads/${branch}`),
       ),
     );
     assert.isFalse(
@@ -2836,15 +2379,9 @@ it("unblock-auto prints the resume line after an apply refusal", () => {
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-      1,
-    );
+    assert.strictEqual(run(["unblock-auto", "--report", checked.reportPath], root, runner), 1);
     assert.include(stderr, "failed: vp run fork:upstream-refs");
-    assert.include(
-      stderr,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${checked.reportPath}\n`,
-    );
+    assert.include(stderr, `report: ${checked.reportPath}\n`);
     runner.set("vp", ["run", "fork:upstream-refs", checked.recordPath], { status: 0 });
     runner.set(
       "git",
@@ -2858,10 +2395,7 @@ it("unblock-auto prints the resume line after an apply refusal", () => {
       ],
       { status: 1, stderr: "fixture leased push rejected" },
     );
-    assert.strictEqual(
-      run(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-      1,
-    );
+    assert.strictEqual(run(["unblock-auto", "--report", checked.reportPath], root, runner), 1);
     assert.include(stderr, "leased apply refused");
     const bundle = JSON.parse(
       NodeFS.readFileSync(`${checked.reportPath}.outcome.json`, "utf8"),
@@ -2877,47 +2411,6 @@ it("unblock-auto prints the resume line after an apply refusal", () => {
     );
   } finally {
     process.stderr.write = original;
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("refuses apply when the pushed lane moved after the CI verdict", () => {
-  const root = fixtureRoot();
-  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
-  const checked = report(root, {
-    stage: "checked",
-    target: { tag: "v1.2.3", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    lane: { branch, worktree: root },
-    installedHead: B,
-    ciHead: B,
-  });
-  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
-  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
-  const runner = new FakeRunner();
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
-  runner.set(
-    "git",
-    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
-    { stdout: `${C}\trefs/heads/${branch}\n` },
-  );
-  try {
-    assert.throws(
-      () =>
-        execute(
-          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
-          root,
-          runner,
-        ),
-      /pushed rehearsal lane moved after the CI verdict/,
-    );
-    assert.isFalse(
-      runner.calls.some(({ command, args }) => command === "vp" && args.includes("fork:sync-gate")),
-    );
-  } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
   }
@@ -3213,15 +2706,9 @@ it("prints resume after an ambiguous reconciliation failure", () => {
     return true;
   }) as typeof process.stderr.write;
   try {
-    assert.strictEqual(
-      run(["unblock-auto", "--resume", "--report", applied.reportPath], root, runner),
-      1,
-    );
+    assert.strictEqual(run(["unblock-auto", "--report", applied.reportPath], root, runner), 1);
     assert.include(stderr, "failed: gh workflow run");
-    assert.include(
-      stderr,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${applied.reportPath}`,
-    );
+    assert.include(stderr, `report: ${applied.reportPath}`);
     assert.strictEqual(
       validateReport(JSON.parse(NodeFS.readFileSync(applied.reportPath, "utf8"))).reconciliation
         ?.state,
@@ -3231,87 +2718,6 @@ it("prints resume after an ambiguous reconciliation failure", () => {
     process.stderr.write = original;
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(applied.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("unblock-auto takes the conflict STOP path when rerere remaining fails", () => {
-  const root = fixtureRoot();
-  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-auto-lane-"));
-  const oriented = report(root, {
-    stage: "oriented",
-    target: { tag: "v1.2.3", sha: B },
-    source: { sha: C, expectedOld: C, sharedBase: A },
-    orientation: `mirror:       origin/main matches upstream/main at ${A.slice(0, 12)}\n`,
-  });
-  NodeFS.writeFileSync(oriented.reportPath, JSON.stringify(oriented));
-  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
-  const runner = new FakeRunner();
-  setBotResponses(runner, "candidate");
-  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
-  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
-  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
-  runner.set("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], {
-    status: 1,
-  });
-  runner.set(
-    "git",
-    [
-      "-c",
-      "core.commentChar=auto",
-      "log",
-      "--reverse",
-      "--topo-order",
-      "--format=%B%x1e",
-      `${A}..${C}`,
-    ],
-    { stdout: "feat: one\x1e" },
-  );
-  runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${A}..${C}`], {
-    stdout: "1\n",
-  });
-  runner.set(
-    "wt",
-    ["switch", "--create", branch, "--base", C, "--no-cd", "--format", "json", "--yes"],
-    { stdout: JSON.stringify({ worktree_path: worktree }) },
-  );
-  runner.set("git", rehearsalRebaseArgs(["rebase", B]), {
-    status: 1,
-    stderr: "conflict",
-  });
-  runner.set("git", ["-c", "core.commentChar=auto", "diff", "--name-only", "--diff-filter=U"], {
-    stdout: "apps/web/src/manual.ts\n",
-  });
-  runner.set(
-    "git",
-    ["-c", "core.commentChar=auto", "show", "-s", "--format=%H%x1f%s%x1f%b", "REBASE_HEAD"],
-    { stdout: `${C}\x1ffix(web): choose behavior\x1fFork-Domain: fork-meta\n` },
-  );
-  runner.setSequence(
-    "git",
-    ["-c", "core.commentChar=auto", "-c", "rerere.enabled=true", "rerere", "remaining"],
-    [{ stdout: "apps/web/src/manual.ts\n" }, { status: 1, stderr: "rerere failed" }],
-  );
-  try {
-    const { output, result } = captureStdout(() =>
-      run(["unblock-auto", "--resume", "--report", oriented.reportPath], root, runner),
-    );
-    assert.strictEqual(result, 2);
-    assert.include(output, "Stop. Rebase conflict in fix(web): choose behavior");
-    assert.include(
-      output,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${oriented.reportPath}\n`,
-    );
-    assert.lengthOf(
-      output.split("\n").filter((line) => line.includes("unblock-rehearse")),
-      1,
-    );
-    assert.notInclude(output, "then rerun unblock-rehearse");
-    const stopped = validateReport(JSON.parse(NodeFS.readFileSync(oriented.reportPath, "utf8")));
-    assert.deepInclude(stopped.conflicts[0], { class: "TODO", decidedBy: "TODO" });
-  } finally {
-    NodeFS.rmSync(root, { recursive: true, force: true });
-    NodeFS.rmSync(worktree, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(oriented.reportPath), { recursive: true, force: true });
   }
 });
 
@@ -3338,7 +2744,7 @@ it("unblock-auto waits out a RUNNING bot that finishes, and fails loudly at the 
     // Past the bot gate, the listed report still needs a target the tracker
     // cannot supply here, so the walk stops on target selection rather than
     // on the bot. The point is the status and the absence of the refusal.
-    const code = run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner);
+    const code = run(["unblock-auto", "--report", listed.reportPath], root, runner);
     assert.notStrictEqual(code, 3);
     assert.notInclude(stderr, "bot run is in progress");
     assert.isTrue(
@@ -3395,7 +2801,7 @@ it("unblock-auto --bot-carried accepts the run that holds the lease", () => {
     const stderr = withCapturedStderr(() => {
       withRunId("77", () => {
         assert.notStrictEqual(
-          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
+          run(["unblock-auto", "--report", listed.reportPath], root, runner),
           3,
         );
       });
@@ -3422,10 +2828,7 @@ it("unblock-auto --bot-carried refuses when another run holds the lease", () => 
   try {
     const stderr = withCapturedStderr(() => {
       withRunId("77", () => {
-        assert.strictEqual(
-          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
-          3,
-        );
+        assert.strictEqual(run(["unblock-auto", "--report", listed.reportPath], root, runner), 3);
       });
     });
     assert.include(stderr, "another auto-rebase run holds the lease: https://example.test/runs/99");
@@ -3444,10 +2847,7 @@ it("unblock-auto --bot-carried refuses outside the workflow", () => {
   try {
     const stderr = withCapturedStderr(() => {
       withRunId(undefined, () => {
-        assert.strictEqual(
-          run(["unblock-auto", "--resume", "--report", listed.reportPath], root, runner),
-          3,
-        );
+        assert.strictEqual(run(["unblock-auto", "--report", listed.reportPath], root, runner), 3);
       });
     });
     assert.include(stderr, "GITHUB_RUN_ID is unset");
@@ -3467,16 +2867,12 @@ it("unblock-auto --bot-carried refuses to resume a human-lane report", () => {
     const stderr = withCapturedStderr(() => {
       withRunId("77", () => {
         assert.strictEqual(
-          run(
-            ["unblock-auto", "--bot-carried", "--resume", "--report", listed.reportPath],
-            root,
-            runner,
-          ),
+          run(["unblock-auto", "--bot-carried", "--report", listed.reportPath], root, runner),
           2,
         );
       });
     });
-    assert.include(stderr, "--bot-carried cannot resume a report the human lane started");
+    assert.include(stderr, "--bot-carried cannot continue a report the human lane started");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
@@ -3703,13 +3099,14 @@ it("keeps distinct evidence once across check, refresh, check and auto resume", 
     const beforeResume = installs();
     const resumed = captureStdout(() =>
       run(
-        ["unblock-auto", "--resume", "--report", state.reportPath, "--silent-seam", input],
+        ["unblock-auto", "--report", state.reportPath, "--silent-seam", input],
         state.root,
         state.runner,
       ),
     );
-    assert.strictEqual(resumed.result, 2);
-    assert.include(resumed.output, "Gate 4 refusal: silent seam touches behaviour");
+    // A behaviour-touching silent seam is evidence, not a gate: the walk carries it and keeps going.
+    assert.notStrictEqual(resumed.result, 2);
+    assert.notInclude(resumed.output, "Gate 4 refusal");
     assert.strictEqual(installs(), beforeResume);
     const after = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
     assert.deepStrictEqual(after.silentSeams, observations);
@@ -3854,6 +3251,62 @@ it("refuses legacy rewrite checks without constructor provenance", () => {
   }
 });
 
+/** A replayed walk whose in-lane repair covers one workspace. */
+const repairingRun = (): ReturnType<typeof replayedRun> => {
+  const state = replayedRun();
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({ ...replayed, touchedPaths: ["scripts/fork-sync.ts"] }),
+  );
+  return state;
+};
+
+it("stops the walk exactly twice: the lane cannot test, or the replay does not hold", () => {
+  const cases = [
+    {
+      result: { status: 127, stderr: "vp: command not found" },
+      reason: "environment",
+      detail: "The lane cannot test",
+    },
+    {
+      result: { status: 1, stderr: "scripts/fork-sync.ts(12,3): error TS2322" },
+      reason: "conflict",
+      detail: "The replayed resolutions do not hold",
+    },
+  ] as const;
+  for (const { result, reason, detail } of cases) {
+    const state = repairingRun();
+    state.runner.set("vp", ["run", "--filter", "./scripts", "typecheck"], result);
+    try {
+      const { output } = captureStdout(() =>
+        withCapturedStderr(() => {
+          assert.strictEqual(
+            run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
+            2,
+          );
+        }),
+      );
+      assert.include(output, `Stop (${reason}). ${detail}`);
+      assert.include(output, "vp run --filter ./scripts typecheck");
+      const stopped = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+      assert.strictEqual(stopped.walk?.stop?.reason, reason);
+      // The stop is on the report the workflow uploads and in the block the issue carries.
+      assert.include(output, `- stop (${reason}):`);
+      // Nothing applied: a stopped walk never pushes the trunk.
+      assert.isFalse(
+        state.runner.calls.some(({ args }) =>
+          args.some((arg) => arg.startsWith("--force-with-lease=refs/heads/hyprws")),
+        ),
+      );
+    } finally {
+      NodeFS.rmSync(state.root, { recursive: true, force: true });
+      NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+      NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+    }
+  }
+});
+
 it("unblock-auto prints the resume line after a Gate 3 failure", () => {
   const state = replayedRun();
   state.runner.set("vp", ["run", "--no-cache", "fork:scan", "--target", "v1.2.3"], {
@@ -3868,7 +3321,7 @@ it("unblock-auto prints the resume line after a Gate 3 failure", () => {
   }) as typeof process.stderr.write;
   try {
     assert.strictEqual(
-      run(["unblock-auto", "--resume", "--report", state.reportPath], state.root, state.runner),
+      run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
       1,
     );
     assert.include(stderr, "failed: vp run --no-cache fork:scan --target v1.2.3");
@@ -3884,10 +3337,7 @@ it("unblock-auto prints the resume line after a Gate 3 failure", () => {
           row.detail?.includes("scan failed"),
       ),
     );
-    assert.include(
-      stderr,
-      `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${state.reportPath}\n`,
-    );
+    assert.include(stderr, `report: ${state.reportPath}\n`);
   } finally {
     process.stderr.write = original;
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -3896,36 +3346,35 @@ it("unblock-auto prints the resume line after a Gate 3 failure", () => {
   }
 });
 
-it("pushes the rehearsal and records the CI verdict on its exact head", () => {
+it("verifies the walk lane in place instead of waiting on a CI verdict", () => {
   const { runner, root, worktree, reportPath, branch } = checkedRun();
   try {
-    const localTasks = runner.calls.filter(
-      ({ command, args }) => command === "vp" && args[0] === "run",
+    const guards = runner.calls.filter(
+      ({ command, args }) => command === "vp" && args[0] === "run" && args[1] === "--no-cache",
     );
-    assert.lengthOf(localTasks, 2);
-    for (const call of localTasks) assert.strictEqual(call.args[1], "--no-cache");
+    assert.deepStrictEqual(
+      guards.map(({ args }) => args[2]),
+      ["fork:scan", "fork:delta"],
+    );
+    // No full battery in the lane, and nothing that waits on a remote verdict: the walk finishes
+    // in one invocation, and trunk CI confirms after the apply.
+    assert.isFalse(
+      runner.calls.some(({ command, args }) => command === "vp" && args[0] === "check"),
+    );
     assert.isFalse(
       runner.calls.some(
-        ({ command, args }) =>
-          command === "vp" &&
-          (args[0] === "check" || args.includes("typecheck") || args.includes("test")),
-      ),
-    );
-    assert.isDefined(
-      runner.calls.find(
         ({ command, args }) =>
           command === "git" &&
           args.join(" ").endsWith(`push --force-with-lease origin HEAD:refs/heads/${branch}`),
       ),
     );
+    assert.isFalse(runner.calls.some(({ command }) => command === "sleep"));
 
     const checked = validateReport(JSON.parse(NodeFS.readFileSync(reportPath, "utf8")));
     assert.strictEqual(checked.installedHead, A);
-    assert.strictEqual(checked.ciHead, A);
-    assert.deepInclude(checked.verification, {
-      command: "hyprws CI https://example.test/runs/42",
-      result: "passed",
-    });
+    assert.isUndefined(checked.ciHead);
+    // What the lane verified is what the walk report carries.
+    assert.deepStrictEqual(checked.walk?.repairs, checked.verification);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(worktree, { recursive: true, force: true });
@@ -4007,37 +3456,6 @@ it("carries a decision cell filled in the record through the regeneration a chec
   }
 });
 
-it("refuses a check when the record and the report decided the same subject differently", () => {
-  const state = undecidedRun();
-  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
-  try {
-    NodeFS.writeFileSync(
-      state.reportPath,
-      JSON.stringify({
-        ...replayed,
-        orientationDecisions: [
-          {
-            subject: SUBJECT,
-            domain: "workspace-files",
-            verdict: "candidate",
-            action: "keep (mechanical seam)",
-            decidedBy: "agent",
-          },
-        ],
-      }),
-    );
-    signRecord(replayed.recordPath, "retire", "human");
-    assert.throws(
-      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-      /record decision disagrees with the report/,
-    );
-  } finally {
-    NodeFS.rmSync(state.root, { recursive: true, force: true });
-    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
-  }
-});
-
 it("surfaces each failing CI job with its last 40 failed-log lines verbatim", () => {
   const state = replayedRun();
   const runListArgs = [
@@ -4089,7 +3507,7 @@ it("surfaces each failing CI job with its last 40 failed-log lines verbatim", ()
   try {
     let message = "";
     try {
-      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+      waitForCiVerdict(state.runner, state.worktree, state.branch, A);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -4100,22 +3518,6 @@ it("surfaces each failing CI job with its last 40 failed-log lines verbatim", ()
     assert.include(message, "Check\tstep\tcheck-045");
     assert.notInclude(message, "Check\tstep\tcheck-005");
     assert.notInclude(message, "Test Server 1");
-    assert.strictEqual(
-      run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-      1,
-    );
-    const bundle = JSON.parse(NodeFS.readFileSync(`${state.reportPath}.outcome.json`, "utf8")) as {
-      receipts: Array<{ kind: string; stage?: string; status?: string; detail?: string }>;
-    };
-    assert.isTrue(
-      bundle.receipts.some(
-        (row) =>
-          row.kind === "stage" &&
-          row.stage === "verification" &&
-          row.status === "failed" &&
-          row.detail?.includes("hyprws CI failed"),
-      ),
-    );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -4211,7 +3613,9 @@ const withFailedVerdict = (
   try {
     let message = "";
     try {
-      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+      // The unattended walk never waits on a remote verdict, so the CI diagnostics are read
+      // straight off the unit the series rewrite and the stable lane still call.
+      waitForCiVerdict(state.runner, state.worktree, state.branch, A);
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
@@ -4232,7 +3636,7 @@ it("bounds a large ANSI-bearing failed CI log to a readable excerpt", () => {
       { name: "Test Server 2", conclusion: "success" },
     ],
     {},
-    (state, message) => {
+    (_state, message) => {
       // The whole log is roughly 400 KB across three failed jobs, one line of it 120 000
       // characters wide. The diagnostic stays capped, colour-free, and readable regardless.
       assert.isBelow(message.length, 20_100);
@@ -4246,15 +3650,6 @@ it("bounds a large ANSI-bearing failed CI log to a readable excerpt", () => {
       assert.include(message, "VITE+ successfully installed!");
       assert.include(message, "Cleaning up orphan processes");
       assert.notInclude(message, "Test Server 2");
-      // A red gate keeps the report resumable at the stage it reached.
-      assert.strictEqual(
-        run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-        1,
-      );
-      assert.strictEqual(
-        validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
-        "replayed",
-      );
     },
   );
 });
@@ -4263,35 +3658,12 @@ it("fails the gate with what the run knows when the failed log cannot be read", 
   withFailedVerdict(
     [{ name: "Check", conclusion: "failure" }],
     { logResult: { status: 1, stderr: "failed to get run log: log not found" } },
-    (state, message) => {
+    (_state, message) => {
       assert.include(message, "hyprws CI failed: https://example.test/runs/43");
       assert.include(message, "run 43 concluded failure on the pushed head");
       assert.include(message, "failed jobs: Check");
       assert.include(message, "failed job log unavailable");
       assert.include(message, "log not found");
-      let stderr = "";
-      const original = process.stderr.write;
-      process.stderr.write = ((chunk: string | Uint8Array) => {
-        stderr += chunk.toString();
-        return true;
-      }) as typeof process.stderr.write;
-      try {
-        assert.strictEqual(
-          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-          1,
-        );
-      } finally {
-        process.stderr.write = original;
-      }
-      assert.include(stderr, "hyprws CI failed: https://example.test/runs/43");
-      assert.include(
-        stderr,
-        `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${state.reportPath}`,
-      );
-      assert.strictEqual(
-        validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
-        "replayed",
-      );
     },
   );
 });
@@ -4317,23 +3689,8 @@ it("keeps a red run a failed gate when its log quotes a refusal phrase", () => {
         stdout: "Check\tstep\tfatal: commit count changed while the bot run is in progress\n",
       },
     },
-    (state, message) => {
+    (_state, message) => {
       assert.include(message, "commit count changed while the bot run is in progress");
-      let stderr = "";
-      const original = process.stderr.write;
-      process.stderr.write = ((chunk: string | Uint8Array) => {
-        stderr += chunk.toString();
-        return true;
-      }) as typeof process.stderr.write;
-      try {
-        assert.strictEqual(
-          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-          1,
-        );
-      } finally {
-        process.stderr.write = original;
-      }
-      assert.include(stderr, "failed: hyprws CI failed: https://example.test/runs/43");
     },
   );
 });
@@ -4343,18 +3700,10 @@ for (const conclusion of ["failure", "cancelled", "timed_out", "action_required"
     withFailedVerdict(
       [{ name: "Check", conclusion: "failure" }],
       { conclusion, logResult: { stdout: "Check\tstep\tlast line\n" } },
-      (state, message) => {
+      (_state, message) => {
         assert.include(message, "hyprws CI failed: https://example.test/runs/43");
         assert.include(message, `run 43 concluded ${conclusion ?? "unknown"} on the pushed head`);
         assert.include(message, "Check\tstep\tlast line");
-        assert.strictEqual(
-          run(["unblock-check", "--report", state.reportPath], state.root, state.runner),
-          1,
-        );
-        assert.strictEqual(
-          validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
-          "replayed",
-        );
       },
     );
   });
@@ -4379,7 +3728,7 @@ it("treats a 45-minute CI wait timeout as a failed gate", () => {
   );
   try {
     assert.throws(
-      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      () => waitForCiVerdict(state.runner, state.worktree, state.branch, A),
       /hyprws CI timed out after 45 minutes/,
     );
     assert.lengthOf(
@@ -4387,10 +3736,6 @@ it("treats a 45-minute CI wait timeout as a failed gate", () => {
         ({ command, args }) => command === "sleep" && args.join(" ") === "30",
       ),
       90,
-    );
-    assert.strictEqual(
-      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
-      "replayed",
     );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -4869,7 +4214,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
       assert.match(message, /staleness: origin\/hyprws moved past the report's lease/);
       assert.match(message, /report leased at c+/);
       assert.match(message, /origin\/hyprws is now a+/);
-      assert.match(message, /restart at vp run fork:sync unblock-list/);
+      assert.match(message, /the walk re-lists from the moved trunk/);
       assert.match(message, /walk freeze in docs\/operations\/fork-sync\.md/);
       assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
       assert.match(message, /orphaned/);

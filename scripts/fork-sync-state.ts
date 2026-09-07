@@ -243,7 +243,10 @@ export interface BotSnapshot {
   readonly nextFire: string;
 }
 
-export type DecisionAction = "keep (mechanical seam)" | "keep (target tree absent)";
+export type DecisionAction =
+  | "keep (mechanical seam)"
+  | "keep (target tree absent)"
+  | "keep (target tree present)";
 
 export interface OrientationDecisionRow {
   readonly subject: string;
@@ -361,17 +364,34 @@ export interface SyncReport {
     readonly runUrl?: string;
     readonly baselineRunId?: number;
   };
+  readonly walk?: WalkRecord;
+}
+
+/**
+ * A walk stops for exactly two reasons: the lane cannot test, or the outcome executor cannot
+ * produce a result for a conflict row. Every other halt is a defect.
+ */
+export type WalkStopReason = "environment" | "conflict";
+
+/** What one unattended walk did, in the terms the notification issue and the ledger need. */
+export interface WalkRecord {
+  readonly startedAt?: string;
+  readonly elapsedMs?: number;
+  /** The base the stack sat on before the walk, and the tag it moved to. */
+  readonly baseMove?: { readonly from: string; readonly to: string };
+  readonly repairs?: ReadonlyArray<{ readonly command: string; readonly result: string }>;
+  readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
 }
 
 export const SYNC_HELP = `Usage: vp run fork:sync <verb> [options]
 
 Unblock verbs:
-  unblock-auto [--target <tag@sha>] [--report <external-json>] [--resume] [--bot-carried] [--silent-seam <path>=<summary>:behaviour|type ...]
+  unblock-auto [--target <tag@sha>] [--report <external-json>] [--bot-carried] [--silent-seam <path>=<summary>:behaviour|type ...]
   unblock-list [--output <external-json>] [--all]
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...]
-  unblock-review --report <json> (--sign-off | --withhold <reason>)
+  unblock-review --report <json> (--sign-off | --withhold <reason>)   (series rewrite only)
   unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
   rewrite-rehearse --from <branch-or-sha> [--manifest <reviewed-json>] [--issue N] [--dry-run]
@@ -386,7 +406,9 @@ Stable verbs:
   stable-prepare --report <json> --issue <human-selected-issue>
   stable-publish --report <json> --go <exact-candidate>
 
-An applied unblock-apply report resumes only pending rerere publication.
+unblock-auto runs the whole walk in one invocation. It stops for exactly two reasons: the lane
+cannot test, or the outcome executor cannot resolve a conflict. Both exit 2 with the reason on the
+report and on stdout. An applied unblock-apply report resumes only pending rerere publication.
 `;
 
 export const commandText = (command: string, args: ReadonlyArray<string>): string =>
@@ -459,7 +481,6 @@ export const parseVerbArgs = (
     if (values.has(flag) && flag !== "--silent-seam")
       throw new UsageError(`duplicate option: ${flag}`);
     if (
-      flag === "--resume" ||
       flag === "--dry-run" ||
       flag === "--all" ||
       flag === "--bot-carried" ||
@@ -992,6 +1013,9 @@ export const parseConflictRows = (record: string): ReadonlyArray<ConflictRow> =>
 export const DECISION_ACTIONS = [
   "keep (mechanical seam)",
   "keep (target tree absent)",
+  // Upstream carries something the fork commit also carries. Keeping is still the machine's answer:
+  // retiring a fork commit removes fork behaviour, and no walk does that without a human.
+  "keep (target tree present)",
 ] as const satisfies ReadonlyArray<DecisionAction>;
 
 const invalidDecisionCell = (column: string, detail: string): Error =>

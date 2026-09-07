@@ -359,8 +359,8 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
           /nightly apply refused: review is missing/,
         );
         assert.throws(
-          () => execute(["unblock-auto", "--resume", "--report", checked.reportPath], root, runner),
-          /walk stopped/,
+          () => execute(["unblock-auto", "--report", checked.reportPath], root, runner),
+          /walk stopped|review is missing/,
         );
         assert.include(yield* fs.readFileString(checked.recordPath), "## Nightly review");
         assert.throws(

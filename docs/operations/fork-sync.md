@@ -72,13 +72,13 @@ Pause the bot for the walk series, then use:
 vp run fork:sync rewrite-build --manifest /external/reviewed.json --json
 vp run fork:sync rewrite-rehearse --from <receipt-result-sha> --manifest /external/reviewed.json --issue <live-block>
 vp run fork:sync unblock-check --report <emitted-report>
-vp run fork:sync unblock-auto --resume --report <emitted-report>
+vp run fork:sync unblock-review --report <emitted-report> --sign-off   # in another session
+vp run fork:sync unblock-apply --report <emitted-report> --record <emitted-record>
 ```
 
 The lane binds its exact manifest receipt, existing base tag, real blocking marker and retained
 base outcome declaration. It refuses relaxed count/path proofs or a different issue. For a nightly
-base, auto emits the review stop; another session records `unblock-review`, then the
-host resumes auto for the leased apply and reconciliation. The record digest covers construction
+base, apply refuses until another session records `unblock-review` on the checked report. The record digest covers construction
 and outcome provenance. A changed candidate needs a new manifest/proposal, not a refreshed head
 with the old receipt. A source movement voids the proposal. Existing unbound reports can still be
 inspected through `rewrite-rehearse --dry-run`; they cannot check or publish as constructed rewrites.
@@ -463,11 +463,21 @@ node scripts/fork-sync.ts unblock-auto --bot-carried --target <newest tag beyond
 
 The walk's own exit code decides the run:
 
-| Exit | Meaning                            | The run                                                               |
-| ---- | ---------------------------------- | --------------------------------------------------------------------- |
-| 0    | Every conflict was mechanical      | Applies under the walk's own expected-old lease and posts the record. |
-| 2    | A gate stopped on a real judgement | Posts the stop surface verbatim on the block issue for an agent.      |
-| 3    | A precondition refused the walk    | Reports only. Nothing is written.                                     |
+| Exit | Meaning                         | The run                                                               |
+| ---- | ------------------------------- | --------------------------------------------------------------------- |
+| 0    | The walk finished the tag       | Applies under the walk's own expected-old lease and posts the record. |
+| 2    | One of the two legal stops      | Posts the stop surface verbatim on the block issue for an agent.      |
+| 3    | A precondition refused the walk | Reports only. Nothing is written.                                     |
+
+Exit 2 has exactly two reasons, and both are written into the report's `walk.stop` and into the
+issue body:
+
+- `environment` — the lane cannot test at all (the runner is missing, or a repair command never
+  reached a status).
+- `conflict` — the resolver cannot produce a result for a row, or the resolutions it produced do not
+  hold under the lane's own scoped typecheck and tests.
+
+Anything else that halts the walk is a bug in the walk, not a decision waiting for a human.
 
 `--bot-carried` refuses unless `GITHUB_RUN_ID` is set, `HYPRWS_AUTO_REBASE` is `on`, and the bot's
 last recorded run is this run, so a carried walk can never take a lease another run holds. The
@@ -492,8 +502,8 @@ cache path refuses publication without replacing either resolution; transient `t
 are excluded from the shared cache.
 
 A failed cache publication exits nonzero with the immutable snapshot and error retained in the
-report. Resume with `vp run fork:sync unblock-apply --report <report> --record <record>` or
-`unblock-auto --resume --report <report>`. An applied report retries only its pending cache work;
+report. Rerun `vp run fork:sync unblock-auto --report <report>`: an in-flight report on disk is
+picked up from the stage it reached, so there is no resume flag. An applied report retries only its pending cache work;
 it does not rebase, repeat the trunk push, or repeat its review. The original apply still requires
 the exact reviewed head, checks, stale-evidence guards, and trunk lease.
 
@@ -724,15 +734,47 @@ reported the next operator task. It does not mean the entire upstream lane was c
 
 ## Unblocking a `rebase-blocked` issue
 
-Start with `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]`. Alone, it selects the
-open walk target (or the newest offered tag), accepts a coherent orientation, stages rerere and
-generated resolutions, takes the pushed-lane CI verdict, and records the walking agent's clear keep
-decisions. For a nightly target, `unblock-check` binds the walking agent as proposer and the walk
-then stops exactly once at the review boundary; after another session records a verdict on the
-bound evidence, resume applies with the existing lease, dispatches one reconciliation run,
-identifies its URL, and does not wait for completion.
+`vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]` walks one eligible tag to the
+end in a single invocation. It selects the open walk target (or the newest offered tag), accepts a
+coherent orientation, resolves every conflict, repairs the lane, runs the guards, applies under the
+existing expected-old lease, appends the churn row, dispatches one reconciliation run, identifies
+its URL, and does not wait for completion. It asks for nothing on the way, and it takes no
+`--resume`: a report already on disk is a walk in flight, and the walk picks it up from the stage it
+reached. If `origin/hyprws` moves under it, the walk re-lists from the moved trunk once by itself.
 
-The walking host hands the emitted report and record paths to any reviewer in another session.
+Conflict resolution is machine-owned. Each conflicted path is offered to the shared rerere cache
+first; whatever rerere did not replay goes to the outcome executor, which reads the path's three
+index stages and applies fork doctrine in order:
+
+1. only upstream moved at the seam, so upstream's text stands;
+2. only the fork moved, so the fork feature keeps working;
+3. both moved, so keep both: a clean three-way merge is taken as it stands, and a conflicted one is
+   kept only when every hunk is a pure co-insertion, on a path the lane can typecheck and test.
+
+There is no "upstream superseded this commit" rule. Gate 4 keeps every candidate, so taking the
+upstream side of a kept commit's files would keep the commit and drop the behaviour it carries.
+Retiring a fork commit stays a human decision in `docs/internals/fork-delta.md`.
+
+The fork is additive, so a resolution that would drop a line upstream added at the seam is refused
+rather than staged. So is a seam both sides rewrote, because a union of two rewrites is a file that
+says two things at once. So are the shapes with no common ancestor on both sides (add/add,
+delete/modify, rename) and binary files. A refused row is the walk's `conflict` stop.
+
+Repair runs inside the same invocation, scoped to what the replay touched: the formatter over the
+resolved paths, then `typecheck` for each touched workspace and the focused test files beside the
+touched sources. There is no full battery in the lane and no wait on a remote verdict — trunk CI
+confirms after the apply. A repair that fails because the lane cannot run its tools is the
+`environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
+resolutions the walk staged do not hold.
+
+`HYPRWS_AUTO_REBASE=off` and `candidate` still suppress the trunk push, so a walk in either mode is
+a dry run that ends at the report.
+
+The rest of this section is the **series rewrite**, a separate human-driven lane that rewrites the
+whole fork stack at once. Only it pushes a rehearsal lane, waits on a CI verdict, and requires a
+second session's review verdict before apply.
+
+The rewriting host hands the emitted report and record paths to any reviewer in another session.
 The reviewer inspects the generated target, live blocking marker, every non-mechanical verdict,
 rehearsal evidence, pushed-lane CI on the exact installed head, every silent seam, and the live
 `expected_old` lease. It then records one of:
@@ -749,7 +791,7 @@ its provenance is not replaced by the walking agent's identity. Sign-off is
 withheld for undefined fork intent, a non-equivalent retire, a user-visible behaviour change, a fork
 domain or tier topology change, any bypass, or evidence that cannot be verified. The existing
 automation also pauses before review when it can detect those judgement surfaces. After sign-off the
-walking host runs `vp run fork:sync unblock-auto --resume --report <report>`.
+rewriting host runs `vp run fork:sync unblock-apply --report <report> --record <record>`.
 
 Apply names this control the **nightly review gate**: one recorded verdict on a `checked` report.
 `unblock-apply` runs `fork:upstream-refs` on the record before the review gate, so a
@@ -759,39 +801,35 @@ reviewed bindings, moved rehearsal or CI heads, and a moved lease. The digest bi
 and verification lines; free prose never enters it, so a refs-only prose fix on the same bindings keeps the verdict. A new proposal or movement requires
 a new review; never copy review fields between reports.
 
-An objective bot-carried walk is exempt from the review gate because it has no
-agent judgement verdict. Any conflict or judgement stops the workflow before apply. Restart
-that target in a host agent session; the host proposal and review then become
-mandatory. This preserves unattended clean nightlies without treating a workflow process as a
-reviewer.
+The unblock walk is not subject to this gate. It carries no agent judgement verdict to review: its
+conflict outcomes come from doctrine the code applies, its verification is the lane repair it ran,
+and its two legal stops hand the row to a human instead of deciding it. A walk that stops is picked
+up in a host agent session, and whatever that session decides by hand is a human decision recorded
+in the record.
 
 The report is an operator-owned state file, not a cryptographic signature. The command proves the
 active runtime identity when it records review and binds that result to the record, refs, CI head,
 and lease. An operator able to rewrite the external report can fabricate its contents; the control
 is procedural provenance and stale-state detection, not protection from a malicious local operator.
 
-Outside this objective nightly lane, orientation incoherence, a source conflict without a verified
-resolution, retirement or behaviour judgement, undefined intent, domain/tier/topology change,
-bypass, or unverifiable evidence remains a pause. Every judgement stop reproduces the interactive
-surface and prints `node scripts/fork-sync.ts unblock-auto --resume --report <path>`; resolve that
-surface without weakening a gate, then resume the same external report.
+Retirement remains human. The walk may resolve a seam upstream now carries, but only a `retire`
+verdict a human wrote in the fork delta ledger drops a fork commit from the stack; the walk's own
+verdicts never do.
 
 ### Walk mode
 
 #### Walk freeze
 
 While a report holds a lease, `hyprws` takes no landing until `unblock-apply` or an explicit
-void. Any movement of `origin/hyprws` past the report's `expected_old` voids the rehearsal and
-restarts at `unblock-list`, costing the full replay. A tooling fix the walk itself needs goes into
+void. Any movement of `origin/hyprws` past the report's `expected_old` voids the rehearsal and costs
+the full replay: `unblock-auto` re-lists from the moved trunk once by itself, and a single verb
+restarts at `unblock-list`. A tooling fix the walk itself needs goes into
 the walk's lane (folded as a fixup) or is run from a branch the walk rehearses against — never
 landed on `hyprws` mid-walk.
 
-Use the existing step-by-step verbs for the interactive path. `vp run fork:sync` owns the mechanics
-as six report transitions. At each judgement stop, the human sees
-the emitted decision surface verbatim, then one triage line per decision: `clear — <recommendation>:
-<one-line reason>` for an unambiguous choice, or `judgement — <recommendation>: <reading A> vs
-<reading B>; <why the recommendation>` when a real choice remains. The agent then asks for the exact
-word for every decision and stops; its recommendation is never recorded as the human's answer.
+`unblock-auto` runs the transitions below in one invocation. The individual verbs remain callable
+for diagnostics, for picking a stopped walk up by hand, and for the series rewrite, which drives
+`unblock-check`, `unblock-review` and `unblock-apply` directly.
 
 1. `unblock-list` fetches and preflights, requires one current block, and writes an external report
    containing the full blocking SHA and selectable release tags. It accepts no target.
@@ -808,28 +846,30 @@ word for every decision and stops; its recommendation is never recorded as the h
    release tag at the fork base for a trunk rewrite. A moved `upstream/main` therefore cannot fail a
    lane for upstream drift the lane did not introduce. Record one repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence for Gate 4. It
-   pushes the disposable rehearsal lane, then waits up to 45 minutes for the CI verdict on the
-   pushed lane head, polling every 30 seconds. A timeout or a completed red run stops the gate
-   nonzero with bounded evidence: the run URL, its id and conclusion, the failed job names, and an
-   ANSI-stripped tail of each failed job's log capped per line and in total. An unreadable job list
-   or log degrades to what the run already reported rather than replacing the verdict. The report
-   stays at the stage it reached and the stop prints its `unblock-auto --resume --report` command.
-   It then renders the decision and grounding surface.
-5. For a nightly target, `unblock-check` already bound the proposer, so `unblock-review` signs
-   the `checked` report straight off. It binds the proposal record, target, blocking SHA,
-   `expected_old`, installed/CI head, and rehearsal branch to the reviewer's session. A
-   withheld review is durable and cannot apply. A non-nightly judgement path retains its recorded
-   human decision boundary.
-6. After the required sign-off, `unblock-apply` calls `fork:sync-gate` and refuses a lane moved since
-   the CI verdict. For a historical rewrite it then creates and reads back the bound old-trunk
-   archive. It posts the external record, snapshots every stable upstream tag the apply crosses,
-   performs the expected-old leased apply, announces the snapshots as candidate issues, and deletes
-   the remote rehearsal branch. Snapshots go up before the trunk, in the bot's own order, because a
-   create-only branch stands on its own. A rejected rewrite trunk lease leaves the archive retained
-   and marks the external report as failed-attempt evidence. A failed announcement prints the
-   snapshot branches and never voids the apply; open those candidate issues by hand, because the bot
-   will not see those tags again.
+   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. It then repairs
+   the lane in place, scoped to the paths the replay touched, and records every command it ran in
+   the report's verification and `walk.repairs`. A repair failure stops the walk with the reason it
+   belongs to and leaves the report at the stage it reached. Only a series rewrite pushes the
+   rehearsal lane and waits up to 45 minutes for a CI verdict, polling every 30 seconds; a timeout
+   or a completed red run fails that gate with bounded evidence — the run URL, its id and
+   conclusion, the failed job names, and an ANSI-stripped tail of each failed job's log capped per
+   line and in total. An unreadable job list or log degrades to what the run already reported rather
+   than replacing the verdict.
+5. The decision surface is filled by the walk, not asked for: every orientation row is decided, a
+   candidate is kept whether or not the upstream target tree already carries the work, and only a
+   human `retire` verdict in the fork delta ledger drops a commit. A cell a human filled in the
+   record wins over a rerun that classifies the subject differently.
+6. `unblock-review` belongs to the series rewrite: it signs the `checked` report the rewrite pushed
+   and binds the proposal record, target, blocking SHA, `expected_old`, installed/CI head, and
+   rehearsal branch to the reviewer's session. A withheld review is durable and cannot apply.
+7. `unblock-apply` calls `fork:sync-gate`. For a series rewrite it also refuses a lane moved since
+   the CI verdict, requires the review, and creates and reads back the bound old-trunk archive. It
+   posts the external record, snapshots every stable upstream tag the apply crosses, performs the
+   expected-old leased apply, and announces the snapshots as candidate issues. Snapshots go up
+   before the trunk, in the bot's own order, because a create-only branch stands on its own. A
+   rejected rewrite trunk lease leaves the archive retained and marks the external report as
+   failed-attempt evidence. A failed announcement prints the snapshot branches and never voids the
+   apply; open those candidate issues by hand, because the bot will not see those tags again.
 
 Each verb consumes the JSON report emitted by the previous verb and atomically advances it; no shell
 variable carries gate state. The script also renders and validates the Markdown record schema. Its
@@ -841,13 +881,11 @@ rewriting historical ledger rows.
 The report and record stay outside the repository and new rehearsals never add to
 `docs/operations/fork-sync-records/`.
 
-For an objective nightly walk, the host owns target selection and the proposal while another
-session owns the review verdict. A reviewer sign-off is never counted as a human
-choice. Real semantic ambiguity, retirement/product judgement, grounding, user-visible change,
-domain/tier/topology change, bypass, or unverifiable evidence still pauses for human direction. Every
-other transition refuses stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned
-importer drift, failed checks, or a missing/stale/same-session/withheld review. A stale lease voids the
-report; restart at `unblock-list` instead of refreshing it.
+A series rewrite keeps its two sessions: the host owns the proposal, another session owns the review
+verdict, and a reviewer sign-off is never counted as a human choice. Every transition still refuses
+stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed
+checks, or a missing/stale/same-session/withheld review. A stale lease voids the report: the walk
+re-lists from the moved trunk by itself, and a single verb restarts at `unblock-list`.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
 leased push starts the bot run that reconciles the resolved blocking SHA and any later block. After
 apply, append the walk to `refs/fork/churn` with `--push`; the next sync report renders it.

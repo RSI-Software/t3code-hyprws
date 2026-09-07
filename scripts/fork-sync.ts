@@ -15,6 +15,12 @@ import {
 import { publishRerereSnapshot, RERERE_REF, saveRerereCache } from "./lib/fork-bot-refs.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
+  executeConflictOutcome,
+  isUnresolved,
+  type UnresolvedOutcome,
+} from "./lib/fork-conflict-outcomes.ts";
+import { formatCommand, runRepairs, verifyPlan, type RepairFailure } from "./lib/fork-repairs.ts";
+import {
   SystemCommandRunner as SystemRunner,
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
@@ -94,6 +100,7 @@ import {
   type RewriteProof,
   type SilentSeam,
   type SyncReport,
+  type WalkStopReason,
 } from "./fork-sync-state.ts";
 
 export {
@@ -431,7 +438,7 @@ const voidedLeaseMessage = (
 ): string => {
   const trash =
     worktree !== undefined ? `\nStale rehearsal worktree is pending trash: trash ${worktree}` : "";
-  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; restart at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the walk freeze in docs/operations/fork-sync.md.`;
+  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; the walk re-lists from the moved trunk, and a single verb restarts at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the walk freeze in docs/operations/fork-sync.md.`;
 };
 
 const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => {
@@ -1222,35 +1229,19 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * A decision the report already carries for a subject, whether the agent signed it at gate 4 or an
- * earlier check preserved it from the record.
+ * The record is the operator's surface, so a human cell filled there outlives the regeneration a
+ * check performs. A machine cell does not: the walk re-derives every agent row on each run, so an
+ * agent-written cell that disagrees is an older copy of this same derivation, not a second opinion,
+ * and refusing on it only turned a rerun into a human stop.
  */
-const reportDecisionFor = (report: SyncReport, subject: string): RecordDecision | undefined => {
-  const preserved = (report.recordDecisions ?? []).find((row) => row.subject === subject);
-  if (preserved !== undefined) return preserved;
-  const signed = (report.orientationDecisions ?? []).find(
-    (row) => row.subject === subject && row.decidedBy !== "TODO",
-  );
-  if (signed === undefined || signed.decidedBy === "TODO") return undefined;
-  return { subject, action: signed.action ?? signed.verdict, decidedBy: signed.decidedBy };
-};
-
 /**
- * The record is the operator's surface, so a cell filled there outlives the regeneration a check
- * performs. Two sources that disagree are not mergeable: the report is machine state and the record
- * is a human signature, and picking either one silently discards a decision someone made.
+ * The record is the decision surface, so a cell filled there is the decision — a rerun that
+ * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
+ * was a human gate on a lane that has no human in it.
  */
 export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   if (!NodeFS.existsSync(report.recordPath)) return report;
   const filled = filledDecisionCells(NodeFS.readFileSync(report.recordPath, "utf8"));
-  for (const row of filled) {
-    const carried = reportDecisionFor(report, row.subject);
-    if (carried === undefined) continue;
-    if (carried.action === row.action && carried.decidedBy === row.decidedBy) continue;
-    throw new Error(
-      `record decision disagrees with the report for \`${row.subject}\`: report has ${carried.action} (${carried.decidedBy}), record has ${row.action} (${row.decidedBy})`,
-    );
-  }
   if (filled.length === 0) return report;
   const filledSubjects = new Set(filled.map(({ subject }) => subject));
   return {
@@ -1355,42 +1346,65 @@ const unblockCheck = (
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
-  if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== installedHead)
-    throw new Error("HEAD changed after the installed-tree check");
-  git(
-    runner,
-    worktree,
-    ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${lane.branch}`],
-    true,
-  );
-  if (remoteLaneHead(runner, worktree, lane.branch, true) !== installedHead)
-    throw new Error("pushed rehearsal head does not match the installed tree");
-  const ciRun = waitForCiVerdict(runner, worktree, lane.branch, installedHead);
-  verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
-  // A `checked` report already binds its proposer: sign-off is valid on any
-  // `checked` report, with no separate resume round-trip to record one.
-  // Non-nightly targets carry no proposer, so the handoff read stays nightly-only.
-  const checkTarget = report.target;
-  const checkIsNightly = checkTarget !== undefined && isNightlyUpstreamTag(checkTarget.tag);
+  // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
+  // conflicts it resolved. This is the walk's verification. Trunk CI runs the full battery after
+  // the apply, where its verdict is a confirmation rather than a round trip the walk waits on.
+  const repairPaths = [
+    ...new Set([
+      ...(report.touchedPaths ?? []),
+      ...report.conflicts
+        .filter(({ class: klass }) => klass !== "generated")
+        .map(({ path }) => path),
+    ]),
+  ].sort();
+  const repairs = runRepairs(runner, worktree, verifyPlan(worktree, repairPaths), verificationEnv);
+  for (const run of repairs.ran) verification.push({ command: run.command, result: run.result });
+  if (repairs.failure !== undefined) {
+    report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+    writeReport(report);
+    throw new RepairStop(repairs.failure, report.reportPath);
+  }
+  // The series rewrite is a human-driven proposal with no machine path: it rewrites the whole fork
+  // stack at once, so its reviewer still signs a CI verdict on a pushed lane. The unblock walk does
+  // not; its lane repair above is the verification, and trunk CI confirms after the apply.
+  let ciHead: string | undefined;
   let proposedBy = report.proposedBy;
-  if (checkIsNightly && proposedBy === undefined) {
-    try {
-      proposedBy = agentProvenance(runner, cwd);
-    } catch (error) {
-      throw new Error(
-        `nightly proposal provenance unavailable: ${error instanceof Error ? error.message : String(error)}; rerun unblock-check from an agent host session with ghb runtime attestation available`,
-        { cause: error },
-      );
+  if (report.kind === "rewrite") {
+    git(
+      runner,
+      worktree,
+      ["push", "--force-with-lease", "origin", `HEAD:refs/heads/${lane.branch}`],
+      true,
+    );
+    if (remoteLaneHead(runner, worktree, lane.branch, true) !== installedHead)
+      throw new Error("pushed rehearsal head does not match the installed tree");
+    const ciRun = waitForCiVerdict(runner, worktree, lane.branch, installedHead);
+    verification.push({ command: `hyprws CI ${ciRun.url}`, result: "passed" });
+    ciHead = installedHead;
+    // A `checked` report already binds its proposer: sign-off is valid on any `checked` report,
+    // with no separate resume round-trip to record one.
+    if (proposedBy === undefined) {
+      try {
+        proposedBy = agentProvenance(runner, cwd);
+      } catch (error) {
+        throw new Error(
+          `nightly proposal provenance unavailable: ${error instanceof Error ? error.message : String(error)}; rerun unblock-check from an agent host session with ghb runtime attestation available`,
+          { cause: error },
+        );
+      }
     }
   }
+  if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== installedHead)
+    throw new Error("HEAD changed after the installed-tree check");
   report = preserveRecordDecisions({
     ...report,
     stage: "checked",
     installedHead,
-    ciHead: installedHead,
+    ...(ciHead === undefined ? {} : { ciHead }),
+    ...(proposedBy === undefined ? {} : { proposedBy }),
     verification,
+    walk: { ...(report.walk ?? {}), repairs: verification },
     silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
-    ...(checkIsNightly ? { proposedBy } : {}),
   });
   writeReport(report);
   writeRecord(report);
@@ -1588,6 +1602,10 @@ const unblockReview = (
     throw new Error(`unblock-review requires checked state, got ${report.stage}`);
   if (report.target === undefined || !isNightlyUpstreamTag(report.target.tag))
     throw new Error("unblock-review is only for a nightly upstream target");
+  // The unblock walk applies in one shot and carries its own verdict; the series rewrite is the
+  // only proposal left that a second agent signs.
+  if (report.kind !== "rewrite")
+    throw new Error("unblock-review is only for a series rewrite proposal");
   if (report.botCarried === true)
     throw new Error("unblock-review is not used for an objective bot-carried walk");
   if (report.proposedBy === undefined)
@@ -1644,7 +1662,7 @@ const unblockReview = (
   writeReport(report);
   writeNightlyReviewRecord(report, record);
   process.stdout.write(
-    `${report.reportPath}\nnightly review: ${report.nightlyReview?.status}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${report.reportPath}\n`,
+    `${report.reportPath}\nnightly review: ${report.nightlyReview?.status}\nnext: node scripts/fork-sync.ts unblock-apply --report ${report.reportPath} --record ${report.recordPath}\n`,
   );
   return report;
 };
@@ -1810,16 +1828,21 @@ const unblockApply = (
     undefined,
     laneEnv(report.lane.worktree),
   );
-  validateNightlyReview(record, report);
-  if (report.target !== undefined && isNightlyUpstreamTag(report.target.tag)) {
-    const liveIssue = readIssue(runner, report.repositoryRoot);
-    if (
-      liveIssue.number !== report.issue.number ||
-      extractBlockingSha(liveIssue.body) !== report.issue.blockingSha
-    )
-      throw new Error("nightly apply refused: review blocking marker is stale");
-  }
   const isRewrite = report.kind === "rewrite";
+  // The review gate belongs to the series rewrite, the one proposal a human still owns end to end.
+  // The unblock walk resolves, repairs and applies in one shot, so a second agent's sign-off would
+  // be a human stop in the middle of an unattended run.
+  if (isRewrite) {
+    validateNightlyReview(record, report);
+    if (report.target !== undefined && isNightlyUpstreamTag(report.target.tag)) {
+      const liveIssue = readIssue(runner, report.repositoryRoot);
+      if (
+        liveIssue.number !== report.issue.number ||
+        extractBlockingSha(liveIssue.body) !== report.issue.blockingSha
+      )
+        throw new Error("nightly apply refused: review blocking marker is stale");
+    }
+  }
   if (isRewrite && !orientationCoheres(report, runner))
     throw new Error(
       "rewrite construction, source, or blocking marker changed; restart the proposal",
@@ -1835,10 +1858,12 @@ const unblockApply = (
   const worktree = lane.worktree;
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== report.installedHead)
     throw new Error("checked rehearsal head moved; rerun unblock-check");
-  if (report.ciHead === undefined || report.ciHead !== report.installedHead)
-    throw new Error("checked report has no CI verdict for the installed head");
-  if (remoteLaneHead(runner, worktree, lane.branch, true) !== report.ciHead)
-    throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
+  if (isRewrite) {
+    if (report.ciHead === undefined || report.ciHead !== report.installedHead)
+      throw new Error("checked report has no CI verdict for the installed head");
+    if (remoteLaneHead(runner, worktree, lane.branch, true) !== report.ciHead)
+      throw new Error("pushed rehearsal lane moved after the CI verdict; rerun unblock-check");
+  }
   // A stale report that survived every prior pre-check still names the lease
   // that moved here, with the old/new SHAs and the restart path slotted. The
   // staleness does not preempt botMode: a green rehearsal with a still-live
@@ -2006,7 +2031,8 @@ const unblockApply = (
     ],
     worktree,
   );
-  git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
+  // Only the rewrite lane ever pushed its rehearsal branch, so only it has one to retire.
+  if (isRewrite) git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
   report = resumeRererePublication(report);
   process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
   return report;
@@ -2082,17 +2108,78 @@ class AutoFailure extends Error {
   }
 }
 
-const autoConflictStopSurface = (surface: string, reportPath: string): string =>
-  surface.replace(
-    /^(.*), then rerun unblock-rehearse\.$/m,
-    `$1, then run node scripts/fork-sync.ts unblock-rehearse --report ${reportPath}; after it completes, run the resume command below.`,
-  );
+/**
+ * The walk has exactly two legal stops, and each one leaves the same three things behind: the
+ * reason on the report, the reason on stdout for the notification issue, and exit code 2. Anything
+ * else that halts a walk is a defect, not a handoff.
+ */
+class RepairStop extends Error {
+  readonly failure: RepairFailure;
+  readonly reportPath: string;
+
+  constructor(failure: RepairFailure, reportPath: string) {
+    super(`${failure.kind === "environment" ? "environment" : "repair"}: ${failure.command}`);
+    this.failure = failure;
+    this.reportPath = reportPath;
+  }
+}
+
+/**
+ * `hyprws` moved under the walk, so every binding it holds is void. The walk re-lists and re-reads
+ * the moved trunk itself: a restart is mechanical, and asking a human to type it was never a
+ * decision anyone made.
+ */
+class WalkStale extends Error {}
+
+const STALE_TRUNK =
+  /staleness: origin\/hyprws moved|voided the walk lease|lease .* is no longer live/;
+
+export const isStaleTrunk = (error: unknown): boolean =>
+  error instanceof WalkStale ||
+  (error instanceof Error && STALE_TRUNK.test(error.message)) ||
+  (error instanceof AutoFailure && STALE_TRUNK.test(error.message));
+
+/**
+ * Orientation stops cohering for two different reasons, and they are not the same stop. The trunk
+ * moving is the walk's own race: it re-lists and walks again. Anything else — a stale mirror, a tag
+ * that moved, a block the target no longer contains — is the environment the walk was handed, and
+ * the walk cannot fix it from inside the lane.
+ */
+/** The environment stop the walk takes when the refs moved under it and the trunk did not. */
+const unreplayableLane = (reason: string): string =>
+  `Orientation does not cohere with the live refs and the trunk did not move, so the walk was handed a lane it cannot replay: ${reason}.`;
+
+const trunkMoved = (report: SyncReport, runner: CommandRunner): boolean => {
+  const leased = report.source?.expectedOld;
+  if (leased === undefined) return false;
+  const live = runner.run("git", ["rev-parse", "origin/hyprws^{commit}"], report.repositoryRoot);
+  return live.status === 0 && live.stdout.trim().length > 0 && live.stdout.trim() !== leased;
+};
 
 const stopAuto = (surface: string, reportPath: string): never => {
-  process.stdout.write(
-    `${surface.trimEnd()}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${reportPath}\n`,
-  );
+  process.stdout.write(`${surface.trimEnd()}\n`);
   throw new AutoStop(reportPath);
+};
+
+/**
+ * Record the stop before raising it, so the report the workflow uploads and the issue body it
+ * posts carry the same sentence.
+ */
+const stopWalk = (
+  report: SyncReport,
+  reason: WalkStopReason,
+  detail: string,
+  started: number,
+): never => {
+  const stopped: SyncReport = {
+    ...report,
+    walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started, stop: { reason, detail } },
+  };
+  writeReport(stopped);
+  return stopAuto(
+    `${stopped.reportPath}\nStop (${reason}). ${detail}\n${walkSummary(stopped)}`,
+    stopped.reportPath,
+  );
 };
 
 const refreshAutoBotSnapshot = (report: SyncReport, runner: CommandRunner): SyncReport => {
@@ -2192,47 +2279,64 @@ export const rewriteBindingMatches = (
   );
 };
 
-const orientationCoheres = (report: SyncReport, runner: CommandRunner): boolean => {
+/**
+ * Why the report's bindings no longer match the live refs, or `null` when they still do. The walk
+ * needs the reason, not just the verdict: an incoherence that the trunk moving explains is a
+ * restart, and one it does not is the environment stop a human has to read.
+ */
+const orientationIncoherence = (report: SyncReport, runner: CommandRunner): string | null => {
   if (report.kind === "rewrite") {
     const build = report.rewrite?.build;
-    if (build === undefined) return false;
+    if (build === undefined) return "the report carries no rewrite build receipt";
     const receipt = verifyRewriteBuild(
       report.repositoryRoot,
       build.manifestPath,
       build.receiptPath,
     );
-    if (!rewriteBindingMatches(report, receipt)) return false;
+    if (!rewriteBindingMatches(report, receipt))
+      return "the rewrite build receipt no longer matches the report";
     const live = readIssue(runner, report.repositoryRoot);
-    return (
-      live.number === report.issue.number &&
+    return live.number === report.issue.number &&
       extractBlockingSha(live.body) === report.issue.blockingSha
-    );
+      ? null
+      : "the blocking issue moved under the rewrite";
   }
   if (
     report.target === undefined ||
     report.source === undefined ||
     report.orientation === undefined
   )
-    return false;
+    return "the report has no target, source, or orientation to cohere with";
   const root = report.repositoryRoot;
   const source = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   const liveTarget = git(runner, root, ["rev-parse", `refs/tags/${report.target.tag}^{commit}`]);
   const sharedBase = git(runner, root, ["merge-base", source, liveTarget]);
-  const containsBlock =
+  const reasons: Array<string> = [];
+  if (
     runner.run(
       "git",
       ["merge-base", "--is-ancestor", report.issue.blockingSha, report.target.sha],
       root,
-    ).status === 0;
-  return (
-    containsBlock &&
-    report.target.sha === liveTarget &&
-    report.source.sha === source &&
-    report.source.expectedOld === source &&
-    report.source.sharedBase === sharedBase &&
-    /^mirror:\s+origin\/main matches upstream\/main at [0-9a-f]{7,64}$/m.test(report.orientation)
-  );
+    ).status !== 0
+  )
+    reasons.push(
+      `${report.target.tag} does not contain blocking commit ${report.issue.blockingSha}`,
+    );
+  if (report.target.sha !== liveTarget)
+    reasons.push(`${report.target.tag} now resolves to ${liveTarget}, not ${report.target.sha}`);
+  if (report.source.sha !== source || report.source.expectedOld !== source)
+    reasons.push(`origin/hyprws is at ${source}, leased at ${report.source.expectedOld}`);
+  if (report.source.sharedBase !== sharedBase)
+    reasons.push(`the shared base is ${sharedBase}, oriented at ${report.source.sharedBase}`);
+  if (
+    !/^mirror:\s+origin\/main matches upstream\/main at [0-9a-f]{7,64}$/m.test(report.orientation)
+  )
+    reasons.push("origin/main does not mirror upstream/main");
+  return reasons.length === 0 ? null : reasons.join("; ");
 };
+
+const orientationCoheres = (report: SyncReport, runner: CommandRunner): boolean =>
+  orientationIncoherence(report, runner) === null;
 
 const pendingAutoConflictRows = (report: SyncReport): ReadonlyArray<ConflictRow> =>
   report.conflicts.filter(
@@ -2267,77 +2371,73 @@ const rererePathIsClean = (
   );
 };
 
+export type AutoConflictResolution =
+  | { readonly kind: "resolved"; readonly report: SyncReport }
+  | {
+      readonly kind: "unresolved";
+      readonly rows: ReadonlyArray<UnresolvedOutcome & { readonly subject: string }>;
+    };
+
+/**
+ * Machine conflict ownership, in two passes. rerere replays what a previous walk already decided;
+ * the outcome executor decides the remainder from fork doctrine. Only a row the executor declines
+ * reaches a human, and it arrives with the reason attached.
+ */
 export const autoResolveConflicts = (
   report: SyncReport,
   runner: CommandRunner,
-): SyncReport | null => {
+): AutoConflictResolution => {
   if (report.lane === undefined) throw new Error("rehearsal lane is missing");
+  const worktree = report.lane.worktree;
   const pending = pendingAutoConflictRows(report);
-  if (
-    pending.some((row) => row.class !== "generated" && !(row.class === "TODO" && isRerereRow(row)))
-  )
-    return null;
-  const rerereRows = pending.filter(
-    (row) => row.class !== "generated" && row.class === "TODO" && isRerereRow(row),
-  );
+  const candidates = pending.filter((row) => row.class !== "generated");
   let remaining: ReadonlySet<string>;
   try {
     remaining = new Set(
-      lines(
-        git(
-          runner,
-          report.lane.worktree,
-          ["-c", "rerere.enabled=true", "rerere", "remaining"],
-          true,
-        ),
-      ),
+      lines(git(runner, worktree, ["-c", "rerere.enabled=true", "rerere", "remaining"], true)),
     );
   } catch {
-    return null;
+    // No rerere verdict means no reusable resolution, not a stop: every row falls to the executor.
+    remaining = new Set(candidates.map(({ path }) => path));
   }
-  if (
-    rerereRows.some(
-      (row) => !rererePathIsClean(row, remaining, report.lane?.worktree ?? "", runner),
-    )
-  )
-    return null;
+  const decided = new Map<ConflictRow, Pick<ConflictRow, "class" | "resolution">>();
+  const unresolved: Array<UnresolvedOutcome & { readonly subject: string }> = [];
+  for (const row of candidates) {
+    if (isRerereRow(row) && rererePathIsClean(row, remaining, worktree, runner)) {
+      decided.set(row, { class: "mechanical", resolution: "rerere replay" });
+      continue;
+    }
+    // Supersession evidence deliberately plays no part here: gate 4 keeps the commit, so taking
+    // the upstream side of its files would keep the commit and drop the behaviour it carries.
+    const outcome = executeConflictOutcome(runner, worktree, row.path);
+    if (isUnresolved(outcome)) {
+      unresolved.push({ ...outcome, subject: row.subject });
+      continue;
+    }
+    decided.set(row, { class: outcome.conflictClass, resolution: outcome.resolution });
+  }
+  if (unresolved.length > 0) return { kind: "unresolved", rows: unresolved };
+  // Format the resolutions here, inside the conflict, so the fix is part of the replayed commit.
+  const format = formatCommand([...new Set(candidates.map(({ path }) => path))]);
+  if (format !== null) {
+    const outcome = runRepairs(runner, worktree, [format], laneEnv(worktree));
+    if (outcome.failure !== undefined) throw new RepairStop(outcome.failure, report.reportPath);
+  }
   const next: SyncReport = {
     ...report,
     conflicts: report.conflicts.map((row) => {
       if (!pending.includes(row)) return row;
       if (row.class === "generated") return { ...row, decidedBy: "agent" };
-      return {
-        ...row,
-        class: "mechanical",
-        resolution: "rerere replay",
-        agentSafe: "true",
-        decidedBy: "agent",
-      };
+      const outcome = decided.get(row);
+      if (outcome === undefined) return row;
+      return { ...row, ...outcome, agentSafe: "true", decidedBy: "agent" };
     }),
   };
   writeReport(next);
   writeRecord(next);
   for (const path of new Set(pending.map(({ path }) => path)))
-    git(runner, report.lane.worktree, ["add", "--", path], true);
-  return next;
-};
-
-const behaviourOverlap = (orientation: string): ReadonlyMap<string, string> =>
-  new Map(
-    [
-      ...orientation.matchAll(
-        /^\s+\[(?:candidate|keep|retire|partial)\] `(.+)` \([^)]+\)\n\s+behaviour-overlap: (.*)$/gm,
-      ),
-    ].map((match) => [match[1] ?? "", match[2] ?? ""]),
-  );
-
-const hardOverlapPaths = (overlap: string): ReadonlyArray<string> | null => {
-  if (!overlap.startsWith("hard: ")) return null;
-  const paths = overlap
-    .slice("hard: ".length)
-    .split(/,\s+/)
-    .map((value) => value.replace(/\s+\(\d+ hunks?\)$/, ""));
-  return paths.length > 0 && paths.every((path) => path.length > 0) ? paths : null;
+    git(runner, worktree, ["add", "--", path], true);
+  return { kind: "resolved", report: next };
 };
 
 /** A diff of these says nothing about a fork commit's own identity. */
@@ -2511,68 +2611,12 @@ export const resolveInheritedVerdicts = (
 };
 
 /**
- * Every reason gate 4 needs a human, in the order the record presents them. One stop hides the rest
- * when a walk reports only the first, so the operator answers them one round trip at a time.
+ * Gate 4 is the machine's own decision pass. Every candidate is kept and every kept row names the
+ * evidence that earned it, because a walk that removes fork behaviour on its own is a product
+ * decision no unattended run is entitled to make. A candidate upstream appears to carry already is
+ * still kept, and the report says so, so a maintainer can retire it deliberately later.
  */
-export const gateFourStopReasons = (report: SyncReport): ReadonlyArray<string> => {
-  const reasons: Array<string> = [];
-  // A presented seam is a stop the human already answered by resuming, so it stops the walk once.
-  if (report.behaviourSeamStopPresented !== true)
-    for (const seam of (report.silentSeams ?? []).filter(
-      ({ touchesBehaviour }) => touchesBehaviour,
-    ))
-      reasons.push(`silent seam touches behaviour: ${seam.path}: ${seam.summary}`);
-  for (const row of report.conflicts.filter(
-    ({ class: klass }) => klass === "retire-candidate" || klass === "human",
-  ))
-    reasons.push(`conflict requires judgement: ${row.path} (${row.class})`);
-
-  const overlaps = behaviourOverlap(report.orientation ?? "");
-  const evidence = retireEvidenceFor(report);
-  const mechanicalPaths = new Set(
-    report.conflicts.filter(({ class: klass }) => klass === "mechanical").map(({ path }) => path),
-  );
-  for (const row of report.orientationDecisions ?? []) {
-    if (row.verdict === "keep") continue;
-    if (row.verdict === "retire" || row.verdict === "partial") {
-      reasons.push(`orientation verdict requires judgement: ${row.verdict} \`${row.subject}\``);
-      continue;
-    }
-
-    // The target tree is evidence where proximity is not: a candidate whose own identifiers are
-    // absent upstream was never retired, and one whose identifiers are present is a real question.
-    const tested = evidence.get(row.subject);
-    if (tested !== undefined) {
-      const match = tested.matches[0];
-      if (match !== undefined)
-        reasons.push(
-          `retire candidate is present in the target tree: \`${row.subject}\`: ${match.identifier} at ${match.location}`,
-        );
-      continue;
-    }
-
-    const overlap = overlaps.get(row.subject);
-    if (overlap === undefined || overlap === "none") {
-      reasons.push(`candidate has no parsed behaviour overlap: \`${row.subject}\``);
-      continue;
-    }
-    if (overlap.startsWith("weak hunk overlap")) continue;
-    const hardPaths = hardOverlapPaths(overlap);
-    if (hardPaths === null) {
-      reasons.push(`unparsed overlap for \`${row.subject}\`: behaviour-overlap: ${overlap}`);
-      continue;
-    }
-    const missing = hardPaths.filter((path) => !mechanicalPaths.has(path));
-    if (missing.length > 0)
-      reasons.push(
-        `hard overlap lacks a mechanical conflict for \`${row.subject}\`: ${missing.join(", ")}`,
-      );
-  }
-  return reasons;
-};
-
-export const autoGateFour = (report: SyncReport): SyncReport | null => {
-  if (gateFourStopReasons(report).length > 0) return null;
+export const autoGateFour = (report: SyncReport): SyncReport => {
   const evidence = retireEvidenceFor(report);
   return {
     ...report,
@@ -2580,12 +2624,18 @@ export const autoGateFour = (report: SyncReport): SyncReport | null => {
       ...row,
       ...(row.verdict === "candidate"
         ? {
-            action: (evidence.has(row.subject)
-              ? "keep (target tree absent)"
-              : "keep (mechanical seam)") as DecisionAction,
+            action: (evidence.get(row.subject)?.matches.length
+              ? "keep (target tree present)"
+              : evidence.has(row.subject)
+                ? "keep (target tree absent)"
+                : "keep (mechanical seam)") as DecisionAction,
           }
         : {}),
-      decidedBy: "agent",
+      // A keep/retire/partial verdict was read from the human-owned retirement ledger in
+      // `docs/internals/fork-delta.md`, so it stays the human's decision, and an inherited verdict
+      // keeps saying which walk it came from. Only a candidate the machine kept is the machine's.
+      decidedBy:
+        row.decidedBy !== "TODO" ? row.decidedBy : row.verdict === "candidate" ? "agent" : "human",
     })),
   };
 };
@@ -2664,46 +2714,66 @@ export const reconcileAfterApply = (report: SyncReport, runner: CommandRunner): 
   throw new Error(`reconciliation dispatch is ambiguous after run ${baselineRunId}`);
 };
 
-const unblockAuto = (
+/**
+ * The unattended walk: one invocation carries an eligible tag from selection to trunk.
+ *
+ * Every stage below runs without a prompt. Conflicts belong to rerere and the outcome executor,
+ * decisions belong to the machine, and verification is the in-lane repair pass plus the existing
+ * guards. Trunk CI confirms the applied stack afterwards; it is not consulted mid-walk, because a
+ * verdict the walk cannot act on is only a round trip.
+ */
+const walkOnce = (
   values: ReadonlyMap<string, string>,
   cwd: string,
   runner: CommandRunner,
+  started: number,
+  relist: boolean,
 ): SyncReport => {
-  assertOnly(values, ["--target", "--report", "--resume", "--bot-carried", "--silent-seam"]);
-  const resume = values.has("--resume");
   const botCarried = values.has("--bot-carried");
-  if (resume && !values.has("--report")) throw new UsageError("--resume requires --report");
-  if (resume && values.has("--target"))
-    throw new UsageError("--target cannot be used with --resume");
+  const reportPath = oneValue(values, "--report", false);
 
+  // A report already on disk is a walk in flight — an earlier invocation that a moved trunk, a
+  // crashed runner or a stop left standing. The walk picks it up from the stage it reached; it
+  // never asks to be told to. A restart after the trunk moved is the one case that throws the
+  // in-flight report away, because everything in it was measured against a base that is gone.
+  const carried = !relist && reportPath !== null && NodeFS.existsSync(reportPath);
   let report: SyncReport;
-  if (resume) {
-    report = readReport(oneValue(values, "--report") ?? "");
+  if (carried) {
+    report = readReport(reportPath);
     if (botCarried && report.botCarried !== true)
-      throw new UsageError("--bot-carried cannot resume a report the human lane started");
+      throw new UsageError("--bot-carried cannot continue a report the human lane started");
   } else {
     const listValues = new Map<string, string>();
-    const reportPath = oneValue(values, "--report", false);
     if (reportPath !== null) listValues.set("--output", reportPath);
     report = captureStdout(() =>
       unblockList(listValues, cwd, runner, values.has("--target")),
     ).value;
   }
-  // The carrier binding is written before any bot gate reads it, and it stays on
-  // the report so a resumed walk cannot silently change lanes.
-  if (botCarried && report.botCarried !== true) {
-    report = { ...report, botCarried: true };
-    writeReport(report);
-  }
+  report = {
+    ...report,
+    ...(botCarried ? { botCarried: true } : {}),
+    walk: {
+      ...(report.walk ?? {}),
+      startedAt: report.walk?.startedAt ?? new Date(started).toISOString(),
+    },
+  };
+  writeReport(report);
 
   let executingPhase: AutoFailure["phase"] = "unblock-auto";
   try {
     if (report.stage !== "applied") {
-      if (resume) {
+      if (carried) {
+        // Time passed between the invocation that wrote this report and this one, so every
+        // binding it carries is re-read against the live trunk before the walk trusts it.
         ensureLeaseCurrent(report, runner);
         report = refreshAutoBotSnapshot(report, runner);
-        if (report.target !== undefined && !orientationCoheres(report, runner))
-          stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
+        const carriedIncoherence =
+          report.target === undefined ? null : orientationIncoherence(report, runner);
+        if (carriedIncoherence !== null) {
+          if (trunkMoved(report, runner))
+            throw new WalkStale(`${report.reportPath}\n${carriedIncoherence}`);
+          return stopWalk(report, "environment", unreplayableLane(carriedIncoherence), started);
+        }
         if (report.lane !== undefined) validateAutoLane(report, runner);
       } else {
         if (report.bot === undefined)
@@ -2738,7 +2808,23 @@ const unblockAuto = (
         ),
       );
       report = oriented.value;
-      if (!orientationCoheres(report, runner)) stopAuto(oriented.output, report.reportPath);
+      const orientedIncoherence = orientationIncoherence(report, runner);
+      if (orientedIncoherence !== null) {
+        if (trunkMoved(report, runner))
+          throw new WalkStale(`orientation is stale against the trunk\n${orientedIncoherence}`);
+        return stopWalk(report, "environment", unreplayableLane(orientedIncoherence), started);
+      }
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          baseMove: {
+            from: report.source?.sharedBase ?? "unknown",
+            to: `${selected.target.tag}@${selected.target.sha}`,
+          },
+        },
+      };
+      writeReport(report);
     }
 
     while (report.stage === "oriented" || report.stage === "conflicts") {
@@ -2749,9 +2835,20 @@ const unblockAuto = (
       report = rehearsal.value;
       executingPhase = "unblock-auto";
       if (report.stage !== "conflicts") continue;
-      report =
-        autoResolveConflicts(report, runner) ??
-        stopAuto(autoConflictStopSurface(rehearsal.output, report.reportPath), report.reportPath);
+      const resolution = autoResolveConflicts(report, runner);
+      if (resolution.kind === "unresolved")
+        return stopWalk(
+          report,
+          "conflict",
+          [
+            "The outcome executor cannot produce a result for:",
+            ...resolution.rows.map(
+              ({ path, subject, reason }) => `  - ${path} (${subject}): ${reason}`,
+            ),
+          ].join("\n"),
+          started,
+        );
+      report = resolution.report;
     }
 
     if (report.stage === "replayed") {
@@ -2768,81 +2865,16 @@ const unblockAuto = (
     }
 
     if (report.stage === "checked") {
-      let record = NodeFS.readFileSync(report.recordPath, "utf8");
-      const behaviourSeam = (report.silentSeams ?? []).find(
-        ({ touchesBehaviour }) => touchesBehaviour,
-      );
-      if (behaviourSeam !== undefined && report.behaviourSeamStopPresented !== true) {
-        report = { ...report, behaviourSeamStopPresented: true };
-        writeReport(report);
-        stopAuto(
-          `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: silent seam touches behaviour: ${behaviourSeam.path}: ${behaviourSeam.summary}\n`,
-          report.reportPath,
-        );
-      }
-
-      const canonical = record === renderRecord(report);
-      // Presenting a behaviour seam records that the human saw it, never that anyone decided the
-      // rows behind it. Both resume routes fill the record first and sign a complete one.
-      let signed = report.nightlyReview?.status === "signed-off";
-      if (resume) {
-        try {
-          validateSignedRecord(record, report);
-          parseDecisionRows(record);
-          report = preserveRecordDecisions(report);
-          signed = true;
-        } catch {
-          if (!canonical)
-            stopAuto(`${report.reportPath}\n${decisionSurface(record)}`, report.reportPath);
-        }
-      }
-      if (!signed) {
-        const reasons = gateFourStopReasons(report);
-        if (reasons.length > 0)
-          stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}${reasons
-              .map((reason) => `Gate 4 refusal: ${reason}\n`)
-              .join("")}`,
-            report.reportPath,
-          );
-        report =
-          autoGateFour(report) ??
-          stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}Gate 4 refusal: automatic decision did not produce a record\n`,
-            report.reportPath,
-          );
-        writeReport(report);
-        writeRecord(report);
-        record = NodeFS.readFileSync(report.recordPath, "utf8");
-      }
-
-      if (
-        report.target !== undefined &&
-        isNightlyUpstreamTag(report.target.tag) &&
-        report.botCarried !== true
-      ) {
-        if (report.proposedBy === undefined)
-          stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}Report has no proposer; rerun unblock-check to bind one.\n`,
-            report.reportPath,
-          );
-        const review = report.nightlyReview;
-        if (review === undefined)
-          stopAuto(
-            `${report.reportPath}\n${decisionSurface(record)}Nightly review required. Inspect ${report.reportPath} and ${report.recordPath}, then run:\nnode scripts/fork-sync.ts unblock-review --report ${report.reportPath} --sign-off\nWithhold instead with --withhold '<reason>'.\n`,
-            report.reportPath,
-          );
-        if (review?.status === "withheld")
-          stopAuto(
-            `${report.reportPath}\nGate 4 refusal: review withheld: ${review.reason ?? "no reason recorded"}\n`,
-            report.reportPath,
-          );
-        validateNightlyReview(record, report);
-      }
-
+      report = autoGateFour(report);
+      writeReport(report);
+      writeRecord(report);
       report = refreshAutoBotSnapshot(report, runner);
-      if (!orientationCoheres(report, runner))
-        stopAuto(`${report.reportPath}\n${report.orientation ?? ""}`, report.reportPath);
+      const preApplyIncoherence = orientationIncoherence(report, runner);
+      if (preApplyIncoherence !== null) {
+        if (trunkMoved(report, runner))
+          throw new WalkStale("orientation is stale against the trunk before apply");
+        return stopWalk(report, "environment", unreplayableLane(preApplyIncoherence), started);
+      }
       validateAutoLane(report, runner);
       executingPhase = "unblock-apply";
       report = captureStdout(() =>
@@ -2874,15 +2906,80 @@ const unblockAuto = (
       process.stdout.write(`workflow: ${report.reconciliation?.runUrl ?? "unknown"}\n`);
     }
 
+    report = { ...report, walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started } };
+    writeReport(report);
+    process.stdout.write(walkSummary(report));
     return report;
   } catch (error) {
-    if (error instanceof AutoStop || error instanceof AutoBotRefusal) throw error;
+    if (error instanceof RepairStop)
+      return stopWalk(
+        report,
+        error.failure.kind === "environment" ? "environment" : "conflict",
+        error.failure.kind === "environment"
+          ? `The lane cannot test: ${error.failure.command}\n${error.failure.detail}`
+          : `The replayed resolutions do not hold: ${error.failure.command}\n${error.failure.detail}`,
+        started,
+      );
+    if (error instanceof AutoStop || error instanceof AutoBotRefusal || error instanceof WalkStale)
+      throw error;
+    if (isStaleTrunk(error))
+      throw new WalkStale(error instanceof Error ? error.message : String(error));
     throw new AutoFailure(
       error instanceof Error ? error.message : String(error),
       report.reportPath,
       executingPhase,
     );
   }
+};
+
+const unblockAuto = (
+  values: ReadonlyMap<string, string>,
+  cwd: string,
+  runner: CommandRunner,
+): SyncReport => {
+  assertOnly(values, ["--target", "--report", "--bot-carried", "--silent-seam"]);
+  const started = Date.now();
+  // One restart, because a trunk that moves twice inside a single walk is a second walk running,
+  // not a race worth retrying against.
+  for (const attempt of [0, 1]) {
+    try {
+      return walkOnce(values, cwd, runner, started, attempt === 1);
+    } catch (error) {
+      if (attempt === 1 || !isStaleTrunk(error)) throw error;
+      process.stdout.write(
+        `restart: hyprws moved under the walk; re-listing from the moved trunk\n${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
+  }
+  throw new Error("unreachable walk restart");
+};
+
+/** One block the notification issue can carry verbatim. */
+export const walkSummary = (report: SyncReport): string => {
+  const walk = report.walk ?? {};
+  const rows = report.conflicts.filter(({ class: klass }) => klass !== "generated");
+  return [
+    "## Walk",
+    `- target: ${report.target === undefined ? "none" : `\`${report.target.tag}@${report.target.sha}\``}`,
+    `- base move: ${walk.baseMove === undefined ? "none" : `\`${walk.baseMove.from}\` to \`${walk.baseMove.to}\``}`,
+    `- elapsed: ${walk.elapsedMs === undefined ? "unknown" : `${Math.round(walk.elapsedMs / 1000)}s`}`,
+    rows.length === 0
+      ? "- conflicts: none"
+      : [
+          "- conflicts:",
+          ...rows.map((row) => `  - \`${row.path}\` [${row.class}]: ${row.resolution}`),
+        ].join("\n"),
+    (walk.repairs ?? []).length === 0
+      ? "- repairs: none"
+      : [
+          "- repairs:",
+          ...(walk.repairs ?? []).map((row) => `  - \`${row.command}\`: ${row.result}`),
+        ].join("\n"),
+    walk.stop === undefined ? "- stop: none" : `- stop (${walk.stop.reason}): ${walk.stop.detail}`,
+    "",
+  ].join("\n");
 };
 
 const shortSha = (sha: string): string => sha.slice(0, 12);
@@ -3306,19 +3403,6 @@ const isPreconditionRefusal = (error: unknown): boolean =>
       error.message.split("\n", 1)[0] ?? "",
     ));
 
-// A stopped unblock verb leaves its report at the stage it reached, so the walk resumes from there.
-const RESUMABLE_VERBS = new Set([
-  "unblock-orient",
-  "unblock-rehearse",
-  "unblock-check",
-  "unblock-apply",
-]);
-
-const resumeHint = (verb: string | undefined, reportPath: string | undefined): string =>
-  verb !== undefined && reportPath !== undefined && RESUMABLE_VERBS.has(verb)
-    ? `resume: node scripts/fork-sync.ts unblock-auto --resume --report ${reportPath}\n`
-    : "";
-
 export const run = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
@@ -3349,9 +3433,7 @@ export const run = (
       outcomeReportPath = error.reportPath;
     if (error instanceof AutoStop) return 2;
     if (error instanceof AutoBotRefusal) {
-      process.stderr.write(
-        `${error.message}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${error.reportPath}\n`,
-      );
+      process.stderr.write(`${error.message}\nreport: ${error.reportPath}\n`);
       return 3;
     }
     if ((error as Record<string, unknown> | null)?.isBotRefusal === true) {
@@ -3363,18 +3445,14 @@ export const run = (
       return 3;
     }
     if (error instanceof AutoFailure) {
-      process.stderr.write(
-        `failed: ${error.message}\nresume: node scripts/fork-sync.ts unblock-auto --resume --report ${error.reportPath}\n`,
-      );
+      process.stderr.write(`failed: ${error.message}\nreport: ${error.reportPath}\n`);
       return 1;
     }
     if (error instanceof UsageError) {
       process.stderr.write(`usage: ${error.message}\nTry --help.\n`);
       return 2;
     }
-    process.stderr.write(
-      `failed: ${error instanceof Error ? error.message : String(error)}\n${resumeHint(argv[0], outcomeReportPath)}`,
-    );
+    process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   } finally {
     if (
