@@ -1,5 +1,10 @@
 import type { ThreadCheckoutMove } from "@t3tools/contracts";
 
+import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
+import { mergeEnvironmentThread } from "./threadDetail.ts";
+
+export type { ThreadCheckoutMoveRequestInput } from "../operations/checkoutMove.fork.ts";
+
 export type TerminalCheckoutMode = "follow" | "pin";
 
 export interface CheckoutMovePresentation {
@@ -51,6 +56,23 @@ export function checkoutMoveExpectedRoot(move: ThreadCheckoutMove): string {
     return move.destination?.checkoutRoot ?? move.requestedPath;
   }
   return move.source.checkoutRoot;
+}
+
+/**
+ * Environment merges must take the checkout move from the fresher shell
+ * projection. The re-attachment lives in this fork module so upstream
+ * `threadDetail.ts` keeps its upstream shape.
+ */
+export function mergeEnvironmentThreadWithCheckoutMove(
+  detail: EnvironmentThread | null,
+  shell: EnvironmentThreadShell | null,
+): EnvironmentThread | null {
+  const merged = mergeEnvironmentThread(detail, shell);
+  if (merged === null || Object.is(merged, detail)) return merged;
+  return {
+    ...merged,
+    ...(shell?.checkoutMove === undefined ? {} : { checkoutMove: shell.checkoutMove }),
+  };
 }
 
 function checkoutName(path: string): string {
