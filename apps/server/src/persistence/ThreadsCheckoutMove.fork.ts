@@ -40,6 +40,7 @@ const CheckoutMoveThreadRow = Schema.Struct({
   threadId: ThreadId,
   checkoutMove: Schema.NullOr(Schema.fromJsonString(ThreadCheckoutMove)),
 });
+const encodeCheckoutMove = Schema.encodeSync(Schema.fromJsonString(ThreadCheckoutMove));
 
 const makeCheckoutMoveRepository = Effect.gen(function* () {
   const upstream = yield* ProjectionThreadRepository;
@@ -86,13 +87,13 @@ const makeCheckoutMoveRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.checkoutMove:set")),
     );
 
-  const upsert: ProjectionThreadRepositoryShape["upsert"] = (thread) => {
-    const { checkoutMove, ...base } = thread as ProjectionThreadCheckoutMoveRow;
+  const upsert = (thread: ProjectionThreadCheckoutMoveRow) => {
+    const { checkoutMove, ...base } = thread;
     return Effect.gen(function* () {
       yield* upstream.upsert(base);
       yield* setCheckoutMove({
         threadId: base.threadId,
-        checkoutMoveJson: checkoutMove ? JSON.stringify(checkoutMove) : null,
+        checkoutMoveJson: checkoutMove ? encodeCheckoutMove(checkoutMove) : null,
       });
     });
   };

@@ -823,15 +823,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
           });
           if (Option.isNone(existingRow)) return;
-          // The fork repository layer reads the checkout move back from its
-          // own column; the upstream row type does not carry it.
-          const existing = existingRow.value as ProjectionThreadCheckoutMoveRow;
           const destination = event.payload.move.destination;
           const project = yield* projectionProjectRepository.getById({
-            projectId: existing.projectId,
+            projectId: existingRow.value.projectId,
           });
           const row: ProjectionThreadCheckoutMoveRow = {
-            ...existing,
+            ...existingRow.value,
             checkoutMove: event.payload.move,
             ...(event.payload.move.status === "committed" && destination
               ? {

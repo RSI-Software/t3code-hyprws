@@ -1,4 +1,5 @@
 import {
+  CommandId,
   ModelSelection,
   ProjectId,
   ProviderInstanceId,
@@ -64,7 +65,7 @@ describe("checkout move projection repository", () => {
         const repository = yield* ProjectionThreadRepository;
         const threadId = ThreadId.make("thread-move");
         const move: ThreadCheckoutMove = {
-          requestId: "00000000-0000-4000-8000-0000000000aa",
+          requestId: CommandId.make("00000000-0000-4000-8000-0000000000aa"),
           status: "committed",
           requestedPath: "/workspace/feature",
           source: {
@@ -90,10 +91,12 @@ describe("checkout move projection repository", () => {
 
         const row = yield* repository.getById({ threadId });
         expect(Option.isSome(row)).toBe(true);
-        expect((row.value as ProjectionThreadCheckoutMoveRow).checkoutMove).toEqual(move);
+        const enriched: ProjectionThreadCheckoutMoveRow = Option.getOrThrow(row);
+        expect(enriched.checkoutMove).toEqual(move);
         const rows = yield* repository.listByProjectId({ projectId: ProjectId.make("project-1") });
         expect(rows).toHaveLength(1);
-        expect((rows[0] as ProjectionThreadCheckoutMoveRow).checkoutMove).toEqual(move);
+        const enrichedRow: ProjectionThreadCheckoutMoveRow | undefined = rows[0];
+        expect(enrichedRow?.checkoutMove).toEqual(move);
       }),
     );
 
@@ -105,7 +108,7 @@ describe("checkout move projection repository", () => {
 
         yield* repository.upsert(
           makeRow(threadId, {
-            requestId: "00000000-0000-4000-8000-0000000000ab",
+            requestId: CommandId.make("00000000-0000-4000-8000-0000000000ab"),
             status: "queued",
             requestedPath: "/workspace/feature",
             source: {
@@ -126,7 +129,8 @@ describe("checkout move projection repository", () => {
 
         const row = yield* repository.getById({ threadId });
         expect(Option.isSome(row)).toBe(true);
-        expect((row.value as ProjectionThreadCheckoutMoveRow).checkoutMove).toBeNull();
+        const cleared: ProjectionThreadCheckoutMoveRow = Option.getOrThrow(row);
+        expect(cleared.checkoutMove).toBeNull();
 
         const stored =
           yield* sql`SELECT checkout_move_json FROM projection_threads WHERE thread_id = ${threadId}`.pipe(
