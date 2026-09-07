@@ -46,13 +46,16 @@ const makeCheckoutMoveRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   // The upstream upsert always leaves the row present, so a plain UPDATE hits
-  // exactly the row it wrote.
+  // exactly the row it wrote. The IS NOT guard keeps a same-value write from
+  // touching the row, so update-count observers see one write per upsert,
+  // exactly as the pre-reshape single-statement upsert produced.
   const setCheckoutMoveRow = SqlSchema.void({
     Request: SetThreadCheckoutMoveInput,
     execute: ({ threadId, checkoutMoveJson }) => sql`
       UPDATE projection_threads
       SET checkout_move_json = ${checkoutMoveJson}
       WHERE thread_id = ${threadId}
+        AND checkout_move_json IS NOT ${checkoutMoveJson}
     `,
   });
 

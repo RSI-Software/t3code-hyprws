@@ -3,6 +3,8 @@ import type { ThreadCheckoutMove } from "@t3tools/contracts";
 import type { EnvironmentThread, EnvironmentThreadShell } from "./models.ts";
 import { mergeEnvironmentThread } from "./threadDetail.ts";
 
+export type { ThreadCheckoutMoveRequestInput } from "../operations/checkoutMove.fork.ts";
+
 export type TerminalCheckoutMode = "follow" | "pin";
 
 export interface CheckoutMovePresentation {

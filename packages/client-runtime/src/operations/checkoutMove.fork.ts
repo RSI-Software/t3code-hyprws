@@ -26,16 +26,26 @@ type CheckoutMoveCommand = Extract<
   { readonly type: "thread.checkout-move.request" }
 >;
 
-export type ThreadCheckoutMoveRequestInput = Omit<
-  CheckoutMoveCommand,
+type CheckoutMoveCommandType = Extract<
+  ClientOrchestrationCommand,
+  { readonly type: "thread.checkout-move.request" }
+>["type"];
+type CommandOf<T extends CheckoutMoveCommandType> = Extract<
+  ClientOrchestrationCommand,
+  { readonly type: T }
+>;
+type CommandInput<T extends CheckoutMoveCommandType> = Omit<
+  CommandOf<T>,
   "type" | "commandId" | "createdAt"
 > & {
   readonly commandId?: CommandId;
-} & ("createdAt" extends keyof CheckoutMoveCommand
+} & ("createdAt" extends keyof CommandOf<T>
     ? {
-        readonly createdAt?: CheckoutMoveCommand["createdAt"];
+        readonly createdAt?: CommandOf<T>["createdAt"];
       }
     : {});
+
+export type ThreadCheckoutMoveRequestInput = CommandInput<"thread.checkout-move.request">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
 type CommandEffect = Effect.Effect<
