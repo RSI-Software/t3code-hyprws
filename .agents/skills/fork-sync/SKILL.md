@@ -191,7 +191,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
    workspace's typecheck, and the focused test files beside the touched sources. What a repair rewrites
    becomes one bot commit appended after the replayed stack, carrying `Fork-Repair: <tag>`; no replayed
-   fork commit is ever amended. Only a series
+   fork commit is ever amended. Before repairs, the walk proves the replayed tree purely additive
+   (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
+   upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure
+   the fix refuses is the `conflict` stop. Only a series
    rewrite pushes the disposable lane and polls every 30 seconds for the CI verdict on the pushed
    head, with a 45-minute ceiling; a timeout fails that gate. Record a repaired seam with
    `--silent-seam '<path>=<summary>:type'` or

@@ -770,6 +770,13 @@ resolutions the walk staged do not hold. Whatever a repair rewrites is committed
 replayed stack as the walk's own bot commit carrying `Fork-Repair: <tag>`, never folded into a
 replayed fork commit, so the record and the churn row name the exact SHA that changed the tree.
 
+Before any of that, the walk proves the replayed tree purely additive over the target — no target
+file deleted, no migration deleted or renumbered into a collision, no upstream test shrunk, no
+upstream-deleted line re-added — and mechanically repairs a failure once (restoring from the tag,
+renumbering a colliding fork migration, dropping re-added lines) as the same `Fork-Repair` commit;
+a shape the fix refuses, such as a shrunk test or a brace-unbalanced re-add, is the `conflict` stop
+because only a human can say which side to keep.
+
 `HYPRWS_AUTO_REBASE=off` and `candidate` still suppress the trunk push, so a walk in either mode is
 a dry run that ends at the report.
 
