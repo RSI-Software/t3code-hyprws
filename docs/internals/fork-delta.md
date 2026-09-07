@@ -13,6 +13,7 @@ The commit list itself is generated, because commit hashes rot on every rebase.
 vp run fork:delta           # Markdown ledger grouped by domain and tier
 vp run fork:delta --check   # exit 1 when a fork commit lacks a valid trailer
 vp run fork:delta --json    # the same ledger for tooling
+vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain and commit (default target: upstream/main)
 ```
 
 It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
