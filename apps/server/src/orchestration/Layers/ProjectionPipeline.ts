@@ -43,6 +43,10 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import {
+  type ProjectionThreadCheckoutMoveRow,
+  ProjectionThreadCheckoutMoveRepositoryLive,
+} from "../../persistence/ThreadsCheckoutMove.fork.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -619,7 +623,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
-            checkoutMove: null,
             linkedPullRequest: null,
             branchPullRequest: null,
             latestTurnId: null,
@@ -943,7 +946,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           const project = yield* projectionProjectRepository.getById({
             projectId: existingRow.value.projectId,
           });
-          yield* projectionThreadRepository.upsert({
+          const row: ProjectionThreadCheckoutMoveRow = {
             ...existingRow.value,
             checkoutMove: event.payload.move,
             ...(event.payload.move.status === "committed" && destination
@@ -957,7 +960,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 }
               : {}),
             updatedAt: event.payload.move.updatedAt,
-          });
+          };
+          yield* projectionThreadRepository.upsert(row);
           return;
         }
 
@@ -2209,7 +2213,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline(),
 ).pipe(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
-  Layer.provideMerge(ProjectionThreadRepositoryLive),
+  Layer.provideMerge(ProjectionThreadCheckoutMoveRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadPullRequests.layer),
