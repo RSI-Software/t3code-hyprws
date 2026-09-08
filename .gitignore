@@ -26,6 +26,8 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+/.dump
+/docs/internals/generated/
 dist-electron/
 .electron-runtime/
 .showcase/
