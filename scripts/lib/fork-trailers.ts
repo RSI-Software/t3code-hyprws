@@ -31,6 +31,11 @@ export interface ForkTrailers {
    * marker that keeps a walk repair out of the replayed fork series the replay proofs compare.
    */
   readonly repair?: string;
+  /**
+   * The audit of a budget raise: the raising commit declares `raise <reason>` (RSI-Software/
+   * t3code-hyprws#672). Lowering a ceiling is a normal commit and carries nothing.
+   */
+  readonly budget?: string;
 }
 
 export interface ParsedForkCommit extends ForkTrailers {
@@ -66,12 +71,14 @@ export const parseForkTrailers = (body: string): ForkTrailers => {
   const upstreamable = readTrailer(body, "Fork-Upstreamable");
   const wireReviewed = readTrailer(body, "Fork-Wire");
   const repair = readTrailer(body, "Fork-Repair");
+  const budget = readTrailer(body, "Fork-Budget");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
     ...(upstreamable === undefined ? {} : { upstreamable }),
     ...(wireReviewed === undefined ? {} : { wireReviewed }),
     ...(repair === undefined ? {} : { repair }),
+    ...(budget === undefined ? {} : { budget }),
   };
 };
 
@@ -91,3 +98,7 @@ export const isForkDomain = (value: string | undefined): value is ForkDomain =>
 
 export const isForkUpstreamable = (value: string | undefined): value is "yes" | "no" =>
   value === "yes" || value === "no";
+
+// A budget raise names its reason, exactly like a wire review does.
+export const isForkBudgetRaise = (value: string | undefined): boolean =>
+  value !== undefined && /^raise\s+\S/i.test(value);
