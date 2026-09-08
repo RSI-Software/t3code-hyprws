@@ -314,17 +314,23 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         yield* write(path, 'effectIt.effect("fork attachment", () => Effect.void);\n');
         const trailers = "Fork-Domain: project-windows\nFork-Tier: core";
         const bad = commit(`fork independently adds attachment tests\n\n${trailers}`);
-        const scan = (target: string, since: string | null) =>
+        const scan = (
+          target: string,
+          since: string | null,
+          head = "HEAD",
+          sameTreeRewriteOf: string | null = null,
+        ) =>
           NodeChildProcess.spawnSync(
             process.execPath,
             [
               scanScript,
               "--head",
-              "HEAD",
+              head,
               "--target",
               target,
               "--no-typecheck",
               ...(since === null ? [] : ["--since", since]),
+              ...(sameTreeRewriteOf === null ? [] : ["--same-tree-rewrite-of", sameTreeRewriteOf]),
             ],
             { cwd: root, encoding: "utf8" },
           );
@@ -334,6 +340,32 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         assert.strictEqual(rejected.status, 1, rejected.stderr);
         assert.include(rejected.stdout, "upstream-test");
         assert.include(rejected.stdout, "adopted authoring guard");
+        const rewritten = NodeChildProcess.execFileSync(
+          "git",
+          ["commit-tree", git(["rev-parse", `${bad}^{tree}`]), "-p", base],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              GIT_AUTHOR_NAME: "Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+              GIT_COMMITTER_NAME: "Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+            },
+            input: `rewrite history\n\n${trailers}\n`,
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        ).trim();
+        const rewrittenUnscoped = scan(target, base, rewritten);
+        assert.strictEqual(rewrittenUnscoped.status, 1, rewrittenUnscoped.stderr);
+        assert.include(rewrittenUnscoped.stdout, "adopted authoring guard");
+        const rewrittenSameTree = scan(target, base, rewritten, bad);
+        assert.strictEqual(rewrittenSameTree.status, 0, rewrittenSameTree.stderr);
+        assert.notInclude(rewrittenSameTree.stdout, "upstream-test");
+        const rewrittenChangedTree = scan(target, base, rewritten, base);
+        assert.strictEqual(rewrittenChangedTree.status, 1, rewrittenChangedTree.stderr);
+        assert.include(rewrittenChangedTree.stderr, "historical rewrite head");
         const historical = scan(target, null);
         assert.strictEqual(historical.status, 0, historical.stderr);
         assert.include(historical.stdout, "upstream-test");
@@ -353,6 +385,122 @@ it.layer(NodeServices.layer)("adopted authoring guard CLI", (it) => {
         assert.strictEqual(repaired.status, 0, repaired.stderr);
         assert.notInclude(repaired.stdout, "upstream-test");
       }),
+  );
+
+  // A rebase rehearsal replays the whole trunk onto a newer upstream release, so
+  // every fork commit is newly authored against the shared base and the adopted
+  // guards would block shapes the trunk already carries.
+  it.effect("returns a proven rebase rehearsal to the historical authoring range", () =>
+    Effect.gen(function* () {
+      const example = authoringCases[0]!;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-scan-replay-" });
+      const git = (args: ReadonlyArray<string>) =>
+        NodeChildProcess.execFileSync("git", [...args], {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      const write = Effect.fn("writeReplayFixture")(function* (path: string, content: string) {
+        const absolute = NodePath.join(root, path);
+        yield* fs.makeDirectory(NodePath.dirname(absolute), { recursive: true });
+        yield* fs.writeFileString(absolute, content);
+      });
+      const commit = (message: string) => {
+        git(["add", "."]);
+        git([
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgSign=false",
+          "commit",
+          "-m",
+          message,
+        ]);
+        return git(["rev-parse", "HEAD"]);
+      };
+
+      git(["init", "--initial-branch=upstream-root"]);
+      const workflowPairs = ["ci", "release"].map((name) => ({
+        upstream: `.github/workflows/${name}.yml`,
+        fork: `.github/workflows/hyprws-${name}.yml`,
+      }));
+      for (const pair of workflowPairs) {
+        yield* write(pair.upstream, "jobs: {}\n");
+        yield* write(pair.fork, "jobs: {}\n");
+      }
+      yield* write(example.sourcePath, "export function upstreamMetadata() {}\n");
+      const root0 = commit("upstream root");
+      yield* write(
+        ".github/fork-workflow-reviews.json",
+        yield* encodeFixtureJson({
+          version: 1,
+          reviews: workflowPairs.map((pair) => ({
+            ...pair,
+            upstreamCommit: root0,
+            upstreamBlob: git(["rev-parse", `${root0}:${pair.upstream}`]),
+            forkBlob: git(["rev-parse", `${root0}:${pair.fork}`]),
+            disposition: "no-change",
+            reason: "Empty fixture workflows have no distribution differences.",
+          })),
+        }),
+      );
+      yield* write(
+        "docs/internals/fork-delta.md",
+        `# Fork delta\n\n## ${example.domain}\n\n### Rebase scan\n\n| Path | Why |\n| --- | --- |\n| \`${example.sourcePath}\` | Fork integration call |\n`,
+      );
+      const shared = commit("upstream fixture");
+
+      const tagged = `Fork-Domain: ${example.domain}\nFork-Tier: core`;
+      const authored = `export function upstreamMetadata() {}\n${example.inlineImplementation}\n`;
+      git(["checkout", "-b", "trunk"]);
+      yield* write(example.sourcePath, authored);
+      commit(`add inline ${example.name}\n\n${tagged}`);
+
+      // Upstream moves on and cuts a release the trunk has not rebased onto.
+      git(["checkout", "-b", "upstream-next", shared]);
+      yield* write("docs/user/release.md", "upstream advance\n");
+      commit("upstream advance");
+      git(["tag", "v0.0.0-fixture"]);
+
+      git(["checkout", "-b", "replay", "v0.0.0-fixture"]);
+      yield* write(example.sourcePath, authored);
+      const replayed = commit(`add inline ${example.name}\n\n${tagged}`);
+
+      const scan = (replayOf: string | null) =>
+        NodeChildProcess.spawnSync(
+          process.execPath,
+          [
+            scanScript,
+            "--head",
+            replayed,
+            "--target",
+            "v0.0.0-fixture",
+            "--since",
+            shared,
+            "--no-typecheck",
+            ...(replayOf === null ? [] : ["--replay-of", replayOf]),
+          ],
+          { cwd: root, encoding: "utf8" },
+        );
+
+      const unscoped = scan(null);
+      assert.strictEqual(unscoped.status, 1, unscoped.stderr);
+      assert.include(unscoped.stdout, example.rule);
+      assert.include(unscoped.stdout, "adopted authoring guard");
+
+      const proven = scan("trunk");
+      assert.strictEqual(proven.status, 0, proven.stderr);
+      assert.include(proven.stdout, example.rule);
+      assert.include(proven.stdout, "advisory");
+
+      // A ref the head already contains is a branch point, not a replayed trunk.
+      const contained = scan(shared);
+      assert.strictEqual(contained.status, 1, contained.stderr);
+      assert.include(contained.stdout, "adopted authoring guard");
+    }),
   );
 
   for (const example of authoringCases) {
