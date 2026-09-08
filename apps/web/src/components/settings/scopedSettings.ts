@@ -18,10 +18,7 @@ import {
   resolveWorktreeCleanup,
   type ProjectSettingSource,
 } from "@t3tools/shared/projectSettings";
-import {
-  fromWireThreadEnvModeFields,
-  toWireThreadEnvModeOverrideFields,
-} from "@t3tools/shared/threadEnvMode.fork";
+import { patchProjectThreadEnvModeOverride } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-patch-replace-import
 import * as Equal from "effect/Equal";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
@@ -272,20 +269,7 @@ export function planScopedSettingsPatch(
                 next[key] =
                   isPlainObject(value) && isPlainObject(base) ? { ...base, ...value } : value;
               }
-              // Fork: the thread-mode pair replaces wholesale, so a cleared or
-              // exact mode cannot keep a stale `...Fork` sibling alive.
-              if (serverPatch.defaultThreadEnvMode !== undefined) {
-                delete next.defaultThreadEnvModeFork;
-                Object.assign(
-                  next,
-                  toWireThreadEnvModeOverrideFields(
-                    fromWireThreadEnvModeFields({
-                      defaultThreadEnvMode: serverPatch.defaultThreadEnvMode,
-                      defaultThreadEnvModeFork: serverPatch.defaultThreadEnvModeFork,
-                    }),
-                  ),
-                );
-              }
+              patchProjectThreadEnvModeOverride(next, serverPatch); // fork-hook: worktrunk-hooks/env-mode-patch-replace
               return next as ProjectSettingsOverrides;
             })
         : scope.kind === "all" || scope.kind === "environment"
