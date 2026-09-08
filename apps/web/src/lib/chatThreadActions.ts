@@ -5,7 +5,7 @@ import type {
   ProjectId,
   ScopedProjectRef,
 } from "@t3tools/contracts";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import type { ComposerThreadDraftState, DraftThreadEnvMode } from "../composerDraftStore";
 
 type ComposerModelSelectionState = Pick<
