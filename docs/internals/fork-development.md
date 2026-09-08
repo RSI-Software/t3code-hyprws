@@ -1,0 +1,626 @@
+# Fork development
+
+> Fork-only maintainer guide for `RSI-Software/t3code-hyprws`.
+
+This guide owns fork-wide development discipline and the `project-windows` domain's architecture.
+The [fork delta](./fork-delta.md) owns the need and retirement condition for every domain.
+
+Project windows make T3 Code feel like opening an editor on a project, not one global dashboard.
+Each project should have an obvious window that can live beside its editor, terminals, and browser.
+
+The goal is a small, durable patch stack on top of upstream T3 Code.
+This document defines the project-window direction and the discipline that keeps every domain rebasing cleanly.
+
+## What the sync machinery is for
+
+The fork stays small, replayable, and in sync with upstream without a person in the loop.
+
+- The bot carries most upstream tags on its own. An agent runs only when a walk stops at a real judgement: a retire question, or a behaviour seam.
+- A conflict that reaches an agent is genuine — new upstream work meeting new fork work — never a seam the churn ledger already named.
+- Every action taken from the ledger ships its own guard in the same change: a `fork:scan` rule where the shape is scannable, a test where it is behavioural, a documented convention otherwise. The sub-issue names the guard. We do not fix the same seam twice.
+- Before adding to the fork, run `vp run fork:scan --no-typecheck` and read its declared lesson ref, exact SHA, freshness and preferred boundaries alongside the latest sync report's `## Churn` section. Use `--offline` explicitly when working from retained evidence. Put fork tests in fork-owned files. Prefer one adapter boundary over edits spread across upstream files.
+
+The measure: consecutive tags carried with the bot on and no agent stop, and ledger rows that read `mechanical: 0`. Tracked in RSI-Software/t3code-hyprws#443.
+
+Blocked reports distinguish sequential replay observations from pairwise feasibility overlap.
+The sequential census retains its source, base, target, stop ordinal, replayed commit, path and
+Git conflict kind; its totals come from those same rows. Continuation provisionally takes the
+fork-side index stage (or deletion), with rerere disabled. It records no resolution verdict.
+The versioned `sequential-census-v1` evidence survives in the churn ledger as `censusEvidence`.
+Hunk counts are unknown for these observations, not zero. Legacy rows without that provenance
+remain labelled pairwise feasibility overlap; their old aggregate census counts have no retained
+stop rows. Method changes and partial censuses break comparison continuity, so neither can prove
+a seam disappeared. A partial census remains useful evidence but cannot decide a clean replay.
+
+The churn reporter keeps unresolved path/subject/domain identities through ordinary replays.
+An absent seam is only not observed; it is never an inferred repair. Before changing a seam's
+path, subject or patch split, store its full census and reviewed aliases with `fork:churn record`.
+A repair names its change and guard, and a separate maintainer-attested verification names the
+comparable replay and guard result. Returned unresolved seams and verified regressions remain
+blocking until comparable repair evidence clears them. See [Churn ledger](../operations/fork-sync.md#churn-ledger).
+
+## Project-window direction
+
+The unit of desktop organization is a physical project in an environment.
+Opening a project should reveal its existing window or create a window scoped to that project.
+
+The core value is one project per instance.
+The user keeps one project window per Hyprland workspace and navigates by switching workspaces.
+A project window opens from the hub UI and from the command line or a Hyprland keybind.
+
+A project window contains only that project's threads, composer state, and project actions.
+The existing all-project experience remains available as a hub rather than disappearing.
+
+Until desktop windows land, a browser app window on the project-scoped web route is an acceptable interim.
+Serve it through portless so each window has a stable named `.localhost` origin instead of a shifting port.
+
+Hyprland owns placement across workspaces and monitors.
+T3 Code should expose normal, independently placeable desktop windows and avoid becoming a window manager itself.
+
+Worktrunk owns Git worktrees and development lanes.
+zmux owns long-running terminal sessions, while editors and browsers remain separate visual tools.
+
+## Non-goals
+
+- Do not run a separate T3 server, database, provider runtime, or authentication stack for every project window.
+- Do not duplicate the web application into a second desktop-only frontend.
+- Do not encode Hyprland workspace policy inside T3 Code.
+- Do not remove the hub, remote environments, the web client, or mobile project navigation.
+- Do not rewrite unrelated upstream systems to make the fork feel internally unique.
+
+`dev:desktop:agent` is the narrow development-tooling exception to the compositor-policy rule. It relays an explicit relative or absolute numbered-workspace request into a disposable dev process; shipped application launches still leave placement to Hyprland.
+
+## Testing a fork checkout
+
+Use `vp run dev:app` as the shared launcher. The CLI defaults to `--external`; the checked-in **Dev Web** T3 action uses `--preview` explicitly so a native agent can call `preview_open` with the actual ready URL printed after startup. When integrated preview is unavailable, that action uses the external browser instead. `--desktop` uses the same checkout-local home and fixture project while adding an isolated `.t3/electron` profile, Electron CDP, and optional `--workspace <+1|-1|id|none>` placement. The profile scopes Electron and Clerk state plus the single-instance lock without changing provider credential discovery. Relative placement captures the invoking app's numbered workspace once, absolute ids target that workspace directly, `none` requests normal compositor placement, and an action override outranks the saved `T3CODE_DESKTOP_AGENT_WORKSPACE` value. Targeted windows map without taking focus.
+
+Launch from the base checkout for exploration, the implementation worktree for feature work, or a checkout pinned to the exact candidate SHA for UAT. One backend owns one checkout-local `.t3` home at a time; stop it before switching surfaces for that checkout. Distinct checkouts have distinct homes and may run concurrently. Relaunches retain `.t3/test-project`, its edits, registered project, threads, and authentication. Never reset that fixture or copy the stable installation's state into it.
+
+T3 imports checked-in `t3.json` scripts once and stores project-owned copies. Update those imported copies when a checked-in command changes. **Setup Worktree** only prepares a checkout; it does not launch the app or recreate fixtures.
+
+The convenience actions target local checkouts. **Dev Web** requires the primary local environment: remote/relay/SSH loopback URLs would open on the wrong machine. Use the existing shared-development workflow for remote access. Pairing recovery from either base or a worktree uses `node apps/server/src/bin.ts pair --base-dir "$PWD/.t3"`; a bare `pair` in the base checkout may select the installed home.
+
+## Architectural direction
+
+This section records the grounded target shape, verified against the code on 2026-08-22.
+Re-verify the "current reality" notes after each upstream rebase.
+
+Keep one Electron process and reuse the existing backend pool and environment registry.
+Add multiple `BrowserWindow` instances whose renderer routes carry an explicit project scope.
+
+### Scope identity
+
+Model window identity at the desktop boundary only:
+
+```ts
+type WindowIdentity =
+  { readonly kind: "hub" } | { readonly kind: "project"; readonly ref: ScopedProjectRef };
+```
+
+`ScopedProjectRef` combines `environmentId` and `projectId`.
+Both are required because project ids are unique only within their environment.
+
+Do not thread a codebase-wide scope union through web or shared packages.
+On the web surface the route itself is the scope.
+Do not reuse `projectKey` as identity; it names a logical grouping that can span multiple physical projects.
+
+### Routes
+
+Add an additive project subtree rather than extending the hub `_chat` grammar:
+
+- `/project/$environmentId/$projectId/thread/$threadId`
+- `/project/$environmentId/$projectId/draft/$draftId`
+
+The additive subtree leaves hub routes untouched, which rebases better against upstream.
+
+The renderer URL is the recoverable source of truth for scope.
+A reload or renderer crash must reconstruct the same project window without transient IPC state.
+
+Scope must survive thread selection, draft creation and promotion, missing-thread redirects, and new-thread actions.
+
+Reject project/thread mismatches instead of silently escaping scope.
+Decide explicitly whether settings and pull requests open in the hub or gain scoped routes.
+
+### Registry
+
+The desktop main process owns a registry from `WindowIdentity` to live `BrowserWindow`.
+Opening an identity that is already registered reveals and focuses that window instead of creating a duplicate.
+
+Shared services remain shared unless measurement proves that isolation is required.
+That includes the backend pool, connection runtime, settings, authentication, providers, and persisted state.
+
+### Current reality (verified 2026-08-22)
+
+- All desktop window machinery is singleton-shaped.
+  `apps/desktop/src/electron/ElectronWindow.ts` holds one `mainWindowRef`.
+  `DesktopWindow.ensureMain` short-circuits when any window exists.
+  The window loads a fixed URL with no route parameter.
+- `apps/desktop/src/app/DesktopClerk.ts` ignores second-instance arguments.
+  It shares that path with Clerk/OAuth forwarding.
+  A launch-intent parser must coexist with that behavior.
+- `apps/desktop/src/preview/Manager.ts` (~4.2k lines) has a single last-write-wins `setMainWindow` slot.
+  Preview IPC broadcasts to every window via `sendAll`, so a second window would silently steal preview ownership.
+- The preload exposes preview APIs to every renderer.
+  Project windows must explicitly report previews unsupported; skipping `setMainWindow` alone is not a gate.
+- `apps/web/src/components/Sidebar.tsx` already has a mutable project filter over a logical project group.
+  Convert that seam into a forced physical `ScopedProjectRef` scope in both supported sidebars.
+  Do not build filtering from scratch.
+- "Current project" is client state today: `activeEnvironmentIdAtom` in `apps/web/src/state/entities.ts`.
+  `__root.tsx` sets it.
+  `ChatMarkdown.tsx` consumes it for server config and editor actions.
+  Derive the environment from `threadRef` there, or a remote project window acts through the primary environment.
+- Renderer UI state is per-window; content consistency comes free from the shared backend.
+  But `composerDraftStore.ts` persists whole-store snapshots to shared `localStorage` with last-write-wins merging.
+  Concurrent windows can destroy unsent drafts that never reached the backend.
+  Resolve this before allowing concurrent windows.
+
+### Ownership seams
+
+| Area                | Existing seam                                            | Fork responsibility                                                                              |
+| ------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Window lifecycle    | `apps/desktop/src/window/DesktopWindow.ts`               | Create, reveal, restore, and close scoped windows; per-identity titles and bounds                |
+| Native registry     | `apps/desktop/src/electron/ElectronWindow.ts`            | Track windows by `WindowIdentity`                                                                |
+| Launch routing      | `apps/desktop/src/app/DesktopClerk.ts`                   | Route first-launch and second-instance intent to the correct window                              |
+| Renderer scope      | `apps/web/src/routes/`                                   | Additive project subtree; scope recovery from the URL                                            |
+| Sidebar scope       | `apps/web/src/components/Sidebar.tsx` (+ legacy sidebar) | Force the existing project filter to the window's physical scope                                 |
+| Client selectors    | `apps/web/src/state/entities.ts`                         | Derive environment/project from route or `threadRef`, not a global atom                          |
+| Draft persistence   | `apps/web/src/composerDraftStore.ts`                     | Make persisted drafts safe across concurrent windows                                             |
+| Preview ownership   | `apps/desktop/src/preview/Manager.ts`                    | Phase 3: report unsupported in project windows; Phase 4: namespace tabs and IPC by owning window |
+| Shared client logic | `packages/client-runtime`                                | Keep reusable project and thread behavior platform-neutral                                       |
+
+Prefer adapting these seams over introducing a parallel application architecture.
+Change contracts or server subscriptions only when a client-only scope cannot provide correct or performant behavior.
+
+## Multi-surface rule
+
+Desktop gains operating-system windows.
+Web should retain a project-scoped route that behaves correctly in a normal browser tab.
+
+Mobile does not need desktop window management.
+Shared project and thread behavior still belongs in `packages/client-runtime` when web and mobile both need it.
+
+Local, remote, relay, and tunnel connections must resolve the same scoped project reference.
+Never assume a project ID is globally unique or that every project belongs to the local environment.
+
+## Repository model
+
+The remotes have distinct authority.
+
+| Name       | Repository                   | Purpose                                  |
+| ---------- | ---------------------------- | ---------------------------------------- |
+| `upstream` | `pingdotgg/t3code`           | Canonical T3 Code history; fetch only    |
+| `origin`   | `RSI-Software/t3code-hyprws` | Fork branches and published fork history |
+
+- `origin` is the implicit collaboration remote for source-control reads, writes, and pull requests.
+- `upstream` is fetch-only unless the human explicitly authorizes an operation against `pingdotgg/t3code`.
+
+**The fork posts nothing to `pingdotgg/t3code`.**
+No pull request, issue, comment, review, or reaction; reading upstream stays fine, writing to it does not.
+This is a baseline rule, not a preference: it holds until at least 2026-11-27, may hold permanently, and only the human may lift it.
+`Fork-Upstreamable: yes` is a tracking tag only.
+It marks a commit upstream is likely to supersede so the rebase feasibility walk can flag it as a retire candidate; see [Fork delta](./fork-delta.md#trailers).
+It never means "send this upstream" and never authorizes publishing a branch or posting to upstream.
+The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
+
+Reading upstream is how the fork decides what to do about a bug it feels.
+Run the [`upstream-triage`](../../.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing one, so the fork knows whether upstream already fixed it, has a pull request open, or has never seen it.
+The skill reads upstream and writes only in this fork.
+Where it finds a suggestion worth making, it drafts one for the human, who decides whether to post it.
+
+Keep local `main` as an exact mirror of `upstream/main`.
+Never put fork commits on `main`, and never merge `hyprws` back into it.
+Push `main` to `origin` only as a fast-forward, so `origin/main` stays a readable mirror.
+
+`hyprws` is the single fork trunk and the GitHub default branch.
+It holds every fork domain as one rebased stack above `upstream/main`.
+Its first-parent story should remain a short, readable sequence of fork decisions.
+
+Domains are not branches.
+A commit declares its domain with a `Fork-Domain` trailer, and `vp run fork:delta` groups the stack by that trailer.
+One trunk means one rebase per upstream sync, one CI target, and one release line.
+
+Per-domain branches were considered and rejected.
+Each extra long-lived branch is another rebase, another conflict set, and a merge order to reason about.
+Reintroduce one only if a domain must ship or be extracted on its own schedule.
+
+### Extracting a domain
+
+One trunk stays honest only while any single domain can leave it.
+Someone may want project windows without the rest, or a domain may need to ship on its own schedule.
+
+```bash
+git switch -c extract/project-windows upstream/main
+git cherry-pick $(vp run fork:delta --domain project-windows --shas)
+```
+
+The SHAs come out in stack order, so the cherry-pick replays the domain exactly as it landed.
+A conflict during that replay means the domain shares code with another one; resolve it in the extract and record the seam in the domain's rebase scan.
+
+Three rules keep the replay clean:
+
+- One domain per commit; a commit that serves two domains is two lanes.
+- New domain code lives in its own files, and every shared upstream file it edits appears in its rebase scan.
+- Each domain's commits stay contiguous after every upstream rebase, so the replay never interleaves with another domain.
+
+### Stack order
+
+Keep the stack sorted from most likely to be superseded upstream to most fork-specific:
+
+1. `upstream-fixes` bugfixes tagged `Fork-Upstreamable: yes`, because upstream may make them removable.
+2. `fork-meta` documentation and tooling.
+3. Product domains, with each domain's commits kept contiguous.
+
+A generic fix that belongs to no product domain is an `upstream-fixes` commit; a product domain's own bugfix stays in that domain.
+
+New commits land at the top of the stack and move down during the next upstream rebase.
+Reorder with an interactive rebase only when the stack is otherwise clean, and publish the result with a lease.
+
+### Lanes
+
+Short-lived branches isolate one concern at a time.
+Create fork work from `hyprws`.
+Use `upstream/main` only for a fix that must carry no fork dependency, so a later rebase can drop it whole.
+That base keeps the commit independently removable; it is not a route to contributing the commit upstream.
+
+```bash
+# Fork-specific work
+wt switch --create <branch> --base hyprws
+
+# A fix with no fork dependencies, so a later rebase can drop it alone
+wt switch --create <branch> --base upstream/main
+```
+
+Starting from `upstream/main` does not authorize any write against `pingdotgg/t3code`.
+
+### Landing
+
+Land a lane onto `hyprws` by squash, never by merge commit.
+A merge commit breaks the linear stack, and the repository only offers squash merging for that reason.
+Upstream squashes every pull request the same way.
+
+A lane is one concern, so it squashes to one commit, and that commit must carry the trailers.
+`ghb pr merge` writes the pull-request title as the subject and the pull-request body as the squash body.
+Title the pull request as a conventional commit and end its body with the trailer block, after any mention.
+The landing tool appends `Co-authored-by` to that block, so `vp run fork:delta --check` still reads every trailer.
+
+Use a GitHub pull request when one is open or expected.
+Use verified `wt merge hyprws` only for an explicit local or solo landing route.
+A `fork-meta` chore that needs no review may commit directly to `hyprws`.
+
+`.github/workflows/hyprws-ci.yml` is the fork's required check.
+Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync](../operations/fork-sync.md).
+`ghb pr merge` refuses a stale merge ref, so rebase onto `hyprws` after a sibling lands before merging.
+
+Do not use raw `git merge` to integrate a feature branch.
+It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
+
+While a fork-sync report holds a walk lease, `hyprws` takes no landing at all; see the
+[walk freeze](../operations/fork-sync.md#walk-freeze).
+
+## Upstream citations
+
+GitHub turns a live cross-repo reference into an event on the item it names.
+Writing `pingdotgg/t3code#4379` in a fork issue, comment, or pull-request body posts "mentioned this" on that upstream thread, from the fork's bot account.
+The fork does not file upstream, so the backlink is noise on somebody else's issue.
+
+Neutralise the reference and leave the prose alone.
+
+- Inline, a code span: `` `pingdotgg/t3code#4379` ``, or the item URL in backticks.
+- A pasted upstream survey: one fenced block around the whole list.
+- A fork item: write it in full as `RSI-Software/t3code-hyprws#108`. GitHub renders that as `#108` and links inside this fork.
+  A bare `#108` does not clear the guard. GitHub resolves a bare number the fork has never issued against `pingdotgg/t3code`, so `#5779` in a fork body links upstream and posts the backlink.
+  The guard has no network and cannot tell offline which numbers the fork holds, so it reports every bare number, including one this fork issued.
+
+`vp run fork:upstream-refs <file>` scans a body from a file or stdin, ignores fenced blocks, code spans, and HTML comments, and exits 1 on anything left live.
+Run it before publishing an issue, a comment, or a pull-request body.
+`.github/workflows/hyprws-ci.yml` runs it on every pull-request body, so a live reference fails the required check instead of landing.
+
+## Commit discipline
+
+Treat every fork commit as a patch that may need to survive hundreds of upstream commits.
+Small, coherent commits are easier to rebase, review, reorder, and drop.
+
+Apply that granularity where it preserves rebase intent. A commit that edits an upstream file — and
+therefore touches a seam — carries one intent and stays small, because that intent is what re-derives
+a conflict resolution on rebase. Inside fork-only paths, granularity is economically irrelevant and
+needs no curation. Once commits land, never squash the stack. See
+[Fork strategy principle 4](./fork-strategy.md#principles) for the reasoning behind this asymmetry.
+
+- Keep one concern per commit and use the repository's conventional commit style.
+- Separate mechanical refactors from behavior changes.
+- Avoid drive-by formatting, renames, dependency bumps, and generated-file churn.
+- Prefer narrow additions and upstream-native extension points over broad edits to central modules.
+- Reuse upstream terminology and abstractions unless the fork needs a genuinely new concept.
+- Add focused tests beside each behavior change so conflict resolutions remain checkable.
+- Install in a fork worktree with `vp i --frozen-lockfile`, so a routine install cannot drift the
+  lockfile into an unrelated commit. A real dependency change is its own commit, in the domain
+  that needs the dependency.
+- Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
+
+### Ledger guards run in the scan
+
+An action the churn ledger records ships its guard in the same change, and the sub-issue carrying
+that action names the guard it adds. A rule only prose states is a rule the next walk pays for
+again.
+
+`vp run fork:scan` collects them over the fork stack:
+
+- `hot-seam`: the commit edits a retained ledger hot seam or a path repeated across distinct census observations. Read the
+  scan's current lesson inventory and preferred boundary before adding to it. The inventory keeps
+  every original [Fork churn](./fork-churn.md) path, including unmapped and unresolved lessons;
+  a missing path in a later snapshot or a named guard does not prove a historical repair.
+- `upstream-test`: the commit adds a test block to an upstream-owned test file rather than the
+  `*.fork.test.ts` sibling below.
+- `footprint`: one commit edits more than six upstream files, which is more seam than a single
+  rebase intent should carry.
+- `replaced-export`: the commit deletes an upstream-owned export and re-declares the same name,
+  which is the shape below.
+- `lockfile`: the commit changes a lockfile. No domain owns dependency bumps, so every lockfile
+  change warns until one does.
+
+General warnings are advisory; `--strict` makes them fatal. `--since <ref>` restricts warnings to
+commits after that ref and makes adopted authoring guards blocking, as in the CI authoring step.
+`--replay-of <ref>` returns them to advisory on a rebase rehearsal, which replays every fork commit
+onto a newer upstream release and so is newly authored under any `--since` ref, but only after the
+scan proves the head omits that trunk and sits on a tagged upstream commit the trunk has not
+reached. Retained historical hot-seam warnings remain advisory without `--strict`.
+
+`AUTHORING_GUARD_TARGETS` in `scripts/fork-scan-guards.ts` supplies the exact paths used by
+each adopted seam matcher. Its invariant requires scoped lesson guidance for every target,
+including retired paths. Upstream test ownership keeps its generic policy and the two exact
+file-local harness deferrals instead of inheriting a basename-based boundary recommendation.
+
+### Workflow copies require an explicit review
+
+`workflow-drift` is a blocking `fork:scan` check, including in `fork:sync unblock-check`.
+It compares upstream `ci.yml` and `release.yml` at the selected target with the reviews in
+`.github/fork-workflow-reviews.json` at the selected fork head. Each review binds the upstream
+commit and workflow blob, the fork counterpart blob, and an `adapted` or `no-change` rationale.
+Checking the reviewed blobs also catches drift after replay, when the merge base is already
+the target and an ordinary overlap scan has no upstream delta left to see.
+
+Keep prerequisites at the corresponding fork workflow job boundary. Inspect changes to both
+upstream workflows before refreshing reviews; shared install text alone cannot find a new
+upstream-only step. Adapt every applicable job before tests or builds run. Preserve deliberate
+fork choices such as GitHub-hosted runners and Linux-only release channels with a specific reason.
+Record adaptations through the existing `--silent-seam` flow as well as the review manifest.
+
+Read source fingerprints with `git rev-parse <target>:<upstream-path>` and pin its full commit
+with `git rev-parse <target>^{commit}`. Read a committed fork blob with
+`git rev-parse HEAD:<fork-path>`, or a pending edit with `git hash-object <fork-path>`.
+Commit the reviewed workflow and manifest together, then rerun `fork:scan --target <target>`.
+An intentional fork-only workflow edit requires a new fork blob and rationale, but no new
+upstream tag. Never refresh fingerprints without reviewing the diff. Missing, malformed or stale
+review evidence fails the gate; historical advisory ledger warnings retain their existing behavior.
+
+### Fork tests live in fork-owned files
+
+Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` or
+`<name>.fork.test.tsx`, rather than appending them to the upstream-owned file. The replayed fork
+series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
+Changes to an existing upstream expectation stay in the upstream test file.
+
+Test ownership follows the selected upstream target tree, including files independently added
+at the same path by both sides. The guard recognizes `it`, `test`, `describe` and the repository's
+`effectIt` alias, including Effect variants such as `effectIt.effect`. New fork test blocks in a
+`fork:scan --since` authoring range fail without `--strict`; historical inventory remains advisory.
+
+Two exact file-local integration harnesses are deferred from this convention:
+
+- `apps/desktop/src/window/DesktopWindow.test.ts`
+- `apps/server/src/server.test.ts`
+
+Both suites construct the harness in the test module itself. A sibling that imports an exported
+helper also registers every upstream test: the focused rehearsal collected 35 tests instead of 9
+for `DesktopWindow.fork.test.ts`, and 152 instead of 4 for `server.fork.test.ts`. The server fork
+cases also require file-local `exchangeAccessToken` and `getWsServerUrl` helpers, while the desktop
+cases share the module's hoisted Electron mock. Extracting that complete setup would create a larger,
+duplicated harness seam than the test appends it removes. `fork:scan` reads only these two paths from
+`UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS`; add no wildcard or domain-wide exemption.
+
+### Extend an upstream export, do not replace it
+
+An upstream-exported schema, list, enum, or switch the fork needs more of stays where upstream
+declares it. Deleting that declaration and re-declaring the fork's version — in place, or by moving
+it into a new fork-owned file — reads as a clean rewrite and silently drops every later upstream
+edit to it. The rebase replays the fork's copy and never surfaces what upstream added.
+
+Extend it from a fork-owned sibling instead: import the upstream declaration, compose the fork's
+additions beside it, and export the result under a fork-owned name, leaving the upstream declaration
+in place for the next rebase to carry.
+
+The best fork code looks unsurprising inside upstream T3 Code.
+Fork branding and local workstation preferences belong in documentation or the desktop boundary, not shared internals.
+
+## Syncing upstream
+
+### Bot-first sync
+
+`hyprws` remains one linear fork stack, but the normal upstream sync is automated. The
+`hyprws upstream sync` workflow caps the feasibility scan at the newest upstream stable or nightly
+tag on the first-parent lane, selects the newest clean tag within that horizon, replays the whole
+stack, verifies its commit messages and fork trailers, and publishes according to
+`HYPRWS_AUTO_REBASE`. A conflict is a block only when it makes that newest tagged horizon
+unreachable; conflicts in untagged commits beyond the horizon are ignored.
+
+The bot owns four supporting ref families:
+
+- `hyprws-previous`, the trunk head before an automatic rewrite;
+- `hyprws-next`, the verified stack produced in candidate mode;
+- `release/vX.Y.Z-hyprws`, a create-only snapshot when the stack crosses stable upstream `vX.Y.Z`;
+  and
+- `archive/hyprws-pre-rewrite-<expected-old>`, the create-only old trunk retained before a reviewed
+  same-base historical rewrite.
+
+No person or feature lane moves those refs. The repository starts in candidate mode, so the bot
+publishes `hyprws-next` without rewriting trunk. In on mode it saves `hyprws-previous` and updates
+`hyprws` with an explicit expected-old lease. Off mode reports without publishing a candidate.
+Historical rewrite apply creates and verifies its uniquely named archive before the leased trunk
+push. A rejected trunk lease retains that archive as failed-attempt evidence; it never moves
+`hyprws-previous`.
+[Fork sync](../operations/fork-sync.md) is the runbook for modes, setup, run interpretation, stable
+cuts, and feature-lane recovery.
+
+The bot never merges `upstream/main` into `hyprws`, targets an untagged commit, or interprets a clean
+textual rebase as permission to retire a fork patch. Stable and nightly tags are both upstream states
+chosen for release; stable fork tags require separate human sign-off on a bot-owned release snapshot
+before the agent publishes them.
+
+### Unblock review
+
+When the newest upstream tag is unreachable, the bot creates or updates the fork's
+`rebase-blocked` issue. Resolve it through the repo-local
+[`fork-sync`](../../.agents/skills/fork-sync/SKILL.md) skill's **unblock**
+entry point. Its gates orient on the newest selected upstream tag beyond the block, rehearse on
+`rehearse/<tag>`, scan every active domain, and take the CI verdict on the pushed lane head.
+
+For an objective nightly walk, the walking host proposes the generated decisions and another
+session records the review verdict. The durable record binds both sides' provider,
+model, and session to the target, blocking marker, every non-mechanical verdict, rehearsal evidence,
+exact pushed-lane CI head, silent seams, and live `expected_old`. The reviewer is not recorded as
+human and is not collapsed into the walking agent. Apply's **nightly review gate**
+refuses a missing, stale, same-session, or withheld review.
+
+Undefined fork intent, a non-equivalent retire, user-visible behaviour change, a fork domain or tier
+topology change, any bypass, or evidence that cannot be verified remains a pause for human
+direction. Stable release UAT and release approval remain human-owned.
+
+A walk targets the newest offered tag by default, so `unblock-list` prints that tag alone and needs
+`--all` to print the older ones. Every rehearsal rebase is run with `diff.algorithm=histogram`
+alongside `core.commentChar=auto` so adjacent additions that share boilerplate do not collapse
+into a single false-conflict hunk. An intermediate slice issue is opened only when a walk stops at a
+judgement and the operator chooses to bisect; a slice is never the default unit of work.
+
+Every decision cell names its decider. `unblock-check` carries the cells already filled through the
+regeneration it performs, and refuses when a filled cell disagrees with the decision the report
+carries. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
+the agent nor the human, and apply refuses it. The churn ledger stores nightly proposal and review
+provenance separately; agent review never increments the human decision count.
+
+A walk that lands on a later tag also passes the stable tags between the two bases. A stable upstream
+tag is snapshotted and announced by whichever lane moves the fork base past it, so the apply
+publishes those snapshots itself rather than leaving them to a bot that can no longer see them. Both
+lanes read one definition of a crossed tag, in `scripts/fork-stable-crossing.ts`.
+
+Before resolving anything, walk the rebase scan in [Fork delta](./fork-delta.md) for every active
+domain. It names upstream paths that can silently invalidate or retire a domain. Read upstream intent
+first, then reapply the smallest fork behaviour at the new seam. Rerere output is a candidate, not
+proof; every reused resolution needs review and verification.
+
+No fork commit is skipped, squashed, reordered, or reworded during an unblock, except for a recorded
+human `retire` verdict, which authorises dropping exactly the subject it names. When upstream may
+have made one obsolete, preserve a buildable result for rehearsal and key the human's keep, retire,
+or partial decision by exact subject in [Fork delta](./fork-delta.md). A clean automerge still needs
+semantic review; on the objective nightly lane that review is the recorded verdict.
+
+After sign-off and a passing gate, the agent's final push uses the full `expected_old` read exactly
+once at rehearsal start. Gate refusals are never bypassed. A rejected lease means the published
+branch moved: fetch and inspect the drift, start a new rehearsal, and repeat the checks and the
+required review or human decision gate. Never replace the lease with an unguarded force push or
+silently refresh it.
+
+Rehearsal records are posted as comments on their `rebase-blocked` issues, and automatic
+rewrites are recorded in immutable workflow run summaries. Neither flow adds operational record
+commits to the replayed stack. Existing files under
+[`docs/operations/fork-sync-records/`](../operations/fork-sync-records/) are retained as historical
+evidence only.
+
+### Upstream watch
+
+A fork bug that upstream already tracks is not fixed twice. It gets a fork issue labelled
+`upstream-watch` whose body cites the upstream item in a code span. `vp run fork:upstream-watch`
+resolves each citation against the selected rebase tag during a human unblock.
+
+The issue closes only after a fork release contains the upstream merge and the behaviour has been
+verified in that build. The closing comment names the upstream merge commit and fork release. A watch
+label without a citation is not a watch; it is a forgotten issue.
+
+## Releases
+
+The fork ships its own Linux desktop build, because an upstream release carries upstream code.
+Stable and nightly builds are separate release and desktop-update channels.
+
+Stable tags keep the existing `v<upstream version>-hyprws.<n>` shape, for example
+`v0.0.34-hyprws.1`.
+`<upstream version>` is the `X.Y.Z` of the upstream tag the stack is rebased onto, and `<n>`
+counts up within one upstream version before restarting at 1 when that version changes.
+A maintainer cuts a stable by pushing that tag; a manual stable dispatch must also run from such a
+tag ref. The cut starts from the candidate notification for that snapshot, and one candidate is open
+at a time: the reconcile closes a candidate once its release tag exists or a newer candidate
+overtakes it.
+Stable releases are normal GitHub releases on the `latest` desktop-update channel.
+
+Nightly tags are `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>`, where `X.Y.Z` is the next stable patch
+resolved from the desktop package metadata.
+`.github/workflows/hyprws-release.yml` publishes a nightly on every landing on `hyprws`; its
+six-hour schedule is a fallback that publishes only when the head differs from the newest nightly tag.
+A manual dispatch with `channel=nightly` always attempts a build, even when that commit already has a
+nightly.
+Nightlies are prereleases, never become GitHub's latest release, and use the `nightly` desktop-update
+channel.
+When a trunk rewrite leaves the previous channel tag on divergent history, the workflow omits that
+tag from release-note comparison.
+
+Every release body names its channel and the exact upstream base tag, so neither fact is ambiguous.
+The workflow builds one Linux x64 AppImage at the selected commit.
+The desktop updater reads its feed from the building repository, so a fork build updates only from
+fork releases on its selected channel.
+
+[Fork sync](../operations/fork-sync.md) owns the stable release invariants and runner setup.
+
+## Implementation order
+
+Build phases that remain useful and reviewable on their own.
+
+1. **Upstream-safe preparation.**
+   - Derive environment from `threadRef` in `ChatMarkdown.tsx` instead of the active-environment atom.
+   - Extract route-family-aware thread and draft navigation helpers.
+   - Convert the mutable project filter in both supported sidebars into a physical `ScopedProjectRef` scope.
+2. **Additive web scope.**
+   - Add the project route subtree with scope preservation and mismatch rejection.
+   - Decide hub-versus-scoped behavior for settings and pull requests.
+   - This phase is immediately usable as a browser app window through portless.
+3. **Desktop MVP without previews.**
+   - Add the desktop-boundary `WindowIdentity` registry with create, reveal, close, and destroyed-window cleanup.
+   - Route first-launch and second-instance intent; define restoration policy; set per-project titles.
+   - Persist bounds per identity or hub-only.
+   - Explicitly disable preview capability in project windows.
+     Resolve composer-draft `localStorage` clobbering before allowing concurrent windows.
+4. **Optional previews.**
+   Namespace preview ownership and tab ids, authorize IPC by sender, and direct events to the owning window.
+
+No phase here is upstream work, because the fork contributes nothing to `pingdotgg/t3code`.
+Phase 1 items and possibly the project route are the ones upstream could supersede on its own; the window machinery is fork-only.
+
+Do not optimize server subscriptions before project-scoped windows are correct.
+Measure WebSocket traffic and renderer work before moving filtering across the RPC boundary.
+
+### Residual risks
+
+- `Sidebar.tsx` remains a large upstream-conflict surface even with additive routes.
+- Restoring or launching a remote project must tolerate an unavailable environment.
+  It must not create duplicate or unscoped windows.
+- Other persisted Zustand stores may also be last-writer-wins; composer drafts are the known content-loss risk.
+
+## Verification standard
+
+Use the smallest proof that covers the changed boundary.
+Backend behavior changes require focused tests for that behavior.
+
+Window lifecycle work should cover creation, duplicate-open focus, closure, restoration, and destroyed-window cleanup.
+Route work should cover direct entry, reload recovery, invalid identities, and navigation between hub and project scope.
+
+Run targeted tests, lint, and typechecking for the touched packages.
+Run the relevant production build after material desktop or web changes.
+A delegated worker runs `vp i` in its own worktree first.
+Every check it reports ran in that worktree.
+
+Before declaring visible or stateful behavior complete, perform one integrated pass in the real client with permission.
+Check web and mobile when shared state or navigation changes apply to those surfaces.
+
+## Decision filter
+
+Prefer the option that makes a project window feel obvious while adding the least permanent machinery.
+Reject a shortcut if it makes upstream rebases harder, duplicates shared state, or silently breaks another surface.
+
+The fork is healthy when its behavior is distinctive and its diff is boring.
