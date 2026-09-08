@@ -55,24 +55,9 @@ export const ExecutionEnvironmentPlatform = Schema.Struct({
  * Where a new thread runs: the project's current checkout ("local") or a
  * fresh git worktree ("worktree"). Lives here (not settings.ts) so
  * orchestration contracts can reference it without an import cycle.
- *
- * Fork: "worktrunk" is a "worktree" that also runs the repository's Worktrunk
- * hooks. It is the stored and server-internal form only. Nothing that crosses
- * the wire may carry it, because a released client validates the field against
- * `WireThreadEnvMode` and drops the whole payload on an unknown value. Wire
- * schemas pair `WireThreadEnvMode` with a `...Fork` sibling instead; the
- * helpers in `@t3tools/shared/threadEnvMode` own both directions.
  */
-export const ThreadEnvMode = Schema.Literals(["local", "worktree", "worktrunk"]);
+export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
-
-/**
- * The thread modes every released T3 Code client can decode. Every wire field
- * uses this, so an old client keeps rendering projects and threads that a fork
- * server describes with a mode it has never heard of.
- */
-export const WireThreadEnvMode = Schema.Literals(["local", "worktree"]);
-export type WireThreadEnvMode = typeof WireThreadEnvMode.Type;
 export type ExecutionEnvironmentPlatform = typeof ExecutionEnvironmentPlatform.Type;
 
 /** How a server can replace itself with another version when asked over RPC.
@@ -110,8 +95,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server exposes the pull-request list, detail, activity, diff, and mutation APIs. Absent on
       servers from before the pull-request workspace shipped, so clients must not probe them. */
   pullRequests: Schema.optionalKey(Schema.Boolean),
-  /** Server exposes read-only GitHub issue list and detail APIs. */
-  githubIssues: Schema.optionalKey(Schema.Boolean),
   /** Server understands canonical inline context links plus their message context records.
       Absent on servers from before inline context shipped, which drop the records and forward
       the links as literal text -- so a client must serialize context the legacy way for them. */
@@ -188,6 +171,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       desktop servers whose app predates the remote trigger, where clients
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
+  githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

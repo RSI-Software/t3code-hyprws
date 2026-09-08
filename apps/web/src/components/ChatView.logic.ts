@@ -48,7 +48,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 import { stripInlineContextReferences } from "~/lib/composerContextReferences";
 import { filterTerminalContextsWithText, type TerminalContextDraft } from "../lib/terminalContext";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import { collapseExpandedComposerCursor, type ComposerSubmissionIntent } from "../composer-logic";
 import type { ReviewCommentContext } from "../reviewCommentContext";
