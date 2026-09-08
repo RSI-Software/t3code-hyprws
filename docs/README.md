@@ -35,6 +35,9 @@ source alone does not explain. Most code changes do not need an internal documen
 [documentation rules](../AGENTS.md#documentation) before adding one.
 
 - [Architecture overview](./internals/overview.md)
+- [Fork development](./internals/fork-development.md)
+- [Fork delta](./internals/fork-delta.md)
+- [Fork strategy](./internals/fork-strategy.md) and its [scorecard](./internals/fork-strategy-scorecard.md)
 - [Glossary](./internals/glossary.md)
 - [Connection runtime](./internals/connection-runtime.md)
 - [Providers](./internals/providers.md)
@@ -56,6 +59,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Development and local builds](./operations/development.md)
 - [T3 Connect setup](./operations/connect-setup.md)
 - [Release](./operations/release.md)
+- [Fork sync](./operations/fork-sync.md)
 - [Observability](./operations/observability.md)
 - [Relay observability](./operations/relay-observability.md)
 - [Mobile app store screenshots](./operations/mobile-app-store-screenshots.md)
