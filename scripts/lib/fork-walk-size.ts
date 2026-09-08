@@ -26,7 +26,11 @@ export interface WalkSize {
 }
 
 export const buildWalkSize = (input: {
-  readonly commits: ReadonlyArray<{ readonly sha: string; readonly domain?: string }>;
+  readonly commits: ReadonlyArray<{
+    readonly sha: string;
+    readonly domain?: string;
+    readonly repair?: string;
+  }>;
   readonly statsBySha: ReadonlyMap<string, CommitNumstat>;
   readonly forkChanged: ReadonlySet<string>;
   readonly upstreamChanged: ReadonlySet<string>;
@@ -38,6 +42,9 @@ export const buildWalkSize = (input: {
   >();
   let total = 0;
   for (const commit of input.commits) {
+    // A walk repair commit is the walk's own bookkeeping, not the replayed
+    // stack: repairs never count toward the size the walk records.
+    if (commit.repair !== undefined) continue;
     total += 1;
     if (commit.domain === undefined) continue;
     const stats = input.statsBySha.get(commit.sha) ?? EMPTY;
