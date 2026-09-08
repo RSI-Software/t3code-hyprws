@@ -17,6 +17,20 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Activity       | A non-message timeline item, such as a tool action, approval, or failure.                         |
 | T3 home        | The base data directory. Runtime state normally lives under its `userdata` directory.             |
 
+## Fork synchronization
+
+Fork-only terms. The [fork sync runbook](../operations/fork-sync.md) owns the procedure behind them.
+
+| Term                    | Meaning                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hyprws-previous`       | The bot-owned branch recording the published `hyprws` head from immediately before an automatic trunk rewrite. A lane based on the old trunk uses it as the old boundary for `git rebase --onto`.                                                                  |
+| `hyprws-next`           | The bot-owned branch carrying the newest verified rebase candidate while auto-rebase is in candidate mode. It exists to be inspected, not to be branched from.                                                                                                     |
+| `release/vX.Y.Z-hyprws` | A create-only branch snapshotting the fork stack rebased onto stable upstream `vX.Y.Z`. Stable `vX.Y.Z-hyprws.<n>` tags are cut from it, and later trunk work never moves it.                                                                                      |
+| `rebase-blocked`        | The fork issue label for the first upstream commit beyond the bot's conflict-free boundary. A maintainer resolves it through the `fork-sync` skill's unblock entry point.                                                                                          |
+| `fork-churn`            | The ledger of conflict churn across landed unblock walks, kept as `fork-churn.json` on the bot-owned `refs/fork/churn` so no fork commit carries it. Each apply appends a row and the sync report renders its `## Churn` section on the walk's notification issue. |
+| `unblock-auto`          | The unattended `fork-sync` verb that carries `hyprws` to the next release tag through mechanical rebase work and stops only when an agent or human must judge behaviour.                                                                                           |
+| Nightly channel         | The prerelease update channel for `vX.Y.Z-hyprws-nightly.YYYYMMDD.<run>` tags, kept separate from stable fork releases in the desktop updater.                                                                                                                     |
+
 ## Orchestration
 
 | Term                    | Meaning                                                                                      |
