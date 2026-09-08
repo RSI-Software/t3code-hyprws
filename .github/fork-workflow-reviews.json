@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "reviews": [
+    {
+      "upstream": ".github/workflows/ci.yml",
+      "fork": ".github/workflows/hyprws-ci.yml",
+      "upstreamCommit": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "upstreamBlob": "e23dbd60d961979484e45d8393c6e42b2baaa7a3",
+      "forkBlob": "d23d8b2f490c6c45b9685acf0ad3aae6ef8d7cd4",
+      "disposition": "adapted",
+      "reason": "Libsecret and pkg-config installation is present before desktop build and non-server tests. Keep GitHub-hosted runners, fork ledger checks and fork branch triggers instead of upstream Blacksmith infrastructure. Server test shards remain separate. Fork-only authoring guards block against the selected head's upstream base; a pushed historical rewrite can suppress replayed authoring warnings only after proving its full tree equals the live fork source. Every other branch is offered the rebase-rehearsal scope, which suppresses them only after the scan proves the head omits the trunk and sits on a tagged upstream commit the trunk has not reached. The separately named live-upstream scan stays advisory so unrelated upstream drift does not fail a PR. Reviewed again at v0.0.39-nightly.20260905.1290: the fork adopts upstream's repo-wide knip:check step, and declines the setup-apt-mirrors action and the Blacksmith mirror rewrite because every fork job runs on GitHub-hosted ubuntu-latest runners where those mirror files do not exist. Reviewed again at v0.0.39-nightly.20260906.1303 with no fork change: relative to that review upstream only adds the `Test nightly release checks` step running `node --test .github/scripts/check-nightly-release.test.cjs`, an upstream-only self-test for release scripts the fork never ships; the fork keeps no equivalent step because its nightly/release flow lives in `hyprws-release.yml`."
+    },
+    {
+      "upstream": ".github/workflows/release.yml",
+      "fork": ".github/workflows/hyprws-release.yml",
+      "upstreamCommit": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "upstreamBlob": "48cd451e3feacad2ce6fc7728296ebf3587f3ec5",
+      "forkBlob": "c3e5852f09de60c344642a242e1f66b24b755fad",
+      "disposition": "adapted",
+      "guards": ["release-outcome-evidence-v1"],
+      "reason": "Libsecret and pkg-config are installed before preflight tests and Linux artifact build; ImageMagick remains installed in the build job. Keep Linux x64 AppImage-only fork releases, fork stable/nightly versioning and pruning; upstream multi-platform signing and publication do not apply. The release checkout is now recorded before dependency setup, expected assets come from the actual build, and an always-run fork outcome job verifies tag/asset publication and retains failures for release-only retry. Runner-temporary export paths stay in step scope where the runner context is valid, with one shared filename for retention and upload; the required semantic guard keeps an unconditional nonempty receipt check between collection and upload, while missing upload inputs remain a hard error. Reviewed again at v0.0.39-nightly.20260905.1290 with no fork change: the setup-apt-mirrors steps target Blacksmith runners the fork does not use, and the Visual Studio Spectre component rename only affects the Windows build the Linux-only fork release never runs. Reviewed again at v0.0.39-nightly.20260906.1303 with no fork change: relative to that review upstream reverts `check_changes` to the `actions/github-script` release-gap check with the `8,38 * * * *` schedule, while the fork keeps its newer tag-compare shape (`Compare hyprws to last nightly tag`, `needs: preflight`) which already supersedes both upstream variants; the comment-only `check_changes` skip note does not apply to the fork job graph."
+    }
+  ]
+}
