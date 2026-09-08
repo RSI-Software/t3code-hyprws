@@ -10563,6 +10563,248 @@
         "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/pull/639"
       },
       "id": "3c4463540051b3de1e3e9e0431d3c77e567607a74d3073d2556691ee1f8c5ad6"
+    },
+    {
+      "kind": "observation",
+      "method": "legacy-pairwise-feasibility",
+      "tag": "v0.0.39-nightly.20260906.1303",
+      "files": [
+        {
+          "path": "package.json",
+          "hunks": null,
+          "commit": "5bbeea520a49fd9bbf577e7c4f64f5e4b8656cdb",
+          "domain": "fork-meta",
+          "subject": "chore(scripts): add the fork:delta ledger"
+        },
+        {
+          "path": "docs/internals/scripts.md",
+          "hunks": null,
+          "commit": "5bbeea520a49fd9bbf577e7c4f64f5e4b8656cdb",
+          "domain": "fork-meta",
+          "subject": "chore(scripts): add the fork:delta ledger"
+        },
+        {
+          "path": "docs/README.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(readme): hyprws"
+        },
+        {
+          "path": "docs/internals/ci.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(internals): move the fork to one hyprws trunk"
+        },
+        {
+          "path": "docs/internals/glossary.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(fork): fork sync runbook for the auto-rebase model"
+        },
+        {
+          "path": "apps/mobile/src/features/terminal/terminalMenu.test.ts",
+          "hunks": null,
+          "commit": "e2f5145928b5878004ddb4018d7be1fbe9be17c8",
+          "domain": "fork-meta",
+          "subject": "test(fork): complete fork-owned test sibling migration"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "0d7765517845b86d967bde4f6516f680c7293331",
+          "domain": "fork-meta",
+          "subject": "fix(fork): refresh persisted worktree setup scripts"
+        }
+      ],
+      "evidence": null,
+      "id": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272"
+    },
+    {
+      "kind": "observation",
+      "method": "legacy-pairwise-feasibility",
+      "tag": "v0.0.39-nightly.20260906.1303",
+      "files": [
+        {
+          "path": "package.json",
+          "hunks": null,
+          "commit": "5bbeea520a49fd9bbf577e7c4f64f5e4b8656cdb",
+          "domain": "fork-meta",
+          "subject": "chore(fork): consolidate fork tooling for the domain flatten (#671)"
+        },
+        {
+          "path": "docs/internals/scripts.md",
+          "hunks": null,
+          "commit": "5bbeea520a49fd9bbf577e7c4f64f5e4b8656cdb",
+          "domain": "fork-meta",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)"
+        },
+        {
+          "path": "docs/README.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)"
+        },
+        {
+          "path": "docs/internals/ci.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)"
+        },
+        {
+          "path": "docs/internals/glossary.md",
+          "hunks": null,
+          "commit": "28cac54ff8d5a22608ce8a6aace39c4415841a6d",
+          "domain": "fork-meta",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)"
+        },
+        {
+          "path": "apps/mobile/src/features/terminal/terminalMenu.test.ts",
+          "hunks": null,
+          "commit": "e2f5145928b5878004ddb4018d7be1fbe9be17c8",
+          "domain": "zmux-estate",
+          "subject": "test(fork): complete fork-owned test sibling migration"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "0d7765517845b86d967bde4f6516f680c7293331",
+          "domain": "upstream-fixes",
+          "subject": "fix(fork): refresh persisted worktree setup scripts"
+        }
+      ],
+      "evidence": null,
+      "id": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 0
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 0
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "83965340ff5b1c9dc4b7c82fa3f2add068c7758e68c33bef173e147883d2ec17"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 1
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 1
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "6f1f47c6cc9f3e01b062883485e92fa9007f428e267e6c215ce26ee9497242ec"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 2
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 2
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "0d8d7799ce0c7a72cbd59f727d6a91f6ae3fd232e8376f7dee8ad56ca220790d"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 3
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 3
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "4d39326d4247033c69afaf0c0c2545d7e2684cb4f2047f121c2105fbcef780ad"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 4
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 4
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "eae497c85cd5d3e77d67a5e48180709bde04b23fa4ac34b289808dbe811923cc"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 5
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 5
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "7046029abe8c14c7b2941c95c6c73a1d2d44843ab03c7c5e6ffed650ee78271e"
+    },
+    {
+      "kind": "mapping",
+      "from": {
+        "observation": "cdff3412189bc2441ae01c40c03385b3131652626e5fb051028616696a9e5272",
+        "row": 6
+      },
+      "to": [
+        {
+          "observation": "a80f659da322608318e90c3488d8be002fefbcb204aa32a68e68d0aa7440934e",
+          "row": 6
+        }
+      ],
+      "attestation": {
+        "actor": "peer-worker-671",
+        "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/671"
+      },
+      "id": "8ddbb8b70142b3262592b3f8607688ee9d2584481eaecb99248afb2313292b62"
     }
   ],
   "outcomes": [
