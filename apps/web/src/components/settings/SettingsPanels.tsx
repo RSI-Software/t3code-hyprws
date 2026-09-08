@@ -46,7 +46,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import {
   fromWireThreadEnvModeFields,
   toWireThreadEnvModeFields,
-} from "@t3tools/shared/threadEnvMode";
+} from "@t3tools/shared/threadEnvMode.fork";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -1706,8 +1706,8 @@ function TypographySection() {
 }
 
 function TerminalSessionSection() {
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
 
   return (
     <SettingsSection title="Terminal">

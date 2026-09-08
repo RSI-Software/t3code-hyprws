@@ -54,7 +54,7 @@ import {
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
-import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode";
+import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode.fork";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
