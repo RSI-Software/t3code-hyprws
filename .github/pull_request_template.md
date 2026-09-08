@@ -31,3 +31,31 @@ we may close it without merging it, or never review it.
 - [ ] I explained what changed and why
 - [ ] I included before/after screenshots for any UI changes
 - [ ] I included a video for animation/interaction changes
+
+## Fork trailers
+
+<!-- RSI-Software/t3code-hyprws only. Delete this section on an upstream PR.
+
+     This body becomes the squash commit's message, so hyprws CI fails a pull
+     request whose body does not END with the trailer block. Keep it last:
+     git only reads trailers from the final paragraph.
+
+     Valid Fork-Domain values (copy one exactly; never invent a value):
+       project-windows
+       custom-agents
+       markdown-editing
+       fork-meta
+       distribution
+       upstream-fixes
+       zmux-estate
+
+     Valid Fork-Tier values: core, qol, bugfix.
+     Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
+
+     Do not copy Base branch or Head branch prompt context into the PR body.
+     Do not add prose, metadata, mentions, or headings after the trailers.
+
+     Replace the placeholders below. CI rejects them unedited. -->
+
+Fork-Domain: DOMAIN
+Fork-Tier: TIER

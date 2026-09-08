@@ -7,18 +7,28 @@ name: hyprws CI
 # every rebase (docs/internals/fork-delta.md, distribution).
 
 on:
+  # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
+  # matrix has normally passed on this exact head before the draft is marked
+  # ready, and listing the event only discards those results and reruns them.
   pull_request:
+    types: [opened, synchronize, reopened]
     branches:
       - hyprws
       - "release/**"
+  # A merge queue builds `gh-readonly-queue/<base>/**` and waits for the
+  # contexts the branch ruleset requires. Every one of them comes from this
+  # workflow, so without this trigger a queued entry reports nothing and sits
+  # until it times out.
+  merge_group:
   push:
     branches:
       - hyprws
       - hyprws-next
+      - "rehearse/**"
       - "release/**"
 
 concurrency:
-  group: hyprws-ci-${{ github.event.pull_request.number || github.sha }}
+  group: hyprws-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -50,21 +60,79 @@ jobs:
       # carry. On a pull request, inspect the branch head rather than the
       # synthetic merge commit, which has no trailers.
       - name: Fork ledger
+        id: fork_ledger
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
+          BASE=$(git merge-base upstream/main "$HEAD_SHA")
+          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
+          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
+            SINCE="$HEAD_SHA^"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+
+      # Pin to the fork's own base: enforce adopted authoring boundaries without
+      # blaming this head for unrelated changes landing on live upstream/main.
+      - name: Fork authoring guards
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ steps.fork_ledger.outputs.base }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
+        run: |
+          args=(--head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck)
+          if [[ "$GITHUB_REF" == refs/heads/rehearse/rewrite-* ]]; then
+            # A history-only rewrite has no newly authored content. The scan
+            # itself refuses this scope unless every tree entry still matches
+            # the live fork source exactly.
+            args+=(--same-tree-rewrite-of origin/hyprws)
+          elif git rev-parse --verify --quiet origin/hyprws >/dev/null; then
+            # A rebase rehearsal replays the trunk onto a newer upstream release,
+            # so every fork commit is newly authored against `$SINCE` and the
+            # adopted guards would block the whole stack; the scan refuses this
+            # scope unless the head really left the trunk for a newer tagged base.
+            args+=(--replay-of origin/hyprws)
+          fi
+          vp run fork:scan "${args[@]}"
+
+      # A rebase scan is what the next sync reads before trusting an automerge,
+      # so a domain that changes a file upstream is changing too has to name it
+      # (docs/internals/fork-delta.md). Reuses the upstream remote the ledger
+      # step added. Advisory, not blocking: the only window with signal here is
+      # live upstream/main, and upstream landing a commit on a shared file is
+      # not the fault of the pull request under test. The blocking run is gates 3
+      # and 4 of the fork-sync skill, which scan against the new target tag while
+      # the fork still sits on the old one.
+      - name: Live upstream rebase scan (advisory)
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SINCE: ${{ steps.fork_ledger.outputs.since }}
+        run: |
+          # Ledger guards warn about authoring shapes the whole fork stack
+          # already carries, so scope them to the commits this branch adds.
+          # `--since` only narrows the warnings; the scan verdict still covers
+          # every domain.
+          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
+
+      # Files/dependencies are repo-wide; export checks cover clean workspaces only.
+      - name: Check unused code
+        run: vp run knip:check
 
       - name: Check
         run: vp check
 
       - name: Typecheck
         run: vpr typecheck
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Build desktop pipeline
         run: vp run build:desktop
@@ -99,6 +167,9 @@ jobs:
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
