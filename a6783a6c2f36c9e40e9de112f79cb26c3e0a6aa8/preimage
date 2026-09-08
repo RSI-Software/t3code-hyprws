@@ -1,0 +1,296 @@
+# Fork delta
+
+> Fork-only inventory for `RSI-Software/t3code-hyprws`.
+
+[Fork development](./fork-development.md) owns discipline: branch topology, rebase rules, and commit hygiene.
+This document owns the inventory: each change, its owning domain, and what would let us delete it.
+
+Read this first when deciding whether a change belongs in the fork at all.
+
+The commit list itself is generated, because commit hashes rot on every rebase.
+
+```bash
+vp run fork:delta           # Markdown ledger grouped by domain and tier
+vp run fork:delta --check   # exit 1 when a fork commit lacks a valid trailer
+vp run fork:delta --json    # the same ledger for tooling
+```
+
+It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
+
+## Why the fork exists
+
+Upstream's desktop app is single-window by construction.
+`DesktopWindow` exposes only `createMain`, `ensureMain`, and `revealOrCreateMain`.
+There is no window registry and no per-window scope.
+
+Electron holds a single-instance lock.
+A second launch forwards its arguments to the first window instead of opening another.
+
+That is one global dashboard for every project.
+The fork's premise is that a project window is the unit of desktop organization, one per Hyprland workspace.
+
+### The upstream-supported alternative
+
+Point a browser at the same backend and open one project per tab.
+Sessions, auth, and state are shared because it is the same server.
+
+That alternative is real, and it costs nothing.
+It loses the in-app browser preview because that preview is desktop-only.
+`apps/web/src/components/preview/previewBridge.ts` resolves to `null` without an Electron host.
+
+The fork exists because of that gap and because native windows tile under Hyprland while browser tabs do not.
+Close the gap upstream and the fork's core reason to exist closes with it.
+
+## Tiers
+
+Every fork change carries one tier.
+
+| Tier     | Meaning                                            | On retirement                      |
+| -------- | -------------------------------------------------- | ---------------------------------- |
+| `core`   | The domain does not work without it.               | Deleted with the domain.           |
+| `qol`    | Polish. Drop it and the domain still works.        | Reassess individually.             |
+| `bugfix` | A defect fix. Note whether upstream reproduces it. | Upstream it, or keep if fork-only. |
+
+A `bugfix` that upstream reproduces is an upstreaming candidate, not fork delta we want to carry.
+Send it upstream as its own pull request and drop it from the stack when it lands.
+
+## Trailers
+
+Every fork commit carries `Fork-Domain` and `Fork-Tier`.
+A `bugfix` also carries `Fork-Upstreamable`, so the ledger can tell an upstreaming candidate from a fork-only fix.
+
+```text
+feat(desktop): register windows by identity
+
+Fork-Domain: project-windows
+Fork-Tier: core
+```
+
+```text
+fix(web): stop new threads waiting on an unreachable project file
+
+Fork-Domain: project-windows
+Fork-Tier: bugfix
+Fork-Upstreamable: yes
+```
+
+| Trailer             | Values                        | Required on       |
+| ------------------- | ----------------------------- | ----------------- |
+| `Fork-Domain`       | A domain from the index below | Every fork commit |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`    |
+
+`vp run fork:delta --check` enforces the table, and fork CI runs it on every push.
+A rebase preserves trailers, so the log stays queryable after every sync.
+
+## Domain index
+
+| Domain                              | Status | Tiers present     | Retires when                                  |
+| ----------------------------------- | ------ | ----------------- | --------------------------------------------- |
+| [project-windows](#project-windows) | Active | core, qol, bugfix | Web preview parity, or upstream multi-window. |
+| [fork-meta](#fork-meta)             | Active | qol               | Never. It documents the fork itself.          |
+| [distribution](#distribution)       | Active | core              | Never, while the fork ships its own builds.   |
+
+Add a row per domain.
+A domain is a reason the fork exists, not a feature area of the app.
+
+<<<<<<<
+=======
+## Retired
+
+| Fork commit                                            | Domain          | Upstream replacement                                                                                                                                                                                                                         | Retired at |
+| ------------------------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| fix(web): scope markdown actions to thread environment | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines `threadRef?.environmentId ?? explicitEnvironmentId ?? null` at the same binding in `apps/web/src/components/ChatMarkdown.tsx`, leaving `resolveChatMarkdownEnvironmentId` a redundant wrapper. | v0.0.35    |
+| fix(web): upload media in pull request descriptions     | upstream-fixes  | `pingdotgg/t3code#8235` replaces the attachment extension-inference generalization with typed `image \| file` claims, streamed bodies, and the advertised 50 MB limit. The `gh-image` pull-request publication path remains fork-owned. | v0.0.36    |
+
+References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never
+live links. A retired-only subject must no longer be present in the fork stack; `fork:delta --check`
+reports it as `retired but present` until the rebase drops it.
+
+## Kept
+
+| Fork commit                                                                    | Domain           | Reason                                                                                                                                                                                                                                                                                                | Reviewed at                   |
+| ------------------------------------------------------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| refactor(web): add physical project sidebar scope                              | project-windows  | The target removes only an unrelated stage-badge helper; `isProjectInSidebarScope` remains the only physical project-window sidebar scope.                                                                                                                                                            | v0.0.37-nightly.20260830.1227 |
+| fix(web): upload media in pull request descriptions                            | upstream-fixes   | Partial remains correct: `pingdotgg/t3code#8235` supplies typed, streamed attachment plumbing, while the fork-only `gh-image` publication path, editor flow, RPC, and settings surface remain.                                                                                                        | v0.0.37-nightly.20260829.1224 |
+| fix(web): retain completed thread timing                                       | upstream-fixes   | The target removes only the unrelated stage-badge helper and does not supply completed-turn age, duration, or durable Done behavior.                                                                                                                                                                  | v0.0.37-nightly.20260830.1227 |
+| feat(web): add rich Markdown editing (#28)                                     | markdown-editing | The Expo/Uniwind mobile lockfile update retains Milkdown and frontmatter dependencies and does not touch the Rich/Source editor, safe frontmatter round trip, or MDX boundary.                                                                                                                        | v0.0.37-nightly.20260830.1226 |
+| refactor(web): centralize thread route navigation                              | project-windows  | Upstream changed the new-thread hook nearby but did not add project-window route scoping.                                                                                                                                                                                                             | v0.0.37-nightly.20260829.1224 |
+| feat(web): render scoped project shell                                         | project-windows  | The target's root-route work does not provide a scoped project shell.                                                                                                                                                                                                                                 | v0.0.37-nightly.20260829.1224 |
+| fix(desktop): isolate project preview and drafts                               | project-windows  | Generic file attachments widened the draft shape but do not replace project-window preview and draft namespacing.                                                                                                                                                                                     | v0.0.37-nightly.20260829.1224 |
+| feat(web): open project windows from hub actions                               | project-windows  | Upstream rewrote keybinding settings but did not add project-window bridge actions.                                                                                                                                                                                                                   | v0.0.37-nightly.20260829.1224 |
+| feat(terminal): attach thread terminals to the checkout's managed zmux session | zmux-estate      | Settings overlap does not provide external-session attachment.                                                                                                                                                                                                                                        | v0.0.37-nightly.20260829.1224 |
+| feat(server): bind thread worktrees to a managed zmux session                  | zmux-estate      | Upstream service-layer changes do not bind thread worktrees to zmux.                                                                                                                                                                                                                                  | v0.0.37-nightly.20260829.1224 |
+| One setting drives terminal attach and worktree binding for zmux               | zmux-estate      | The target has no combined terminal/worktree zmux mode.                                                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
+| fix(server): follow external workspace symlinks globally (#66)                 | upstream-fixes   | The overlap was documentation-only; no upstream replacement was established in this target.                                                                                                                                                                                                           | v0.0.37-nightly.20260829.1224 |
+| feat(issues): add GitHub Issues surface scoped to project windows              | github-issues    | Generic attachment and environment capability work does not provide the fork's Issues list, detail, or hand-off behavior.                                                                                                                                                                             | v0.0.37-nightly.20260829.1224 |
+| feat(server): run Worktrunk hooks around thread worktrees                      | worktrunk-hooks  | Upstream server composition does not provide Worktrunk lifecycle hooks.                                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
+| fix(web): returning to a thread focuses the composer, not its terminal         | upstream-fixes   | Upstream composer-spacing helpers are independent of the fork's focus-ownership contract.                                                                                                                                                                                                             | v0.0.37-nightly.20260829.1224 |
+| feat(web): move Worktrunk hook controls onto the worktree surfaces             | worktrunk-hooks  | The target does not add the fork's Worktrunk controls or lifecycle behavior.                                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
+| feat: New worktrunk thread mode replaces the Worktrunk hook switches           | worktrunk-hooks  | The target does not add a third thread environment mode or its wire-safe compatibility pair.                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
+| fix(server): preserve attributed child work (#177)                             | custom-agents    | Claude adapter overlap did not supply equivalent retained child attribution.                                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
+| fix(provider): resolve repo skills per workspace (#188)                        | upstream-fixes   | Partial. Upstream's `snapshotForCwd` merges `skills` alone, and its Claude capabilities probe cache stays capacity 1 keyed on binary plus resolved HOME. The fork keeps the cwd-keyed probe cache at capacity 16 and merges the workspace probe's `slashCommands` into the snapshot.                  | v0.0.39-nightly.20260902.1261 |
+| feat(web): add manual sidebar thread ordering                                  | thread-ordering  | The target removes only the unrelated stage-badge helper and does not provide durable per-project manual ordering.                                                                                                                                                                                    | v0.0.37-nightly.20260830.1227 |
+| feat(web): group sidebar threads into named sections (#205)                    | thread-ordering  | The target removes only the unrelated stage-badge helper and does not provide named thread sections or group-drop behavior.                                                                                                                                                                           | v0.0.37-nightly.20260830.1227 |
+| fix(web): make sidebar thread ordering direct (#246)                           | thread-ordering  | The target removes only the obsolete stage-badge import and does not provide drop-to-manual ordering or its restore action.                                                                                                                                                                           | v0.0.37-nightly.20260830.1227 |
+| feat(web): add GitHub link destination controls (#178)                         | github-issues    | Markdown and settings overlap did not provide the fork's GitHub link destination control. Upstream-owned `ChatMarkdown.test.tsx` favicon-privacy test edited: fork renders PR URLs as `GitHubDestinationLink` chips (no `GitHubIcon`), so the brand-mark assertion targets bare `https://github.com`. | v0.0.37-nightly.20260829.1224 |
+| docs(fork): fork sync runbook for the auto-rebase model                        | fork-meta        | Environment-theme glossary additions are independent of the fork synchronization model.                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
+| fix(contracts): released clients decode threads from a worktrunk server (#233) | worktrunk-hooks  | Environment-theme settings do not replace the two-value wire mode plus exact fork-mode sibling required by released clients.                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
+| fix(web): scale titlebar padding with interface zoom                           | upstream-fixes   | The target still declares bare `--workspace-topbar-height: env(titlebar-area-height, 52px)` and does not supply the fork's `max()` interface-zoom floor.                                                                                                                                              | v0.0.39-nightly.20260902.1261 |
+| fix(server): provider spawns drop another harness identity (#108)              | upstream-fixes   | The target has no `packages/shared/src/env.ts` or `HARNESS_IDENTITY_ENV`, and `mergeProviderInstanceEnvironment` still takes two parameters with no driver-kind argument.                                                                                                                             | v0.0.39-nightly.20260902.1261 |
+| fix(web): thread jump keys switch threads while the terminal has focus         | upstream-fixes   | The target's `ThreadTerminalDrawer.tsx` still lacks `shouldForwardThreadTerminalShortcut` and `THREAD_TERMINAL_WINDOW_COMMANDS`, so jump keys stay trapped in the terminal.                                                                                                                           | v0.0.39-nightly.20260902.1261 |
+
+A kept reason documents the fork behaviour that the overlap signal did not replace. A subject in
+both Retired and Kept is a partial decision and remains in the active fork ledger.
+
+>>>>>>>
+## project-windows
+
+### Need
+
+One T3 Code window per project, placeable on its own Hyprland workspace.
+It sits beside that project's editor, terminals, and browser.
+The hub stays as the all-projects view; it stops being the only view.
+
+### Shape
+
+The core is a project route subtree, a scoped project shell, and a desktop window registry keyed by identity.
+
+Launch intents reach the right window through the single-instance lock and hash routes.
+Previews, composer drafts, and preview IPC are namespaced per window.
+
+Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
+All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
+
+QoL covers a retry when a scoped draft fails to start, `T3CODE_DESKTOP_DEVTOOLS=0`, route test naming, and project-window list scope. The shared resolver and toggle live in `apps/web/src/windowProjectScope.ts` and `apps/web/src/components/WindowProjectScopeToggle.tsx`; Pull Requests shares its search contract through `apps/web/src/components/pullRequest/pullRequestListRoute.ts`, adds `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx`, and resolves the project-window entry point in `apps/web/src/components/sidebar/SidebarChrome.tsx`.
+Two bugfixes reproduce upstream and should be offered there; the rest are fork-only.
+
+An auto-update relaunch is one of those fork-only defects.
+`quitAndInstall` destroys every window and comes back with no arguments, which is correct upstream because there is one window to come back to.
+Here it collapses a workspace-per-project layout into a single hub window.
+`apps/desktop/src/window/DesktopWindowSession.ts` writes a one-shot manifest of the open windows just before the install tears them down, and the next launch consumes it before `openArguments` so an explicit launch intent still wins.
+`apps/desktop/src/window/hyprland.ts` reads each window's workspace over the compositor socket and moves the restored window back silently.
+Neither decides where a window belongs; they only put back an arrangement the user already made, so `AGENTS.md`'s rule against encoding compositor policy holds.
+Off Hyprland every operation is a no-op and the windows simply reopen.
+
+Every provider subprocess receives `T3CODE_PROJECT_ID` and `T3CODE_THREAD_ID`.
+A project window is created with its project id as the window title, which Hyprland keeps as `initialTitle`.
+Tooling an agent runs from inside a project window can therefore find its own window without guessing from `cwd`.
+`ProviderSessionStartInput.projectId` carries the id; the binding persists it so recovery after a restart keeps it.
+
+Run `vp run fork:delta` for the commit list.
+
+### Retirement condition
+
+Delete this domain when either holds:
+
+- The web client gains in-app browser preview, making a browser window or PWA shell per project acceptable.
+- Upstream ships its own multi-window or project-scoped window support.
+
+The first is the likely one.
+`previewBridge.ts` returning something other than `null` on web is the signal to re-open this question.
+
+Other desktop-only gaps may exist and are not yet enumerated.
+Enumerate them before acting on a retirement, because preview parity alone may not be sufficient.
+
+### Rebase scan
+
+After every rebase onto upstream, check these before trusting a clean merge.
+
+| Path                                                                      | Why it matters                                                      |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `apps/desktop/src/window/DesktopWindow.ts`                                | The window service the fork makes plural. Upstream would land here. |
+| `apps/desktop/src/window/WindowIdentity.ts`                               | Fork-only. A conflict means upstream added its own identity model.  |
+| `apps/desktop/src/window/DesktopWindowSession.ts`                         | Fork-only. The manifest that carries windows across an update.      |
+| `apps/desktop/src/window/hyprland.ts`                                     | Fork-only. The only place that speaks to the compositor.            |
+| `apps/desktop/src/updates/DesktopUpdates.ts`                              | Captures the session before `destroyAll`. Upstream edits this file. |
+| `apps/server/src/provider/providerSessionEnvironment.ts`                  | `T3CODE_PROJECT_ID` / `T3CODE_THREAD_ID`; every adapter calls it.   |
+| `apps/desktop/src/app/DesktopClerk.ts`                                    | Single-instance lock and deep-link forwarding.                      |
+| `apps/desktop/src/preview/Manager.ts`                                     | Preview namespacing by window.                                      |
+| `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                  | The bridge surface the web client gates on.                         |
+| `packages/contracts/src/ipc.ts`                                           | `openProjectWindow` lives here.                                     |
+| `apps/web/src/routes/project.*`                                           | Fork-only route subtree.                                            |
+| `apps/web/src/routes/project.$environmentId.$projectId.pull-requests.tsx` | Keeps Pull Requests inside the scoped project shell.                |
+| `apps/web/src/windowProjectScope.ts`                                      | Shared project-window list-scope resolver and storage key.          |
+| `apps/web/src/components/WindowProjectScopeToggle.tsx`                    | Shared project/all-project segmented control.                       |
+| `apps/web/src/components/pullRequest/pullRequestListRoute.ts`             | Search contract shared by the hub and project routes.               |
+| `apps/web/src/components/sidebar/SidebarChrome.tsx`                       | Resolves Pull Requests navigation within the active window scope.   |
+| `apps/web/src/routeTree.gen.ts`                                           | Generated. Regenerate rather than resolving by hand.                |
+| `apps/web/src/components/preview/previewBridge.ts`                        | The retirement signal. Read it on every rebase.                     |
+| `apps/web/src/components/CommandPalette.tsx`                              | Entry point, and a busy upstream file.                              |
+
+## fork-meta
+
+### Need
+
+The fork's own documentation and conventions.
+This domain exists so documentation and tooling commits are not mis-filed under a product domain.
+
+### Shape
+
+- The fork sections in `README.md`, `AGENTS.md`, and `docs/README.md`.
+- This document, [Fork development](./fork-development.md), and the [Fork sync](../operations/fork-sync.md) runbook.
+- `scripts/fork-delta.ts` with its `fork:delta` alias in the root `package.json`.
+
+### Retirement condition
+
+Retired with the fork.
+
+### Rebase scan
+
+| Path                                       | Why it matters                                                |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `README.md`, `AGENTS.md`, `docs/README.md` | Upstream edits these often and they carry fork-only sections. |
+| `package.json` scripts block               | `fork:delta` sits between upstream aliases.                   |
+| `docs/internals/scripts.md`                | Carries the `fork:delta` entry.                               |
+| `scripts/*.ts` siblings                    | The ledger script copies their Effect CLI shape.              |
+
+## distribution
+
+### Need
+
+Upstream releases ship upstream code, so a fork user needs a fork build and a fork update feed.
+Upstream's workflows also target Blacksmith runners the fork does not have.
+
+### Shape
+
+- `.github/workflows/hyprws-ci.yml` runs checks, tests, the fork ledger, and the desktop build on `hyprws`.
+- `.github/workflows/hyprws-release.yml` builds a Linux x64 AppImage from a `v*-hyprws.*` tag and publishes it.
+
+Both run on GitHub-hosted runners, which are free for a public repository.
+
+The updater needs no code.
+`scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
+Fork builds therefore update from fork releases.
+
+Upstream workflows stay in the tree untouched and disabled.
+Editing or deleting them is a standing rebase conflict.
+[Fork sync](../operations/fork-sync.md) owns the disable step.
+
+### Retirement condition
+
+Retired with the fork, or when upstream publishes builds the fork can ship unchanged.
+
+### Rebase scan
+
+| Path                                          | Why it matters                                              |
+| --------------------------------------------- | ----------------------------------------------------------- |
+| `.github/workflows/ci.yml`                    | Copy new checks or setup steps into `hyprws-ci.yml`.        |
+| `.github/workflows/release.yml`               | Copy Linux build-step changes into `hyprws-release.yml`.    |
+| `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and the update feed resolution. |
+| `scripts/update-release-package-versions.ts`  | Release version alignment the fork workflow calls.          |
+| `package.json` `engines` and `packageManager` | Runner toolchain expectations.                              |
+
+## Adding a domain
+
+A new domain needs its own section with the same four headings, and a row in the domain index.
+Its name becomes the `Fork-Domain` trailer of its first commit.
+
+Answer three questions before opening one:
+
+1. What does upstream not do, stated as behavior rather than implementation?
+2. What would upstream have to ship for this domain to be deleted?
+3. Which upstream paths does it touch, so a rebase scan can find collisions?
+
+If the third answer is "many files across unrelated systems", the change is probably not a domain.
+It is probably a bugfix to send upstream.

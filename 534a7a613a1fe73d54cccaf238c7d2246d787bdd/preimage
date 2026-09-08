@@ -1,0 +1,254 @@
+# Fork sync
+
+> Runbook for `RSI-Software/t3code-hyprws`. Using T3 Code? See [docs/user](../user/).
+
+This is the agent-driven loop that keeps the fork trunk `hyprws` current and shipped.
+[Fork development](../internals/fork-development.md) owns the rules; this page owns the steps.
+
+Run it from the `hyprws` worktree, never from the `main` checkout.
+Every step is scriptable; the only human inputs are conflict decisions and a refused lease.
+
+## Preconditions
+
+- `upstream` points at `pingdotgg/t3code` and `origin` at `RSI-Software/t3code-hyprws`.
+- The `hyprws` worktree is clean and `vp run fork:delta --check` passes before you start.
+- `git config rerere.enabled` is `true`, so a resolved conflict replays on the next sync.
+- The one-time setup below has been completed.
+
+## Step 1: Mirror main
+
+Fetch everything and fast-forward the `main` mirror.
+
+```bash
+git fetch upstream --tags
+git fetch origin
+git push origin upstream/main:main
+```
+
+The push is a fast-forward because nothing else ever writes `main`.
+If it is rejected, someone committed to `main`; stop and inspect before forcing anything.
+
+## Step 2: Pick the target
+
+<<<<<<<
+Rebase onto an upstream release tag, not onto the tip of `upstream/main`.
+=======
+`rewrite-rehearse` also binds the old trunk to
+`archive/hyprws-pre-rewrite-<12-char expected-old>`. Rewrite-kind `unblock-apply` creates that branch
+with an explicit missing-ref lease, or accepts a retry only when the remote ref already equals the
+full expected-old SHA. It reads the remote SHA back and retains the binding and trunk outcome in the
+external report. The reviewed record names the same immutable ref and SHA. This happens before the
+record is posted or `hyprws` is changed; a rejected trunk lease retains the archive and marks it as
+failed-attempt evidence. The rewrite never moves `hyprws-previous`.
+
+## Model
+
+`hyprws` is the single fork trunk. The bot scans only through the newest stable or nightly upstream
+tag on the first-parent lane, never through an untagged `upstream/main` head. Its upstream base is the
+newest clean tag within that horizon; when stable and nightly tags point at the same position, stable
+wins the tie. The bot never merges upstream into the fork and never drops, squashes, reorders, or
+rewords a fork commit.
+
+On each scheduled, pushed, or manually dispatched run, the workflow:
+
+1. fast-forwards the fork's `main` mirror to `upstream/main`;
+2. scans through the newest upstream release tag and finds the newest clean tag within that horizon;
+3. snapshots every stable upstream tag its own walk crosses on a create-only release branch;
+4. replays and verifies the whole fork stack on the selected tag;
+5. publishes the candidate or rewrites `hyprws`, according to `HYPRWS_AUTO_REBASE`; and
+6. creates or updates stable-candidate and `rebase-blocked` issues as `Notification 🔔` signals.
+
+A run that has no newer clean release tag is a successful no-op. The sequential rebase census to the
+newest tagged horizon decides the outcome when available: zero conflicting fork commits advances to
+that tag, while one or more confirms a block at the pairwise scan's first conflicting upstream
+commit. If the census fails or reaches a limit, the pairwise result decides and the block records why
+the census was unavailable. A confirmed block does not prevent the bot from advancing to an earlier
+clean target. A conflict in untagged commits past the horizon is not a block.
+
+## Regenerable files
+
+The regeneration shape covers lockfiles, generated indexes, and version stamps. These files carry
+no independently reviewable fork intent: a sync keeps the incoming new-base version and runs the
+registered generator after applying the fork's source inputs. It never 3-way merges generated
+entries or treats a rerere result as a resolution.
+
+The only path currently registered in this class is:
+
+| Path             | Generator                    | Rebase rule                                                                                                                           |
+| ---------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm-lock.yaml` | `vp install --lockfile-only` | At a stop, restore from `HEAD`, resolve the remaining source conflicts, run the generator, stage the result, and continue the rebase. |
+
+`vp install --lockfile-only` is the repository-native equivalent of
+`pnpm install --lockfile-only`. During a rebase, `HEAD` is the selected upstream base plus fork
+commits already replayed, so restoring from it discards the old fork lockfile while retaining the
+new-base side. Re-run the generator on the completed replay when either side changed package
+manifests or the lockfile; it must be stable before apply. No generated index or version stamp is
+currently registered—add one only with its deterministic generator and an update to this table.
+
+`vp run fork:lockfile` proves the same regeneration on a feature branch, before the lockfile ever
+reaches a stop: it refuses an uncommitted `pnpm-lock.yaml`, reruns the generator, compares with the
+same drift classes the replay verification uses, and restores the committed bytes either way. Run it
+on any branch that changes a package manifest. A hand-merged lockfile, or one carried forward as a
+replayed historical patch, fails it here instead of costing a lane later.
+
+Only `importers` drift fails it. The generator re-resolves every open range, so unrelated transitive
+pins move on the registry's schedule and land in `snapshots:`; that difference is a note, not a
+finding, and the check is deliberately not a required one.
+
+## Bot-owned refs
+
+Do not create, move, delete, or force-push these refs by hand:
+
+| Ref                                                 | Meaning                                                                             |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `hyprws-previous`                                   | The pre-rewrite `hyprws` head saved by the bot before an automatic trunk rewrite.   |
+| `hyprws-next`                                       | The verified candidate stack published while the repository is in candidate mode.   |
+| `release/vX.Y.Z-hyprws`                             | A create-only snapshot of the fork stack on upstream stable `vX.Y.Z`.               |
+| `archive/hyprws-pre-rewrite-<12-char expected-old>` | The create-only old trunk retained before a same-base historical rewrite.           |
+| `refs/fork/churn`                                   | The churn ledger: one orphan history holding `fork-churn.json`, one entry per walk. |
+| `refs/fork/rerere`                                  | The shared `.git/rr-cache`, so a carried walk replays what earlier walks resolved.  |
+
+The `refs/fork/*` family is append-only and is never rebased, so a walk's data never enters the
+fork series and no rebase has to carry it. Read one without a checkout:
+>>>>>>>
+
+```bash
+git tag --list 'v*' --sort=-v:refname | grep -v nightly | head -n 3
+```
+
+Take the newest stable `vX.Y.Z`.
+Between releases, a rebase onto `upstream/main` is fine for surfacing conflicts early, but do not tag from it.
+
+## Step 3: Rebase
+
+```bash
+expected_old=$(git rev-parse origin/hyprws)
+git rebase vX.Y.Z
+```
+
+Resolve conflicts with the [conflict policy](../internals/fork-development.md#conflict-policy).
+Read the upstream change first, then reapply the smallest fork behavior on the new seam.
+
+A rerere replay is a candidate, not a resolution; review every reused hunk.
+When upstream has made a fork commit obsolete, drop it with `git rebase --skip` and say so in the next commit.
+
+## Step 4: Scan and verify
+
+Walk the rebase scan for every active domain in [Fork delta](../internals/fork-delta.md).
+A clean rebase is not evidence that a domain is still needed.
+
+Then run what fork CI will run:
+
+```bash
+vp run fork:delta --check
+vp check
+vp run typecheck
+vp run build:desktop
+```
+
+Run the tests for every package a conflict touched, with `vp run --filter <package> test`.
+Fix forward with `git commit --fixup` and an autosquash rebase, so each fork commit stays self-contained.
+
+## Step 5: Publish with a lease
+
+```bash
+git push --force-with-lease=refs/heads/hyprws:"$expected_old" origin HEAD:hyprws
+```
+
+A rejected lease means `origin/hyprws` moved during the sync.
+Fetch and read the new commits, rebase them onto the new stack, then push with a lease captured after that read.
+
+Never refresh the lease without reading what it refused.
+
+## Step 6: Tag and release
+
+A fork release is `v<upstream version>-hyprws.<n>`.
+`<upstream version>` is the tag from step 2 and `<n>` restarts at 1 for each upstream version.
+
+```bash
+git tag v0.0.34-hyprws.1
+git push origin v0.0.34-hyprws.1
+```
+
+The tag starts `hyprws-release.yml`: checks, a Linux x64 AppImage build, then a GitHub release.
+The release is never a prerelease, because the desktop updater ignores prereleases.
+
+Watch it with `gh run watch` and verify the release lists the `.AppImage` and `latest-linux.yml`.
+An installed fork build updates from that release, because the build derives its feed from the building repository.
+
+Bump `<n>` for a fork-only change on the same upstream version.
+A new upstream version always restarts the suffix.
+
+## Failure handling
+
+- **`fork:delta --check` fails.**
+  _A commit lost or never had a trailer; amend it in place with an interactive rebase before publishing._
+- **The build fails on a runner tool.**
+  _See the runner prerequisites below; the fix is a workflow step or an operator install, never a source change._
+- **The lease is rejected.**
+  _Step 5 covers it; do not use `--force`._
+- **A fork commit no longer applies.**
+  _Rebuild it at the new seam or drop it; record the decision in the commit or in Fork delta._
+
+## One-time setup
+
+These steps were run once when the fork trunk was created.
+Rerun a step when its state drifts, for example after a rebase adds an upstream workflow.
+
+### Upstream workflows
+
+Upstream's workflows register on the default branch as soon as GitHub indexes it.
+Every one of them targets Blacksmith runners or upstream secrets, so each is disabled, never edited or deleted.
+
+```bash
+gh workflow list --all --repo RSI-Software/t3code-hyprws
+for workflow in ci.yml release.yml pr-size.yml pr-vouch.yml web-preview.yml deploy-relay.yml \
+  publish-aur.yml issue-labels.yml thread-transfer-report.yml mobile-eas-preview.yml \
+  mobile-eas-production.yml mobile-fingerprint-check.yml mobile-showcase-screenshots.yml; do
+  gh workflow disable "$workflow" --repo RSI-Software/t3code-hyprws
+done
+```
+
+`hyprws-ci.yml` and `hyprws-release.yml` are the only workflows that stay enabled.
+
+### Merge settings
+
+Landing onto `hyprws` is rebase-only, so the stack stays linear and keeps its trailers.
+
+```bash
+gh repo edit RSI-Software/t3code-hyprws \
+  --enable-rebase-merge --enable-squash-merge=false --enable-merge-commit=false \
+  --delete-branch-on-merge
+```
+
+### Runners
+
+Both fork workflows run on `ubuntu-latest`.
+GitHub-hosted runners are free for a public repository, and pull requests from outside the org cost nothing.
+
+The rsi-ci pool was measured on 2026-08-23 and rejected.
+Five concurrent jobs on one 12-core container reached wall times at parity with hosted at best.
+
+Revisit only if the pool grows or the repository goes private.
+The runbook `docs/runbooks/ci-runners.md` in `RSI-Software/ops` owns the pool.
+
+Tools the workflows need beyond the hosted image:
+
+| Tool             | How the workflow gets it                                          |
+| ---------------- | ----------------------------------------------------------------- |
+| Node and `vp`    | `voidzero-dev/setup-vp@v1` installs into the workspace cache.     |
+| Rust and `cargo` | `dtolnay/rust-toolchain@stable` installs under the runner's home. |
+| ImageMagick      | Present on the hosted image; `apt-get` when it is missing.        |
+
+Treat a missing tool as a workflow task, not a reason to patch the build script.
+
+### Optional T3 Connect config
+
+The fork build leaves T3 Connect unconfigured unless these repository variables exist:
+
+- `T3CODE_RELAY_URL`
+- `T3CODE_CLERK_PUBLISHABLE_KEY`
+- `T3CODE_CLERK_JWT_TEMPLATE`
+- `T3CODE_CLERK_CLI_OAUTH_CLIENT_ID`
+
+The workflow passes them through when set and leaves the feature dark when they are not.
