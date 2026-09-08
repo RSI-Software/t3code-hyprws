@@ -431,6 +431,87 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
     anchor: { kind: "import-block" },
   },
+  // worktrunk-hooks — marked on RSI-Software/t3code-hyprws#960.
+  "worktrunk-hooks/env-mode-selector-import": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/workspace-icon-import": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/workspace-icon": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "collection", symbol: "WorkspaceIcon" },
+  },
+  "worktrunk-hooks/env-mode-menu-worktrunk": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "jsx-parent", symbol: "MenuRadioGroup" },
+  },
+  "worktrunk-hooks/env-mode-mobile-worktrunk-prop": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "jsx-parent", symbol: "MobileRunContextSelector" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-prop": {
+    path: "apps/web/src/components/BranchToolbar.tsx",
+    anchor: { kind: "jsx-parent", symbol: "BranchToolbarEnvModeSelector" },
+  },
+  "worktrunk-hooks/env-mode-selector-cog-import": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-item-import": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-prop-type": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "collection", symbol: "BranchToolbarEnvModeSelectorProps" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-default": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "collection", symbol: "BranchToolbarEnvModeSelector" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-option": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "collection", symbol: "envModeItems" },
+  },
+  "worktrunk-hooks/env-mode-selector-locked-icon": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "jsx-parent", symbol: "BranchToolbarEnvModeSelector" },
+  },
+  "worktrunk-hooks/env-mode-selector-trigger-icon": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "jsx-parent", symbol: "SelectTrigger" },
+  },
+  "worktrunk-hooks/env-mode-selector-worktrunk-item": {
+    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+    anchor: { kind: "jsx-parent", symbol: "SelectGroup" },
+  },
+  "worktrunk-hooks/env-mode-enum-import": {
+    path: "apps/web/src/components/BranchToolbar.logic.ts",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/env-mode-enum": {
+    path: "apps/web/src/components/BranchToolbar.logic.ts",
+    anchor: { kind: "collection", symbol: "EnvMode" },
+  },
+  "worktrunk-hooks/env-mode-label-import": {
+    path: "apps/web/src/components/BranchToolbar.logic.ts",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/env-mode-label": {
+    path: "apps/web/src/components/BranchToolbar.logic.ts",
+    anchor: { kind: "after-decl", symbol: "resolveEnvModeLabel" },
+  },
+  "worktrunk-hooks/draft-thread-env-mode-schema-import": {
+    path: "apps/web/src/composerDraftStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "worktrunk-hooks/draft-thread-env-mode-schema": {
+    path: "apps/web/src/composerDraftStore.ts",
+    anchor: { kind: "after-decl", symbol: "DraftThreadEnvModeSchema" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
