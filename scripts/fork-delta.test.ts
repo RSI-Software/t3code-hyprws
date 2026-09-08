@@ -11,6 +11,13 @@ import * as Effect from "effect/Effect";
 
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
+  budgetFindings,
+  budgetRaises,
+  forkBudgetFindingMessage,
+  parseForkBudget,
+  renderForkBudget,
+} from "./lib/fork-budget.ts";
+import {
   buildInventory,
   buildLedger,
   buildSquashLedger,
@@ -654,6 +661,16 @@ it("parses per-commit numstat records, counting binary files but not their lines
   });
 });
 
+it("parses a numstat record with the blank line git puts after the format header", () => {
+  const raw = `${RS}abc\n\n3\t1\tapps/web/src/app.ts\n`;
+  const stats = parseCommitNumstat(raw);
+  assert.deepStrictEqual(stats.get("abc"), {
+    files: ["apps/web/src/app.ts"],
+    added: 3,
+    deleted: 1,
+  });
+});
+
 it("builds the inventory with shared attribution from the net diffs", () => {
   const reverted = "c".repeat(40);
   const commits = [
@@ -717,4 +734,667 @@ it("builds the inventory with shared attribution from the net diffs", () => {
   const rendered = renderInventory(inventory);
   assert.include(rendered, "| Total | 2 | 7 | 3 | 3 | 1 |");
   assert.include(rendered, "# Fork delta inventory: `head` over `base` against `upstream/main`");
+});
+
+it("dedupes a domain's files across commits and counts distinct files in the total", () => {
+  const shaA = "a".repeat(40);
+  const shaB = "b".repeat(40);
+  const shaC = "c".repeat(40);
+  const commits = [
+    { sha: shaA, short: "aaaaaaa", subject: "feat: one", domain: "fork-meta", tier: "qol" },
+    { sha: shaB, short: "bbbbbbb", subject: "feat: two", domain: "fork-meta", tier: "core" },
+    { sha: shaC, short: "ccccccc", subject: "feat: three", domain: "zmux-estate", tier: "core" },
+  ];
+  const statsBySha = new Map([
+    [shaA, { files: ["shared.ts", "a.ts"], added: 5, deleted: 1 }],
+    [shaB, { files: ["shared.ts", "b.ts"], added: 2, deleted: 0 }],
+    [shaC, { files: ["shared.ts", "c.ts"], added: 1, deleted: 1 }],
+  ]);
+  const changed = new Set(["shared.ts", "a.ts", "b.ts", "c.ts"]);
+  const inventory = buildInventory({
+    base: "base",
+    head: "head",
+    target: "upstream/main",
+    commits,
+    statsBySha,
+    forkChanged: changed,
+    upstreamChanged: new Set(["shared.ts"]),
+  });
+  // shared.ts appears in both of fork-meta's commits but its Files cell counts it once.
+  assert.deepStrictEqual(inventory.domains, [
+    { domain: "fork-meta", commits: 2, added: 7, deleted: 1, files: 3, overlaps: 1 },
+    { domain: "zmux-estate", commits: 1, added: 1, deleted: 1, files: 2, overlaps: 1 },
+  ]);
+  // The Total Files cell is the distinct count (4), not the per-domain sum (5).
+  assert.strictEqual(inventory.distinctFiles, 4);
+  const rendered = renderInventory(inventory);
+  assert.include(rendered, "| Total | 3 | 8 | 2 | 4 | 2 |");
+});
+
+it("diverges per-commit and per-domain overlap when a domain's commits share a file", () => {
+  const shaA = "a".repeat(40);
+  const shaB = "b".repeat(40);
+  const commits = [
+    { sha: shaA, short: "aaaaaaa", subject: "feat: one", domain: "fork-meta", tier: "qol" },
+    { sha: shaB, short: "bbbbbbb", subject: "feat: two", domain: "fork-meta", tier: "core" },
+  ];
+  const statsBySha = new Map([
+    [shaA, { files: ["shared.ts"], added: 1, deleted: 0 }],
+    [shaB, { files: ["shared.ts"], added: 0, deleted: 1 }],
+  ]);
+  const inventory = buildInventory({
+    base: "base",
+    head: "head",
+    target: "upstream/main",
+    commits,
+    statsBySha,
+    forkChanged: new Set(["shared.ts"]),
+    upstreamChanged: new Set(["shared.ts"]),
+  });
+  // Each commit's own files overlap, but the domain's deduped file set overlaps once.
+  assert.deepStrictEqual(
+    inventory.commits.map((commit) => commit.overlaps),
+    [1, 1],
+  );
+  assert.deepStrictEqual(
+    inventory.domains.map((domain) => domain.overlaps),
+    [1],
+  );
+});
+
+// -- Fork budget ---------------------------------------------------------------
+
+const seededBudget = (rows: ReadonlyArray<string>): string =>
+  [
+    "# Fork budget",
+    "",
+    "| Domain | Commits | Added | Deleted | Shared |",
+    "| --- | --- | --- | --- | --- |",
+    ...rows.map((cells) => `| ${cells} |`),
+    "",
+  ].join("\n");
+
+it("round-trips the budget through its renderer", () => {
+  const markdown = renderForkBudget({
+    rows: [{ domain: "fork-meta", commits: 2, added: 10, deleted: 4, overlaps: 1 }],
+  });
+  const budget = parseForkBudget(markdown);
+  assert.deepStrictEqual(budget.unknownDomains, []);
+  assert.deepStrictEqual(budget.rows.get("fork-meta"), {
+    domain: "fork-meta",
+    commits: 2,
+    added: 10,
+    deleted: 4,
+    shared: 1,
+  });
+});
+
+it("flags budget rows outside the fork domains without enforcing them", () => {
+  const budget = parseForkBudget(
+    renderForkBudget({
+      rows: [{ domain: "not-a-domain", commits: 0, added: 0, deleted: 0, overlaps: 0 }],
+    }),
+  );
+  assert.deepStrictEqual(budget.unknownDomains, ["not-a-domain"]);
+});
+
+it("rejects a malformed budget table instead of guessing ceilings", () => {
+  const good = renderForkBudget({
+    rows: [{ domain: "fork-meta", commits: 1, added: 2, deleted: 3, overlaps: 4 }],
+  });
+  assert.throws(() => parseForkBudget(good.replace("| Shared |", "| |")), /unexpected header/);
+  assert.throws(
+    () =>
+      parseForkBudget(
+        renderForkBudget({
+          rows: [
+            { domain: "fork-meta", commits: 1, added: 2, deleted: 3, overlaps: 4 },
+            { domain: "fork-meta", commits: 1, added: 2, deleted: 3, overlaps: 4 },
+          ],
+        }),
+      ),
+    /duplicate domain: fork-meta/,
+  );
+  assert.throws(
+    () => parseForkBudget(good.replace("| fork-meta | 1 |", "| fork-meta | x |")),
+    /non-integer Commits cell: x/,
+  );
+  assert.throws(() => parseForkBudget("no table at all"), /missing/);
+});
+
+it("fails a stack over a gated ceiling, naming the domain and both numbers", () => {
+  const budget = parseForkBudget(
+    renderForkBudget({
+      rows: [{ domain: "fork-meta", commits: 2, added: 10, deleted: 4, overlaps: 1 }],
+    }),
+  );
+  const findings = budgetFindings(
+    [{ domain: "fork-meta", commits: 9, added: 11, deleted: 4, overlaps: 2 }],
+    budget,
+  );
+  assert.deepStrictEqual(findings.map(forkBudgetFindingMessage), [
+    "fork-meta: added 11 > 10 ceiling",
+  ]);
+  // At a ceiling is still under it: the ceiling is the inclusive maximum.
+  assert.deepStrictEqual(
+    budgetFindings(
+      [{ domain: "fork-meta", commits: 9, added: 10, deleted: 4, overlaps: 1 }],
+      budget,
+    ),
+    [],
+  );
+});
+
+it("records commit counts and shared attributions without gating on them", () => {
+  const budget = parseForkBudget(
+    renderForkBudget({
+      rows: [{ domain: "fork-meta", commits: 2, added: 10, deleted: 4, overlaps: 1 }],
+    }),
+  );
+  // Nine commits and five shared files over the recorded numbers are not
+  // findings: a commit count is not a cost, and shared attribution moves with
+  // every upstream tag even when the fork does not.
+  assert.deepStrictEqual(
+    budgetFindings(
+      [{ domain: "fork-meta", commits: 9, added: 10, deleted: 4, overlaps: 5 }],
+      budget,
+    ),
+    [],
+  );
+});
+
+it("fails a domain without a budget row closed at ceiling zero", () => {
+  const findings = budgetFindings(
+    [{ domain: "zmux-estate", commits: 1, added: 1, deleted: 0, overlaps: 0 }],
+    { rows: new Map(), unknownDomains: [] },
+  );
+  assert.deepStrictEqual(findings.map(forkBudgetFindingMessage), [
+    "zmux-estate: added 1 > 0 ceiling (domain has no budget row)",
+  ]);
+});
+
+it("detects exactly the gated numbers a commit pushed up", () => {
+  const before = seededBudget(["fork-meta | 2 | 10 | 4 | 1"]);
+  // Raises on every gated measure.
+  assert.deepStrictEqual(budgetRaises(before, seededBudget(["fork-meta | 9 | 11 | 5 | 2"])), [
+    { domain: "fork-meta", measure: "added", from: 10, to: 11 },
+    { domain: "fork-meta", measure: "deleted", from: 4, to: 5 },
+  ]);
+  // Raising the recorded commit count or the shared attribution alone is not a
+  // budget increase.
+  assert.deepStrictEqual(budgetRaises(before, seededBudget(["fork-meta | 9 | 10 | 4 | 9"])), []);
+  // Lowering or holding is never a raise.
+  assert.deepStrictEqual(budgetRaises(before, seededBudget(["fork-meta | 1 | 3 | 2 | 0"])), []);
+  // The initial seed is not a raise: there is no prior baseline to raise from.
+  assert.deepStrictEqual(budgetRaises(undefined, seededBudget(["fork-meta | 2 | 10 | 4 | 1"])), []);
+});
+
+it("validates the Fork-Budget raise trailer shape", () => {
+  const findings = collectFindings([
+    parseSquashBody(
+      "seeded",
+      "feat: seed\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise seed the budget\n",
+    ),
+    parseSquashBody(
+      "reasonless",
+      "feat: raise\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise\n",
+    ),
+    parseSquashBody(
+      "wrong-verb",
+      "feat: raise\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: reviewed fixture\n",
+    ),
+  ]);
+  assert.deepStrictEqual(
+    findings.map((finding) => finding.problem),
+    ['Fork-Budget must be "raise <reason>"', 'Fork-Budget must be "raise <reason>"'],
+  );
+});
+
+// -- Fork budget CLI -----------------------------------------------------------
+
+const RETIREMENT_SECTIONS = [
+  "## Retired",
+  "",
+  "| Fork commit | Domain | Upstream replacement | Retired at |",
+  "| --- | --- | --- | --- |",
+  "",
+  "## Kept",
+  "",
+  "| Fork commit | Domain | Reason | Reviewed at |",
+  "| --- | --- | --- | --- |",
+  "",
+].join("\n");
+
+/**
+ * A repo whose stack carries two fork-meta commits, one of them on a file upstream also changes.
+ * With a budget string the file is part of the base commit (the initial seed carries no raise
+ * trailer); with null the stack never seeded a baseline, so ceiling tests see the skip path.
+ */
+const createBudgetFixture = (budget: string | null) => {
+  const { root } = createGitFixture();
+  const docs = NodePath.join(root, "docs/internals");
+  NodeFS.mkdirSync(docs, { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-delta.md"), RETIREMENT_SECTIONS);
+  NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-wire-baseline.md"), "");
+  if (budget !== null) NodeFS.writeFileSync(NodePath.join(docs, "fork-budget.md"), budget);
+  git(root, ["add", "."]);
+  const base = commitAll(root, "fixture: seed the budget");
+  git(root, ["switch", "-c", "upstream"]);
+  NodeFS.writeFileSync(NodePath.join(root, "shared.ts"), "upstream grew\n");
+  const upstream = commitAll(root, "upstream: change the shared file");
+  git(root, ["switch", "fixture"]);
+  NodeFS.writeFileSync(NodePath.join(root, "shared.ts"), "fork line\n");
+  NodeFS.writeFileSync(NodePath.join(root, "file1.ts"), "one\n");
+  commitAll(root, "feat: fork change one", "Fork-Domain: fork-meta\nFork-Tier: qol\n");
+  NodeFS.writeFileSync(NodePath.join(root, "file2.ts"), "two\n");
+  commitAll(root, "feat: fork change two", "Fork-Domain: fork-meta\nFork-Tier: core\n");
+  const head = git(root, ["rev-parse", "HEAD"]);
+  return { root, base, upstream, head };
+};
+
+const budgetFile = (added: number, deleted: number, shared: number): string =>
+  renderForkBudget({
+    rows: [{ domain: "fork-meta", commits: 2, added, deleted, overlaps: shared }],
+  });
+
+const runForkDelta = (
+  root: string,
+  args: ReadonlyArray<string>,
+): { status: number; stdout: string; stderr: string } => {
+  const result = NodeChildProcess.spawnSync(process.execPath, [forkDeltaScript, ...args], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+};
+
+const checkArgs = (base: string, head: string, upstream: string) => [
+  "--check",
+  "--base",
+  base,
+  "--head",
+  head,
+  "--upstream",
+  upstream,
+];
+
+it("fails --check on a stack over a gated ceiling, naming the domain and number", () => {
+  const { root, base, upstream, head } = createBudgetFixture(budgetFile(2, 0, 1));
+  try {
+    const result = runForkDelta(root, checkArgs(base, head, upstream));
+    assert.strictEqual(result.status, 1);
+    assert.include(result.stderr, "over budget: fork-meta: added 3 > 2 ceiling");
+    assert.include(
+      result.stderr,
+      "failed: 1 fork budget ceiling(s) exceeded (docs/internals/fork-budget.md)",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps --check green when the stack sits at or under the ceilings", () => {
+  const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    const result = runForkDelta(root, checkArgs(base, head, upstream));
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.include(result.stdout, "ok: 2 fork commits tagged");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("skips the budget while the stack never seeded a baseline", () => {
+  const { root, base, upstream, head } = createBudgetFixture(null);
+  try {
+    const result = runForkDelta(root, checkArgs(base, head, upstream));
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.include(result.stdout, "ok: 2 fork commits tagged");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a working tree that dropped an established baseline", () => {
+  const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.rmSync(NodePath.join(root, "docs/internals/fork-budget.md"), { force: true });
+    const result = runForkDelta(root, checkArgs(base, head, upstream));
+    assert.strictEqual(result.status, 1);
+    assert.include(result.stderr, "is removed from the stack");
+    assert.include(result.stderr, "the budget never ratchets to absent");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a commit that deletes an established baseline, even with a raise trailer", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.rmSync(NodePath.join(root, "docs/internals/fork-budget.md"), { force: true });
+    git(root, ["add", "."]);
+    const removing = commitAll(
+      root,
+      "chore: drop the budget baseline",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise removing the baseline\n",
+    );
+    const result = runForkDelta(root, checkArgs(base, removing, upstream));
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      `removes docs/internals/fork-budget.md; the budget never ratchets to absent`,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a squash that deletes an established baseline", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.rmSync(NodePath.join(root, "docs/internals/fork-budget.md"), { force: true });
+    git(root, ["add", "."]);
+    const removing = commitAll(
+      root,
+      "chore: drop the budget baseline",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const bodyPath = NodePath.join(root, "pr-body.md");
+    NodeFS.writeFileSync(
+      bodyPath,
+      "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise removing the baseline\n",
+    );
+    const result = runForkDelta(root, [
+      "--check",
+      "--base",
+      base,
+      "--head",
+      removing,
+      "--upstream",
+      upstream,
+      "--squash-body",
+      bodyPath,
+    ]);
+    assert.strictEqual(result.status, 1);
+    assert.include(result.stderr, "pull-request body: removes docs/internals/fork-budget.md");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("seeds a baseline that survives its own commit: seed, commit, check green", () => {
+  const { root, base, upstream } = createBudgetFixture(null);
+  try {
+    const seed = runForkDelta(root, ["--seed-budget", "--upstream", upstream]);
+    assert.strictEqual(seed.status, 0, seed.stderr);
+    assert.include(seed.stdout, "fork-meta Added carries the table's own lines");
+    const seeded = parseForkBudget(
+      NodeFS.readFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), "utf8"),
+    ).rows.get("fork-meta");
+    // The stack's own added lines are 3; the seeded ceiling carries the
+    // table's own lines on top, so landing the file stays inside the ceiling.
+    assert.ok((seeded?.added ?? 0) > 3, `expected headroom, got ${seeded?.added}`);
+    git(root, ["add", "."]);
+    const seededHead = commitAll(
+      root,
+      "chore: seed the fork budget",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const result = runForkDelta(root, checkArgs(base, seededHead, upstream));
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.include(result.stdout, "ok: 3 fork commits tagged");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a raising commit that carries no Fork-Budget raise trailer", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    // The raising commit doubles the added-line ceiling without a trailer.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const withoutTrailer = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(withoutTrailer.status, 1);
+    assert.include(
+      withoutTrailer.stderr,
+      `raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>`,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a raised ceiling when the raising commit carries the trailer", () => {
+  const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the shared-file module grew\n",
+    );
+    const withTrailer = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(withTrailer.status, 0, withTrailer.stderr);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a lowered ceiling green without any trailer", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(1, 1, 1));
+    git(root, ["add", "."]);
+    const lowering = commitAll(
+      root,
+      "chore: tighten the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const lowered = runForkDelta(root, checkArgs(base, lowering, upstream));
+    assert.strictEqual(lowered.status, 1);
+    // The lower ceiling is enforced immediately: the stack is over it now (the
+    // lowering commit's own edit of the table counts toward the domain, too).
+    assert.include(lowered.stderr, "over budget: fork-meta: added 4 > 1 ceiling");
+    assert.notInclude(lowered.stderr, "without Fork-Budget");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("seeds the budget from the live inventory and refuses conflicting mode flags", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    const combined = runForkDelta(root, ["--seed-budget", "--check", "--base", base]);
+    assert.strictEqual(combined.status, 2);
+    assert.include(combined.stderr, "--seed-budget takes no other mode flags");
+
+    const result = runForkDelta(root, ["--seed-budget", "--upstream", upstream]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.include(result.stdout, `ok: docs/internals/fork-budget.md seeded for 1 domains`);
+    assert.include(result.stdout, "fork-meta Added carries the table's own lines");
+    assert.include(result.stdout, "the initial seed carries no Fork-Budget raise trailer");
+    const markdown = NodeFS.readFileSync(
+      NodePath.join(root, "docs/internals/fork-budget.md"),
+      "utf8",
+    );
+    // The table's own lines land in fork-meta's Added ceiling so the seeding
+    // commit stays inside the ceiling it just wrote.
+    assert.deepStrictEqual(parseForkBudget(markdown).rows.get("fork-meta"), {
+      domain: "fork-meta",
+      commits: 2,
+      added: 3 + markdown.split("\n").length - 1,
+      deleted: 0,
+      shared: 1,
+    });
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("prints the inventory object with --json and refuses the ledger-only --base", () => {
+  const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    const json = runForkDelta(root, [
+      "--inventory",
+      "--json",
+      "--head",
+      head,
+      "--upstream",
+      upstream,
+    ]);
+    assert.strictEqual(json.status, 0, json.stderr);
+    const inventory = JSON.parse(json.stdout) as {
+      base: string;
+      distinctFiles: number;
+      domains: ReadonlyArray<{ domain: string; commits: number }>;
+    };
+    assert.strictEqual(inventory.base, base);
+    assert.deepStrictEqual(
+      inventory.domains.map((domain) => domain.domain),
+      ["fork-meta"],
+    );
+    assert.strictEqual(inventory.domains[0]?.commits, 2);
+    assert.strictEqual(inventory.distinctFiles, 3);
+
+    const rejected = runForkDelta(root, [
+      "--inventory",
+      "--base",
+      base,
+      "--head",
+      head,
+      "--upstream",
+      upstream,
+    ]);
+    assert.strictEqual(rejected.status, 2);
+    assert.include(rejected.stderr, "--base is a ledger-only flag");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("excludes walk repair commits from the budget line sums", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    // An unattended walk repair cannot author a raise trailer: its lines are
+    // the walk's own bookkeeping, not a domain's change.
+    NodeFS.writeFileSync(NodePath.join(root, "repair.ts"), "repair line one\nrepair line two\n");
+    const withRepair = commitAll(
+      root,
+      "fix: repair the walk after a conflicted replay",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Repair: v0.0.39-fix\n",
+    );
+    const result = runForkDelta(root, checkArgs(base, withRepair, upstream));
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.include(result.stdout, "ok: 3 fork commits tagged");
+
+    const json = runForkDelta(root, [
+      "--inventory",
+      "--json",
+      "--head",
+      withRepair,
+      "--upstream",
+      upstream,
+    ]);
+    assert.strictEqual(json.status, 0, json.stderr);
+    const inventory = JSON.parse(json.stdout) as {
+      domains: ReadonlyArray<{
+        domain: string;
+        commits: number;
+        added: number;
+        deleted: number;
+        files: number;
+        overlaps: number;
+      }>;
+      commits: ReadonlyArray<{ short: string }>;
+      distinctFiles: number;
+    };
+    // The repair commit's lines stay out of the sums and the distinct count
+    // while its per-commit row remains visible.
+    assert.deepStrictEqual(inventory.domains, [
+      { domain: "fork-meta", commits: 2, added: 3, deleted: 0, files: 3, overlaps: 1 },
+    ]);
+    assert.strictEqual(inventory.commits.length, 3);
+    assert.strictEqual(inventory.distinctFiles, 3);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a squash body that raises a ceiling without the Fork-Budget trailer", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the shared-file module grew\n",
+    );
+    const bodyPath = NodePath.join(root, "pr-body.md");
+    NodeFS.writeFileSync(
+      bodyPath,
+      "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const result = runForkDelta(root, [
+      "--check",
+      "--base",
+      base,
+      "--head",
+      raising,
+      "--upstream",
+      upstream,
+      "--squash-body",
+      bodyPath,
+    ]);
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      "pull-request body: raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a squash that raises a ceiling when the body carries the trailer", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const bodyPath = NodePath.join(root, "pr-body.md");
+    NodeFS.writeFileSync(
+      bodyPath,
+      "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the shared-file module grew\n",
+    );
+    const result = runForkDelta(root, [
+      "--check",
+      "--base",
+      base,
+      "--head",
+      raising,
+      "--upstream",
+      upstream,
+      "--squash-body",
+      bodyPath,
+    ]);
+    assert.strictEqual(result.status, 0, result.stderr);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });

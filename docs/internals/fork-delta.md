@@ -107,13 +107,14 @@ Fork-Tier: bugfix
 Fork-Upstreamable: yes
 ```
 
-| Trailer             | Values                        | Required on              |
-| ------------------- | ----------------------------- | ------------------------ |
-| `Fork-Domain`       | A domain from the index below | Every fork commit        |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit        |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`           |
-| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
-| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair   |
+| Trailer             | Values                        | Required on                                                                                                 |
+| ------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Fork-Domain`       | A domain from the index below | Every fork commit                                                                                           |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit                                                                                           |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`                                                                                              |
+| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions                                                                                    |
+| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair                                                                                      |
+| `Fork-Budget`       | `raise <reason>`              | Every commit that raises a budget ceiling; a squashing PR carries it in the body when the squash raises one |
 
 `Fork-Repair` marks a commit the sync walk wrote itself for what its repair pass rewrote after
 replaying the fork stack onto that tag, and it is what keeps such a commit out of the fork series
@@ -158,6 +159,42 @@ visible in the generated ledger.
 The check is textual rather than a TypeScript AST pass. It cannot see type widening, on-disk settings
 migrations, mobile deep-link parameters, or anything outside exported `Schema.Literals` and
 `Schema.Struct` bindings. Review those compatibility boundaries separately.
+
+## Fork budget
+
+The stack carries a per-domain budget in `docs/internals/fork-budget.md`: a ceiling on each
+domain's added lines and deleted lines, measured by `vp run fork:delta --inventory`. Commit
+counts and shared-file attributions ride in the table but gate nothing — a commit count is not
+a cost, and a shared attribution is a union of the net fork and upstream diffs that moves with
+every upstream tag even when the fork does not, so gating it would red trunk on the next
+upstream movement. `vp run fork:delta --check` re-measures the same inventory against the
+upstream target and fails, naming the domain and both numbers, when a gated measurement
+exceeds its ceiling. The budget is a stack property, never a per-commit trailer: a commit adds
+none and a squash carries none. Walk repairs (`Fork-Repair` commits) are the walk's own
+bookkeeping, so they stay visible in the inventory's per-commit table but their lines never
+count toward the budget sums.
+
+Ceilings ratchet down only. Lowering one is a normal commit; raising one requires the raising
+commit to carry `Fork-Budget: raise <reason>` in its own message — `--check` compares every
+budget-touching commit's file version against its parent's and refuses an unexplained raise,
+naming the domain and the numbers it pushed up. Because a PR squash lands as one commit, the
+squash-body check applies the same rule to the pull request's body: when the squash changes
+the baseline, its final trailer paragraph must carry `Fork-Budget: raise <reason>`. The
+initial seed is not a raise — there is no prior baseline to raise from — so the commit that
+adds the file carries no trailer. `vp run fork:delta --seed-budget` writes the table from the
+live inventory for that commit, with fork-meta's Added ceiling carrying the table's own lines
+so the seed → commit → check workflow lands green. A domain without a row has every ceiling
+at zero, so a new domain fails the check until a commit adds its row. Until the file exists
+at all — on the stack and at the merge base alike — the budget is not enforced and the check
+skips it; a baseline the merge base has but the stack does not is a removed baseline, and the
+check refuses that outright in both gates — ceilings ratchet down, they never disappear, and
+no trailer excuses the deletion, so lower the ceilings instead.
+
+The same three numbers ride along with the sync: every `fork:sync` walk records the size of
+the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
+in its report's walk record, measured at replay completion against the pinned target tag,
+where the shared count has signal, and before any repair commit is appended. Repairs are
+excluded from the recorded size the same way.
 
 ## Domain index
 
@@ -1031,6 +1068,7 @@ Upstream terminals can attach to an operator-chosen external session manager, an
 | `apps/web/src/state/entities.ts`                                                                                                                                           | The web environment merge calls the fork merge helper; upstream keeps `threadDetail.ts` untouched.                                                                                                                                                              |
 | `packages/client-runtime/src/state/checkoutMove.ts`                                                                                                                        | Re-attaches the shell's `checkoutMove` after the upstream environment-thread merge, keeping `threadDetail.ts` byte-identical upstream.                                                                                                                          |
 | `apps/web/src/components/ChatView.tsx`                                                                                                                                     | Resolves a terminal's launch location from its checkout mode and attachment identity.                                                                                                                                                                           |
+| `apps/web/src/components/BranchToolbarBranchSelector.tsx`                                                                                                                  | Locks branch selection while a checkout move is in flight and surfaces its requested/effective state.                                                                                                                                                           |
 | `apps/web/src/terminal/ghostty/surface.ts`                                                                                                                                 | Adds `resetSession`, which clears replaced-PTY state without discarding the viewer.                                                                                                                                                                             |
 | `docs/architecture/terminal-renderers.md`                                                                                                                                  | Documents the managed zmux visibility lifecycle and its demand leases.                                                                                                                                                                                          |
 | `docs/user/source-control.md`                                                                                                                                              | Documents moving a started thread between checkouts.                                                                                                                                                                                                            |

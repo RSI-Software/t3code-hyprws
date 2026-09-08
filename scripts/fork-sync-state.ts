@@ -399,6 +399,24 @@ export interface SyncReport {
  */
 export type WalkStopReason = "environment" | "conflict";
 
+/** The per-domain half of a walk's size record (RSI-Software/t3code-hyprws#672): the same
+ * numbers the `fork:delta --inventory` budget seeds from, captured per cycle. */
+export interface WalkSizeDomain {
+  readonly domain: string;
+  readonly commits: number;
+  readonly added: number;
+  readonly deleted: number;
+  readonly shared: number;
+}
+
+/** What the walk's replayed stack measured: total fork commits, the per-domain table, and the
+ * shared-file count. Recorded at replay completion, before any repair commit is appended. */
+export interface WalkSize {
+  readonly commits: number;
+  readonly domains: ReadonlyArray<WalkSizeDomain>;
+  readonly sharedFiles: number;
+}
+
 /** What one unattended walk did, in the terms the notification issue and the ledger need. */
 export interface WalkRecord {
   readonly startedAt?: string;
@@ -426,6 +444,8 @@ export interface WalkRecord {
     readonly commit?: string;
   };
   readonly decisions?: ReadonlyArray<WalkDecision>;
+  /** The stack the walk replayed, measured at replay completion (RSI-Software/t3code-hyprws#672). */
+  readonly size?: WalkSize;
   readonly stop?: { readonly reason: WalkStopReason; readonly detail: string };
   /**
    * Where the walk's row and outcome record ended up. The apply invocation publishes both, so
