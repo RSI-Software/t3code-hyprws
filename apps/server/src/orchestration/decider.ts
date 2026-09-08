@@ -45,7 +45,7 @@ import {
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
-import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode";
+import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode.fork";
 import { projectEvent } from "./projector.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 import { decideCheckoutMoveComplete, decideCheckoutMovePrepare } from "./CheckoutMoveState.ts";
