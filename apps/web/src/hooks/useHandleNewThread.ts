@@ -25,8 +25,8 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   fromWireThreadEnvModeFields,
-  resolveDefaultThreadEnvMode,
-} from "@t3tools/shared/threadEnvMode";
+  resolveDefaultStoredThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode.fork";
 import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
@@ -163,7 +163,7 @@ export function useNewThreadHandler() {
       // query atom caches per project after the first call.
       const resolveDefaultEnvMode = async (): Promise<DraftThreadEnvMode> => {
         const consultProjectFile = project !== undefined && projectThreadEnvMode == null;
-        return resolveDefaultThreadEnvMode({
+        return resolveDefaultStoredThreadEnvMode({
           projectSetting: project ? fromWireThreadEnvModeFields(project) : null,
           projectFile: consultProjectFile
             ? await readT3ProjectFileDefaultThreadEnvMode(
