@@ -20,11 +20,11 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
+import { isDefaultThreadEnvModeSettled } from "@t3tools/shared/threadEnvMode";
 import {
   fromWireThreadEnvModeFields,
-  isDefaultThreadEnvModeSettled,
-  resolveDefaultThreadEnvMode,
-} from "@t3tools/shared/threadEnvMode";
+  resolveDefaultStoredThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode.fork";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -451,7 +451,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     projectSettings.sources.defaultThreadEnvMode === "project"
       ? projectSettings.settings.defaultThreadEnvMode
       : undefined;
-  const resolvedDefaultThreadEnvMode = resolveDefaultThreadEnvMode({
+  const resolvedDefaultThreadEnvMode = resolveDefaultStoredThreadEnvMode({
     projectSetting: selectedProject ? fromWireThreadEnvModeFields(selectedProject) : null,
     projectFile: t3ProjectFileDefaultMode,
     globalDefault: selectedEnvironmentServerConfig
