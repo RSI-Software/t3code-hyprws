@@ -14,7 +14,7 @@ import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
-import { fromWireThreadEnvModeFields, toWireThreadEnvModeFields } from "./threadEnvMode.ts";
+import { fromWireThreadEnvModeFields, toWireThreadEnvModeFields } from "./threadEnvMode.fork.ts";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,

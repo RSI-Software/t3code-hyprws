@@ -1,9 +1,10 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import { ExecutionEnvironmentDescriptor, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, ThreadEnvMode } from "./environment.ts";
+import { ForkThreadEnvMode } from "./environment.fork.ts";
 const decodeDescriptor = Schema.decodeUnknownSync(ExecutionEnvironmentDescriptor);
-const decodeWireThreadEnvMode = Schema.decodeUnknownSync(WireThreadEnvMode);
 const decodeThreadEnvMode = Schema.decodeUnknownSync(ThreadEnvMode);
+const decodeForkThreadEnvMode = Schema.decodeUnknownSync(ForkThreadEnvMode);
 const descriptor = {
   environmentId: "environment-1",
   label: "Local",
@@ -24,13 +25,17 @@ describe("ExecutionEnvironmentDescriptor", () => {
     ).toBe(true);
   });
 });
-describe("WireThreadEnvMode", () => {
+describe("ThreadEnvMode (the wire schema)", () => {
   it("accepts only the modes every released client validates against", () => {
-    expect(decodeWireThreadEnvMode("local")).toBe("local");
-    expect(decodeWireThreadEnvMode("worktree")).toBe("worktree");
-    expect(() => decodeWireThreadEnvMode("worktrunk")).toThrow();
+    expect(decodeThreadEnvMode("local")).toBe("local");
+    expect(decodeThreadEnvMode("worktree")).toBe("worktree");
+    expect(() => decodeThreadEnvMode("worktrunk")).toThrow();
   });
-  it("keeps the fork mode decodable where the value is stored, not sent", () => {
-    expect(decodeThreadEnvMode("worktrunk")).toBe("worktrunk");
+});
+describe("ForkThreadEnvMode", () => {
+  it("matches the stored mode literals, including the fork-only mode", () => {
+    expect(decodeForkThreadEnvMode("local")).toBe("local");
+    expect(decodeForkThreadEnvMode("worktree")).toBe("worktree");
+    expect(decodeForkThreadEnvMode("worktrunk")).toBe("worktrunk");
   });
 });

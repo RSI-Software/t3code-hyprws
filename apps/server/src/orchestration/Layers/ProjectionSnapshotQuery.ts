@@ -85,7 +85,7 @@ import {
   type ProjectionThreadDetailQuery,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
-import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode";
+import { toWireThreadEnvModeOverrideFields } from "@t3tools/shared/threadEnvMode.fork";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
