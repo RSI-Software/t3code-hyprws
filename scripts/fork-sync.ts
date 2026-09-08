@@ -57,8 +57,15 @@ import {
 } from "./lib/fork-policy.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { normalizeReplayMessages, withoutRepairMessages } from "./lib/fork-replay-messages.ts";
-import { isForkDomain, parseForkTrailers } from "./lib/fork-trailers.ts";
+import {
+  forkLogArguments,
+  isForkDomain,
+  parseForkLog,
+  parseForkTrailers,
+} from "./lib/fork-trailers.ts";
+import { commitNumstatArguments, parseCommitNumstat } from "./lib/fork-numstat.ts";
 import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
+import { buildWalkSize, type WalkSize } from "./lib/fork-walk-size.ts";
 
 import {
   reconcileStableCandidates,
@@ -885,6 +892,47 @@ const matchedRetiredCount = (messages: string, retired: ReadonlySet<string>): nu
 const expectedReplayCount = (report: SyncReport, retired: ReadonlySet<string>): number =>
   (report.originalCount ?? 0) - matchedRetiredCount(report.originalMessages ?? "", retired);
 
+/**
+ * Measures the stack the walk replayed: the three numbers per cycle the walk records as its size
+ * (RSI-Software/t3code-hyprws#672) — total fork commits, the per-domain table, and the shared-
+ * file count, read from the replayed lane against the net fork and upstream diffs exactly like
+ * `fork:delta --inventory`.
+ */
+const walkSizeRecord = (report: SyncReport, runner: CommandRunner): WalkSize | undefined => {
+  if (
+    report.lane === undefined ||
+    report.target === undefined ||
+    report.source === undefined ||
+    report.source.sharedBase.length === 0
+  )
+    return undefined;
+  const range = `${report.target.sha}..HEAD`;
+  const commits = parseForkLog(
+    gitRaw(runner, report.lane.worktree, forkLogArguments(report.target.sha, "HEAD"), true),
+  );
+  const statsBySha = parseCommitNumstat(
+    gitRaw(
+      runner,
+      report.lane.worktree,
+      commitNumstatArguments(commits.map(({ sha }) => sha)),
+      true,
+    ),
+  );
+  const quoteArgs = ["-c", "core.quotePath=false", "diff", "--name-only"];
+  const forkChanged = new Set(
+    lines(gitRaw(runner, report.lane.worktree, [...quoteArgs, range], true)),
+  );
+  const upstreamChanged = new Set(
+    lines(
+      gitRaw(runner, report.repositoryRoot, [
+        ...quoteArgs,
+        `${report.source.sharedBase}..${report.target.sha}`,
+      ]),
+    ),
+  );
+  return buildWalkSize({ commits, statsBySha, forkChanged, upstreamChanged });
+};
+
 export const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
@@ -1159,7 +1207,15 @@ const unblockRehearse = (
       true,
     ),
   );
-  report = { ...report, stage: "replayed", rebasedHead, stackSize };
+  // Every walk records the size of the stack it replayed (RSI-Software/t3code-hyprws#672).
+  const size = walkSizeRecord(report, runner);
+  report = {
+    ...report,
+    stage: "replayed",
+    rebasedHead,
+    stackSize,
+    walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
+  };
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -3655,6 +3711,15 @@ export const walkSummary = (report: SyncReport): string => {
     `- target: ${report.target === undefined ? "none" : `\`${report.target.tag}@${report.target.sha}\``}`,
     `- base move: ${walk.baseMove === undefined ? "none" : `\`${walk.baseMove.from}\` to \`${walk.baseMove.to}\``}`,
     `- elapsed: ${walk.elapsedMs === undefined ? "unknown" : `${Math.round(walk.elapsedMs / 1000)}s`}`,
+    ...(walk.size === undefined
+      ? []
+      : [
+          `- size: ${walk.size.commits} fork commits across ${walk.size.domains.length} domains, ${walk.size.sharedFiles} shared file attributions`,
+          ...walk.size.domains.map(
+            (row) =>
+              `  - ${row.domain}: ${row.commits} commits, +${row.added}/-${row.deleted}, ${row.shared} shared`,
+          ),
+        ]),
     rows.length === 0
       ? "- conflicts: none"
       : [
