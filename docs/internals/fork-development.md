@@ -323,7 +323,13 @@ Small, coherent commits are easier to rebase, review, reorder, and drop.
 Apply that granularity where it preserves rebase intent. A commit that edits an upstream file — and
 therefore touches a seam — carries one intent and stays small, because that intent is what re-derives
 a conflict resolution on rebase. Inside fork-only paths, granularity is economically irrelevant and
-needs no curation. Once commits land, never squash the stack. See
+needs no curation. Once commits land, the stack is never squashed, with one spent
+exception: the domain flatten (RSI-Software/t3code-hyprws#671), a one-time
+squash under a human-authorized expected-old trunk lease, legal because the
+archive ref `archive/hyprws-pre-rewrite-<expected-old>` was created and verified
+first (the one hand-created exception to the bot-owned ref families above),
+churn aliases for every squashed subject were recorded first, and the flatten is
+tree-neutral. The general never-squash rule otherwise stands. See
 [Fork strategy principle 4](./fork-strategy.md#principles) for the reasoning behind this asymmetry.
 
 - Keep one concern per commit and use the repository's conventional commit style.
