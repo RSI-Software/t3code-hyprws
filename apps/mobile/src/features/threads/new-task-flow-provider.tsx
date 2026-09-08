@@ -18,11 +18,11 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
+import { isDefaultThreadEnvModeSettled } from "@t3tools/shared/threadEnvMode";
 import {
   fromWireThreadEnvModeFields,
-  isDefaultThreadEnvModeSettled,
-  resolveDefaultThreadEnvMode,
-} from "@t3tools/shared/threadEnvMode";
+  resolveDefaultStoredThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode.fork";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -393,7 +393,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (t3ProjectFileData === null || t3ProjectFileData.truncated) return null;
     return parseT3ProjectFile(t3ProjectFileData.contents)?.defaultThreadEnvMode ?? null;
   }, [t3ProjectFileData]);
-  const resolvedDefaultThreadEnvMode = resolveDefaultThreadEnvMode({
+  const resolvedDefaultThreadEnvMode = resolveDefaultStoredThreadEnvMode({
     projectSetting: selectedProject ? fromWireThreadEnvModeFields(selectedProject) : null,
     projectFile: t3ProjectFileDefaultMode,
     globalDefault: selectedEnvironmentServerConfig
