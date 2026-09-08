@@ -22259,6 +22259,46 @@
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34187292478"
     },
     {
+      "kind": "attempt",
+      "targetSha": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "attemptId": "34189686211/1/outcome",
+      "trigger": "schedule",
+      "executor": "bot",
+      "mode": "unknown",
+      "sourceSha": "533729ea3a1a9665f322e4081676df2e774f13e1",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34189686211"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "attemptId": "34189686211/1/outcome",
+      "stage": "release-verification",
+      "status": "succeeded",
+      "detail": "release preflight result for the exact checkout",
+      "sha": "533729ea3a1a9665f322e4081676df2e774f13e1",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34189686211"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "attemptId": "34189686211/1/outcome",
+      "stage": "release-build",
+      "status": "not-attempted",
+      "detail": "release build result for the exact preflight checkout",
+      "sha": "533729ea3a1a9665f322e4081676df2e774f13e1",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34189686211"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "223ff4490f764a74ff911589e97b9bbcd595fee8",
+      "attemptId": "34189686211/1/outcome",
+      "stage": "distribution",
+      "status": "not-attempted",
+      "detail": "release incomplete: preflight=succeeded, build=not-attempted, publication=not-attempted, assets=false, tagMatches=false, retainedApply=false",
+      "sha": "533729ea3a1a9665f322e4081676df2e774f13e1",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34189686211"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.39-nightly.20260906.1316",
