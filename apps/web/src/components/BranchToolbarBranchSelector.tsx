@@ -22,7 +22,7 @@ import type {
 } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronDownIcon, GitBranchIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   useCallback,
   useDeferredValue,
