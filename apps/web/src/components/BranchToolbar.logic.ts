@@ -6,6 +6,9 @@ import type {
   WorktreeSubmodules,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { ForkThreadEnvMode } from "@t3tools/contracts"; // fork-hook: worktrunk-hooks/env-mode-enum-import
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork"; // fork-hook: worktrunk-hooks/env-mode-predicate-import
+import { resolveForkEnvModeLabel } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -20,7 +23,7 @@ export interface EnvironmentOption {
   machine: EnvironmentMachineKind;
 }
 
-export const EnvMode = ForkThreadEnvMode; // fork-hook: worktrunk-hooks/env-mode-enum
+export const EnvMode = Schema.Literals(ForkThreadEnvMode.literals); // fork-hook: worktrunk-hooks/env-mode-enum
 export type EnvMode = typeof EnvMode.Type;
 
 const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
