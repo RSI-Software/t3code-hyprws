@@ -15,10 +15,26 @@ import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+import {
+  budgetFindings,
+  budgetRaises,
+  forkBudgetFindingMessage,
+  FORK_BUDGET_PATH,
+  parseForkBudget,
+  renderForkBudget,
+  type ForkBudget,
+  type ForkBudgetRaise,
+} from "./lib/fork-budget.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
 import {
-  FORK_LOG_RECORD_SEPARATOR,
+  commitNumstatArguments,
+  EMPTY_NUMSTAT,
+  parseCommitNumstat,
+  type CommitNumstat,
+} from "./lib/fork-numstat.ts";
+import {
   forkLogArguments,
+  isForkBudgetRaise,
   isForkDomain,
   isForkUpstreamable,
   parseForkLog,
@@ -53,6 +69,8 @@ export const ForkCommit = Schema.Struct({
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
   wireReviewed: OptionalTrailer,
+  budget: OptionalTrailer,
+  repair: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
 
@@ -95,6 +113,19 @@ export class ForkLogExitError extends Schema.TaggedErrorClass<ForkLogExitError>(
 ) {
   override get message(): string {
     return `git log exited with code ${this.exitCode}: ${this.stderr.trim()}`;
+  }
+}
+
+export {
+  commitNumstatArguments,
+  parseCommitNumstat,
+  type CommitNumstat,
+} from "./lib/fork-numstat.ts";
+export class ForkBudgetError extends Schema.TaggedErrorClass<ForkBudgetError>()("ForkBudgetError", {
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return `${FORK_BUDGET_PATH} is invalid: ${this.reason}`;
   }
 }
 
@@ -155,6 +186,9 @@ export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArr
       problems.push("bugfix without Fork-Upstreamable");
     } else if (commit.upstreamable !== undefined && !isForkUpstreamable(commit.upstreamable)) {
       problems.push(`unknown Fork-Upstreamable "${commit.upstreamable}" (expected yes or no)`);
+    }
+    if (commit.budget !== undefined && !isForkBudgetRaise(commit.budget)) {
+      problems.push('Fork-Budget must be "raise <reason>"');
     }
     return problems.map((problem) => ({ short: commit.short, subject: commit.subject, problem }));
   });
@@ -299,75 +333,38 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
 
 // -- Inventory (`--inventory`) ------------------------------------------------
 
-export interface CommitNumstat {
-  readonly files: ReadonlyArray<string>;
-  readonly added: number;
-  readonly deleted: number;
-}
+export const ForkInventoryCommit = Schema.Struct({
+  short: Schema.String,
+  domain: Schema.String,
+  tier: Schema.String,
+  upstreamable: Schema.String,
+  files: Schema.Number,
+  overlaps: Schema.Number,
+});
+export type ForkInventoryCommit = typeof ForkInventoryCommit.Type;
 
-const EMPTY_NUMSTAT: CommitNumstat = { files: [], added: 0, deleted: 0 };
+export const ForkInventoryDomain = Schema.Struct({
+  domain: Schema.String,
+  commits: Schema.Number,
+  added: Schema.Number,
+  deleted: Schema.Number,
+  files: Schema.Number,
+  overlaps: Schema.Number,
+});
+export type ForkInventoryDomain = typeof ForkInventoryDomain.Type;
 
-// One numstat record per commit. `--no-renames` keeps every path a real path, so
-// a renamed file intersects the net fork and upstream diffs — which list the new
-// path only — exactly like fork:scan's `--name-only` commit lists do.
-export const commitNumstatArguments = (shas: ReadonlyArray<string>) =>
-  [
-    "-c",
-    "core.quotePath=false",
-    "show",
-    "--numstat",
-    "--no-renames",
-    `--format=${FORK_LOG_RECORD_SEPARATOR}%H`,
-    ...shas,
-  ] as const;
+export const ForkInventory = Schema.Struct({
+  base: Schema.String,
+  head: Schema.String,
+  target: Schema.String,
+  domains: Schema.Array(ForkInventoryDomain),
+  commits: Schema.Array(ForkInventoryCommit),
+  /** The distinct files the stack touches; the Total row counts this, not the per-domain sum. */
+  distinctFiles: Schema.Number,
+});
+export type ForkInventory = typeof ForkInventory.Type;
 
-export const parseCommitNumstat = (raw: string): ReadonlyMap<string, CommitNumstat> => {
-  const stats = new Map<string, CommitNumstat>();
-  for (const record of raw.replace(/\r\n/g, "\n").split(FORK_LOG_RECORD_SEPARATOR)) {
-    const [sha = "", ...rows] = record.split("\n");
-    if (sha.trim().length === 0) continue;
-    let added = 0;
-    let deleted = 0;
-    const files: Array<string> = [];
-    for (const row of rows) {
-      const cells = row.split("\t");
-      const path = (cells[2] ?? "").trim();
-      if (path.length === 0) continue;
-      files.push(path);
-      // Binary files report "-" for both counts; they still count as touched.
-      added += Number.parseInt(cells[0] ?? "", 10) || 0;
-      deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
-    }
-    stats.set(sha.trim(), { files, added, deleted });
-  }
-  return stats;
-};
-
-export interface ForkInventoryCommit {
-  readonly short: string;
-  readonly domain: string;
-  readonly tier: string;
-  readonly upstreamable: string;
-  readonly files: number;
-  readonly overlaps: number;
-}
-
-export interface ForkInventoryDomain {
-  readonly domain: string;
-  readonly commits: number;
-  readonly added: number;
-  readonly deleted: number;
-  readonly files: number;
-  readonly overlaps: number;
-}
-
-export interface ForkInventory {
-  readonly base: string;
-  readonly head: string;
-  readonly target: string;
-  readonly domains: ReadonlyArray<ForkInventoryDomain>;
-  readonly commits: ReadonlyArray<ForkInventoryCommit>;
-}
+const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
 
 // Per-domain and per-commit views of the same stack. A commit's overlap count
 // uses its own files against both net diffs; a domain aggregates its commits'
@@ -386,6 +383,7 @@ export const buildInventory = (input: {
     string,
     { commits: number; added: number; deleted: number; files: Set<string> }
   >();
+  const distinctFiles = new Set<string>();
 
   for (const commit of input.commits) {
     const stats = input.statsBySha.get(commit.sha) ?? EMPTY_NUMSTAT;
@@ -397,6 +395,11 @@ export const buildInventory = (input: {
       files: stats.files.length,
       overlaps: overlapPaths(stats.files, input.forkChanged, input.upstreamChanged).length,
     });
+    // A walk repair commit is the walk's own bookkeeping, not a domain's change:
+    // it stays visible in the per-commit table but its lines never count toward
+    // the budget sums, and it cannot author a raise trailer.
+    if (commit.repair !== undefined) continue;
+    for (const path of stats.files) distinctFiles.add(path);
     if (commit.domain === undefined) continue;
     const bucket = buckets.get(commit.domain) ?? {
       commits: 0,
@@ -428,6 +431,7 @@ export const buildInventory = (input: {
     target: input.target,
     domains,
     commits: commitRows,
+    distinctFiles: distinctFiles.size,
   };
 };
 
@@ -458,8 +462,11 @@ export const renderInventory = (inventory: ForkInventory): string => {
       `| ${row.domain} | ${row.commits} | ${row.added} | ${row.deleted} | ${row.files} | ${row.overlaps} |`,
     );
   }
+  // The Total Files cell is the distinct count across domains, not the per-domain
+  // sum: a shared file counts once for the stack, while the Shared column keeps its
+  // per-attribution totals.
   lines.push(
-    `| Total | ${totals.commits} | ${totals.added} | ${totals.deleted} | ${totals.files} | ${totals.overlaps} |`,
+    `| Total | ${totals.commits} | ${totals.added} | ${totals.deleted} | ${inventory.distinctFiles} | ${totals.overlaps} |`,
     "",
   );
   lines.push("## Commits", "");
@@ -542,6 +549,168 @@ const readCommitNumstat = Effect.fn("readInventoryCommitNumstat")(function* (
   }
   return parseCommitNumstat(result.stdout);
 });
+
+// The stack inventory: every fork commit above the merge base with the upstream
+// target, measured against the net fork and upstream diffs. Both --inventory and
+// the budget (--check, --seed-budget) read exactly these numbers.
+const collectInventory = Effect.fn("collectForkInventory")(function* (
+  target: string,
+  head: string,
+) {
+  const base = yield* resolveMergeBase(target, head, process.cwd());
+  const commits = yield* readForkLog(base, head);
+  const [forkChanged, upstreamChanged, statsBySha] = yield* Effect.all(
+    [
+      readDiffPaths(base, head),
+      readDiffPaths(base, target),
+      readCommitNumstat(commits.map(({ sha }) => sha)),
+    ],
+    { concurrency: "unbounded" },
+  );
+  return buildInventory({
+    base,
+    head,
+    target,
+    commits,
+    statsBySha,
+    forkChanged: new Set(forkChanged),
+    upstreamChanged: new Set(upstreamChanged),
+  });
+});
+
+// The commits above `base` that wrote the budget file, oldest first, so a raise
+// can be tied to the exact commit that raised it.
+const readBudgetCommitShas = Effect.fn("readBudgetCommitShas")(function* (
+  base: string,
+  head: string,
+) {
+  const result = yield* runGit(
+    ["log", "--reverse", "--format=%H", `${base}..${head}`, "--", FORK_BUDGET_PATH],
+    process.cwd(),
+  );
+  if (result.exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
+  }
+  return result.stdout
+    .split("\n")
+    .map((sha) => sha.trim())
+    .filter((sha) => sha.length > 0);
+});
+
+// A plain comparison so the parse failure stays out of the Effect error channel.
+const raisesOrParseProblem = (
+  before: string | undefined,
+  after: string,
+): { readonly raises: ReadonlyArray<ForkBudgetRaise> } | { readonly problem: string } => {
+  try {
+    return { raises: budgetRaises(before, after) };
+  } catch (error) {
+    return {
+      problem: `${FORK_BUDGET_PATH} does not parse at this commit: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+// A commit that pushes a budget ceiling up owes `Fork-Budget: raise <reason>` in
+// its own message; the trailer is the audit, not anything stamped in the file.
+// Adding the file is the initial seed — there is no prior baseline to raise
+// from — so it is not a raise. Removing an established baseline is refused
+// outright: ceilings ratchet down, they never disappear, and no trailer turns
+// a deletion into a ratchet.
+export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings")(function* (
+  commits: ReadonlyArray<ForkCommit>,
+  base: string,
+  head: string,
+  cwd = process.cwd(),
+) {
+  const shas = yield* readBudgetCommitShas(base, head);
+  const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
+  const findings: Array<ForkFinding> = [];
+  for (const sha of shas) {
+    const commit = bySha.get(sha);
+    if (commit === undefined) continue;
+    const [before, after] = yield* Effect.all(
+      [
+        readRevisionPath(`${sha}^:${FORK_BUDGET_PATH}`, cwd),
+        readRevisionPath(`${sha}:${FORK_BUDGET_PATH}`, cwd),
+      ],
+      { concurrency: "unbounded" },
+    );
+    if (after.trim().length === 0) {
+      if (before.trim().length > 0) {
+        findings.push({
+          short: commit.short,
+          subject: commit.subject,
+          problem: `removes ${FORK_BUDGET_PATH}; the budget never ratchets to absent — lower the ceilings instead`,
+        });
+      }
+      continue;
+    }
+    const outcome = raisesOrParseProblem(before.trim().length === 0 ? undefined : before, after);
+    if ("problem" in outcome) {
+      findings.push({ short: commit.short, subject: commit.subject, problem: outcome.problem });
+      continue;
+    }
+    if (outcome.raises.length > 0 && !isForkBudgetRaise(commit.budget)) {
+      const detail = outcome.raises
+        .map((raise) => `${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}`)
+        .join(", ");
+      findings.push({
+        short: commit.short,
+        subject: commit.subject,
+        problem: `raises ${detail} without Fork-Budget: raise <reason>`,
+      });
+    }
+  }
+  return findings;
+});
+
+// The squash-body check (hyprws-body CI) sees one prospective commit: a
+// budget-baseline change between --base and --head lands inside the squashed
+// commit, so its raise trailer must come from the body's final trailer
+// paragraph. Adding the file is the initial seed and is not a raise; removing
+// an established baseline is refused outright, exactly like the per-commit
+// check.
+export const collectSquashBudgetRaiseFindings = Effect.fn("collectSquashBudgetRaiseFindings")(
+  function* (base: string, head: string, budget: string | undefined, cwd = process.cwd()) {
+    const [before, after] = yield* Effect.all(
+      [
+        readRevisionPath(`${base}:${FORK_BUDGET_PATH}`, cwd),
+        readRevisionPath(`${head}:${FORK_BUDGET_PATH}`, cwd),
+      ],
+      { concurrency: "unbounded" },
+    );
+    if (after.trim().length === 0) {
+      if (before.trim().length > 0) {
+        return [
+          {
+            short: "squash",
+            subject: "pull-request body",
+            problem: `removes ${FORK_BUDGET_PATH}; the budget never ratchets to absent — lower the ceilings instead`,
+          },
+        ];
+      }
+      return [];
+    }
+    const outcome = raisesOrParseProblem(before.trim().length === 0 ? undefined : before, after);
+    if ("problem" in outcome) {
+      return [{ short: "squash", subject: "pull-request body", problem: outcome.problem }];
+    }
+    if (outcome.raises.length > 0 && !isForkBudgetRaise(budget)) {
+      const detail = outcome.raises
+        .map((raise) => `${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}`)
+        .join(", ");
+      return [
+        {
+          short: "squash",
+          subject: "pull-request body",
+          problem: `raises ${detail} without Fork-Budget: raise <reason>`,
+        },
+      ];
+    }
+    return [];
+  },
+);
 
 const missingRevisionPath = (stderr: string): boolean =>
   /(?:does not exist in|exists on disk, but not in)/.test(stderr);
@@ -672,6 +841,12 @@ const command = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    seedBudget: Flag.boolean("seed-budget").pipe(
+      Flag.withDescription(
+        `Write ${FORK_BUDGET_PATH} from the live inventory. The seeding commit carries Fork-Budget: raise <reason> like any raise.`,
+      ),
+      Flag.withDefault(false),
+    ),
     upstream: Flag.string("upstream").pipe(
       Flag.withDescription(
         "With --inventory, the upstream target to compare against (default: upstream/main).",
@@ -685,8 +860,58 @@ const command = Command.make(
       Flag.optional,
     ),
   },
-  ({ base, head, check, json, domain, shas, squashBody, inventory, upstream }) =>
+  ({ base, head, check, json, domain, shas, squashBody, inventory, upstream, seedBudget }) =>
     Effect.gen(function* () {
+      if (seedBudget) {
+        const conflicting = [
+          ...(check ? ["--check"] : []),
+          ...(inventory ? ["--inventory"] : []),
+          ...(json ? ["--json"] : []),
+          ...(Option.isSome(domain) ? ["--domain"] : []),
+          ...(shas ? ["--shas"] : []),
+          ...(Option.isSome(squashBody) ? ["--squash-body"] : []),
+          ...(Option.isSome(base) ? ["--base"] : []),
+          ...(Option.isSome(head) ? ["--head"] : []),
+        ];
+        if (conflicting.length > 0) {
+          process.stderr.write(
+            `failed: --seed-budget takes no other mode flags (conflicting: ${conflicting.join(" ")})\n`,
+          );
+          process.exitCode = 2;
+          return;
+        }
+        const target = Option.getOrElse(upstream, () => "upstream/main");
+        const inventoryTable = yield* collectInventory(
+          target,
+          Option.getOrElse(head, () => "HEAD"),
+        );
+        // The seeding commit lands the table itself, and its lines count toward
+        // its own domain: fork-meta's Added ceiling carries the table's own
+        // lines so the documented seed -> commit -> check workflow lands green.
+        const rows = inventoryTable.domains.some((row) => row.domain === "fork-meta")
+          ? inventoryTable.domains
+          : [
+              ...inventoryTable.domains,
+              { domain: "fork-meta", commits: 0, added: 0, deleted: 0, files: 0, overlaps: 0 },
+            ];
+        const withHeadroom = rows.map((row) =>
+          row.domain === "fork-meta"
+            ? {
+                ...row,
+                added: row.added + renderForkBudget({ rows }).split("\n").length - 1,
+              }
+            : row,
+        );
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.writeFileString(
+          FORK_BUDGET_PATH,
+          renderForkBudget({ rows: withHeadroom }),
+        );
+        process.stdout.write(
+          `ok: ${FORK_BUDGET_PATH} seeded for ${withHeadroom.length} domains; fork-meta Added carries the table's own lines; commit the file — the initial seed carries no Fork-Budget raise trailer\n`,
+        );
+        return;
+      }
       if (Option.isSome(squashBody)) {
         const missingRefs = [
           ...(Option.isNone(base) ? ["--base"] : []),
@@ -705,12 +930,21 @@ const command = Command.make(
         const body = yield* fileSystem.readFileString(squashBody.value);
         const wireFindings = yield* collectWireShapeFindingsBetween(squashBase, squashHead);
         const ledger = buildSquashLedger(squashBase, squashHead, body, wireFindings);
-        for (const finding of ledger.findings) {
+        // A squash lands as one commit, so a budget-baseline change rides on the
+        // body's trailers: if the squash moves a gated ceiling up, the body must
+        // carry Fork-Budget: raise <reason>. Adding the file is the initial seed —
+        // there is no prior baseline, so it is not a raise.
+        const squashBudgetFindings = yield* collectSquashBudgetRaiseFindings(
+          squashBase,
+          squashHead,
+          parseSquashBody("pull-request body", body).budget,
+        );
+        for (const finding of [...ledger.findings, ...squashBudgetFindings]) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
         }
-        if (ledger.findings.length > 0) {
+        if (ledger.findings.length + squashBudgetFindings.length > 0) {
           process.stderr.write(
-            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> or Fork-Budget: raise <reason> (docs/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
@@ -719,28 +953,19 @@ const command = Command.make(
         return;
       }
       if (inventory) {
+        if (Option.isSome(base)) {
+          process.stderr.write(
+            "failed: --inventory derives its base from the merge base of the upstream target and --head; --base is a ledger-only flag\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
         const target = Option.getOrElse(upstream, () => "upstream/main");
         const inventoryHead = Option.getOrElse(head, () => "HEAD");
-        const base = yield* resolveMergeBase(target, inventoryHead, process.cwd());
-        const commits = yield* readForkLog(base, inventoryHead);
-        const [forkChanged, upstreamChanged, statsBySha] = yield* Effect.all(
-          [
-            readDiffPaths(base, inventoryHead),
-            readDiffPaths(base, target),
-            readCommitNumstat(commits.map(({ sha }) => sha)),
-          ],
-          { concurrency: "unbounded" },
+        const inventoryTable = yield* collectInventory(target, inventoryHead);
+        process.stdout.write(
+          json ? `${encodeInventoryJson(inventoryTable)}\n` : renderInventory(inventoryTable),
         );
-        const inventoryTable = buildInventory({
-          base,
-          head: inventoryHead,
-          target,
-          commits,
-          statsBySha,
-          forkChanged: new Set(forkChanged),
-          upstreamChanged: new Set(upstreamChanged),
-        });
-        process.stdout.write(renderInventory(inventoryTable));
         return;
       }
       const fileSystem = yield* FileSystem.FileSystem;
@@ -775,13 +1000,97 @@ const command = Command.make(
         for (const warning of ledger.warnings) {
           process.stderr.write(`warning: ${warning}\n`);
         }
-        for (const finding of ledger.findings) {
+        // A raise is a trailer problem like any other: it fails with the ledger's
+        // findings, naming the commit, the domain, and the numbers it pushed up.
+        const raiseFindings = yield* collectBudgetRaiseFindings(
+          ledger.commits,
+          resolvedBase,
+          resolvedHead,
+        );
+        const findings = [...ledger.findings, ...raiseFindings];
+        for (const finding of findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
         }
-        if (ledger.findings.length > 0) {
-          process.stderr.write(`failed: ${ledger.findings.length} fork delta problem(s)\n`);
+        if (findings.length > 0) {
+          process.stderr.write(`failed: ${findings.length} fork delta problem(s)\n`);
           process.exitCode = 1;
           return;
+        }
+        // The budget is a stack property measured against the upstream target, not
+        // the ledger walk base, so it always reads the merge-base inventory. Until
+        // a commit seeds the file there is no budget and the check skips it; a
+        // merge base that has the file while the stack does not is a removed
+        // baseline and is refused outright, with no trailer to excuse it.
+        const budgetTarget = Option.getOrElse(upstream, () => "upstream/main");
+        const budgetBase = yield* resolveMergeBase(budgetTarget, resolvedHead, process.cwd());
+        const establishedBaseline = yield* readRevisionPath(
+          `${budgetBase}:${FORK_BUDGET_PATH}`,
+          process.cwd(),
+        );
+        const missingBaselineOutcome = (): Effect.Effect<
+          { readonly removed: true } | {},
+          never
+        > => {
+          if (establishedBaseline.trim().length === 0) return Effect.succeed({});
+          process.stderr.write(
+            `failed: ${FORK_BUDGET_PATH} is removed from the stack; the budget never ratchets to absent — lower the ceilings instead\n`,
+          );
+          process.exitCode = 1;
+          return Effect.succeed({ removed: true } as const);
+        };
+        const budgetOutcome = yield* fileSystem.readFileString(FORK_BUDGET_PATH).pipe(
+          Effect.option,
+          Effect.flatMap(
+            (
+              maybeMarkdown,
+            ): Effect.Effect<
+              | { readonly budget?: ForkBudget }
+              | { readonly removed: true }
+              | { readonly invalid: string },
+              ForkBudgetError
+            > =>
+              Option.isNone(maybeMarkdown)
+                ? missingBaselineOutcome()
+                : Effect.map(
+                    Effect.try({
+                      try: () => parseForkBudget(maybeMarkdown.value),
+                      catch: (cause) =>
+                        new ForkBudgetError({
+                          reason: cause instanceof Error ? cause.message : String(cause),
+                        }),
+                    }),
+                    (budget) => ({ budget }),
+                  ),
+          ),
+          Effect.catch((error: ForkBudgetError) =>
+            Effect.succeed({ invalid: error.reason } as const),
+          ),
+        );
+        if ("invalid" in budgetOutcome) {
+          process.stderr.write(
+            `failed: ${FORK_BUDGET_PATH} is invalid: ${budgetOutcome.invalid}\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if ("removed" in budgetOutcome) return;
+        if (budgetOutcome.budget !== undefined) {
+          const budget = budgetOutcome.budget;
+          for (const unknown of budget.unknownDomains) {
+            process.stderr.write(`warning: fork budget row "${unknown}" is not a fork domain\n`);
+          }
+          const stack = yield* collectInventory(budgetTarget, resolvedHead);
+          const overBudget = budgetFindings(stack.domains, budget);
+          for (const finding of overBudget) {
+            process.stderr.write(`over budget: ${forkBudgetFindingMessage(finding)}\n`);
+          }
+          if (overBudget.length > 0) {
+            process.stderr.write(
+              `failed: ${overBudget.length} fork budget ceiling(s) exceeded (${FORK_BUDGET_PATH})\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
         }
         process.stdout.write(`ok: ${ledger.commits.length} fork commits tagged\n`);
         return;
