@@ -1,0 +1,459 @@
+import { assert, it } from "@effect/vitest";
+
+import {
+  buildScanResult,
+  commitFilesArguments,
+  findForkOwnedTypecheckGaps,
+  matchesScanPattern,
+  parseArgs,
+  parseCommitFiles,
+  parseRebaseScans,
+  renderScanReport,
+  resolveAuthoringSince,
+  scanFailures,
+  scanFailureSummary,
+  UsageError,
+  type ScanInput,
+} from "./fork-scan.ts";
+
+const RS = "";
+
+// Shaped like docs/internals/fork-delta.md: domain sections with a rebase scan,
+// plus the prose sections that must not be read as domains.
+const ledger = `# Fork delta
+
+\`\`\`bash
+vp run fork:scan
+\`\`\`
+
+## Retired
+
+| Fork commit | Domain | Upstream replacement |
+| --- | --- | --- |
+| \`apps/web/src/retired.ts\` | project-windows | gone |
+
+## project-windows
+
+### Shape
+
+The core is \`apps/web/src/notScanned.ts\`.
+
+### Rebase scan
+
+| Path | Why it matters |
+| --- | --- |
+| \`apps/desktop/src/window/DesktopWindow.ts\` | The window service the fork makes plural. |
+| \`apps/desktop/src/ipc/**\` | The bridge surface. |
+| \`apps/web/src/routes/project.*\` | Fork-only route subtree. |
+| \`package.json\` scripts block | The aliases sit between upstream ones. |
+
+## upstream-fixes
+
+### Rebase scan
+
+| Path | Why it matters |
+| --- | --- |
+| \`**\` (each commit's own diff) | Upstream probably fixed it differently. |
+
+## Adding a domain
+
+Answer three questions.
+`;
+
+const commit = (short: string, domain: string | undefined) => ({
+  sha: short.padEnd(40, "0"),
+  short,
+  subject: `feat: ${short}`,
+  ...(domain === undefined ? {} : { domain, tier: "core" }),
+});
+
+const scanInput = (overrides: Partial<ScanInput> = {}): ScanInput => ({
+  base: "base",
+  head: "HEAD",
+  target: "upstream/main",
+  commits: [commit("aaaaaaa", "project-windows")],
+  filesBySha: new Map([["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/Sidebar.logic.ts"]]]),
+  scans: parseRebaseScans(ledger),
+  forkChanged: new Set(["apps/web/src/components/Sidebar.logic.ts"]),
+  upstreamChanged: new Set(["apps/web/src/components/Sidebar.logic.ts"]),
+  ...overrides,
+});
+
+it("reads one pattern per code span from every domain's rebase scan", () => {
+  const scans = parseRebaseScans(ledger);
+  assert.deepStrictEqual([...scans.keys()], ["project-windows", "upstream-fixes"]);
+  assert.deepStrictEqual(scans.get("project-windows"), [
+    "apps/desktop/src/window/DesktopWindow.ts",
+    "apps/desktop/src/ipc/**",
+    "apps/web/src/routes/project.*",
+    "package.json",
+  ]);
+  assert.deepStrictEqual(scans.get("upstream-fixes"), ["**"]);
+});
+
+it("matches a segment with * and a subtree with **", () => {
+  assert.isTrue(
+    matchesScanPattern("apps/web/src/routes/project.*", "apps/web/src/routes/project.tsx"),
+  );
+  assert.isFalse(
+    matchesScanPattern("apps/web/src/routes/project.*", "apps/web/src/routes/project/index.tsx"),
+  );
+  assert.isTrue(matchesScanPattern("apps/desktop/src/ipc/**", "apps/desktop/src/ipc/methods/a.ts"));
+  assert.isFalse(matchesScanPattern("apps/desktop/src/ipc/**", "apps/desktop/src/preview/a.ts"));
+  assert.isTrue(matchesScanPattern("**", "anything/at/all.ts"));
+  assert.isFalse(matchesScanPattern("package.json", "apps/web/package.json"));
+});
+
+it("pairs each commit with the files it touches", () => {
+  const raw = `${RS}aaa\n\nfirst.ts\nsecond.ts\n${RS}bbb\n\nthird.ts\n`;
+  assert.deepStrictEqual(
+    [...parseCommitFiles(raw)],
+    [
+      ["aaa", ["first.ts", "second.ts"]],
+      ["bbb", ["third.ts"]],
+    ],
+  );
+  assert.deepStrictEqual(commitFilesArguments(["aaa"]).slice(2, 4), ["show", "--name-only"]);
+});
+
+it("fails a file both the fork and upstream changed that the scan omits", () => {
+  const result = buildScanResult(scanInput());
+  assert.deepStrictEqual(result.domains, [
+    {
+      domain: "project-windows",
+      commitCount: 1,
+      sharedCount: 1,
+      gaps: ["apps/web/src/components/Sidebar.logic.ts"],
+    },
+  ]);
+  assert.deepStrictEqual(scanFailures(result), [
+    "project-windows: rebase scan omits apps/web/src/components/Sidebar.logic.ts",
+  ]);
+  assert.include(renderScanReport(result), "MISSING  project-windows");
+});
+
+it("ignores a file only the fork changed and a file only upstream changed", () => {
+  const forkOnly = buildScanResult(scanInput({ upstreamChanged: new Set() }));
+  assert.deepStrictEqual(scanFailures(forkOnly), []);
+  assert.strictEqual(forkOnly.overlaps.length, 0);
+
+  // Reverted mid-stack: a commit touched it, the net fork diff does not carry it.
+  const reverted = buildScanResult(scanInput({ forkChanged: new Set() }));
+  assert.deepStrictEqual(scanFailures(reverted), []);
+});
+
+it("accepts a file a scan pattern covers", () => {
+  const covered = buildScanResult(
+    scanInput({
+      filesBySha: new Map([
+        ["aaaaaaa".padEnd(40, "0"), ["apps/desktop/src/ipc/methods/preview.ts"]],
+      ]),
+      forkChanged: new Set(["apps/desktop/src/ipc/methods/preview.ts"]),
+      upstreamChanged: new Set(["apps/desktop/src/ipc/methods/preview.ts"]),
+    }),
+  );
+  assert.deepStrictEqual(scanFailures(covered), []);
+  assert.deepStrictEqual(covered.overlaps, [
+    { path: "apps/desktop/src/ipc/methods/preview.ts", domain: "project-windows", covered: true },
+  ]);
+});
+
+it("fails a domain that has commits but no rebase scan, and skips untagged commits", () => {
+  const result = buildScanResult(
+    scanInput({
+      commits: [commit("aaaaaaa", "zmux-estate"), commit("bbbbbbb", undefined)],
+      filesBySha: new Map([["aaaaaaa".padEnd(40, "0"), ["apps/server/src/terminal/Manager.ts"]]]),
+      forkChanged: new Set(["apps/server/src/terminal/Manager.ts"]),
+      upstreamChanged: new Set(["apps/server/src/terminal/Manager.ts"]),
+    }),
+  );
+  assert.deepStrictEqual(scanFailures(result), [
+    "zmux-estate: no domain section with a rebase scan in docs/internals/fork-delta.md",
+  ]);
+  assert.deepStrictEqual(result.untaggedCommits, ["bbbbbbb"]);
+});
+
+it("attributes one shared file to every domain whose commits touch it", () => {
+  const result = buildScanResult(
+    scanInput({
+      commits: [commit("aaaaaaa", "project-windows"), commit("bbbbbbb", "upstream-fixes")],
+      filesBySha: new Map([
+        ["aaaaaaa".padEnd(40, "0"), ["apps/server/src/provider/Layers/GrokAdapter.ts"]],
+        ["bbbbbbb".padEnd(40, "0"), ["apps/server/src/provider/Layers/GrokAdapter.ts"]],
+      ]),
+      forkChanged: new Set(["apps/server/src/provider/Layers/GrokAdapter.ts"]),
+      upstreamChanged: new Set(["apps/server/src/provider/Layers/GrokAdapter.ts"]),
+    }),
+  );
+  assert.deepStrictEqual(
+    result.overlaps.map((overlap) => `${overlap.domain}:${overlap.covered}`),
+    ["project-windows:false", "upstream-fixes:true"],
+  );
+});
+
+it("surfaces a rehearsed-head typecheck failure in a fork-owned file as a gap", () => {
+  const calls: Array<string> = [];
+  const gaps = findForkOwnedTypecheckGaps(
+    "/repo",
+    new Set([
+      "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+      "apps/server/src/fork-only.ts",
+      "packages/contracts/src/fork-only.ts",
+    ]),
+    (_root, command) => {
+      calls.push(command.packageName);
+      if (command.workspace === "apps/web") {
+        return {
+          status: 2,
+          stdout:
+            "src/components/githubIssue/GitHubIssueDetailPanel.test.tsx(20,7): error TS2741: Property 'files' is missing.\n" +
+            "src/upstream-owned.ts(1,1): error TS2322: Type mismatch.\n",
+          stderr: "",
+        };
+      }
+      if (command.workspace === "packages/contracts") {
+        return {
+          status: 2,
+          stdout: "src/fork-only.ts(3,9): error TS2551: Property does not exist.\n",
+          stderr: "",
+        };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  );
+
+  assert.deepStrictEqual(calls, [
+    "@t3tools/web",
+    "t3",
+    "@t3tools/desktop",
+    "@t3tools/mobile",
+    "@t3tools/contracts",
+    "@t3tools/client-runtime",
+    "@t3tools/shared",
+  ]);
+  assert.deepStrictEqual(gaps, [
+    {
+      workspace: "apps/web",
+      path: "apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+    },
+    { workspace: "packages/contracts", path: "packages/contracts/src/fork-only.ts" },
+  ]);
+  const result = { ...buildScanResult(scanInput()), typecheckGaps: gaps };
+  assert.include(
+    scanFailures(result),
+    "typecheck: fork-owned file fails on rehearsed head: apps/web/src/components/githubIssue/GitHubIssueDetailPanel.test.tsx",
+  );
+  assert.include(renderScanReport(result), "Fork-owned typecheck gaps:");
+});
+
+it("summarises each gap class with its own repair", () => {
+  const clean = buildScanResult(scanInput({ upstreamChanged: new Set() }));
+  assert.deepStrictEqual(scanFailureSummary(clean), []);
+
+  const ledgerOnly = buildScanResult(scanInput());
+  assert.deepStrictEqual(scanFailureSummary(ledgerOnly), [
+    "failed: 1 rebase-scan gap(s); add each path to its domain's Rebase scan table in docs/internals/fork-delta.md",
+  ]);
+
+  const seam = [{ workspace: "apps/web", path: "apps/web/src/fork-only.ts" }];
+  assert.deepStrictEqual(scanFailureSummary({ ...clean, typecheckGaps: seam }), [
+    "failed: 1 typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun",
+  ]);
+
+  assert.lengthOf(scanFailureSummary({ ...ledgerOnly, typecheckGaps: seam }), 2);
+});
+
+it("defaults the target to upstream/main and the base to the merge base", () => {
+  assert.deepStrictEqual(parseArgs([]), {
+    base: null,
+    head: "HEAD",
+    target: "upstream/main",
+    typecheck: true,
+    since: null,
+    sameTreeRewriteOf: null,
+    replayOf: null,
+    strict: false,
+    ledgerRef: "refs/fork/churn",
+    offline: false,
+  });
+  assert.deepStrictEqual(
+    parseArgs([
+      "--head",
+      "origin/hyprws",
+      "--target",
+      "v0.0.35",
+      "--since",
+      "origin/hyprws",
+      "--same-tree-rewrite-of",
+      "archive/hyprws-pre-rewrite",
+      "--replay-of",
+      "origin/hyprws",
+      "--strict",
+      "--no-typecheck",
+    ]),
+    {
+      base: null,
+      head: "origin/hyprws",
+      target: "v0.0.35",
+      typecheck: false,
+      since: "origin/hyprws",
+      sameTreeRewriteOf: "archive/hyprws-pre-rewrite",
+      replayOf: "origin/hyprws",
+      strict: true,
+      ledgerRef: "refs/fork/churn",
+      offline: false,
+    },
+  );
+  assert.throws(() => parseArgs(["--nope"]), UsageError);
+  assert.throws(() => parseArgs(["--target", "a", "--target", "b"]), UsageError);
+  assert.throws(() => parseArgs(["--target"]), UsageError);
+  assert.throws(() => parseArgs(["--no-typecheck", "--no-typecheck"]), UsageError);
+  assert.throws(() => parseArgs(["--strict", "--strict"]), UsageError);
+  assert.throws(() => parseArgs(["--since"]), UsageError);
+  assert.throws(() => parseArgs(["--same-tree-rewrite-of"]), UsageError);
+  assert.throws(() => parseArgs(["--ledger-ref", "a".repeat(40)]), UsageError);
+  assert.throws(() => parseArgs(["--ledger-ref", "hyprws"]), UsageError);
+  assert.strictEqual(
+    parseArgs(["--offline", "--ledger-ref", "refs/fork/review-lessons"]).offline,
+    true,
+  );
+});
+
+it("scopes an exact same-tree rewrite to no newly authored commits", () => {
+  const calls: Array<ReadonlyArray<string>> = [];
+  const git = {
+    run: (args: ReadonlyArray<string>) => {
+      calls.push(args);
+      return "same-tree\n";
+    },
+  };
+  const options = parseArgs([
+    "--head",
+    "rewrite-head",
+    "--since",
+    "shared-base",
+    "--same-tree-rewrite-of",
+    "origin/hyprws",
+  ]);
+
+  assert.strictEqual(resolveAuthoringSince(git, options), "rewrite-head");
+  assert.deepStrictEqual(calls, [
+    ["rev-parse", "--verify", "rewrite-head^{tree}"],
+    ["rev-parse", "--verify", "origin/hyprws^{tree}"],
+  ]);
+});
+
+it("refuses to suppress authoring guards when rewrite content changed", () => {
+  const git = {
+    run: (args: ReadonlyArray<string>) =>
+      args.at(-1) === "rewrite-head^{tree}" ? "changed-tree\n" : "source-tree\n",
+  };
+  const options = parseArgs([
+    "--head",
+    "rewrite-head",
+    "--since",
+    "shared-base",
+    "--same-tree-rewrite-of",
+    "origin/hyprws",
+  ]);
+
+  assert.throws(
+    () => resolveAuthoringSince(git, options),
+    /historical rewrite head rewrite-head has tree changed-tree, expected origin\/hyprws tree source-tree/,
+  );
+});
+
+it("keeps the ordinary authoring range without a rewrite assertion", () => {
+  const options = parseArgs(["--head", "pr-head", "--since", "pr-base"]);
+  assert.strictEqual(
+    resolveAuthoringSince(
+      { run: () => assert.fail("ordinary ranges do not need a tree lookup") },
+      options,
+    ),
+    "pr-base",
+  );
+});
+
+// A rebase rehearsal replays every fork commit onto a newer upstream release, so
+// each one is newly authored against any `--since` ref and the adopted guards
+// would block shapes the trunk already carries.
+it("returns a proven rebase rehearsal to the historical authoring range", () => {
+  const calls: Array<ReadonlyArray<string>> = [];
+  const git = {
+    run: (args: ReadonlyArray<string>) => {
+      calls.push(args);
+      if (args[0] === "merge-base") return "tagged-base\n";
+      if (args[0] === "tag") return "v0.0.40\n";
+      return "304\n";
+    },
+  };
+  const options = parseArgs([
+    "--head",
+    "replay-head",
+    "--since",
+    "shared-base",
+    "--replay-of",
+    "origin/hyprws",
+  ]);
+
+  assert.strictEqual(resolveAuthoringSince(git, options), null);
+  assert.deepStrictEqual(calls, [
+    ["rev-list", "--count", "origin/hyprws", "--not", "replay-head"],
+    ["merge-base", "upstream/main", "replay-head"],
+    ["rev-list", "--count", "tagged-base", "--not", "origin/hyprws"],
+    ["tag", "--points-at", "tagged-base", "--list", "v*"],
+  ]);
+});
+
+it("keeps the authoring range when a head fails any rebase rehearsal proof", () => {
+  const options = parseArgs([
+    "--head",
+    "replay-head",
+    "--since",
+    "shared-base",
+    "--replay-of",
+    "origin/hyprws",
+  ]);
+  const reader = (overrides: Record<string, string>) => ({
+    run: (args: ReadonlyArray<string>) => {
+      if (args[0] === "merge-base") return "tagged-base\n";
+      if (args[0] === "tag") return overrides.tag ?? "v0.0.40\n";
+      return (args[2] === "origin/hyprws" ? overrides.contains : overrides.ahead) ?? "304\n";
+    },
+  });
+
+  // The head still contains the trunk, so it is a branch off it, not a replay.
+  assert.strictEqual(resolveAuthoringSince(reader({ contains: "0\n" }), options), "shared-base");
+  // The trunk already reached this base, so the head is stale, not replayed.
+  assert.strictEqual(resolveAuthoringSince(reader({ ahead: "0\n" }), options), "shared-base");
+  // Only an upstream release tag is a legitimate replay base.
+  assert.strictEqual(resolveAuthoringSince(reader({ tag: "\n" }), options), "shared-base");
+});
+
+it("carries ledger guard warnings into the report without changing the scan verdict", () => {
+  const result = buildScanResult(
+    scanInput({
+      upstreamChanged: new Set(),
+      guard: {
+        commits: [{ sha: "aaaaaaa".padEnd(40, "0"), short: "aaaaaaa", domain: "project-windows" }],
+        filesBySha: new Map([
+          ["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/ChatView.tsx"]],
+        ]),
+        patchesBySha: new Map(),
+        upstreamFiles: new Set(["apps/web/src/components/ChatView.tsx"]),
+        hotSeams: new Map([
+          [
+            "apps/web/src/components/ChatView.tsx",
+            { walkCount: 3, worstClass: "seam-moved", countUnit: "conflict walk(s)" },
+          ],
+        ]),
+      },
+    }),
+  );
+  assert.deepStrictEqual(scanFailures(result), []);
+  assert.deepStrictEqual(
+    result.warnings.map(({ rule }) => rule),
+    ["hot-seam"],
+  );
+  assert.include(renderScanReport(result), "WARN  hot-seam  aaaaaaa  project-windows");
+});
