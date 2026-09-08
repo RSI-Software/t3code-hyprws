@@ -8,6 +8,7 @@ import * as Path from "effect/Path";
 import {
   resolveForkNightlyReleaseMetadata,
   resolveForkStableReleaseMetadata,
+  resolveNextForkStableTag,
   resolvePreviousForkReleaseTag,
   writeForkReleaseOutput,
 } from "./fork-release-version.ts";
@@ -39,11 +40,18 @@ it.effect("parses stable fork tags without changing the existing release shape",
   }),
 );
 
+it("derives the next stable revision and rejects revision zero", () => {
+  assert.equal(
+    resolveNextForkStableTag("1.2.3", ["v1.2.3-hyprws.1", "v1.2.3-hyprws.4", "v1.2.4-hyprws.9"]),
+    "v1.2.3-hyprws.5",
+  );
+  assert.equal(resolveNextForkStableTag("1.2.3", []), "v1.2.3-hyprws.1");
+  assert.isNull(resolveNextForkStableTag("1.2.3-rc.1", []));
+});
+
 it.effect("rejects stable dispatch metadata that is not a fork stable tag", () =>
   Effect.gen(function* () {
-    const error = yield* resolveForkStableReleaseMetadata("v1.2.3-hyprws-nightly.20260829.1").pipe(
-      Effect.flip,
-    );
+    const error = yield* resolveForkStableReleaseMetadata("v1.2.3-hyprws.0").pipe(Effect.flip);
 
     assert.equal(error._tag, "InvalidForkReleaseInputError");
     assert.equal(error.message, "Stable fork releases require a vX.Y.Z-hyprws.N tag ref.");
