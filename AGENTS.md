@@ -1,5 +1,35 @@
 # T3 Code
 
+## Fork direction
+
+This checkout is the `RSI-Software/t3code-hyprws` fork.
+Read [Fork development](docs/internals/fork-development.md) before changing fork behavior or Git topology.
+Read [Fork delta](docs/internals/fork-delta.md) before adding to the fork, and walk its rebase scan on every upstream rebase.
+
+Upstream guidance below remains the default unless this section or the fork guide overrides it.
+
+- Treat a project-scoped desktop window as the user's T3 instance.
+- Keep the hub available and share the Electron process, backend pool, auth, providers, and persisted state.
+- Let Hyprland place windows across workspaces and monitors; do not encode compositor policy in T3 Code.
+- Keep local `main` identical to `upstream/main`; never add fork commits to it.
+- Maintain the fork delta on `hyprws`, the single fork trunk, and create focused worktrees from it with Worktrunk.
+- Rebase `hyprws` onto any upstream release tag, stable or nightly; never merge upstream into the fork branch.
+- Never target an untagged upstream commit; use the `fork-sync` skill for the rebase.
+- Tag every fork commit with `Fork-Domain` and `Fork-Tier` trailers; `vp run fork:delta --check` must pass.
+- Every action taken from the churn ledger ships the guard that stops its recurrence; read the hot seams in the `## Churn` section of the latest sync report before touching a file they name.
+- Cite an upstream item in fork prose only inside a code span or a fenced block, and write a fork item in full as `RSI-Software/t3code-hyprws#108`, because a live reference posts a backlink on the upstream thread and a bare number the fork never issued resolves there; `vp run fork:upstream-refs <file>` refuses a body that carries one.
+- Publish rebased history only with the explicit expected-old lease documented in the fork guide.
+- Keep patches small, upstream-native, and checked across every affected client and connection mode.
+- Triage a bug felt in the fork build with the [`upstream-triage`](.agents/skills/upstream-triage/SKILL.md) skill before filing or fixing it.
+
+**Nothing is posted upstream.**
+The fork posts nothing to `pingdotgg/t3code`: no pull request, issue, comment, review, or reaction.
+Reading upstream is fine; writing to it is not.
+This is a baseline rule, not a preference: it holds until at least 2026-11-27, may hold permanently, and only the human may lift it.
+`Fork-Upstreamable: yes` is a tracking tag only.
+It marks a commit upstream is likely to supersede so the rebase feasibility walk can flag it as a retire candidate, and it never authorizes contributing that commit.
+The fork tracks upstream and retires superseded commits; it does not contribute to upstream.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
