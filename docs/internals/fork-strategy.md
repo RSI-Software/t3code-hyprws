@@ -43,6 +43,10 @@ Three consequences:
 4. **Commit granularity is a conflict-resolution tool.** A commit that touches a seam carries one
    intent and stays small forever, because intent is what re-derives a resolution. Inside
    fork-only paths, granularity is economically irrelevant; spend no effort curating it.
+   A landed stack is never squashed; the one spent exception is the domain
+   flatten (RSI-Software/t3code-hyprws#671), under a human-authorized
+   expected-old trunk lease with the archive ref created first, churn aliases
+   recorded first, and a tree-neutral result.
 5. **Operational history is output, never input.** No record of applying the function — sync
    records, rehearsal logs, tooling iteration — enters the delta the function replays.
 6. **Observe at upstream speed, adopt at human speed.** Every upstream tag gets an automatic
