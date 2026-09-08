@@ -1,4 +1,8 @@
-import { T3_PROJECT_FILE_NAME, type EnvironmentId, type ThreadEnvMode } from "@t3tools/contracts";
+import {
+  T3_PROJECT_FILE_NAME,
+  type EnvironmentId,
+  type ForkThreadEnvMode,
+} from "@t3tools/contracts";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
@@ -31,7 +35,7 @@ export async function readT3ProjectFileDefaultThreadEnvMode(
   environmentId: EnvironmentId,
   workspaceRoot: string,
   timeoutMs: number = PROJECT_FILE_DEFAULTS_TIMEOUT_MS,
-): Promise<ThreadEnvMode | null> {
+): Promise<ForkThreadEnvMode | null> {
   const result = await withTimeout(
     executeAtomQuery(
       appAtomRegistry,

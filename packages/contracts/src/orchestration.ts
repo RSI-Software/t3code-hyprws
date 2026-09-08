@@ -4,7 +4,8 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { ProviderOptionSelections } from "./model.ts";
-import { RepositoryIdentity, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
+import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
+import { ForkThreadEnvMode } from "./environment.fork.ts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -339,10 +340,9 @@ export const OrchestrationProject = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   // Per-project override for where new threads start. Null/absent means
   // "no override": clients fall back to t3.json, then the global setting.
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
-  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
-  // in for it. A released client ignores this key and reads the wire value.
-  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  // Fork: the exact stored mode; a released client ignores this key.
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   // Opt-in because background sync performs network I/O and may move the checkout.
   // Optional on the wire so cached snapshots from older servers still decode.
   autoPull: Schema.optional(Schema.Boolean),
@@ -560,10 +560,9 @@ export const OrchestrationProjectShell = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
-  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
-  // in for it. A released client ignores this key and reads the wire value.
-  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  // Fork: the exact stored mode; a released client ignores this key.
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   // Optional opt-in so older cached snapshots decode and background sync remains explicit.
   autoPull: Schema.optional(Schema.Boolean),
 
@@ -831,10 +830,9 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   // Absent = leave unchanged; null = clear the override.
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(WireThreadEnvMode)),
-  // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
-  // in for it. A released client ignores this key and reads the wire value.
-  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  // Fork: the exact stored mode; a released client ignores this key.
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   // Opt-in because background sync performs network I/O and may move the checkout.
   // Optional on the wire so cached snapshots from older servers still decode.
   autoPull: Schema.optional(Schema.Boolean),
@@ -1361,7 +1359,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ForkThreadEnvMode)),
   autoPull: Schema.optional(Schema.Boolean),
   faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
