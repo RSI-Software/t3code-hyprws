@@ -25,8 +25,8 @@ import {
   type SidebarProjectGroupingMode,
   type T3ProjectFileScript,
   type ThreadEnvMode,
-  type WireThreadEnvMode,
 } from "@t3tools/contracts";
+import type { ForkThreadEnvMode } from "@t3tools/contracts";
 import { resolveEnvModeLabel } from "../BranchToolbar.logic";
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectAutoPull } from "@t3tools/shared/serverSettings";
@@ -38,7 +38,7 @@ import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import {
   fromWireThreadEnvModeFields,
   toWireThreadEnvModeOverrideFields,
-} from "@t3tools/shared/threadEnvMode";
+} from "@t3tools/shared/threadEnvMode.fork";
 import { useNavigate } from "@tanstack/react-router";
 import * as Equal from "effect/Equal";
 import * as Cause from "effect/Cause";
@@ -532,8 +532,8 @@ function ProjectDetail({
       input: Partial<{
         title: string;
         defaultModelSelection: ModelSelection | null;
-        defaultThreadEnvMode: WireThreadEnvMode | null;
-        defaultThreadEnvModeFork: ThreadEnvMode | undefined;
+        defaultThreadEnvMode: ThreadEnvMode | null;
+        defaultThreadEnvModeFork: ForkThreadEnvMode | undefined;
         autoPull: boolean;
         faviconPath: string | null;
         projectIcon: ProjectIconOverride | null;
@@ -670,7 +670,7 @@ function ProjectDetail({
     (member) => fromWireThreadEnvModeFields(member) !== storedEnvMode,
   );
   const setDefaultThreadEnvMode = useCallback(
-    (mode: ThreadEnvMode | null) =>
+    (mode: ForkThreadEnvMode | null) =>
       void updateAllMembers(
         { defaultThreadEnvModeFork: undefined, ...toWireThreadEnvModeOverrideFields(mode) },
         "Failed to update new-thread workspace",

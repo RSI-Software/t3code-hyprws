@@ -9,7 +9,8 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
-import { EnvironmentMachineKind, ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
+import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
+import { ForkThreadEnvMode } from "./environment.fork.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
   CustomModelSetting,
@@ -485,10 +486,6 @@ export const UsageModelPriceOverride = Schema.Struct({
   cacheWriteCostPerMillionTokens: Schema.optionalKey(UsageModelTokenPrice),
 });
 export type UsageModelPriceOverride = typeof UsageModelPriceOverride.Type;
-
-// Moved to environment.ts so orchestration contracts can use it without an
-// import cycle; re-exported here for compatibility with deep imports.
-export { ThreadEnvMode, WireThreadEnvMode } from "./environment.ts";
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -1040,12 +1037,12 @@ export const ServerSettings = Schema.Struct({
   environmentIcon: ForwardCompatibleNullable(EnvironmentMachineKind).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  defaultThreadEnvMode: WireThreadEnvMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies WireThreadEnvMode)),
+  defaultThreadEnvMode: ThreadEnvMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
   ),
   // Fork: the exact stored mode when `defaultThreadEnvMode` is only standing
   // in for it. A released client ignores this key and reads the wire value.
-  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
@@ -1152,8 +1149,8 @@ export const migrateLegacyForkThreadEnvModeSettings = (raw: unknown): unknown =>
   }
   return {
     ...record,
-    defaultThreadEnvMode: "worktree" satisfies WireThreadEnvMode,
-    defaultThreadEnvModeFork: "worktrunk" satisfies ThreadEnvMode,
+    defaultThreadEnvMode: "worktree" satisfies ThreadEnvMode,
+    defaultThreadEnvModeFork: "worktrunk" satisfies ForkThreadEnvMode,
   };
 };
 
@@ -1338,8 +1335,8 @@ export const ServerSettingsPatch = Schema.Struct({
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),
   environmentIcon: Schema.optionalKey(Schema.NullOr(EnvironmentMachineKind)),
-  defaultThreadEnvMode: Schema.optionalKey(WireThreadEnvMode),
-  defaultThreadEnvModeFork: Schema.optional(ThreadEnvMode),
+  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  defaultThreadEnvModeFork: Schema.optional(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   terminalSessionMode: Schema.optionalKey(TerminalSessionMode),

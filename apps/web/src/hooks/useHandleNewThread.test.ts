@@ -75,14 +75,21 @@ vi.mock("@t3tools/contracts", () => ({
   DEFAULT_SERVER_SETTINGS: {},
 }));
 vi.mock("@t3tools/shared/threadEnvMode", () => ({
-  fromWireThreadEnvModeFields: (fields: {
-    readonly defaultThreadEnvMode?: "local" | "worktree" | null;
-    readonly defaultThreadEnvModeFork?: "local" | "worktree" | "worktrunk";
-  }) => fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode,
   resolveDefaultThreadEnvMode: (input: {
     readonly projectFile: "local" | "worktree" | null;
     readonly globalDefault: "local" | "worktree";
   }) => input.projectFile ?? input.globalDefault,
+}));
+vi.mock("@t3tools/shared/threadEnvMode.fork", () => ({
+  fromWireThreadEnvModeFields: (fields: {
+    readonly defaultThreadEnvMode?: "local" | "worktree" | null;
+    readonly defaultThreadEnvModeFork?: "local" | "worktree" | "worktrunk";
+  }) => fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode,
+  resolveDefaultStoredThreadEnvMode: (input: {
+    readonly projectSetting?: "local" | "worktree" | "worktrunk" | null;
+    readonly projectFile?: "local" | "worktree" | "worktrunk" | null;
+    readonly globalDefault: "local" | "worktree" | "worktrunk";
+  }) => input.projectSetting ?? input.projectFile ?? input.globalDefault,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => null,

@@ -1,6 +1,6 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   ChevronDownIcon,
   FolderCogIcon,

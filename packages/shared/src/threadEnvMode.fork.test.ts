@@ -3,7 +3,7 @@ import {
   fromWireThreadEnvModeFields,
   toWireThreadEnvModeFields,
   toWireThreadEnvModeOverrideFields,
-} from "./threadEnvMode.ts";
+} from "./threadEnvMode.fork.ts";
 describe("thread env mode wire fields", () => {
   it("sends worktrunk as worktree and carries the exact mode alongside", () => {
     expect(toWireThreadEnvModeFields("worktrunk")).toEqual({

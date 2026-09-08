@@ -46,7 +46,7 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
-import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode";
+import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 import type { ComposerSubmissionIntent } from "../composer-logic";
 import type { TimelineEntry } from "../session-logic";

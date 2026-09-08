@@ -107,6 +107,10 @@
       "types": "./src/threadEnvMode.ts",
       "import": "./src/threadEnvMode.ts"
     },
+    "./threadEnvMode.fork": {
+      "types": "./src/threadEnvMode.fork.ts",
+      "import": "./src/threadEnvMode.fork.ts"
+    },
     "./t3ProjectFile": {
       "types": "./src/t3ProjectFile.ts",
       "import": "./src/t3ProjectFile.ts"
