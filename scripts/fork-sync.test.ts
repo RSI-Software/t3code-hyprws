@@ -51,6 +51,7 @@ import {
   validateNightlyReview,
   validateReport,
   validateSignedRecord,
+  walkSummary,
   type CommandResult,
   type CommandRunner,
   type RetireEvidence,
@@ -59,6 +60,8 @@ import {
 import { inspectRecord } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { run as carryRun } from "./fork-carry.ts";
+import { commitNumstatArguments } from "./lib/fork-numstat.ts";
+import { forkLogArguments } from "./lib/fork-trailers.ts";
 import { renderMarkdown } from "./fork-churn.ts";
 import { censusChurn, hotSeams } from "./fork-churn-ledger.ts";
 import { seamKey } from "./lib/fork-conflict-outcomes.ts";
@@ -3224,6 +3227,64 @@ const replayedRun = (): {
   );
   return { runner, root, worktree, reportPath: replayed.reportPath, branch };
 };
+
+it("records the stack size a walk replays, per domain and shared file", () => {
+  const root = fixtureRoot();
+  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  const conflicted = report(root, {
+    stage: "conflicts",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v1.2.3-from-cccccccccccc", worktree },
+    orientation: coherentOrientation,
+    originalMessages: "feat: one\x1e",
+    originalCount: 1,
+  });
+  NodeFS.writeFileSync(conflicted.reportPath, JSON.stringify(conflicted));
+  NodeFS.writeFileSync(conflicted.recordPath, "## Conflicts\n\nNone.\n");
+  const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), { stdout: "1\n" });
+  runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: "feat: one\x1e" },
+  );
+  // The size read: the replayed series with its trailers, per-commit numstat with the
+  // blank line git puts after the format header, and both net diffs.
+  runner.set("git", rehearsal([...forkLogArguments(B, "HEAD")]), {
+    stdout: `\x1e${A}\x1f${A.slice(0, 7)}\x1ffeat: one\x1fFork-Domain: zmux-estate\nFork-Tier: core\n\x1e`,
+  });
+  runner.set("git", rehearsal([...commitNumstatArguments([A])]), {
+    stdout: `\x1e${A}\n\n3\t1\tapps/web/src/app.ts\n2\t0\tpackages/shared/src/upstream.ts\n`,
+  });
+  runner.set(
+    "git",
+    rehearsal(["-c", "core.quotePath=false", "diff", "--name-only", `${B}..HEAD`]),
+    { stdout: "apps/web/src/app.ts\npackages/shared/src/upstream.ts\n" },
+  );
+  runner.set("git", ["-c", "core.quotePath=false", "diff", "--name-only", `${A}..${B}`], {
+    stdout: "packages/shared/src/upstream.ts\n",
+  });
+  try {
+    const replayed = execute(["unblock-rehearse", "--report", conflicted.reportPath], root, runner);
+    assert.deepStrictEqual(replayed.walk?.size, {
+      commits: 1,
+      domains: [{ domain: "zmux-estate", commits: 1, added: 5, deleted: 1, shared: 1 }],
+      sharedFiles: 1,
+    });
+    const summary = walkSummary(replayed);
+    assert.include(summary, "- size: 1 fork commits across 1 domains, 1 shared file attributions");
+    assert.include(summary, "  - zmux-estate: 1 commits, +5/-1, 1 shared");
+    // The upstream half of the shared count is read in the repository, not the lane.
+    const upstreamDiff = runner.calls.find(({ args }) => args.includes(`${A}..${B}`));
+    assert.strictEqual(upstreamDiff?.cwd, root);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(conflicted.reportPath), { recursive: true, force: true });
+  }
+});
 
 const setCiSuccess = (runner: FakeRunner, branch: string): void => {
   runner.set(
