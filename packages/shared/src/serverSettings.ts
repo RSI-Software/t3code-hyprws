@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection } from "./model.ts";
-import { fromWireThreadEnvModeFields, toWireThreadEnvModeFields } from "./threadEnvMode.fork.ts";
+import { replaceWireThreadEnvModeFields } from "./threadEnvMode.fork.ts"; // fork-hook: worktrunk-hooks/server-settings-env-mode-import
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -294,9 +294,7 @@ export function applyServerSettingsPatch(
   const threadEnvModeReplacement =
     defaultThreadEnvMode === undefined
       ? {}
-      : toWireThreadEnvModeFields(
-          fromWireThreadEnvModeFields({ defaultThreadEnvMode, defaultThreadEnvModeFork }),
-        );
+      : replaceWireThreadEnvModeFields({ defaultThreadEnvMode, defaultThreadEnvModeFork }); // fork-hook: worktrunk-hooks/server-settings-env-mode-replace
   const currentBackgroundActivity = normalizeServerBackgroundActivitySettings(current);
   const backgroundActivityPatch =
     backgroundActivityProfile !== undefined
