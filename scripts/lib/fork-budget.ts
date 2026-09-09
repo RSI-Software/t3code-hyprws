@@ -41,6 +41,15 @@ export const forkBudgetFindingMessage = (finding: ForkBudgetFinding): string =>
     finding.baselined ? "" : " (domain has no budget row)"
   }`;
 
+/**
+ * The actionable refusal for one finding: the finding itself plus the overage
+ * and the exact raise route. Never silent — a kept-both resolution that
+ * legitimately grows a domain follows this route in the same operation rather
+ * than hand-editing a trailer after the gate refuses.
+ */
+export const forkBudgetRefusalMessage = (finding: ForkBudgetFinding): string =>
+  `${forkBudgetFindingMessage(finding)} (over by ${finding.actual - finding.ceiling}) — to raise it: edit ${FORK_BUDGET_PATH} to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and carry Fork-Budget: raise <reason> on that commit`;
+
 /** One ceiling number a commit pushed up; the raising commit owes its trailer. */
 export interface ForkBudgetRaise {
   readonly domain: string;
