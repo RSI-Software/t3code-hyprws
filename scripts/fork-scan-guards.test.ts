@@ -7,6 +7,7 @@ import {
   parseCommitPatches,
   readHotSeams,
   renderScanWarnings,
+  significantTestLines,
   UPSTREAM_FOOTPRINT_BUDGET,
   UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS,
   type GuardInput,
@@ -877,18 +878,20 @@ it("flags a renamed test title in a slice file as a fork reintroduction", () => 
       }),
     ).map(({ rule, detail }) => `${rule} ${detail}`),
     [
+      `upstream-test ${path} changes or removes 1 upstream test line(s) (first: it("does not adopt a drifted checkout when the worktree is shared by another thread", async () => {); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
       `upstream-test ${path} renames 1 test title(s); move the fork case to ${forkTestSibling(path)} and restore the upstream title`,
     ],
   );
 });
 
-it("leaves a renamed upstream test alone when its removed and added openers share a hunk", () => {
+it("refuses a renamed upstream test whose removed and added openers share a hunk", () => {
+  const path = "apps/web/src/threadRoutes.test.ts";
   const patches = parseCommitPatches(
     patch(
       "a".repeat(40),
       [
-        "--- a/apps/web/src/threadRoutes.test.ts",
-        "+++ b/apps/web/src/threadRoutes.test.ts",
+        `--- a/${path}`,
+        `+++ b/${path}`,
         "@@ -10,3 +10,3 @@",
         '-it("routes a hub thread", () => {',
         '-  assert.strictEqual(route, "/thread");',
@@ -902,20 +905,106 @@ it("leaves a renamed upstream test alone when its removed and added openers shar
     collectScanWarnings(
       guardInput({
         patchesBySha: patches,
-        upstreamFiles: new Set(["apps/web/src/threadRoutes.test.ts"]),
+        upstreamFiles: new Set([path]),
+      }),
+    ).map(({ rule, detail }) => `${rule} ${detail}`),
+    [
+      `upstream-test ${path} changes or removes 2 upstream test line(s) (first: it("routes a hub thread", () => {); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
+    ],
+  );
+});
+
+it("accepts an append-only fork commit and the repair that takes the fork's own lines back out", () => {
+  const path = "apps/web/src/threadRoutes.test.ts";
+  const upstreamTestLines = new Map([
+    [
+      path,
+      significantTestLines(
+        'it("routes a hub thread", () => {\n  assert.strictEqual(route, "/thread");\n});\n',
+      ),
+    ],
+  ]);
+  const appended = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -12,0 +13,2 @@",
+        '+  assert.strictEqual(route.window, "hub");',
+        "+",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: appended,
+        upstreamFiles: new Set([path]),
+        upstreamTestLines,
+      }),
+    ),
+    [],
+  );
+  // The repair the rule asks for deletes a line too — the fork's own.
+  const repaired = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -13 +12,0 @@",
+        '-  assert.strictEqual(route.window, "hub");',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(
+    collectScanWarnings(
+      guardInput({
+        patchesBySha: repaired,
+        upstreamFiles: new Set([path]),
+        upstreamTestLines,
       }),
     ),
     [],
   );
 });
 
-it("leaves a same-title upstream test edit alone when its openers share a hunk", () => {
+it("leaves an upstream test file the divergence sweep already lists to its recorded debt", () => {
+  const path = "apps/web/src/localApi.test.ts";
   const patches = parseCommitPatches(
     patch(
       "a".repeat(40),
       [
-        "--- a/apps/web/src/threadRoutes.test.ts",
-        "+++ b/apps/web/src/threadRoutes.test.ts",
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -20 +19,0 @@",
+        "-  expect(showContextMenu).toHaveBeenCalledWith(items, undefined);",
+        "",
+      ].join("\n"),
+    ),
+  );
+  const input = {
+    patchesBySha: patches,
+    upstreamFiles: new Set([path]),
+  };
+  assert.lengthOf(collectScanWarnings(guardInput(input)), 1);
+  assert.deepStrictEqual(
+    collectScanWarnings(guardInput({ ...input, upstreamTestDebt: new Set([path]) })),
+    [],
+  );
+});
+
+it("refuses a same-size rewrite of an upstream assertion under an unchanged title", () => {
+  const path = "apps/web/src/threadRoutes.test.ts";
+  const patches = parseCommitPatches(
+    patch(
+      "a".repeat(40),
+      [
+        `--- a/${path}`,
+        `+++ b/${path}`,
         "@@ -10,3 +10,3 @@",
         '-it("routes a hub thread", () => {',
         '-  assert.strictEqual(route, "/thread");',
@@ -929,10 +1018,12 @@ it("leaves a same-title upstream test edit alone when its openers share a hunk",
     collectScanWarnings(
       guardInput({
         patchesBySha: patches,
-        upstreamFiles: new Set(["apps/web/src/threadRoutes.test.ts"]),
+        upstreamFiles: new Set([path]),
       }),
-    ),
-    [],
+    ).map(({ rule, detail }) => `${rule} ${detail}`),
+    [
+      `upstream-test ${path} changes or removes 2 upstream test line(s) (first: it("routes a hub thread", () => {); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
+    ],
   );
 });
 
@@ -961,7 +1052,10 @@ it("warns when an unrelated test is deleted in one hunk and another is appended 
         upstreamFiles: new Set([path]),
       }),
     ).map(({ rule, detail }) => `${rule} ${detail}`),
-    [`upstream-test ${path} gains 1 fork test block(s); move them to ${forkTestSibling(path)}`],
+    [
+      `upstream-test ${path} gains 1 fork test block(s); move them to ${forkTestSibling(path)}`,
+      `upstream-test ${path} changes or removes 1 upstream test line(s) (first: it("drops an obsolete upstream case", () => {});); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
+    ],
   );
 });
 
