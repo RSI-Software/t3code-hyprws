@@ -291,8 +291,15 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
-        threadOrderByProject: state.threadOrderByProject,
-        threadGroupsByProject: state.threadGroupsByProject,
+        // Manual order and groups are fork state: written only once the user has
+        // actually reordered or grouped something, so a profile that never
+        // touched them stays byte-identical to what upstream persists.
+        ...(Object.keys(state.threadOrderByProject).length > 0
+          ? { threadOrderByProject: state.threadOrderByProject }
+          : {}),
+        ...(Object.keys(state.threadGroupsByProject).length > 0
+          ? { threadGroupsByProject: state.threadGroupsByProject }
+          : {}),
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,

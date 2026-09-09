@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   moveProjectThread,
+  parsePersistedState,
+  persistState,
+  PERSISTED_STATE_KEY,
+  type PersistedUiState,
   renameThreadGroup,
   renameThreadGroupIfCurrent,
   reorderProjectThreads,
@@ -295,5 +299,117 @@ describe("uiStateStore pure functions", () => {
         "Late generated name",
       ),
     ).toBe(membershipChanged);
+  });
+});
+
+describe("uiStateStore fork persistence", () => {
+  const store = new Map<string, string>();
+  const localStorageStub = {
+    clear: () => {
+      store.clear();
+    },
+    getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => [...store.keys()][index] ?? null,
+    get length() {
+      return store.size;
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+  } satisfies Storage;
+
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal("window", { localStorage: localStorageStub });
+    vi.stubGlobal("localStorage", localStorageStub);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const readPersisted = (): PersistedUiState =>
+    JSON.parse(localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}") as PersistedUiState;
+
+  it("writes manual order and groups only once the fork feature is used", () => {
+    persistState(makeUiState());
+
+    // A profile that never reordered or grouped anything persists exactly what
+    // upstream persists, so an upstream build reads it back unchanged.
+    expect(Object.keys(readPersisted())).not.toContain("threadOrderByProject");
+    expect(Object.keys(readPersisted())).not.toContain("threadGroupsByProject");
+
+    persistState(
+      makeUiState({
+        threadOrderByProject: {
+          "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+        },
+        threadGroupsByProject: {
+          "environment:project-1": [
+            {
+              id: "group-1",
+              title: "Related work",
+              threadIds: ["environment:thread-2"],
+              collapsed: false,
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(readPersisted().threadOrderByProject).toEqual({
+      "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+    });
+    expect(readPersisted().threadGroupsByProject).toEqual({
+      "environment:project-1": [
+        {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["environment:thread-2"],
+          collapsed: false,
+        },
+      ],
+    });
+  });
+
+  it("drops blank, duplicate, and empty entries when reading manual order and groups", () => {
+    const parsed = parsePersistedState({
+      threadOrderByProject: {
+        "environment:project-1": [
+          "environment:thread-2",
+          "",
+          "environment:thread-1",
+          "environment:thread-2",
+        ],
+        invalid: [] as string[],
+      },
+      threadGroupsByProject: {
+        "environment:project-1": [
+          {
+            id: "group-1",
+            title: " Related work ",
+            threadIds: ["environment:thread-2", "environment:thread-1"],
+            collapsed: false,
+          },
+        ],
+      },
+    } as PersistedUiState);
+
+    expect(parsed.threadOrderByProject).toEqual({
+      "environment:project-1": ["environment:thread-2", "environment:thread-1"],
+    });
+    expect(parsed.threadGroupsByProject).toEqual({
+      "environment:project-1": [
+        {
+          id: "group-1",
+          title: "Related work",
+          threadIds: ["environment:thread-2", "environment:thread-1"],
+          collapsed: false,
+        },
+      ],
+    });
   });
 });
