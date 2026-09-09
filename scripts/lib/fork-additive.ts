@@ -19,7 +19,7 @@ import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
  * 2. migration numbering is intact: every upstream migration keeps its name, and no two live
  *    migrations share a number;
  * 3. every upstream test file exists, is not shrunk, and gains no `.skip`/`.todo`/`.only`;
- * 4. nothing upstream deleted between the two bases came back through a clean-applying fork
+ * 4. no hunk upstream deleted between the two bases came back through a clean-applying fork
  *    commit — the drift shape no conflict can surface.
  */
 export type AdditiveCheck = "files" | "migrations" | "tests" | "readded";
@@ -33,7 +33,7 @@ export interface AdditiveFinding {
   readonly head?: number;
   /** Check `migrations`: the live migration the finding's file shares a number with. */
   readonly collidesWith?: string;
-  /** Check `readded`: the significant upstream-deleted lines the replay put back. */
+  /** Check `readded`: the significant lines of the upstream-deleted hunks the replay put back. */
   readonly lines?: ReadonlyArray<string>;
 }
 
@@ -301,11 +301,45 @@ const isSignificant = (line: string): boolean => {
   return trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*");
 };
 
-const diffLines = (diff: string, side: "+" | "-"): ReadonlyArray<string> =>
-  diff
-    .split("\n")
-    .filter((line) => line.startsWith(side) && !line.startsWith(side.repeat(3)))
-    .map((line) => line.slice(1));
+/**
+ * A re-added *hunk*, never a re-added token. Matching single lines flags every `}`, `);`, and
+ * `<Outlet />` the fork legitimately writes in a file upstream also edited, and the mechanical fix
+ * below then deletes that syntax out of a tree that no longer compiles. Only a contiguous run of at
+ * least this many significant lines is upstream intent coming back.
+ */
+const READDED_BLOCK_LINES = 3;
+
+/** Contiguous same-side runs of a diff, trimmed, without blank and comment-only lines. */
+const diffBlocks = (diff: string, side: "+" | "-"): ReadonlyArray<ReadonlyArray<string>> => {
+  const blocks: Array<Array<string>> = [];
+  let run: Array<string> = [];
+  for (const raw of diff.split("\n")) {
+    if (raw.startsWith(side) && !raw.startsWith(side.repeat(3))) {
+      const line = raw.slice(1);
+      if (isSignificant(line)) run.push(line.trim());
+      continue;
+    }
+    if (run.length > 0) blocks.push(run);
+    run = [];
+  }
+  if (run.length > 0) blocks.push(run);
+  return blocks;
+};
+
+const blockAt = (
+  haystack: ReadonlyArray<string>,
+  needle: ReadonlyArray<string>,
+  start: number,
+): boolean => needle.every((line, offset) => haystack[start + offset] === line);
+
+const containsBlock = (
+  haystack: ReadonlyArray<string>,
+  needle: ReadonlyArray<string>,
+): boolean => {
+  for (let start = 0; start + needle.length <= haystack.length; start += 1)
+    if (blockAt(haystack, needle, start)) return true;
+  return false;
+};
 
 const readdedFindings = (
   runner: CommandRunner,
@@ -332,21 +366,22 @@ const readdedFindings = (
       path,
     ]);
     if (upstreamDiff === null) continue;
-    const removed = new Set(
-      diffLines(upstreamDiff, "-")
-        .filter(isSignificant)
-        .map((line) => line.trim()),
+    const removed = diffBlocks(upstreamDiff, "-").filter(
+      (block) => block.length >= READDED_BLOCK_LINES,
     );
-    if (removed.size === 0) continue;
+    if (removed.length === 0) continue;
     const replayDiff = gitOut(runner, worktree, ["diff", trees.target, "HEAD", "--", path]);
     if (replayDiff === null) continue;
-    const added = diffLines(replayDiff, "+").filter((line) => removed.has(line.trim()));
-    if (added.length === 0) continue;
+    const added = diffBlocks(replayDiff, "+");
+    const back = removed.filter((block) =>
+      added.some((candidate) => containsBlock(candidate, block)),
+    );
+    if (back.length === 0) continue;
     findings.push({
       check: "readded",
       path,
-      lines: [...new Set(added.map((line) => line.trim()))].sort(),
-      detail: `re-adds ${new Set(added).size} line(s) upstream deleted`,
+      lines: [...new Set(back.flat())].sort(),
+      detail: `re-adds ${back.length} hunk(s) upstream deleted`,
     });
   }
   return findings;
@@ -393,38 +428,50 @@ const dropReaddedLines = (
   target: string,
   finding: AdditiveFinding,
 ): AppliedFix | undefined => {
-  const drops = finding.lines ?? [];
-  if (drops.length === 0) return undefined;
+  const drops = new Set(finding.lines ?? []);
+  if (drops.size === 0) return undefined;
   const diff = gitOut(runner, worktree, ["diff", target, "HEAD", "--", finding.path]);
   if (diff === null) return undefined;
-  // The exact lines the replay added, so a line upstream still carries elsewhere in the file is
-  // never touched: only the added occurrences go.
-  const added: Array<string> = diffLines(diff, "+").filter((line) => drops.includes(line.trim()));
-  if (added.length === 0) return undefined;
+  // Only a run the replay added wholly out of the detected hunk goes. A larger run around it is a
+  // fork edit the walk cannot separate from the re-add, so it stays a maintainer's call.
+  const blocks = diffBlocks(diff, "+").filter(
+    (block) => block.length >= READDED_BLOCK_LINES && block.every((line) => drops.has(line)),
+  );
+  if (blocks.length === 0) return undefined;
   // A removal that dangles a block — unbalanced braces by simple count — is a maintainer's call.
-  if (!balancedBraces(added.join("\n"))) return undefined;
+  if (!balancedBraces(blocks.flat().join("\n"))) return undefined;
   let text: string;
   try {
     text = NodeFS.readFileSync(NodePath.join(worktree, finding.path), "utf8");
   } catch {
     return undefined;
   }
-  const pending = [...added];
-  const kept: Array<string> = [];
-  for (const line of text.split("\n")) {
-    const index = pending.indexOf(line);
-    if (index !== -1) {
-      pending.splice(index, 1);
-      continue;
+  const lines = text.split("\n");
+  const trimmed = lines.map((line) => line.trim());
+  const removals = new Set<number>();
+  for (const block of blocks) {
+    let placed = false;
+    for (let start = 0; start + block.length <= trimmed.length; start += 1) {
+      if (!blockAt(trimmed, block, start)) continue;
+      if (Array.from({ length: block.length }, (_, offset) => start + offset).some((index) =>
+        removals.has(index),
+      ))
+        continue;
+      for (let offset = 0; offset < block.length; offset += 1) removals.add(start + offset);
+      placed = true;
+      break;
     }
-    kept.push(line);
+    // A hunk the walk cannot find intact in the file is one it must not cut around.
+    if (!placed) return undefined;
   }
-  if (pending.length > 0) return undefined;
-  NodeFS.writeFileSync(NodePath.join(worktree, finding.path), kept.join("\n"));
+  NodeFS.writeFileSync(
+    NodePath.join(worktree, finding.path),
+    lines.filter((_, index) => !removals.has(index)).join("\n"),
+  );
   return {
     finding: {
       ...finding,
-      detail: `removed ${added.length} re-added line(s) upstream deleted — consider keeping ours`,
+      detail: `removed ${blocks.length} re-added hunk(s) upstream deleted — consider keeping ours`,
     },
     paths: [finding.path],
   };
