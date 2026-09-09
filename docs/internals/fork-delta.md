@@ -780,7 +780,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
   `--allow-nightly`.
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
-- The fork trailer section of `.github/pull_request_template.md`.
+- The fork trailer section of `.github/pull_request_template.md`, and `scripts/lib/fork-pr-template.ts`, the guard that keeps its domain list equal to `FORK_DOMAINS`.
 
 ### Retirement condition
 
@@ -799,7 +799,7 @@ Retired with the fork.
 | `scripts/fork-auto-rebase.ts`, `scripts/lib/fork-rebase-*.ts`                                                                                                                          | Own bot ref safety, replay checks, issue payloads, install reuse, and clean-tag selection.                                                                |
 | `scripts/lib/fork-churn-compose.ts`                                                                                                                                                    | Fork-only. Produces the evidence-bearing seam bundle the ledger imports; a conflict means upstream grew its own record producer.                          |
 | `.github/workflows/hyprws-upstream-sync.yml`                                                                                                                                           | Owns bot mode, runner setup, and fork-local issue upserts.                                                                                                |
-| `.github/pull_request_template.md`                                                                                                                                                     | Carries the fork trailer block every squash body needs.                                                                                                   |
+| `.github/pull_request_template.md`                                                                                                                                                     | Carries the fork trailer block every squash body needs; `fork:delta --check` refuses its domain list drifting from `FORK_DOMAINS`.                        |
 | `packages/contracts/src/settings.test.ts`, `apps/web/src/components/ChatView.logic.test.ts`, `apps/web/src/components/Sidebar.logic.test.ts`                                           | Fork cases live in `*.fork.test.ts` siblings, so these files keep only upstream cases and take upstream edits cleanly.                                    |
 | `apps/server/src/provider/Layers/CodexAdapter.test.ts`, `apps/server/src/pullRequest/PullRequestService.test.ts`, `apps/server/src/orchestration/decider.projectThreadEnvMode.test.ts` | Fork cases live in `*.fork.test.ts` siblings; existing upstream expectation changes stay in these upstream-owned files.                                   |
 | `apps/web/src/components/RightPanelTabs.test.tsx`, `apps/web/src/keybindings.test.ts`, `apps/web/src/rightPanelStore.test.ts`                                                          | Fork cases live in `*.fork.test.*` siblings; existing upstream expectation changes stay in these upstream-owned files.                                    |
