@@ -309,7 +309,7 @@ to those files. A single policy boundary does not imply one call or one patch hu
 [Thread route navigation](./thread-route-navigation.md) holds the per-file call-site budget.
 
 Launch intents reach the right window through the single-instance lock and hash routes.
-Previews, composer drafts, and preview IPC are namespaced per window. The preload policy accepts the complete desktop bridge, so the leased replay can keep upstream's profile-aware bridge assembly intact and remove the original preview-isolation split.
+Previews, composer drafts, and preview IPC are namespaced per window. Desktop IPC that upstream authorizes against the single main window instead authorizes against the registry, so a project window keeps the features the hub has. The preload policy accepts the complete desktop bridge, so the leased replay can keep upstream's profile-aware bridge assembly intact and remove the original preview-isolation split.
 
 Entry points are the hub project actions, the command palette, a keybinding, and renderer IPC.
 All of them gate on `window.desktopBridge.openProjectWindow`, so the web client is unchanged without the bridge.
@@ -408,6 +408,8 @@ Profile clearing must preserve other profiles, while equal hub/project tab IDs r
 | `apps/desktop/src/preview/Manager.fork.test.ts`                                                                                     | Exercises real manager tab namespacing and cross-window denial.                                                               |
 | `apps/desktop/src/ipc/methods/preview.fork.test.ts`                                                                                 | Guards preload/IPC profile clearing and independent hub/project tab ownership.                                                |
 | `apps/desktop/src/ipc/**`, `apps/desktop/src/preload.ts`                                                                            | Narrow preview-policy integrations; the preload bridge literal stays upstream-shaped.                                         |
+| `apps/desktop/src/ipc/methods/snapShot.ts`                                                                                          | Upstream authorizes snapshot IPC against the main window alone; the fork widens it to the registry.                           |
+| `apps/desktop/src/ipc/methods/snapShotSender.fork.ts`, `apps/desktop/src/ipc/methods/snapShot.fork.test.ts`                         | Fork-only. Registry-backed sender resolution and its project-window proof.                                                    |
 | `packages/contracts/src/ipc.ts`                                                                                                     | `openProjectWindow` lives here.                                                                                               |
 | `apps/web/src/routes/project.*`                                                                                                     | Fork-only route subtree.                                                                                                      |
 | `apps/web/src/routes/__root.tsx`                                                                                                    | Mounts the scoped project shell at the root.                                                                                  |
