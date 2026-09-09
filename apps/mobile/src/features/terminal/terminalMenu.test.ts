@@ -109,7 +109,6 @@ describe("buildTerminalMenuSessions", () => {
     ]);
   });
 
-
   it("keeps the current terminal visible even if it is no longer running", () => {
     expect(
       buildTerminalMenuSessions({

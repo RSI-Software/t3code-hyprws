@@ -104,13 +104,10 @@ export class ForkLogProcessError extends Schema.TaggedError<ForkLogProcessError>
   }
 }
 
-export class ForkLogExitError extends Schema.TaggedError<ForkLogExitError>()(
-  "ForkLogExitError",
-  {
-    exitCode: Schema.Number,
-    stderr: Schema.String,
-  },
-) {
+export class ForkLogExitError extends Schema.TaggedError<ForkLogExitError>()("ForkLogExitError", {
+  exitCode: Schema.Number,
+  stderr: Schema.String,
+}) {
   override get message(): string {
     return `git log exited with code ${this.exitCode}: ${this.stderr.trim()}`;
   }

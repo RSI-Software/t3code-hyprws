@@ -332,7 +332,7 @@ export type SidebarThreadSortableItem =
       readonly anchorThreadId: string;
     };
 
-export function sidebarThreadGroupSortableId(projectKey: string, groupId: string): string {
+function sidebarThreadGroupSortableId(projectKey: string, groupId: string): string {
   return `sidebar-thread-group\0${projectKey}\0${groupId}`;
 }
 
