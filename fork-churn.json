@@ -27200,6 +27200,43 @@
       "status": "unknown",
       "detail": "no successful trunk apply receipt",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34415526477"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "e16b8b059c9f5ff6dfed1addecffb831c6aee043",
+      "attemptId": "34416252183/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "on",
+      "sourceSha": "9c18f14c7a5393adde6325b37f964c66087793dc",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34416252183"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "e16b8b059c9f5ff6dfed1addecffb831c6aee043",
+      "attemptId": "34416252183/1/rebase",
+      "stage": "selection",
+      "status": "unknown",
+      "detail": "planner retained identity; execution did not produce a terminal report",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34416252183"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "e16b8b059c9f5ff6dfed1addecffb831c6aee043",
+      "attemptId": "34416252183/1/rebase",
+      "stage": "verification",
+      "status": "unknown",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34416252183"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "e16b8b059c9f5ff6dfed1addecffb831c6aee043",
+      "attemptId": "34416252183/1/rebase",
+      "stage": "apply",
+      "status": "unknown",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34416252183"
     }
   ]
 }
