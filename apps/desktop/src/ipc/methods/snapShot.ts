@@ -21,6 +21,7 @@ import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
 import { m } from "../../i18n/messages.ts";
+import * as SnapShotSender from "./snapShotSender.fork.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
@@ -35,15 +36,22 @@ class SnapShotIpcUnauthorizedSenderError extends Schema.TaggedError<SnapShotIpcU
 
 const ensureTrustedSnapShotSender = Effect.fn("desktop.ipc.snapShot.ensureTrustedSender")(
   function* (event: DesktopIpc.DesktopIpcInvokeEvent | undefined) {
-    const main = yield* (yield* ElectronWindow.ElectronWindow).main;
-    if (
-      event === undefined ||
-      Option.isNone(main) ||
-      main.value.webContents.id !== event.sender.id
-    ) {
+    if (event === undefined) {
       return yield* new SnapShotIpcUnauthorizedSenderError();
     }
-    return main.value;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
+    const main = yield* electronWindow.main;
+    if (Option.isSome(main) && main.value.webContents.id === event.sender.id) {
+      return main.value;
+    }
+    // The fork opens a window per project, and each one is a trusted renderer of
+    // its own. The window it returns is the one that asked, so a dialog parents
+    // to it and a capture animation lands on it.
+    const senderWindow = yield* SnapShotSender.resolveRegisteredSenderWindow(electronWindow, event);
+    if (Option.isNone(senderWindow)) {
+      return yield* new SnapShotIpcUnauthorizedSenderError();
+    }
+    return senderWindow.value;
   },
 );
 
