@@ -120,6 +120,7 @@ import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
+  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteFamily,
   resolveThreadRouteTarget,
@@ -1788,7 +1789,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate(routeFamily.thread(threadRef));
+      return router.navigate(routeFamily.thread(threadRef));
     },
     [clearSelection, isMobile, routeFamily, router, setOpenMobile, setSelectionAnchor],
   );

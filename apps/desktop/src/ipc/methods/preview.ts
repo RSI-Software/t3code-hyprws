@@ -40,7 +40,7 @@ import * as PreviewWindowPolicy from "../../preview/WindowPolicy.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
-export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedErrorClass<PreviewIpcSenderNotAuthorizedError>()(
+export class PreviewIpcSenderNotAuthorizedError extends Schema.TaggedError<PreviewIpcSenderNotAuthorizedError>()(
   "PreviewIpcSenderNotAuthorizedError",
   { reason: Schema.Literals(["missing-sender", "unregistered-window"]) },
 ) {
