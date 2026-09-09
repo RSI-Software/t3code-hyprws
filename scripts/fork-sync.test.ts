@@ -5,7 +5,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 
 import {
   agentProvenance,
@@ -6183,4 +6183,156 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
     )
       NodeFS.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("resumed conflict-stop lane cleanliness (#694)", () => {
+  const declinedPath = "apps/web/src/components/ThreadTerminalDrawer.tsx";
+  const laneBranch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+
+  /** A report sitting exactly where the walk's conflict stop left it: lane mid-replay, one TODO row. */
+  const stoppedReport = (root: string): SyncReport => {
+    const rows = rehearsalConflictRows(
+      { sha: A, subject: "feat(upstream): moved the drawer", domain: "web" },
+      [declinedPath],
+      [],
+    );
+    return report(root, {
+      stage: "conflicts",
+      target: { tag: "v1.2.3", sha: B },
+      source: { sha: C, expectedOld: C, sharedBase: A },
+      lane: { branch: laneBranch, worktree: root },
+      orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+      conflicts: rows,
+      walk: {
+        startedAt: "2026-09-09T00:00:00.000Z",
+        stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+      },
+    });
+  };
+  /** Join NUL-separated `--porcelain -z` records the way git writes them. */
+  const runnerWithStatus = (...entries: ReadonlyArray<string>): FakeRunner => {
+    const runner = new FakeRunner();
+    runner.set("git", ["-c", "core.commentChar=auto", "status", "--porcelain", "-z"], {
+      stdout: `${entries.join("\0")}\0`,
+    });
+    return runner;
+  };
+  const cleanup = (root: string, reportPath: string): void => {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(reportPath), { recursive: true, force: true });
+  };
+
+  it("resumes when the only dirt is the staged path the conflict stop named", () => {
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    try {
+      validateAutoLane(stopped, runnerWithStatus(`M  ${declinedPath}`));
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
+  it("refuses dirt outside the paths the stop named, and names it", () => {
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    try {
+      assert.throws(
+        () =>
+          validateAutoLane(
+            stopped,
+            runnerWithStatus(`M  ${declinedPath}`, " M scripts/fork-sync.ts"),
+          ),
+        /rehearsal lane worktree is not clean: scripts\/fork-sync\.ts/,
+      );
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
+  it("keeps a fresh walk's lane strictly clean when no conflict stop is standing", () => {
+    const root = fixtureRoot();
+    const fresh = { ...stoppedReport(root), walk: {} };
+    try {
+      assert.throws(
+        () => validateAutoLane(fresh, runnerWithStatus(`M  ${declinedPath}`)),
+        /rehearsal lane worktree is not clean/,
+      );
+    } finally {
+      cleanup(root, fresh.reportPath);
+    }
+  });
+
+  it("keeps an environment stop strict even at the conflicts stage", () => {
+    const root = fixtureRoot();
+    const stopped = {
+      ...stoppedReport(root),
+      walk: {
+        startedAt: "2026-09-09T00:00:00.000Z",
+        stop: { reason: "environment" as const, detail: "the lane cannot test" },
+      },
+    };
+    try {
+      assert.throws(
+        () => validateAutoLane(stopped, runnerWithStatus(`M  ${declinedPath}`)),
+        /rehearsal lane worktree is not clean/,
+      );
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
+  it("resumes the fill-then-resume order: a proven row's staged resolution is allowed dirt", () => {
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    const proven = {
+      ...stopped,
+      conflicts: stopped.conflicts.map((row) => ({
+        ...row,
+        resolution: "keep ours",
+        agentSafe: "true",
+        decidedBy: "human" as const,
+      })),
+    };
+    try {
+      validateAutoLane(proven, runnerWithStatus(`M  ${declinedPath}`));
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
+  it("refuses the resumed auto walk while the decision row is still TODO", () => {
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+    NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+    const runner = new FakeRunner();
+    setBotResponses(runner, "candidate");
+    setOrientationResponses(runner);
+    try {
+      // The auto path reaches the record check inside unblockRehearse, which the resumed
+      // walkOnce loop calls before it continues the rebase — so an unclassified seam refuses
+      // before anything replays.
+      assert.throws(
+        () => execute(["unblock-auto", "--report", stopped.reportPath], root, runner),
+        new RegExp(`record row remains incomplete for ${declinedPath.replaceAll(".", "\\.")}`),
+      );
+      assert.isFalse(runner.calls.some(({ args }) => args.includes("--continue")));
+      assert.isFalse(runner.calls.some(({ args }) => args.includes("--skip")));
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
+
+  it("pairs a rename record with its original path instead of counting it as dirt", () => {
+    const root = fixtureRoot();
+    const stopped = stoppedReport(root);
+    try {
+      validateAutoLane(
+        stopped,
+        runnerWithStatus(`R  ${declinedPath}`, "apps/web/src/components/Drawer.tsx"),
+      );
+    } finally {
+      cleanup(root, stopped.reportPath);
+    }
+  });
 });
