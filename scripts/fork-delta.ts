@@ -26,6 +26,7 @@ import {
   type ForkBudgetRaise,
 } from "./lib/fork-budget.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
+import { FORK_PR_TEMPLATE_PATH, forkTemplateDriftProblem } from "./lib/fork-pr-template.ts";
 import {
   commitNumstatArguments,
   EMPTY_NUMSTAT,
@@ -1002,6 +1003,19 @@ const command = Command.make(
         return;
       }
       if (check) {
+        // A repository invariant rather than a property of the walked range: the template is the
+        // only place an author reads the domain list, so it fails the check wherever the range
+        // starts. RSI-Software/t3code-hyprws#713 records the drift that made this necessary.
+        const templateDrift = forkTemplateDriftProblem(
+          yield* fileSystem
+            .readFileString(FORK_PR_TEMPLATE_PATH)
+            .pipe(Effect.orElseSucceed(() => undefined)),
+        );
+        if (templateDrift !== undefined) {
+          process.stderr.write(`failed: ${templateDrift}\n`);
+          process.exitCode = 1;
+          return;
+        }
         for (const warning of ledger.warnings) {
           process.stderr.write(`warning: ${warning}\n`);
         }
