@@ -33,6 +33,7 @@ import {
   type CensusFile,
   type ChurnConflict,
   type ChurnEntry,
+  type RepairCommit,
 } from "./fork-churn-ledger.ts";
 import { CHURN_MARKER, blockingSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import { composeSeamBundle } from "./lib/fork-churn-compose.ts";
@@ -41,7 +42,10 @@ import { UsageError } from "./lib/fork-cli.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 import { BLOCK_LABEL, parseRecord, type ConflictClass } from "./fork-sync-state.ts";
 import { appendDecision, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
+import { readHostHandoff } from "./lib/fork-host-handoff.ts";
+import { isToolingRepair } from "./lib/fork-repairs.ts";
 import { parseSequentialCensusEvidence } from "./lib/fork-rebase-issues.ts";
+import { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
 import { canonicalizeOutcomeReceiptsForRoot, runOutcome } from "./fork-churn-outcomes.ts";
 import {
   readLessonEvidence,
@@ -72,6 +76,82 @@ export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
 export const DELTA_PATH = "docs/internals/fork-delta.md";
 
 const SHA = /^[0-9a-f]{7,64}$/;
+
+/**
+ * The walk's repairs by their trunk SHA, read from the applied range (`before..after`, every
+ * commit carrying a `Fork-Repair` trailer — RSI-Software/t3code-hyprws#700). The record's own
+ * `## Repair commits` section names lane commits, which die with the lane, so a published row
+ * never cites them: a recorded SHA must stay reachable from `hyprws`, and a hand repair made
+ * directly on trunk is in the range just like a lane replay append. A repair that only touches
+ * walk tooling is marked as such, so the row records it under `fork-meta` without a retroactive
+ * trailer (RSI-Software/t3code-hyprws#690).
+ */
+export const trunkRepairCommits = (
+  root: string,
+  before: string,
+  after: string,
+): ReadonlyArray<RepairCommit> => {
+  // A recorded SHA the repository no longer resolves must not abort the append: the row degrades
+  // to no repair listing rather than citing lane SHAs (#700) or failing the apply. A row that
+  // cites nothing is a visible absence a reviewer can question; a throw kills the whole walk.
+  for (const endpoint of [before, after]) {
+    try {
+      runCommandText("git", ["rev-parse", "--verify", "--quiet", `${endpoint}^{commit}`], {
+        cwd: root,
+      });
+    } catch {
+      return [];
+    }
+  }
+  return parseForkLog(runCommandText("git", forkLogArguments(before, after), { cwd: root }))
+    .filter((commit) => commit.repair !== undefined)
+    .map((commit) => {
+      const paths = runCommandText("git", ["show", "--name-only", "--format=", commit.sha], {
+        cwd: root,
+      })
+        .split("\n")
+        .filter((path) => path.length > 0);
+      return isToolingRepair(paths)
+        ? { sha: commit.sha, subject: commit.subject, tooling: true as const }
+        : { sha: commit.sha, subject: commit.subject };
+    });
+};
+
+interface WalkReportProbe {
+  readonly recordPath?: unknown;
+  readonly target?: { readonly tag?: unknown };
+  readonly walk?: { readonly elapsedMs?: unknown };
+}
+
+/**
+ * How long the applied walk ran, from the walk report the apply invocation wrote beside the
+ * record (RSI-Software/t3code-hyprws#703). A record path is reused across walks, so only a
+ * report bound to this record whose target tag matches this walk qualifies; anything else is
+ * another walk's number, and a wrong number on append-only history is worse than none. A walk
+ * with no tag-matching report records a row without `elapsedMs`, never a guess.
+ */
+export const walkElapsedMs = (recordPath: string, tag: string): number | undefined => {
+  try {
+    const resolved = NodePath.resolve(recordPath);
+    const directory = NodePath.dirname(resolved);
+    for (const name of NodeFS.readdirSync(directory)) {
+      if (!name.endsWith(".json")) continue;
+      let report: WalkReportProbe;
+      try {
+        report = JSON.parse(NodeFS.readFileSync(NodePath.join(directory, name), "utf8"));
+      } catch {
+        continue;
+      }
+      if (report.recordPath !== resolved || report.target?.tag !== tag) continue;
+      const elapsedMs = report.walk?.elapsedMs;
+      if (typeof elapsedMs === "number" && Number.isSafeInteger(elapsedMs) && elapsedMs >= 0)
+        return elapsedMs;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+};
 
 const censusSubjectOf =
   (root: string) =>
@@ -341,8 +421,8 @@ export const renderMarkdown = (
   } else {
     lines.push(
       "<!-- prettier-ignore -->",
-      "| Tag | Range | Conflicts by class | Agent/human decisions | Record |",
-      "| --- | --- | --- | ---: | --- |",
+      "| Tag | Range | Elapsed | Effort | Repairs | Conflicts by class | Agent/human decisions | Record |",
+      "| --- | --- | --- | --- | --- | --- | ---: | --- |",
     );
     for (const entry of entries) {
       // A row with no provenance is nobody's decision, so it is counted on neither side rather
@@ -350,8 +430,25 @@ export const renderMarkdown = (
       const decidedRows = [...entry.conflicts, ...entry.decisions];
       const agent = decidedRows.filter(({ decidedBy }) => decidedBy === "agent").length;
       const human = decidedRows.filter(({ decidedBy }) => decidedBy === "human").length;
+      // A missing field on a historical row renders as absent, never as a guess (#703).
+      const elapsedCell =
+        entry.elapsedMs === undefined ? "—" : `${Math.round(entry.elapsedMs / 1000)}s`;
+      const effortCell =
+        entry.effort === undefined ? "—" : `${entry.effort.model} (${entry.effort.effort})`;
+      // A tooling repair is a fix to the walk harness itself, recorded on the row under
+      // fork-meta without a retroactive trailer (RSI-Software/t3code-hyprws#690).
+      const repairs = entry.repairCommits;
+      const tooling = (repairs ?? []).filter((repair) => repair.tooling === true).length;
+      const repairsCell =
+        repairs === undefined
+          ? "—"
+          : repairs.length === 0
+            ? "none"
+            : tooling === 0
+              ? String(repairs.length)
+              : `${repairs.length} (${tooling} tooling)`;
       lines.push(
-        `| ${code(entry.tag)} | ${code(entry.before)} → ${code(entry.after)} | ${classHistogram(entry.conflicts) || "none"} | ${agent}/${human} | [record](${entry.recordUrl}) |`,
+        `| ${code(entry.tag)} | ${code(entry.before)} → ${code(entry.after)} | ${elapsedCell} | ${effortCell} | ${repairsCell} | ${classHistogram(entry.conflicts) || "none"} | ${agent}/${human} | [record](${entry.recordUrl}) |`,
       );
     }
     lines.push("");
@@ -450,7 +547,26 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     }),
   );
   const silentSeams = parseSilentSeams(record);
-  const repairCommits = parseRepairCommits(record);
+  // Applied rows cite the applied trunk range, never the lane (#700). A pending row is written
+  // from a stopped lane that has not moved trunk, so it keeps the record's lane listing.
+  const repairCommits = pending
+    ? parseRepairCommits(record)
+    : trunkRepairCommits(root, before, after);
+  // Elapsed time comes from the walk report beside the record; effort from the host attestation
+  // (RSI-Software/t3code-hyprws#703). Either can be absent, and absence renders as absent.
+  // Effort is decoration on a history row: an unavailable or unparseable handoff (no ghb, an
+  // expired credential, CI) is recorded as absent and never fails the apply. The parser stays
+  // strict; only this call site absorbs the failure.
+  const elapsedMs = pending ? undefined : walkElapsedMs(recordPath, tag);
+  const handoff = pending
+    ? undefined
+    : (() => {
+        try {
+          return readHostHandoff(root);
+        } catch {
+          return undefined;
+        }
+      })();
   // Every decision the walk recorded, carried from the record's own decision lines. A pending
   // row from the stop keeps its decisions — the upgrade merges rather than drops (#662).
   let walkDecisions: ReadonlyArray<WalkDecision> = parseDecisionRecords(record);
@@ -472,6 +588,8 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     ...(walkDecisions.length === 0 ? {} : { walkDecisions }),
     ...(pending ? { pending: true as const } : {}),
     ...(parsed.nightlyReview === undefined ? {} : { nightlyReview: parsed.nightlyReview }),
+    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    ...(handoff === undefined ? {} : { effort: { model: handoff.model, effort: handoff.effort } }),
   };
   const next =
     pendingEntry === undefined
