@@ -252,3 +252,21 @@ export const runRepairs = (
   }
   return { ran, ...(dirtiedBy === undefined ? {} : { dirtiedBy }) };
 };
+
+/**
+ * Whether a repair commit is a fix to the walk harness itself rather than to the fork's product
+ * surface (RSI-Software/t3code-hyprws#690). Landed commits cannot be re-trailered, so the ledger
+ * recognizes tooling repairs by what they touch — and only by what they touch. The boundary is
+ * deliberately narrow and pinned by test: only paths under `scripts/` plus the fork's own
+ * internals pages (`docs/internals/fork-*.md`), and only when the commit touches nothing else.
+ * A repair that also touches a product path is not a tooling repair; a fork doc outside the
+ * `fork-*` family is not walk tooling.
+ */
+export const isToolingRepair = (paths: ReadonlyArray<string>): boolean =>
+  paths.length > 0 &&
+  paths.every(
+    (path) =>
+      path === "scripts" ||
+      path.startsWith("scripts/") ||
+      /^docs\/internals\/fork-[^/]*\.md$/.test(path),
+  );

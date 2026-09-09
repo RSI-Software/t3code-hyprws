@@ -15,6 +15,8 @@ import {
   parseCensusTag,
   parseLedger,
   run,
+  trunkRepairCommits,
+  walkElapsedMs,
   type ChurnEntry,
 } from "./fork-churn.ts";
 import {
@@ -25,6 +27,8 @@ import {
 } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
+import { isToolingRepair } from "./lib/fork-repairs.ts";
+import { parseHostHandoff } from "./lib/fork-host-handoff.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
   NIGHTLY_REVIEW_EVIDENCE,
@@ -375,6 +379,375 @@ const censusEntry = (tag: string, files: ChurnEntry["censusFiles"], after = B): 
   conflicts: [],
   decisions: [],
   censusFiles: files,
+});
+
+/** A commit on the fixture trunk; `trailers` are appended message paragraphs. */
+const trunkCommit = (
+  root: string,
+  parent: string | undefined,
+  subject: string,
+  paths: ReadonlyArray<string> = [],
+  ...trailers: ReadonlyArray<string>
+): string => {
+  const blobOf = (path: string): string =>
+    runCommandText("git", ["hash-object", "-w", "--stdin"], {
+      cwd: root,
+      input: `${path}\n`,
+    }).trim();
+  // `git mktree` refuses slashes, so nesting is built one segment at a time.
+  const treeOf = (entries: ReadonlyArray<string>): string =>
+    runCommandText("git", ["mktree"], { cwd: root, input: entries.join("\n") }).trim();
+  const buildTree = (prefix: string, remaining: ReadonlyArray<string>): string => {
+    const deeper = /* @__PURE__ */ new Map<string, ReadonlyArray<string>>();
+    const lines: Array<string> = [];
+    for (const path of remaining) {
+      const rest = path.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash === -1) lines.push(`100644 blob ${blobOf(path)}\t${rest}`);
+      else {
+        const segment = rest.slice(0, slash);
+        deeper.set(segment, [...(deeper.get(segment) ?? []), path]);
+      }
+    }
+    for (const [segment, nested] of deeper)
+      lines.push(`040000 tree ${buildTree(`${prefix}${segment}/`, nested)}\t${segment}`);
+    return treeOf(lines);
+  };
+  const tree = buildTree("", paths);
+  const args = [
+    "commit-tree",
+    tree,
+    ...(parent === undefined ? [] : ["-p", parent]),
+    "-m",
+    subject,
+  ];
+  for (const trailer of trailers) args.push("-m", trailer);
+  return runCommandText("git", args, { cwd: root }).trim();
+};
+
+it("reads a walk's repairs from the applied trunk range, never from the lane", () => {
+  const root = repository();
+  try {
+    const base = trunkCommit(root, undefined, "feat(fork): base");
+    const handRepair = trunkCommit(
+      root,
+      base,
+      "chore(fork-sync): hand repair after the walk",
+      [],
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: bugfix",
+      "Fork-Repair: v0.0.41-nightly.20260908.1414",
+    );
+    const untagged = trunkCommit(root, handRepair, "chore(fork): not a repair");
+    const replayedRepair = trunkCommit(
+      root,
+      untagged,
+      "chore(fork-sync): replay append",
+      [],
+      "Fork-Repair: v0.0.41-nightly.20260908.1414",
+    );
+
+    // Every returned SHA is reachable from the trunk the range sits on, and both the hand
+    // repair and the replayed append are listed in walk order; untagged commits are not.
+    assert.deepStrictEqual(trunkRepairCommits(root, base, replayedRepair), [
+      { sha: handRepair, subject: "chore(fork-sync): hand repair after the walk" },
+      { sha: replayedRepair, subject: "chore(fork-sync): replay append" },
+    ]);
+    assert.deepStrictEqual(trunkRepairCommits(root, base, base), []);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("yields no repair commits, without throwing, when the recorded range is unresolvable", () => {
+  const root = repository();
+  try {
+    const base = trunkCommit(root, undefined, "feat(fork): base");
+    // Placeholder SHAs a row may cite (a lane replay recorded elsewhere, a pruned commit) do not
+    // abort the append: the row simply cites nothing (#700 keeps lane SHAs out either way).
+    assert.deepStrictEqual(
+      trunkRepairCommits(root, base, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+      [],
+    );
+    assert.deepStrictEqual(
+      trunkRepairCommits(root, "cccccccccccccccccccccccccccccccccccccccc", base),
+      [],
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("pins the tooling-repair boundary to walk tooling alone", () => {
+  // In: the harness itself and the fork's own internals pages.
+  assert.isTrue(isToolingRepair(["scripts/fork-sync.ts"]));
+  assert.isTrue(isToolingRepair(["scripts/lib/fork-additive.ts"]));
+  assert.isTrue(isToolingRepair(["docs/internals/fork-budget.md"]));
+  assert.isTrue(isToolingRepair(["scripts/a.ts", "docs/internals/fork-delta.md"]));
+  // Out: anything a fork reader would call product, and lookalike paths.
+  assert.isFalse(isToolingRepair([]));
+  assert.isFalse(isToolingRepair(["apps/web/src/a.ts"]));
+  assert.isFalse(isToolingRepair(["scriptsx/a.ts"]));
+  assert.isFalse(isToolingRepair(["docs/internals/other.md"]));
+  assert.isFalse(isToolingRepair(["docs/internals/fork-budget/nested.md"]));
+  // A repair that also touches a product path is not a tooling repair.
+  assert.isFalse(isToolingRepair(["scripts/a.ts", "apps/web/src/b.ts"]));
+});
+
+it("marks a repair that only touches walk tooling as tooling on the row", () => {
+  const root = repository();
+  try {
+    const base = trunkCommit(root, undefined, "feat(fork): base");
+    const tooling = trunkCommit(
+      root,
+      base,
+      "chore(fork-sync): refresh rebinds the stack size",
+      ["scripts/fork-sync.ts"],
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: bugfix",
+      "Fork-Repair: v0.0.41-nightly.20260908.1414",
+    );
+    const product = trunkCommit(
+      root,
+      tooling,
+      "chore(web): repair a moved seam",
+      ["apps/web/src/a.ts"],
+      "Fork-Repair: v0.0.41-nightly.20260908.1414",
+    );
+    assert.deepStrictEqual(trunkRepairCommits(root, base, product), [
+      {
+        sha: tooling,
+        subject: "chore(fork-sync): refresh rebinds the stack size",
+        tooling: true,
+      },
+      { sha: product, subject: "chore(web): repair a moved seam" },
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("renders a walk's repairs, including tooling repairs, in the Walks table", () => {
+  const root = ledgerRepository([
+    {
+      ...entry("v1", []),
+      repairCommits: [
+        { sha: "1f8c22dc68a", subject: "lane repair" },
+        { sha: "d36809f6327", subject: "refresh rebinds the stack size", tooling: true },
+      ],
+    },
+    entry("v0", []),
+  ]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  try {
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("| `v"));
+    assert.include(walks[0] ?? "", "| 2 (1 tooling) | ");
+    // A legacy row without repairs renders the column as absent, not as a guess.
+    assert.include(walks[1] ?? "", "| — | ");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("parses the host handoff envelope once, schema and identity pinned", () => {
+  const envelope = {
+    schema: "ghb.host-handoff.v1",
+    host: {
+      role: "host",
+      iface: "claude",
+      provider: "anthropic",
+      model: "claude-opus-5",
+      effort: "high",
+      harness: "claude-code@2.1.266",
+      session: "walk-1",
+    },
+  };
+  assert.deepStrictEqual(parseHostHandoff(JSON.stringify(envelope)), {
+    iface: "claude",
+    provider: "anthropic",
+    model: "claude-opus-5",
+    effort: "high",
+    session: "walk-1",
+  });
+  assert.throws(() => parseHostHandoff("not json"), /invalid ghb handoff JSON/);
+  assert.throws(
+    () => parseHostHandoff(JSON.stringify({ ...envelope, schema: "ghb.host-handoff.v2" })),
+    /unsupported ghb handoff schema/,
+  );
+  assert.throws(
+    () =>
+      parseHostHandoff(
+        JSON.stringify({ schema: envelope.schema, host: { ...envelope.host, role: "worker" } }),
+      ),
+    /invalid host role/,
+  );
+  assert.throws(
+    () =>
+      parseHostHandoff(
+        JSON.stringify({ schema: envelope.schema, host: { ...envelope.host, effort: "" } }),
+      ),
+    /host handoff effort/,
+  );
+});
+
+it("renders elapsed time and host effort on the Walks row, absent when unrecorded", () => {
+  const root = ledgerRepository([
+    {
+      ...entry("v1", []),
+      elapsedMs: 93_000,
+      effort: { model: "claude-opus-5", effort: "high" },
+    },
+    entry("v0", []),
+  ]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  try {
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("| `v"));
+    assert.include(walks[0] ?? "", "| 93s | claude-opus-5 (high) | ");
+    // The pre-#703 rows keep parsing and keep rendering; absence stays absent.
+    assert.include(walks[1] ?? "", "| — | — | ");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects a malformed elapsed or effort field on a ledger row", () => {
+  const base = {
+    tag: "v1",
+    before: A,
+    after: B,
+    recordUrl: "https://example.test/v1",
+    conflicts: [],
+    decisions: [],
+    censusFiles: [],
+  };
+  assert.throws(() => parseLedger(JSON.stringify([{ ...base, elapsedMs: "soon" }])), /elapsedMs/);
+  assert.throws(() => parseLedger(JSON.stringify([{ ...base, elapsedMs: -1 }])), /elapsedMs/);
+  assert.throws(() => parseLedger(JSON.stringify([{ ...base, effort: { model: "m" } }])), /effort/);
+});
+
+it("writes the applied row when the host handoff is unavailable, effort rendered absent", () => {
+  const root = ledgerRepository([]);
+  const record = renderRecord(reportFixture());
+  NodeFS.writeFileSync(NodePath.join(root, "record.md"), record);
+  const bin = NodePath.join(root, "bin");
+  NodeFS.mkdirSync(bin);
+  NodeFS.writeFileSync(
+    NodePath.join(bin, "gh"),
+    "#!/usr/bin/env node\nprocess.stdout.write(process.env.FAKE_GH_RESPONSE ?? '');\n",
+    { mode: 0o755 },
+  );
+  // The attestation path is down: no ghb, an expired credential, a rate-limited daemon, CI.
+  NodeFS.writeFileSync(NodePath.join(bin, "ghb"), "#!/bin/sh\necho refused >&2\nexit 1\n", {
+    mode: 0o755,
+  });
+  const previousPath = process.env.PATH;
+  const previousResponse = process.env.FAKE_GH_RESPONSE;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  const trunkBase = trunkCommit(root, undefined, "feat(fork): base");
+  const trunkHead = trunkCommit(root, trunkBase, "feat(fork): applied identity");
+  process.env.FAKE_GH_RESPONSE = JSON.stringify({
+    body: [
+      "## Sequential rebase census",
+      "",
+      "A throwaway rebase rehearsal to `v1` found 0 conflicting fork commits.",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/current.ts` | 1 | `1234567 feat(fork): current identity` | fork-meta |",
+      "",
+    ].join("\n"),
+    comments: [{ body: record, url: "https://example.test/issues/1#issuecomment-1" }],
+    url: "https://example.test/issues/1",
+  });
+  try {
+    assert.strictEqual(
+      run(
+        [
+          "append",
+          "--record",
+          "record.md",
+          "--issue",
+          "1",
+          "--tag",
+          "v1",
+          "--before",
+          trunkBase,
+          "--after",
+          trunkHead,
+        ],
+        root,
+      ),
+      0,
+    );
+    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    assert.strictEqual(appended.tag, "v1");
+    // The row is complete except for the decoration: no effort, and no elapsed time either,
+    // because the fixture wrote no walk report beside the record.
+    assert.strictEqual(appended.effort, undefined);
+    assert.strictEqual(appended.elapsedMs, undefined);
+    assert.strictEqual(appended.recordUrl, "https://example.test/issues/1#issuecomment-1");
+
+    const internals = NodePath.join(root, "docs", "internals");
+    NodeFS.writeFileSync(
+      NodePath.join(internals, "fork-delta.md"),
+      "## fork-meta\n\n### Retirement condition\n",
+    );
+    assert.strictEqual(run(["render"], root), 0);
+    const walks = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("| `v1` |"));
+    assert.include(walks ?? "", "| — | — | ");
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousResponse === undefined) delete process.env.FAKE_GH_RESPONSE;
+    else process.env.FAKE_GH_RESPONSE = previousResponse;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("finds the walk's elapsed time in the report bound to the record and this walk's tag", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-elapsed-"));
+  try {
+    const recordPath = NodePath.join(root, "record.md");
+    const writeReport = (name: string, body: object): void =>
+      NodeFS.writeFileSync(NodePath.join(root, name), JSON.stringify(body));
+    writeReport("unbound.json", {
+      recordPath: `${root}\\elsewhere.md`,
+      target: { tag: "v1" },
+      walk: { elapsedMs: 1 },
+    });
+    // A record path is reused across walks: a stale report from an earlier walk against the
+    // same record is another walk's number, never this row's.
+    writeReport("older.json", { recordPath, target: { tag: "v0" }, walk: { elapsedMs: 5_000 } });
+    assert.strictEqual(walkElapsedMs(recordPath, "v1"), undefined);
+    // A tag-matching report without a numeric elapsed time never contributes a guess.
+    writeReport("bad.json", { recordPath, target: { tag: "v1" }, walk: { elapsedMs: "soon" } });
+    assert.strictEqual(walkElapsedMs(recordPath, "v1"), undefined);
+    writeReport("matched.json", {
+      recordPath,
+      target: { tag: "v1" },
+      walk: { elapsedMs: 93_000 },
+    });
+    assert.strictEqual(walkElapsedMs(recordPath, "v1"), 93_000);
+    assert.strictEqual(walkElapsedMs(NodePath.join(root, "absent.md"), "v1"), undefined);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 const censusFile = (path: string, commit: string, subject: string) => ({
@@ -979,6 +1352,9 @@ it("refuses a mismatched census tag before mutation and accepts the matching ide
     url: "https://example.test/issues/1",
   });
   try {
+    // The applied row cites the applied trunk range, so the fixture needs real trunk commits.
+    const trunkBase = trunkCommit(root, undefined, "feat(fork): base");
+    const trunkHead = trunkCommit(root, trunkBase, "feat(fork): applied identity");
     const before = runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim();
     const append = (tag: string) =>
       run(
@@ -991,9 +1367,9 @@ it("refuses a mismatched census tag before mutation and accepts the matching ide
           "--tag",
           tag,
           "--before",
-          A,
+          trunkBase,
           "--after",
-          B,
+          trunkHead,
         ],
         root,
       );
