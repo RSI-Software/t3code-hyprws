@@ -133,10 +133,13 @@ Then ask for the human's exact word for every decision and stop. A recommendatio
 record entry on its own. In steps 3 and 4, test every `retire-candidate` by asking: “does the upstream
 hunk implement the fork behaviour?” If the row does not make the answer obvious, show both hunks—the
 `git diff` of the fork commit's hunk and the upstream hunk—before recommending. `unblock-orient`
-already runs that test for an orientation candidate: it greps the target tag's tree for the
+already runs that test for an orientation candidate: it searches the target tag's tree for the
 identifiers the fork commit introduces and writes the verdict into the row's class summary, so
 `target-tree: absent` is a proven keep and `target-tree: <name> at <file>:<line>` is the hunk to
-show. Treat `mechanical`
+show. The search reads product source only — never a vendored, harness, CI, editor, or documentation
+path — and counts a name only where the target defines or imports it, in a file type the fork commit
+itself changed. A name that merely appears somewhere in the tree is a sighting of the word, not of
+the behaviour, so it never reaches the row. Treat `mechanical`
 and `seam-moved` rows as `clear` by default unless the resolution dropped or moved fork behaviour.
 
 0. Pause the bot for the whole ladder or walk series:
