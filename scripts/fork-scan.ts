@@ -16,6 +16,7 @@ import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts
 import { UsageError } from "./lib/fork-cli.ts";
 import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { overlapPaths } from "./lib/fork-overlap.ts";
+import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./lib/fork-test-debt.ts";
 import {
   readLessonEvidence,
   renderLessonGuidance,
@@ -34,6 +35,8 @@ import {
   parseCommitPatches,
   readHotSeams,
   renderScanWarnings,
+  significantTestLines,
+  type CommitPatch,
   type GuardInput,
   type ScanWarning,
 } from "./fork-scan-guards.ts";
@@ -580,6 +583,46 @@ export const resolveAuthoringSince = (git: GitReader, options: ScanOptions): str
   return options.head;
 };
 
+/**
+ * The append-only baseline, read from the walk's own head rather than from a constant here, so the
+ * sweep that records the debt is the list that grants it. A head with no report — an old commit, a
+ * bare tree — has no baseline and is held to the full rule.
+ */
+const readTestDivergenceDebt = (git: GitReader, head: string): ReadonlySet<string> => {
+  try {
+    return parseTestDivergenceDebt(git.run(["show", `${head}:${TEST_DIVERGENCE_REPORT}`]));
+  } catch {
+    return new Set();
+  }
+};
+
+/**
+ * The target-tree text of every upstream test file a warned commit removes a line from — nothing
+ * else, so a scan stays proportional to the commits it warns about. Without it the append-only
+ * rule would also refuse the repair it asks for: deleting the fork's own line out of an upstream
+ * test file is a removal too.
+ */
+const readUpstreamTestLines = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamTestFiles: ReadonlySet<string>,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const path of patch.removedTestLines.keys())
+      if (upstreamTestFiles.has(path)) paths.add(path);
+  const lines = new Map<string, ReadonlySet<string>>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return lines;
+};
+
 // The guard rules read one patch per warned commit, so `--since` is what keeps
 // a pull request's run proportional to the commits it adds.
 const buildGuardInput = (
@@ -598,13 +641,22 @@ const buildGuardInput = (
       ? []
       : [{ sha: commit.sha, short: commit.short, domain: commit.domain }],
   );
+  const patchesBySha =
+    guardCommits.length === 0
+      ? new Map<string, CommitPatch>()
+      : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))));
+  const upstreamTestFiles =
+    guardCommits.length === 0
+      ? new Set<string>()
+      : new Set(
+          readLines(
+            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
+          ),
+        );
   return {
     commits: guardCommits,
     filesBySha,
-    patchesBySha:
-      guardCommits.length === 0
-        ? new Map()
-        : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha)))),
+    patchesBySha,
     upstreamFiles:
       guardCommits.length === 0
         ? new Set()
@@ -614,14 +666,9 @@ const buildGuardInput = (
             ),
           ),
     hotSeams: churn === null ? new Map() : readHotSeams(churn),
-    upstreamTestFiles:
-      guardCommits.length === 0
-        ? new Set()
-        : new Set(
-            readLines(
-              git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
-            ),
-          ),
+    upstreamTestDebt: readTestDivergenceDebt(git, range.head),
+    upstreamTestFiles,
+    upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
   };
 };
 

@@ -4,6 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
+import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./fork-test-debt.ts";
 
 /**
  * The whole-tree half of the fork's additive doctrine. The per-seam check in
@@ -18,7 +19,8 @@ import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
  * 1. every upstream file still exists in the replayed tree;
  * 2. migration numbering is intact: every upstream migration keeps its name, and no two live
  *    migrations share a number;
- * 3. every upstream test file exists, is not shrunk, and gains no `.skip`/`.todo`/`.only`;
+ * 3. every upstream test file exists, keeps every line it had, is not shrunk, and gains no
+ *    `.skip`/`.todo`/`.only`;
  * 4. no hunk upstream deleted between the two bases came back through a clean-applying fork
  *    commit — the drift shape no conflict can surface.
  */
@@ -33,7 +35,10 @@ export interface AdditiveFinding {
   readonly head?: number;
   /** Check `migrations`: the live migration the finding's file shares a number with. */
   readonly collidesWith?: string;
-  /** Check `readded`: the significant lines of the upstream-deleted hunks the replay put back. */
+  /**
+   * Check `readded`: the significant lines of the upstream-deleted hunks the replay put back.
+   * Check `tests`: a sample of the upstream test lines the replayed tree no longer carries.
+   */
   readonly lines?: ReadonlyArray<string>;
 }
 
@@ -247,12 +252,51 @@ const countRestrictive = (modifiers: ReadonlyArray<string>): number =>
 const isTestPath = (path: string): boolean =>
   path.endsWith(".test.ts") || path.endsWith(".test.tsx");
 
+/** Trimmed, without blank and comment-only lines: what is left is assertion, fixture, or wiring. */
+const significantLines = (text: string): ReadonlyArray<string> =>
+  text
+    .split("\n")
+    .filter(isSignificant)
+    .map((line) => line.trim());
+
+/**
+ * Upstream lines the replayed tree no longer carries, as a multiset difference so a fork that adds
+ * a second copy of a line does not pay for the one it removed elsewhere. Declaration counting sees
+ * a deleted *case*; this sees a deleted *assertion*, which is the shape
+ * `apps/web/src/localApi.test.ts` lost in `cfd9465bd5f` while the walk reported `findings: 0`
+ * (RSI-Software/t3code-hyprws#697).
+ */
+const lostUpstreamLines = (
+  upstream: ReadonlyArray<string>,
+  head: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
+  const available = new Map<string, number>();
+  for (const line of head) available.set(line, (available.get(line) ?? 0) + 1);
+  const lost: Array<string> = [];
+  for (const line of upstream) {
+    const remaining = available.get(line) ?? 0;
+    if (remaining === 0) {
+      lost.push(line);
+      continue;
+    }
+    available.set(line, remaining - 1);
+  }
+  return lost;
+};
+
+/** Enough of the loss to recognise the case it came from, without pasting the file into a report. */
+const LOST_LINE_SAMPLE = 5;
+
 const testFindings = (
   runner: CommandRunner,
   worktree: string,
   target: string,
 ): ReadonlyArray<AdditiveFinding> => {
   const findings: Array<AdditiveFinding> = [];
+  // The sweep the fork already keeps is the baseline; a file leaves it by leaving that table.
+  const debt = parseTestDivergenceDebt(
+    showTree(runner, worktree, "HEAD", TEST_DIVERGENCE_REPORT) ?? "",
+  );
   for (const path of treeNames(runner, worktree, target).filter(isTestPath)) {
     const upstreamText = showTree(runner, worktree, target, path);
     if (upstreamText === null) continue;
@@ -268,6 +312,16 @@ const testFindings = (
         detail: "upstream test file is missing from the replayed tree",
       });
       continue;
+    }
+    if (!debt.has(path)) {
+      const lost = lostUpstreamLines(significantLines(upstreamText), significantLines(headText));
+      if (lost.length > 0)
+        findings.push({
+          check: "tests",
+          path,
+          lines: [...new Set(lost)].sort().slice(0, LOST_LINE_SAMPLE),
+          detail: `${lost.length} upstream test line(s) are gone from the replayed tree; a fork commit may only append to an upstream test file`,
+        });
     }
     const headModifiers = declarationModifiers(headText);
     const headPresent = countPresent(headModifiers);

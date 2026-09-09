@@ -15,6 +15,15 @@ import { applyAdditiveFixes, checkAdditive } from "./fork-additive.ts";
  * base, the tagged commit 1 is the target, and whatever the test commits on top is the replayed
  * fork head.
  */
+const UPSTREAM_LOCAL_API_TEST = [
+  'it("delegates the context menu", async () => {',
+  '  const items = [{ id: "delete" }];',
+  "  await api.contextMenu.show(items);",
+  "  expect(showContextMenu).toHaveBeenCalledWith(items, undefined);",
+  "});",
+  "",
+].join("\n");
+
 const upstreamFixture = (): {
   root: string;
   run: (...args: ReadonlyArray<string>) => void;
@@ -71,6 +80,8 @@ const upstreamFixture = (): {
     "apps/web/src/thing.test.ts",
     'it("first", () => {});\nit("second", () => {});\nit("third", () => {});\n',
   );
+  // An upstream case with a body, so a lost assertion can be told apart from a lost case.
+  write("apps/web/src/localApi.test.ts", UPSTREAM_LOCAL_API_TEST);
   write("apps/web/src/gone.ts", "export const gone = 1;\n");
   write("apps/server/src/persistence/Migrations/002_Upstream.ts", "export default 2;\n");
   write(
@@ -270,8 +281,66 @@ it("restores a missing upstream migration", () => {
   }
 });
 
-it("counts a rewritten case as present but refuses a shrunk upstream test file", () => {
-  // Same case count, net line shrink: the shape the fork's ChatMarkdown edit takes.
+// The shape the gate used to pass: `apps/web/src/localApi.test.ts` lost its `showContextMenu`
+// delegation assertions in `cfd9465bd5f` and the walk reported `findings: 0`, because the case
+// itself stayed and declaration counting is all the check had (RSI-Software/t3code-hyprws#697).
+it("refuses an assertion deleted from a kept upstream case, and grants the recorded debt", () => {
+  const lost = [
+    "await api.contextMenu.show(items);",
+    "expect(showContextMenu).toHaveBeenCalledWith(items, undefined);",
+  ];
+  const gutted = [
+    'it("delegates the context menu", async () => {',
+    '  const items = [{ id: "delete" }];',
+    "});",
+    "",
+  ].join("\n");
+  const fixture = upstreamFixture();
+  const runner = new SystemCommandRunner();
+  replay(fixture, [["apps/web/src/localApi.test.ts", gutted]]);
+  try {
+    assert.deepStrictEqual(
+      checkAdditive(runner, fixture.root, {
+        target: fixture.target,
+        previous: fixture.previous,
+      }).map(({ check, path, lines }) => ({ check, path, lines })),
+      [{ check: "tests", path: "apps/web/src/localApi.test.ts", lines: lost.toSorted() }],
+    );
+  } finally {
+    NodeFS.rmSync(fixture.root, { recursive: true, force: true });
+  }
+
+  // The sweep is the allow-list: a listed file keeps its debt until the row leaves the table.
+  const listed = upstreamFixture();
+  replay(listed, [
+    ["apps/web/src/localApi.test.ts", gutted],
+    [
+      "docs/internals/fork-test-divergence.md",
+      [
+        "# Fork test divergence",
+        "",
+        "## Upstream test files edited in place (1)",
+        "",
+        "| File | Diff | Class |",
+        "| --- | --- | --- |",
+        "| `apps/web/src/localApi.test.ts` | +0 / −2 | deletion |",
+        "",
+      ].join("\n"),
+    ],
+  ]);
+  try {
+    assert.deepStrictEqual(
+      checkAdditive(runner, listed.root, { target: listed.target, previous: listed.previous }),
+      [],
+    );
+  } finally {
+    NodeFS.rmSync(listed.root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a rewritten upstream case and a shrunk upstream test file", () => {
+  // Same case count, one line rewritten in place: the shape the fork's ChatMarkdown edit takes,
+  // and the one declaration counting alone reports as a pass.
   const fixture = upstreamFixture();
   const runner = new SystemCommandRunner();
   replay(fixture, [
@@ -282,8 +351,19 @@ it("counts a rewritten case as present but refuses a shrunk upstream test file",
   ]);
   try {
     assert.deepStrictEqual(
-      checkAdditive(runner, fixture.root, { target: fixture.target, previous: fixture.previous }),
-      [],
+      checkAdditive(runner, fixture.root, {
+        target: fixture.target,
+        previous: fixture.previous,
+      }).map(({ check, path, lines, detail }) => ({ check, path, lines, detail })),
+      [
+        {
+          check: "tests",
+          path: "apps/web/src/thing.test.ts",
+          lines: ['it("first", () => {});'],
+          detail:
+            "1 upstream test line(s) are gone from the replayed tree; a fork commit may only append to an upstream test file",
+        },
+      ],
     );
   } finally {
     NodeFS.rmSync(fixture.root, { recursive: true, force: true });
@@ -305,6 +385,14 @@ it("counts a rewritten case as present but refuses a shrunk upstream test file",
         detail,
       })),
       [
+        {
+          check: "tests",
+          path: "apps/web/src/thing.test.ts",
+          upstream: undefined,
+          head: undefined,
+          detail:
+            "1 upstream test line(s) are gone from the replayed tree; a fork commit may only append to an upstream test file",
+        },
         {
           check: "tests",
           path: "apps/web/src/thing.test.ts",
@@ -340,6 +428,11 @@ it("counts a skipped case as absent and refuses new skip markers", () => {
     assert.deepStrictEqual(
       findings.map(({ check, detail }) => ({ check, detail })),
       [
+        {
+          check: "tests",
+          detail:
+            "1 upstream test line(s) are gone from the replayed tree; a fork commit may only append to an upstream test file",
+        },
         { check: "tests", detail: "test declarations shrunk from 3 to 2" },
         { check: "tests", detail: "adds 1 .skip/.todo/.only marker(s) upstream does not carry" },
       ],
