@@ -14,6 +14,7 @@ import {
   budgetFindings,
   budgetRaises,
   forkBudgetFindingMessage,
+  forkBudgetRefusalMessage,
   parseForkBudget,
   renderForkBudget,
 } from "./lib/fork-budget.ts";
@@ -911,6 +912,10 @@ it("fails a domain without a budget row closed at ceiling zero", () => {
   assert.deepStrictEqual(findings.map(forkBudgetFindingMessage), [
     "zmux-estate: added 1 > 0 ceiling (domain has no budget row)",
   ]);
+  // The refusal adds the overage and the exact raise route.
+  assert.deepStrictEqual(findings.map(forkBudgetRefusalMessage), [
+    "zmux-estate: added 1 > 0 ceiling (domain has no budget row) (over by 1) — to raise it: edit docs/internals/fork-budget.md to set the zmux-estate added ceiling to at least 1, and carry Fork-Budget: raise <reason> on that commit",
+  ]);
 });
 
 it("detects exactly the gated numbers a commit pushed up", () => {
@@ -1022,12 +1027,19 @@ const checkArgs = (base: string, head: string, upstream: string) => [
   upstream,
 ];
 
-it("fails --check on a stack over a gated ceiling, naming the domain and number", () => {
+it("fails --check on a stack over a gated ceiling, naming the domain, overage, and raise route", () => {
   const { root, base, upstream, head } = createBudgetFixture(budgetFile(2, 0, 1));
   try {
     const result = runForkDelta(root, checkArgs(base, head, upstream));
     assert.strictEqual(result.status, 1);
     assert.include(result.stderr, "over budget: fork-meta: added 3 > 2 ceiling");
+    // The refusal is actionable: it names the overage and the exact raise route.
+    assert.include(result.stderr, "(over by 1)");
+    assert.include(
+      result.stderr,
+      "edit docs/internals/fork-budget.md to set the fork-meta added ceiling to at least 3",
+    );
+    assert.include(result.stderr, "carry Fork-Budget: raise <reason> on that commit");
     assert.include(
       result.stderr,
       "failed: 1 fork budget ceiling(s) exceeded (docs/internals/fork-budget.md)",
@@ -1174,7 +1186,7 @@ it("fails a raising commit that carries no Fork-Budget raise trailer", () => {
   }
 });
 
-it("keeps a raised ceiling when the raising commit carries the trailer", () => {
+it("keeps a raised ceiling when the raising commit carries the trailer, and the raise is visible", () => {
   const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
   try {
     NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
@@ -1186,6 +1198,51 @@ it("keeps a raised ceiling when the raising commit carries the trailer", () => {
     );
     const withTrailer = runForkDelta(root, checkArgs(base, raising, upstream));
     assert.strictEqual(withTrailer.status, 0, withTrailer.stderr);
+    // The raise is never silent: the gate echoes it with the numbers and the reason.
+    assert.include(withTrailer.stdout, "budget raise: fork-meta added 3 -> 6");
+    assert.include(withTrailer.stdout, "raise the shared-file module grew");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a raising commit whose Fork-Budget trailer has no reason", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const reasonless = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise\n",
+    );
+    const result = runForkDelta(root, checkArgs(base, reasonless, upstream));
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      `raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>`,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a raising commit whose Fork-Budget reason is only whitespace", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const blankReason = commitAll(
+      root,
+      "feat: raise the added ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise    \n",
+    );
+    const result = runForkDelta(root, checkArgs(base, blankReason, upstream));
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      `raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>`,
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
