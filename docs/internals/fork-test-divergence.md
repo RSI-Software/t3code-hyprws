@@ -26,6 +26,15 @@ Classes: `append` (fork only added; upstream assertions untouched), `rewrite` (a
 
 ## Upstream test files edited in place (56)
 
+This table is read by machine. `fork:scan` and the additive gate refuse a fork commit that changes
+or removes a line in an upstream test file, and they exempt exactly the paths in the first column
+of this table — parsed out of this file at the head being scanned, not restated as a constant in
+`scripts/`. So a file leaves the append-only baseline by leaving this table, which is the same edit
+that records its migration to a `*.fork.test.*` sibling. The other lists of backticked paths in
+this report are prose and grant nothing; a missing or unparseable report grants nothing either,
+because an absent allow-list must never read as a licence. Keep the count in this heading accurate:
+`scripts/lib/fork-test-debt.test.ts` asserts it against the number of rows.
+
 | File                                                                   | Diff       | Class    |
 | ---------------------------------------------------------------------- | ---------- | -------- |
 | `apps/desktop/src/app/DesktopClerk.test.ts`                            | +7 / −3    | rewrite  |
