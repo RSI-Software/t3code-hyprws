@@ -56,6 +56,12 @@ import {
   positionUpstreamReleaseTags,
   selectNewestReleaseTag,
 } from "./lib/fork-policy.ts";
+import {
+  forkCommitSourceExtensions,
+  isOpaqueDiffPath,
+  isRetireEvidenceSite,
+  RETIRE_PROBE_EXCLUSIONS,
+} from "./lib/fork-retire-probe.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
 import { normalizeReplayMessages, withoutRepairMessages } from "./lib/fork-replay-messages.ts";
 import {
@@ -3151,10 +3157,6 @@ export const autoResolveConflicts = (
   return { kind: "resolved", report: next };
 };
 
-/** A diff of these says nothing about a fork commit's own identity. */
-const isOpaqueDiffPath = (path: string): boolean =>
-  path === "pnpm-lock.yaml" || path.endsWith(".lock") || path.endsWith(".snap");
-
 const MINIMUM_LITERAL_LENGTH = 12;
 const IDENTIFIER_LIMIT = 40;
 
@@ -3196,14 +3198,19 @@ export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
   return [...found].filter((value) => value.trim().length > 0).slice(0, IDENTIFIER_LIMIT);
 };
 
-/** Greps the target tag's tree for identifiers the fork commit introduced. */
+/**
+ * Greps the target tag's tree for identifiers the fork commit introduced, over product source only
+ * and counting a hit only where the name is defined or imported in a file type the commit itself
+ * changed. Proximity is not evidence, and neither is prose (RSI-Software/t3code-hyprws#688).
+ */
 export const retireCandidateMatches = (
   runner: CommandRunner,
   root: string,
   targetSha: string,
   identifiers: ReadonlyArray<string>,
+  extensions: ReadonlySet<string>,
 ): RetireEvidence["matches"] => {
-  if (identifiers.length === 0) return [];
+  if (identifiers.length === 0 || extensions.size === 0) return [];
   const result = runner.run(
     "git",
     [
@@ -3214,6 +3221,8 @@ export const retireCandidateMatches = (
       "--fixed-strings",
       ...identifiers.flatMap((value) => ["-e", value]),
       targetSha,
+      "--",
+      ...RETIRE_PROBE_EXCLUSIONS,
     ],
     root,
   );
@@ -3225,11 +3234,19 @@ export const retireCandidateMatches = (
   for (const line of result.stdout.split("\n")) {
     const parsed = /^[^:]*:(.+?):(\d+):(.*)$/.exec(line);
     if (parsed === null) continue;
+    const path = parsed[1] ?? "";
     const text = parsed[3] ?? "";
-    const identifier = identifiers.find((value) => text.includes(value));
-    if (identifier === undefined || seen.has(identifier)) continue;
+    // A rejected hit never marks its identifier seen: the first line that names it is often the
+    // mention, and the definition that would prove the retirement comes later in the same tree.
+    const identifier = identifiers.find(
+      (value) =>
+        !seen.has(value) &&
+        text.includes(value) &&
+        isRetireEvidenceSite(value, path, text, extensions),
+    );
+    if (identifier === undefined) continue;
     seen.add(identifier);
-    matches.push({ identifier, location: `${parsed[1] ?? ""}:${parsed[2] ?? ""}` });
+    matches.push({ identifier, location: `${path}:${parsed[2] ?? ""}` });
   }
   return matches;
 };
@@ -3255,16 +3272,21 @@ export const collectRetireEvidence = (
   return candidates.flatMap((row) => {
     const commit = commits.get(row.subject);
     if (commit === undefined) return [];
-    const identifiers = forkCommitIdentifiers(
-      gitRaw(runner, root, ["show", "--format=", "--unified=0", "--no-color", commit]),
-    );
+    const diff = gitRaw(runner, root, ["show", "--format=", "--unified=0", "--no-color", commit]);
+    const identifiers = forkCommitIdentifiers(diff);
     if (identifiers.length === 0) return [];
     return [
       {
         subject: row.subject,
         commit,
         identifiers,
-        matches: retireCandidateMatches(runner, root, targetSha, identifiers),
+        matches: retireCandidateMatches(
+          runner,
+          root,
+          targetSha,
+          identifiers,
+          forkCommitSourceExtensions(diff),
+        ),
       },
     ];
   });
