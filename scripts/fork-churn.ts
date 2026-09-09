@@ -530,9 +530,17 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     (issueView.body.trim() === record.trim() ? issueView.url : undefined);
   if (recordUrl === undefined)
     throw new Error(`record does not match issue ${issue} body or comments`);
-  const censusEvidence = parseSequentialCensusEvidence(issueView.body);
-  if (censusEvidence !== null && censusEvidence.targetTag !== tag)
-    throw new Error(`--tag ${tag} does not match census targetTag ${censusEvidence.targetTag}`);
+  // The census is provenance for the row, not permission to write it. The block issue's census is
+  // live: the sync bot refreshes it whenever a newer upstream tag lands, which can happen while a
+  // walk is still replaying the tag it selected. A census about a different tag is not evidence for
+  // this row, so it is dropped — refusing instead would lose the ledger row for a walk that landed.
+  const liveCensus = parseSequentialCensusEvidence(issueView.body);
+  const censusEvidence = liveCensus !== null && liveCensus.targetTag === tag ? liveCensus : null;
+  if (liveCensus !== null && censusEvidence === null)
+    process.stderr.write(
+      `warning: census on issue ${issue} is for ${liveCensus.targetTag}, not ${tag}; ` +
+        `the row is written without census evidence\n`,
+    );
   const conflicts = parsed.conflicts.map(
     ({ path, commit, subject, domain, class: klass, resolution, decidedBy }) => ({
       path,
