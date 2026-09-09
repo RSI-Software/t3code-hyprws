@@ -30,7 +30,7 @@ export interface ForkReleaseMetadata {
   readonly makeLatest: boolean;
 }
 
-export class InvalidForkReleaseInputError extends Schema.TaggedErrorClass<InvalidForkReleaseInputError>()(
+export class InvalidForkReleaseInputError extends Schema.TaggedError<InvalidForkReleaseInputError>()(
   "InvalidForkReleaseInputError",
   {
     channel: ForkReleaseChannel,
@@ -48,7 +48,7 @@ export class InvalidForkReleaseInputError extends Schema.TaggedErrorClass<Invali
   }
 }
 
-export class ForkReleaseGitHubOutputConfigError extends Schema.TaggedErrorClass<ForkReleaseGitHubOutputConfigError>()(
+export class ForkReleaseGitHubOutputConfigError extends Schema.TaggedError<ForkReleaseGitHubOutputConfigError>()(
   "ForkReleaseGitHubOutputConfigError",
   { cause: Schema.Defect() },
 ) {
@@ -57,7 +57,7 @@ export class ForkReleaseGitHubOutputConfigError extends Schema.TaggedErrorClass<
   }
 }
 
-export class ForkReleaseGitHubOutputAppendError extends Schema.TaggedErrorClass<ForkReleaseGitHubOutputAppendError>()(
+export class ForkReleaseGitHubOutputAppendError extends Schema.TaggedError<ForkReleaseGitHubOutputAppendError>()(
   "ForkReleaseGitHubOutputAppendError",
   {
     outputPath: Schema.String,
