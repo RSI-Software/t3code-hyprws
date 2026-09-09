@@ -424,6 +424,74 @@ cases share the module's hoisted Electron mock. Extracting that complete setup w
 duplicated harness seam than the test appends it removes. `fork:scan` reads only these two paths from
 `UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS`; add no wildcard or domain-wide exemption.
 
+### Diverging from an upstream expectation
+
+The sibling-file rule above is unconditional: a fork case asserting fork behavior always lives in
+the `*.fork.test.ts` sibling. No route ever moves it into the upstream file.
+
+Sometimes the fork deliberately changes the behavior an upstream test asserts — project windows,
+custom agents, the WYSIWYG editor, or zmux linkage invert something upstream holds true. A test
+that is merely inconvenient to satisfy alongside fork code is not divergence; fix the fork code or
+the fork case, and leave the upstream assertion alone.
+
+Genuine divergence is handled in two parts, and neither part edits the upstream assertion's text:
+
+1. **The fork case goes in the sibling.** It asserts the fork's behavior in
+   `<name>.fork.test.ts`, exactly like any other fork case.
+2. **The superseding declaration goes in the sibling too.** The upstream file is never touched —
+   not rewritten, not deleted, not skipped in place. The sibling instead carries a declaration
+   naming the upstream case it supersedes: the upstream file, the upstream test name, the reason
+   the fork changed the behavior, and the fork commit that did it. A declaration is an exception,
+   not a convenience: it is legal only when the fork deliberately changed the behavior the named
+   case asserts. RSI-Software/t3code-hyprws#697 builds the gate that reads these declarations;
+   when it sees an upstream case named by a live declaration it treats that case as superseded
+   rather than contradictory. Upstream stays byte-identical, and the authoring guard keeps one
+   rule with no exception: an upstream test file is untouchable, always.
+
+This route is written before its gate exists, because
+RSI-Software/t3code-hyprws#697's refusal has to name a route the author can take. Until that gate
+lands, nothing enforces any of this. The fork already carries 56 upstream test files edited in
+place — [`fork-test-divergence.md`](./fork-test-divergence.md) classifies every one — and they are
+the backlog the guard converts, not exceptions to the rule.
+
+This is why the declaration must not live in the upstream file. A marker written into the upstream
+test is itself an in-place upstream edit, so every legal divergence would also violate the guard —
+the guard would have to carve an exception into the very rule it enforces and parse markers inside
+a file it treats as untouchable. Keeping the declaration in the sibling avoids that seam entirely.
+
+A bare skip is how an upstream assertion disappears unnoticed. The additive gate reports skipped
+cases as findings, and RSI-Software/t3code-hyprws#689 records an upstream assertion deleted while
+the gate stayed at `findings: 0`. So a superseding declaration must be **machine-detectable and
+gate-visible**: a declared, structured record — not `it.skip`, `it.skipIf`, a comment-out, or any
+in-place edit — carrying (a) the upstream file and test name it supersedes, (b) the reason the
+fork changed the behavior, and (c) the fork commit that did it. The gate
+RSI-Software/t3code-hyprws#697 builds classifies a declaration carrying all three as _declared
+divergence_ instead of a finding, and refuses a sibling case that contradicts an upstream case
+without one. The rebase feasibility walk reads the same declaration to retire it once upstream
+adopts the behavior.
+
+**Retire condition.** When upstream adopts the changed behavior, the walk's retire decision
+deletes the declaration and the contradicting sibling case in the same change. The upstream file
+needs no repair — it never changed. A sibling case whose declaration is gone is a contradiction
+waiting for the next suite run.
+
+Proposed concrete syntax (RSI-Software/t3code-hyprws#697 owns the final spelling):
+
+```ts
+// In <name>.fork.test.ts — never in the upstream file:
+forkSupersedes({
+  upstream: "apps/web/src/preview/Manager.test.ts > broadcasts preview events to every window",
+  reason: "project windows scope preview ownership to the owning window",
+  commit: "<fork-commit-sha>",
+});
+```
+
+The declaration names the upstream case, the reason, and the fork commit. Once
+RSI-Software/t3code-hyprws#697 lands, `vp run fork:delta --check` and `fork:scan` treat an upstream
+case named by a live declaration in this form as superseded; an upstream test file that differs
+from upstream by even one byte, or a contradicting sibling case without a matching declaration, is
+a finding.
+
 ### Extend an upstream export, do not replace it
 
 An upstream-exported schema, list, enum, or switch the fork needs more of stays where upstream
