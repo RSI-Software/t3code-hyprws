@@ -17,7 +17,6 @@ The baseline prevents old stack commits from blocking new work; it never approve
 | T3ProjectFile: field removed: worktrunkHooks                                                             | shipped before the wire check |
 | EnvironmentInternalErrorReason: literal added: orchestration_agent_activity_failed                       | shipped before the wire check |
 | EnvironmentResourceNotFoundReason: literal added: agent_not_found                                        | shipped before the wire check |
-| SidebarThreadSortOrder: literal added: manual                                                            | shipped before the wire check |
 | EnvironmentRequestInvalidReason: literal added: invalid_agent_activity_cursor                            | shipped before the wire check |
 | EnvironmentInternalErrorReason: literal added: thread_group_title_generation_failed                      | shipped before the wire check |
 | EnvironmentResourceNotFoundReason: literal added: project_not_found                                      | shipped before the wire check |
