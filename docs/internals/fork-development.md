@@ -404,7 +404,15 @@ review evidence fails the gate; historical advisory ledger warnings retain their
 Put fork-authored test blocks beside an upstream test in `<name>.fork.test.ts` or
 `<name>.fork.test.tsx`, rather than appending them to the upstream-owned file. The replayed fork
 series otherwise conflicts at the same shared insertion seam whenever upstream appends another test.
-Changes to an existing upstream expectation stay in the upstream test file.
+A fork commit may only append to an upstream test file. `fork:scan` refuses a changed or removed
+line in an upstream case, and the additive gate counts a line the replayed tree no longer carries
+as a finding rather than a pass — declaration counting alone reported `findings: 0` while
+`apps/web/src/localApi.test.ts` lost its `showContextMenu` assertions in `cfd9465bd5f`. The
+upstream test files the fork already edits in place are the baseline for both, read from the
+`Upstream test files edited in place` table in
+[`fork-test-divergence.md`](./fork-test-divergence.md) rather than from a second list beside it: a
+file leaves the baseline by leaving that table, which is the same edit that records its migration.
+Deliberately changing what an upstream expectation asserts has its own route, below.
 
 Test ownership follows the selected upstream target tree, including files independently added
 at the same path by both sides. The guard recognizes `it`, `test`, `describe` and the repository's
@@ -443,16 +451,18 @@ Genuine divergence is handled in two parts, and neither part edits the upstream 
    naming the upstream case it supersedes: the upstream file, the upstream test name, the reason
    the fork changed the behavior, and the fork commit that did it. A declaration is an exception,
    not a convenience: it is legal only when the fork deliberately changed the behavior the named
-   case asserts. RSI-Software/t3code-hyprws#697 builds the gate that reads these declarations;
+   case asserts. RSI-Software/t3code-hyprws#716 builds the gate that reads these declarations;
    when it sees an upstream case named by a live declaration it treats that case as superseded
    rather than contradictory. Upstream stays byte-identical, and the authoring guard keeps one
    rule with no exception: an upstream test file is untouchable, always.
 
-This route is written before its gate exists, because
-RSI-Software/t3code-hyprws#697's refusal has to name a route the author can take. Until that gate
-lands, nothing enforces any of this. The fork already carries 56 upstream test files edited in
-place — [`fork-test-divergence.md`](./fork-test-divergence.md) classifies every one — and they are
-the backlog the guard converts, not exceptions to the rule.
+Half of this route is enforced. The refusal that sends an author here is live, and so is the
+baseline that keeps it green over the 56 upstream test files the fork already edits in place —
+[`fork-test-divergence.md`](./fork-test-divergence.md) classifies every one, and they are the
+backlog the guard converts, not exceptions to the rule. The declaration itself is still prose no
+tool reads: RSI-Software/t3code-hyprws#716 owns the parser, and until it lands a declaration is a
+note to the next reader rather than something a gate can act on. Write one anyway. The refusal
+above already forbids the alternative, and a declaration written today is what the parser finds.
 
 This is why the declaration must not live in the upstream file. A marker written into the upstream
 test is itself an in-place upstream edit, so every legal divergence would also violate the guard —
@@ -460,12 +470,13 @@ the guard would have to carve an exception into the very rule it enforces and pa
 a file it treats as untouchable. Keeping the declaration in the sibling avoids that seam entirely.
 
 A bare skip is how an upstream assertion disappears unnoticed. The additive gate reports skipped
-cases as findings, and RSI-Software/t3code-hyprws#689 records an upstream assertion deleted while
-the gate stayed at `findings: 0`. So a superseding declaration must be **machine-detectable and
+cases as findings, and it now reports a deleted line inside a kept case as one too — the shape
+RSI-Software/t3code-hyprws#689 recorded, where an upstream assertion was deleted while the gate
+stayed at `findings: 0`. So a superseding declaration must be **machine-detectable and
 gate-visible**: a declared, structured record — not `it.skip`, `it.skipIf`, a comment-out, or any
 in-place edit — carrying (a) the upstream file and test name it supersedes, (b) the reason the
 fork changed the behavior, and (c) the fork commit that did it. The gate
-RSI-Software/t3code-hyprws#697 builds classifies a declaration carrying all three as _declared
+RSI-Software/t3code-hyprws#716 builds classifies a declaration carrying all three as _declared
 divergence_ instead of a finding, and refuses a sibling case that contradicts an upstream case
 without one. The rebase feasibility walk reads the same declaration to retire it once upstream
 adopts the behavior.
@@ -475,7 +486,7 @@ deletes the declaration and the contradicting sibling case in the same change. T
 needs no repair — it never changed. A sibling case whose declaration is gone is a contradiction
 waiting for the next suite run.
 
-Proposed concrete syntax (RSI-Software/t3code-hyprws#697 owns the final spelling):
+Proposed concrete syntax (RSI-Software/t3code-hyprws#716 owns the final spelling):
 
 ```ts
 // In <name>.fork.test.ts — never in the upstream file:
@@ -486,11 +497,11 @@ forkSupersedes({
 });
 ```
 
-The declaration names the upstream case, the reason, and the fork commit. Once
-RSI-Software/t3code-hyprws#697 lands, `vp run fork:delta --check` and `fork:scan` treat an upstream
-case named by a live declaration in this form as superseded; an upstream test file that differs
-from upstream by even one byte, or a contradicting sibling case without a matching declaration, is
-a finding.
+The declaration names the upstream case, the reason, and the fork commit. `fork:scan` and the
+additive gate already treat an upstream test file that differs from upstream by even one byte as a
+finding. Once RSI-Software/t3code-hyprws#716 lands they also read this form, treating an upstream
+case named by a live declaration as superseded and a contradicting sibling case without a matching
+declaration as a finding.
 
 ### Extend an upstream export, do not replace it
 

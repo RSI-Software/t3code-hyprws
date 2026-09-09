@@ -176,6 +176,12 @@ export interface CommitPatch {
   // `it`/`test`/`describe` block openers stay grouped by zero-context diff
   // hunk, so only a nearby removal can identify an addition as a replacement.
   readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
+  // Significant lines the commit takes out of a `*.test.*` file, keyed by that
+  // file's path. A rewrite deletes the old assertion and adds the new one, so
+  // the removed side is the whole shape: a same-size swap nets to zero added
+  // blocks and carries no title change, and the two counting rules below miss
+  // it entirely.
+  readonly removedTestLines: ReadonlyMap<string, ReadonlyArray<string>>;
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
@@ -205,6 +211,17 @@ export interface GuardInput {
   // Test ownership follows the selected target, including independent same-path
   // additions. Other footprint/export guards retain their upstream-base meaning.
   readonly upstreamTestFiles?: ReadonlySet<string>;
+  // The significant lines each touched upstream test file carries in the target
+  // tree. A fork commit that deletes a line it added itself — the repair the
+  // rule asks for — removes nothing upstream wrote, so only a line in this set
+  // is an upstream case being changed. An absent entry refuses every removal,
+  // because an unread tree is not evidence that the line was the fork's.
+  readonly upstreamTestLines?: ReadonlyMap<string, ReadonlySet<string>>;
+  // Upstream test files the fork already edits in place, read from the sweep in
+  // `docs/internals/fork-test-divergence.md`. The append-only rule tolerates a
+  // listed file so it is green on the day it lands; a file leaves the baseline
+  // by leaving that table. An absent set is an empty baseline, never a licence.
+  readonly upstreamTestDebt?: ReadonlySet<string>;
   readonly hotSeams: ReadonlyMap<string, HotSeam>;
 }
 
@@ -355,6 +372,24 @@ const diffPath = (value: string): string | null => {
   return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
 };
 
+// Blank lines and comment-only lines carry no assertion, so removing one is not
+// a rewrite of upstream intent. Everything else in a test file is.
+const isSignificant = (content: string): boolean => {
+  const trimmed = content.trim();
+  return (
+    trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*") && trimmed !== "/*"
+  );
+};
+
+/** The lines of an upstream test file that a removal can be measured against. */
+export const significantTestLines = (text: string): ReadonlySet<string> =>
+  new Set(
+    text
+      .split("\n")
+      .filter(isSignificant)
+      .map((line) => line.trim()),
+  );
+
 export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch> => {
   const patches = new Map<string, CommitPatch>();
   for (const record of raw.replace(/\r\n/g, "\n").split(PATCH_RECORD_SEPARATOR)) {
@@ -364,6 +399,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const removedExports: Array<ExportDeclaration> = [];
     const addedExports: Array<ExportDeclaration> = [];
     const testBlockHunks: Array<TestBlockHunk> = [];
+    const removedTestLines = new Map<string, Array<string>>();
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
@@ -417,6 +453,11 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
+      if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
+        const lines = removedTestLines.get(path) ?? [];
+        lines.push(content.trim());
+        removedTestLines.set(path, lines);
+      }
       if (
         added &&
         isAuthoringGuardTarget("thread-route-navigation", path) &&
@@ -509,6 +550,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       removedExports,
       addedExports,
       testBlockHunks,
+      removedTestLines,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
@@ -563,6 +605,7 @@ const EMPTY_PATCH: CommitPatch = {
   removedExports: [],
   addedExports: [],
   testBlockHunks: [],
+  removedTestLines: new Map(),
 };
 
 export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarning> => {
@@ -689,6 +732,27 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       warn(
         "upstream-test",
         `${path} gains ${count} fork test block(s); move them to ${forkTestSibling(path)}`,
+      );
+    }
+    // A fork commit may only append to an upstream test file. The two counting rules above see a
+    // gained block and a swapped title; neither sees an assertion rewritten in place, which is a
+    // removal on the source side and an addition of the same size on the target side. The removed
+    // side alone is the whole shape, so refuse on it and let the sibling carry the fork's case.
+    for (const [path, lines] of [...patch.removedTestLines].toSorted(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      if (!(input.upstreamTestFiles ?? input.upstreamFiles).has(path)) continue;
+      if (!TEST_FILE.test(path) || FORK_TEST_FILE.test(path)) continue;
+      if (UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS.has(path)) continue;
+      if (input.upstreamTestDebt?.has(path) === true) continue;
+      const upstreamLines = input.upstreamTestLines?.get(path);
+      const upstream =
+        upstreamLines === undefined ? lines : lines.filter((line) => upstreamLines.has(line));
+      if (upstream.length === 0) continue;
+      const first = upstream[0] ?? "";
+      warn(
+        "upstream-test",
+        `${path} changes or removes ${upstream.length} upstream test line(s) (first: ${first}); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
       );
     }
     for (const [path, count] of [...renamedTestTitles].toSorted(([left], [right]) =>
