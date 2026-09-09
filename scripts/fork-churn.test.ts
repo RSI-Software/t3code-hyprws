@@ -1373,15 +1373,22 @@ it("refuses a mismatched census tag before mutation and accepts the matching ide
         ],
         root,
       );
-    assert.strictEqual(append("v2-alias"), 1);
-    assert.include(stderr, "--tag v2-alias does not match census targetTag v2");
-    assert.strictEqual(
+    // The block issue's census is live: the sync bot refreshes it as soon as a newer upstream tag
+    // lands, which happens while a walk is still replaying the tag it selected. That census is not
+    // evidence for this row, but the walk still landed, so the row is written without it.
+    assert.strictEqual(append("v2-alias"), 0, stderr);
+    assert.include(stderr, "census on issue 1 is for v2, not v2-alias");
+    const aliased = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    assert.strictEqual(aliased.tag, "v2-alias");
+    assert.isUndefined(aliased.censusEvidence);
+    assert.notStrictEqual(
       runCommandText("git", ["rev-parse", CHURN_REF], { cwd: root }).trim(),
       before,
     );
-    assert.deepStrictEqual(parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!), []);
     assert.strictEqual(append("v2"), 0, stderr);
-    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!)[0]!;
+    const appended = parseLedger(readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE)!).find(
+      (row) => row.tag === "v2",
+    )!;
     assert.strictEqual(appended.tag, "v2");
     assert.deepStrictEqual(appended.censusEvidence, evidence);
   } finally {
