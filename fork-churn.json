@@ -7131,6 +7131,208 @@
           "recordedAt": "2026-09-08T21:27:24.406Z"
         }
       ]
+    },
+    {
+      "tag": "v0.0.41-nightly.20260909.1426",
+      "before": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+      "after": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/691#issuecomment-5596199242",
+      "conflicts": [
+        {
+          "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+          "commit": "2f3430e1cdca",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "TODO",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "fix(web): thread jump keys switch threads while the terminal has focus",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "TODO"
+        },
+        {
+          "subject": "ci(fork): run the matrix on merge_group, not on ready",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): read the blocked issue body at gate 1",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): name the real nightly condition in orientation",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): name the rehearsal lane after the head it replays",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): restore the lockfile before the rehearsed rebase",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): assign the target tag inside the gate 1 block",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): install before the gate 3 scan",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): tell registry drift from manifest drift after the replay",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): print the repair each scan gap class needs",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+          "hunks": null,
+          "commit": "2f3430e1cdca5b50a272d728c70b19e2aa4d5e8c",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate"
+        }
+      ],
+      "censusEvidence": {
+        "version": 1,
+        "method": "sequential-rebase-stage3-provisional",
+        "sourceSha": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+        "baseSha": "5d14c0e9686d8bedf47dd93dd3811fd639255c7e",
+        "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+        "targetTag": "v0.0.41-nightly.20260909.1426",
+        "complete": true,
+        "rows": [
+          {
+            "stop": 1,
+            "commit": "2f3430e1cdca5b50a272d728c70b19e2aa4d5e8c",
+            "subject": "feat(web): follow coordinated checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+            "kind": "content"
+          }
+        ]
+      },
+      "walkDecisions": [
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z",
+          "path": "apps/web/src/components/ThreadTerminalDrawer.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "4b49c4f4501926e7434499a9d985059e79c3aab032e1b112466994f38d2095cb",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z",
+          "path": "apps/web/src/components/ThreadTerminalDrawer.tsx"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): thread jump keys switch threads while the terminal has focus",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260909.1426",
+          "recordedAt": "2026-09-09T05:11:18.184Z"
+        }
+      ],
+      "pending": true
     }
   ],
   "seamRecords": [
