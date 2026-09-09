@@ -583,7 +583,6 @@ const isPreviewInputSignal = (value: unknown): value is PreviewInputSignal => {
       typeof value.y === "number" &&
       "button" in value &&
       typeof value.button === "number"
-    );
   }
   return (
     value.kind === "key" &&
@@ -601,7 +600,6 @@ const inputSignalsMatch = (left: PreviewInputSignal, right: PreviewInputSignal):
       Math.abs(left.x - right.x) <= 1 &&
       Math.abs(left.y - right.y) <= 1 &&
       left.button === right.button
-    );
   }
   return (
     left.kind === "key" &&
@@ -709,7 +707,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           TimeoutError: (cause) =>
             Effect.fail(new PreviewOperationError({ ...errorContext, cause })),
         }),
-      );
       yield* requireCurrentGuest;
       return image;
     });
@@ -757,7 +754,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             }
           }),
         ),
-      );
     });
   const setWindowBackgroundThrottling = Effect.fnUntraced(function* (
     window: BrowserWindow,
@@ -829,7 +825,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
               }),
             ] as const,
         ),
-      );
     });
   });
   const stopFrameCapture = Effect.fn("PreviewManager.stopFrameCapture")(function* (
@@ -870,7 +865,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             Effect.catch((error) =>
               Effect.logWarning("Failed to restore preview frame capture throttling.", { error }),
             ),
-          );
         }
         return [current.scope, remainingSessions] as const;
       }),
@@ -990,7 +984,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           if (wc && !wc.isDestroyed()) {
             yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
               wc.setZoomFactor(next),
-            );
           }
         }
         yield* update(tabId, { zoomFactor: next });
@@ -1484,7 +1477,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           }
           return result;
         },
-      );
       // Cleanup commands must still run after human input invalidates the action's
       // control epoch. Otherwise a partially dispatched input can leave Chromium
       // with a held key or focus emulation enabled for subsequent actions.
@@ -1499,7 +1491,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             () => control.debugger.sendCommand(method, commandParams),
           );
         },
-      );
       return yield* use(send, sendCleanup);
     });
     const finalize = Effect.fn("PreviewManager.finalizeControlAction")(function* (
@@ -4557,7 +4548,7 @@ export class PreviewAutomationControlInterruptedError extends Schema.TaggedError
   }
 }
 
-export class PreviewTabOwnershipError extends Schema.TaggedErrorClass<PreviewTabOwnershipError>()(
+export class PreviewTabOwnershipError extends Schema.TaggedError<PreviewTabOwnershipError>()(
   "PreviewTabOwnershipError",
   { tabId: Schema.String, requestingWindow: Schema.String },
 ) {
