@@ -1973,8 +1973,48 @@ export const validateAutoLane = (report: SyncReport, runner: CommandRunner): voi
   const expected = expectedRehearsalBranch(report);
   if (report.lane.branch !== expected)
     throw new Error(`rehearsal lane mismatch: expected ${expected}, got ${report.lane.branch}`);
-  if (git(runner, report.lane.worktree, ["status", "--porcelain"], true) !== "")
-    throw new Error("rehearsal lane worktree is not clean");
+  validateAutoLaneClean(report, runner);
+};
+
+/**
+ * Paths a `status --porcelain -z` report names, NUL-split so git's path quoting never enters the
+ * picture. A rename or copy pairs its new path with the original in a second record; the original
+ * is not lane dirt of its own, so it is consumed and dropped.
+ */
+const porcelainPaths = (status: string): ReadonlyArray<string> => {
+  const paths: Array<string> = [];
+  const fields = status.split("\0");
+  for (let index = 0; index < fields.length; index += 1) {
+    const entry = fields[index];
+    if (entry === undefined || entry.length < 4) continue;
+    paths.push(entry.slice(3));
+    const xystatus = entry.slice(0, 2);
+    if (xystatus.includes("R") || xystatus.includes("C")) index += 1;
+  }
+  return paths;
+};
+
+/**
+ * A conflict stop leaves the lane dirty on purpose: the staged resolutions are the human's
+ * answer, so a resumed walk at that stop may carry dirt on exactly the paths the stop named —
+ * every conflict row the stopped report records, whether its decision cells are still `TODO`
+ * (the resume asks for them, via unblock-rehearse's record check) or already filled
+ * (fill-then-resume). Every other stage is a fresh or finished lane and stays
+ * strictly clean; dirt anywhere outside the stopped rows refuses and names it.
+ */
+export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<string> => {
+  if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict") return new Set();
+  return new Set(report.conflicts.map(({ path }) => path));
+};
+
+export const validateAutoLaneClean = (report: SyncReport, runner: CommandRunner): void => {
+  if (report.lane === undefined) throw new Error("rehearsal lane is missing");
+  const status = git(runner, report.lane.worktree, ["status", "--porcelain", "-z"], true);
+  if (status === "") return;
+  const allowed = conflictStopDirtAllowance(report);
+  const offenders = porcelainPaths(status).filter((path) => !allowed.has(path));
+  if (offenders.length > 0)
+    throw new Error(`rehearsal lane worktree is not clean: ${[...new Set(offenders)].join(", ")}`);
 };
 
 export const baseReleaseTag = (runner: CommandRunner, root: string, baseSha: string): string => {
