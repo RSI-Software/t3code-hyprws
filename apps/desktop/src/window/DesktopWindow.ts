@@ -676,9 +676,12 @@ export const make = Effect.gen(function* () {
         }
 
         // App action menus stay in the renderer so they keep T3's icons,
-        // hierarchy, and theme tokens; a native menu opens only for the native
-        // actions this click actually offers.
-        if (params.isEditable || params.selectionText.length > 0) {
+        // hierarchy, and theme tokens; inside the app's own renderer a native
+        // menu opens only for the native actions this click actually offers.
+        // A browser guest or a sign-in popup has no renderer menu behind it, so
+        // it keeps the always-native editing roles.
+        const isAppRenderer = contents === window.webContents;
+        if (!isAppRenderer || params.isEditable || (params.selectionText?.length ?? 0) > 0) {
           menuTemplate.push(
             { role: "cut", enabled: params.editFlags.canCut },
             { role: "copy", enabled: params.editFlags.canCopy },
@@ -1237,6 +1240,14 @@ export const make = Effect.gen(function* () {
       const restored = yield* drainPendingRestore;
       const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
       if (Option.isSome(pendingIdentity)) {
+        // A launch intent is always a project window. The hub default is a plain
+        // cold start, and taking the foreground back from whatever the user
+        // moved on to while the backend booted is upstream's bug to not have:
+        // ready-to-show reveals the window on its own.
+        if (pendingIdentity.value.kind === "hub") {
+          yield* createMainIfBackendReady;
+          return;
+        }
         yield* revealOrCreateIdentity(pendingIdentity.value);
         return;
       }
