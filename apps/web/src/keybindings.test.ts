@@ -514,6 +514,26 @@ describe("thread navigation helpers", () => {
       }),
     );
   });
+
+  // Upstream never shows jump hints while the terminal is focused, because Ghostty encodes the
+  // keydown before window-level handling. The fork keeps the upstream case here, inverted, because
+  // `7c9ea01d5bc fix(web): thread jump keys switch threads while the terminal has focus` forwards
+  // resolved navigation commands to the window ahead of Ghostty encoding, so the hint is honest
+  // again. The forwarding contract itself is covered in ThreadTerminalDrawer tests.
+  it("shows jump hints while the terminal is focused, because the drawer forwards them", () => {
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+    );
+  });
 });
 
 describe("model picker navigation helpers", () => {
