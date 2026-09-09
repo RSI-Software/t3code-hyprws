@@ -890,8 +890,21 @@ const matchedRetiredCount = (messages: string, retired: ReadonlySet<string>): nu
   return count;
 };
 
-const expectedReplayCount = (report: SyncReport, retired: ReadonlySet<string>): number =>
-  (report.originalCount ?? 0) - matchedRetiredCount(report.originalMessages ?? "", retired);
+/**
+ * The fork series the walk replayed, with walk repairs dropped from both sides. A repair from an
+ * earlier walk is an ordinary commit on trunk by the time this walk reads its baseline, so a proof
+ * that strips repairs from the lane but not from the baseline reads the earlier walk's bookkeeping
+ * as a shrunk stack and halts a replay that is entirely healthy.
+ */
+const originalSeries = (report: SyncReport): { messages: string; count: number } => {
+  const stripped = withoutRepairMessages(report.originalMessages ?? "");
+  return { messages: stripped.messages, count: (report.originalCount ?? 0) - stripped.removed };
+};
+
+const expectedReplayCount = (report: SyncReport, retired: ReadonlySet<string>): number => {
+  const baseline = originalSeries(report);
+  return baseline.count - matchedRetiredCount(baseline.messages, retired);
+};
 
 /**
  * Measures the stack the walk replayed: the three numbers per cycle the walk records as its size
@@ -943,7 +956,8 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   )
     throw new Error("replay binding is incomplete");
   const retired = retiredSubjectsForReport(report);
-  const matched = matchedRetiredCount(report.originalMessages ?? "", retired);
+  const baseline = originalSeries(report);
+  const matched = matchedRetiredCount(baseline.messages, retired);
   const expectedCount = expectedReplayCount(report, retired);
   // The walk appends its own repair commits after the replay, so both proofs run over the fork
   // series alone. A rerun that already carries a repair still has to show the same fork commits.
@@ -961,12 +975,12 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
     ) - series.removed;
   if (count !== expectedCount) {
     if (matched === 0)
-      throw new Error(`replay commit count changed: ${report.originalCount} -> ${count}`);
+      throw new Error(`replay commit count changed: ${baseline.count} -> ${count}`);
     throw new Error(
-      `replay commit count changed: ${report.originalCount} -> ${count} (expected ${expectedCount} after ${matched} retired)`,
+      `replay commit count changed: ${baseline.count} -> ${count} (expected ${expectedCount} after ${matched} retired)`,
     );
   }
-  const expectedMessages = filterRetiredMessages(report.originalMessages ?? "", retired);
+  const expectedMessages = filterRetiredMessages(baseline.messages, retired);
   if (normalizeReplayMessages(series.messages) !== normalizeReplayMessages(expectedMessages))
     throw new Error("replay commit messages changed");
 };
