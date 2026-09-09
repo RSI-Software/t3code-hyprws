@@ -92,7 +92,7 @@ export type ForkLedger = typeof ForkLedger.Type;
 
 const encodeLedgerJson = Schema.encodeSync(fromJsonStringPretty(ForkLedger));
 
-export class ForkLogProcessError extends Schema.TaggedErrorClass<ForkLogProcessError>()(
+export class ForkLogProcessError extends Schema.TaggedError<ForkLogProcessError>()(
   "ForkLogProcessError",
   {
     operation: Schema.Literals(["spawn", "read-stdout", "read-stderr", "wait-for-exit"]),
@@ -104,7 +104,7 @@ export class ForkLogProcessError extends Schema.TaggedErrorClass<ForkLogProcessE
   }
 }
 
-export class ForkLogExitError extends Schema.TaggedErrorClass<ForkLogExitError>()(
+export class ForkLogExitError extends Schema.TaggedError<ForkLogExitError>()(
   "ForkLogExitError",
   {
     exitCode: Schema.Number,
@@ -121,7 +121,7 @@ export {
   parseCommitNumstat,
   type CommitNumstat,
 } from "./lib/fork-numstat.ts";
-export class ForkBudgetError extends Schema.TaggedErrorClass<ForkBudgetError>()("ForkBudgetError", {
+export class ForkBudgetError extends Schema.TaggedError<ForkBudgetError>()("ForkBudgetError", {
   reason: Schema.String,
 }) {
   override get message(): string {

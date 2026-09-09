@@ -292,7 +292,6 @@ function PullRequestAuthorFilter({
               }}
               placeholder="Search authors"
               aria-label="Search authors"
-            />
           </InputGroup>
         </div>
         <MenuRadioGroup value={selected?.actor.login ?? value ?? ""} onValueChange={select}>
