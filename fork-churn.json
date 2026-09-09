@@ -7135,16 +7135,16 @@
     {
       "tag": "v0.0.41-nightly.20260909.1426",
       "before": "5c511436e2075a36a46393b0f46f8a415cfc0494",
-      "after": "5c511436e2075a36a46393b0f46f8a415cfc0494",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/691#issuecomment-5596199242",
+      "after": "f1ace7da8516fa5dd533790e24b9d7798900b6bb",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/691#issuecomment-5596280604",
       "conflicts": [
         {
           "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
           "commit": "2f3430e1cdca",
           "subject": "feat(web): follow coordinated checkout moves",
           "domain": "zmux-estate",
-          "class": "human",
-          "resolution": "TODO",
+          "class": "seam-moved",
+          "resolution": "kept both: the fork's openTerminalPreview useEffectEvent wrapper stands and now takes forceBrowser, so upstream's Cmd/Ctrl-click browser bypass reaches openTerminalLinkInPreview through it",
           "decidedBy": "human"
         }
       ],
@@ -7159,25 +7159,25 @@
           "subject": "feat(web): add rich Markdown editing (#28)",
           "domain": "markdown-editing",
           "verdict": "keep",
-          "decidedBy": "TODO"
+          "decidedBy": "human"
         },
         {
           "subject": "fix(web): thread jump keys switch threads while the terminal has focus",
           "domain": "upstream-fixes",
           "verdict": "keep",
-          "decidedBy": "TODO"
+          "decidedBy": "human"
         },
         {
           "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
           "domain": "worktrunk-hooks",
           "verdict": "keep",
-          "decidedBy": "TODO"
+          "decidedBy": "human"
         },
         {
           "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
           "domain": "worktrunk-hooks",
           "verdict": "keep",
-          "decidedBy": "TODO"
+          "decidedBy": "human"
         },
         {
           "subject": "ci(fork): run the matrix on merge_group, not on ready",
@@ -7280,6 +7280,11 @@
           }
         ]
       },
+      "additive": {
+        "pass": true,
+        "attempts": 1,
+        "findings": 0
+      },
       "walkDecisions": [
         {
           "kind": "stop",
@@ -7331,8 +7336,7 @@
           "tag": "v0.0.41-nightly.20260909.1426",
           "recordedAt": "2026-09-09T05:11:18.184Z"
         }
-      ],
-      "pending": true
+      ]
     }
   ],
   "seamRecords": [
