@@ -1554,6 +1554,24 @@ it.effect("flags a review request for the viewer but not on their own change req
   }),
 );
 
+// Upstream refuses a repository that does not belong to the requested project. The fork keeps the
+// upstream case here, inverted, because `7411684f959 feat(web): add GitHub link destination
+// controls (#178)` made the repository part of the reference so a project window can open a change
+// request on another repository of the same authenticated host. The fork contract itself is covered
+// in PullRequestService.fork.test.ts.
+it.effect("reads a repository that does not belong to the requested project", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+      ],
+      providers: [fakeProvider("github", { getDiff: () => Effect.succeed({ patch: "", truncated: false, nextCursor: null }) })],
+    });
+
+    yield* service.diff({ projectId: "p1" as ProjectId, repository: "other/repo", number: 1 });
+  }),
+);
+
 it.effect("refuses a diff on a host that cannot produce one", () =>
   Effect.gen(function* () {
     const service = yield* makeService({
