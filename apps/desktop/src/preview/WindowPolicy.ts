@@ -1,5 +1,5 @@
 import type { DesktopPreviewPointerEvent, DesktopPreviewRecordingFrame } from "@t3tools/contracts";
-import { BrowserWindow } from "electron";
+import { BrowserWindow, webContents } from "electron";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -326,7 +326,13 @@ export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSen
   if (!event?.sender) {
     return yield* authorizationError("missing-sender");
   }
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  // Upstream narrowed the invoke event to the sender's id, so the window this
+  // request belongs to is resolved the way upstream resolves any id: through
+  // the webContents registry, then back to its owning window.
+  const senderWebContents = webContents.fromId(event.sender.id);
+  const senderWindow = senderWebContents
+    ? BrowserWindow.fromWebContents(senderWebContents)
+    : null;
   const identity =
     senderWindow === null ? Option.none() : yield* electronWindow.identityFor(senderWindow);
   if (Option.isNone(identity)) {
