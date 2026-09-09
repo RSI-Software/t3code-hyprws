@@ -155,7 +155,7 @@ function resolveDesktopRuntimeInfo(input: {
   };
 }
 
-export function resolveDesktopDevAgentPlacement(input: {
+function resolveDesktopDevAgentPlacement(input: {
   readonly isDevelopment: boolean;
   readonly workspace: Option.Option<number>;
   readonly title: Option.Option<string>;

@@ -330,9 +330,7 @@ export const resolvePreviewForSender = Effect.fn("PreviewWindowPolicy.resolveSen
   // request belongs to is resolved the way upstream resolves any id: through
   // the webContents registry, then back to its owning window.
   const senderWebContents = webContents.fromId(event.sender.id);
-  const senderWindow = senderWebContents
-    ? BrowserWindow.fromWebContents(senderWebContents)
-    : null;
+  const senderWindow = senderWebContents ? BrowserWindow.fromWebContents(senderWebContents) : null;
   const identity =
     senderWindow === null ? Option.none() : yield* electronWindow.identityFor(senderWindow);
   if (Option.isNone(identity)) {

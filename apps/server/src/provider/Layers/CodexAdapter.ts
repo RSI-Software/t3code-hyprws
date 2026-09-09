@@ -2489,36 +2489,38 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }
             }
 
-            const mappedEvents = mapToRuntimeEvents(event, event.threadId, cwd).map((runtimeEvent) => {
-              if (runtimeEvent.type === "turn.completed" && runtimeEvent.turnId) {
-                return {
-                  ...runtimeEvent,
-                  payload: {
-                    ...runtimeEvent.payload,
-                    ...(usageLimitMessage ? { errorMessage: usageLimitMessage } : {}),
-                    tokenUsage: completeCodexTurnTokenUsage(
-                      turnTokenUsage,
-                      String(runtimeEvent.turnId),
-                      runtimeEvent.payload.state === "completed",
-                    ),
-                  },
-                } satisfies ProviderRuntimeEvent;
-              }
-              if (runtimeEvent.type === "turn.aborted" && runtimeEvent.turnId) {
-                return {
-                  ...runtimeEvent,
-                  payload: {
-                    ...runtimeEvent.payload,
-                    tokenUsage: completeCodexTurnTokenUsage(
-                      turnTokenUsage,
-                      String(runtimeEvent.turnId),
-                      false,
-                    ),
-                  },
-                } satisfies ProviderRuntimeEvent;
-              }
-              return runtimeEvent;
-            });
+            const mappedEvents = mapToRuntimeEvents(event, event.threadId, cwd).map(
+              (runtimeEvent) => {
+                if (runtimeEvent.type === "turn.completed" && runtimeEvent.turnId) {
+                  return {
+                    ...runtimeEvent,
+                    payload: {
+                      ...runtimeEvent.payload,
+                      ...(usageLimitMessage ? { errorMessage: usageLimitMessage } : {}),
+                      tokenUsage: completeCodexTurnTokenUsage(
+                        turnTokenUsage,
+                        String(runtimeEvent.turnId),
+                        runtimeEvent.payload.state === "completed",
+                      ),
+                    },
+                  } satisfies ProviderRuntimeEvent;
+                }
+                if (runtimeEvent.type === "turn.aborted" && runtimeEvent.turnId) {
+                  return {
+                    ...runtimeEvent,
+                    payload: {
+                      ...runtimeEvent.payload,
+                      tokenUsage: completeCodexTurnTokenUsage(
+                        turnTokenUsage,
+                        String(runtimeEvent.turnId),
+                        false,
+                      ),
+                    },
+                  } satisfies ProviderRuntimeEvent;
+                }
+                return runtimeEvent;
+              },
+            );
             const runtimeEvents = usageLimitError
               ? [usageLimitError, ...mappedEvents]
               : mappedEvents;
