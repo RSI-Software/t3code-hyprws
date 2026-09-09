@@ -5217,6 +5217,1920 @@
           ]
         }
       }
+    },
+    {
+      "tag": "v0.0.41-nightly.20260908.1414",
+      "before": "5d66a324e5bfdf59351e5432386301c0a263919d",
+      "after": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/657#issuecomment-5596028183",
+      "conflicts": [
+        {
+          "path": "apps/web/src/components/LegacySidebar.tsx",
+          "commit": "629a4aabce6d",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "kept both at the hook seam (upstream file-drop selectors alongside the fork routeFamily); took the fork side at the navigate seam",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "629a4aabce6d",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "took the fork side: void router.navigate(routeFamily.thread(threadRef)); the surviving useCallback deps already list routeFamily",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "commit": "629a4aabce6d",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "kept both: upstream missing-thread file-drop cleanup and its comment retained, navigate target swapped to routeFamily.index()",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "commit": "645ec43fff9c",
+          "subject": "feat(web): add project route subtree",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "kept both: upstream missing-thread file-drop cleanup and its comment retained, fork project-scoped redirect condition and buildProjectIndexRoute target taken",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "commit": "c8696977c68b",
+          "subject": "feat(web): preserve project thread routes",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "kept both: upstream missing-thread file-drop cleanup and its comment retained, fork routeFamily.index() taken because this commit makes the family project-aware and deletes buildProjectIndexRoute",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/electron/ElectronWindow.ts",
+          "commit": "ba2cfafc49ac",
+          "subject": "feat(desktop): register windows by identity",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "kept both: upstream WindowsForeground imports, focus-target helpers and the new prepareReveal member retained; fork WindowIdentity import and the registry-aware clearMain pipe taken, whose Ref.update body is byte-identical to upstream's",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "commit": "947b89d40055",
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion of sibling members on the DesktopWindow.of object, upstream prepareCaptureReveal alongside the fork openIdentity/openArguments/closeIdentity",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "commit": "0700d3b63ec1",
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion of optional harness fields, upstream onReveal alongside the fork previewMainWindowSets/previewBrowserSessionRequests",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/app/DesktopClerk.ts",
+          "commit": "3b1a670fdfe1",
+          "subject": "fix(desktop): open forwarded project intents",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "took the upstream side of the renamed Schema.TaggedError base class (stale TaggedErrorClass was context only, upstream renamed it) and kept the fork's added makeComponentLogger logWarning const",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/preview/Manager.ts",
+          "commit": "226825e65dc8",
+          "subject": "feat(desktop): namespace previews by window",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both: fork's Owned*Listener type aliases placed above upstream's new @public doc comment, which stays adjacent to export const make",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/ipc/DesktopIpc.ts",
+          "commit": "58278bc53d93",
+          "subject": "fix(desktop): authorize and route preview IPC by window",
+          "domain": "project-windows",
+          "class": "retire-candidate",
+          "resolution": "took the upstream side of both hunks and dropped the fork's now-unused Electron import, so the file is byte-identical to the target tag and the fork owns no line in it; upstream's own sender transport (299404a754f) supersedes the fork's, and the fork's window routing was rebridged inside `apps/desktop/src/ipc/methods/preview.ts` off `webContents.fromId(event.sender.id)` with its tests re-mocked",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "commit": "1e10116c0304",
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both: alphabetical co-insertion into one type import list, upstream DesktopSnapShotEvent above the fork ScopedProjectRef",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/ipc.ts",
+          "commit": "5da720a3759c",
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both on one import seam: upstream's SnapShotShortcut value import from settings.ts merged with the fork's type ScopedProjectRef from environment.ts",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "commit": "cecedaaaf8ce",
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows",
+          "class": "human",
+          "resolution": "took each side's extraction: upstream's `NoProjectsHero` import kept, the fork's `DraftStartError` import kept, and both local definitions deleted because upstream implemented the same component inline and the fork's extracted copy is the one the project index route reuses; the automerge had silently dropped upstream's `RefreshIcon` import, so the shared `apps/web/src/components/DraftStartError.tsx` was switched from lucide `RotateCcwIcon` to upstream's `~/components/ui/refresh-icon` to keep upstream's button icon",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "commit": "a0d7154e9745",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion into the TerminalLayerLive stack, upstream NativeTelemetryLayerLive above the fork ServerSettingsLayerLive",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/package.json",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "mechanical",
+          "resolution": "kept both dependency co-insertions, fork smol-toml sorted above upstream stream-chain/stream-json",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexAdapter.ts",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "mechanical",
+          "resolution": "kept both import seams: upstream's widened codexUsageLimits import (CodexRateLimitSnapshot, codexUsageLimitMessage, mergeCodexRateLimits) alongside the fork's discoverCodexAgents",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.test.ts",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "mechanical",
+          "resolution": "kept both across two hunks: upstream's resume-metadata and malformed-metadata cases retained in full, the fork's custom-agent thread-start case inserted between them; no upstream test dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "kept the fork's `readonly agent?: CodexAgentDefinition` parameter and took upstream's narrowed return type `typeof CodexThreadResumeMetadata.Type`; the already-merged body decodes that metadata and still reads input.agent through buildThreadStartParams",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/user/providers-codex.md",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "mechanical",
+          "resolution": "kept both sections: upstream's usage-limit guidance above the fork's Codex custom agent section",
+          "decidedBy": "human"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "commit": "38c6018d1c93",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "generated",
+          "resolution": "restore HEAD and regenerate",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "commit": "182d2dbe9006",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "class": "generated",
+          "resolution": "restore HEAD and regenerate",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "commit": "ee76023a925f",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion in one destructure and its neighbouring hooks, upstream materialYouStyleLayoutActive added to the useAppearancePreferences destructure and the fork mobilePreferencesAtom/showIgnoredFiles lines kept below it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.ts",
+          "commit": "ee76023a925f",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "mechanical",
+          "resolution": "kept both: fork's includeIgnoredPaths helper placed above upstream's new @public doc comment, which stays adjacent to export const make",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+          "commit": "e013a33c192a",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "adopted upstream's ProjectFavicon mechanism and kept only the fork's policy: the prop type is upstream's `ProjectFaviconProject & { id }` widened by the fork with a nullable union, and the option map uses upstream's `project` field instead of the fork's inline `favicon` object, which the automerged `PullRequestFilterOption` no longer declares; the fork's null-scoped empty option list is preserved and the then-unused `ProjectIconOverride` import dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "commit": "e013a33c192a",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "took the fork's import block, a strict superset of upstream's: upstream's `pullRequestHostOf, resolveEnvironmentMachineKind` line is the same line plus the fork's `ThreadId`, and the fork's `useAtomValue`/`scopeThreadRef` imports are pure additions",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/environment/ServerEnvironment.test.ts",
+          "commit": "b83f3c69c1b2",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion of sibling capability assertions, upstream threadActiveReorder above the fork githubIssues",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "b83f3c69c1b2",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "kept both: pure co-insertion of independent derived consts, upstream's envLocked/load-balancing block above the fork's issueServerConfig block",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "b83f3c69c1b2",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "kept both: alphabetical co-insertion into one named import list, fork buildIssuesNavigationCommand above upstream buildProjectActionItems",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "commit": "b83f3c69c1b2",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's resolvedPanelRef const stays adjacent to resolvedThreadRef and the fork's GitHub-issue early-return branch follows it; the fork branch keeps opening on resolvedThreadRef, so upstream's new standalone-panel ref applies to the pull-request path only, as it did before the replay",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.logic.ts",
+          "commit": "375cbd6f50f2",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "kept both exported functions, upstream buildRunningThreadTurnInterruptInput above the fork shouldAutoFocusComposerOnThreadChange; buildRevertTurnCountByUserMessageId sat on the fork side of this hunk and was carried through here, then dropped at the next commit's stop once the target tag proved upstream had moved it to apps/web/src/components/chat/MessagesTimeline.logic.ts",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "375cbd6f50f2",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "kept upstream's new isMobileViewport media query and dropped upstream's scalar terminalFocusRequestId useState, which the fork's terminalFocusRequests state object supersedes: the scalar name is redefined further down from that object and upstream's setter has no other caller",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
+          "commit": "375cbd6f50f2",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "kept both sides of one expected-command list and upstream's added assertion: fork chat.focusComposer and terminal.focus merged with upstream thread.stop, and upstream's DEFAULT_RESOLVED_KEYBINDINGS check retained",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.logic.ts",
+          "commit": "3c5a844edafe",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "took the upstream side: the hunk is the fork commit's own deletion of buildRevertTurnCountByUserMessageId from this file, which the target tag already made by moving the function to apps/web/src/components/chat/MessagesTimeline.logic.ts, so the block was dropped and only upstream's buildRunningThreadTurnInterruptInput kept; no caller and no import in the file referenced it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "commit": "ecbc14ce534d",
+          "subject": "fix(desktop): use themed app context menus",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "took the fork's testElectronMenuLayer reference and folded upstream's inline stub into that helper's fallback branch, so upstream's onPopupTemplate tests and the fork's popupTemplates collector both resolve through one layer",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "commit": "ecbc14ce534d",
+          "subject": "fix(desktop): use themed app context menus",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "adopted upstream's context-menu mechanism and kept only the fork's policy: upstream's installContextMenu, WeakSet guard, guest and popup installation, contents.focus and frame-targeted popupTemplate all stand as the target tag wrote them, and the fork's rule that a native menu opens only for the native actions a click offers was re-applied inside it by gating the edit roles on isEditable or a selection, dropping a trailing separator, and popping up only for a non-empty template; the fork's own rewrite of this handler is superseded by the tag",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "3438869abe57",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "kept both across four hunks: the fork's resolveCompletedTurnTiming and shouldShowSidebarDoneStatus merged alphabetically into the two named import lists, the fork's CompletedAge component kept beside WorkingDuration, and for the status slot the fork's whole duplicated span dropped in favour of upstream's re-indented copy with only the fork's two-line CompletedAge conditional re-applied inside it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "commit": "672b17acdd8a",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; this hunk was a pure co-insertion of orderThreadsByProjectPreference beside upstream's new drop-planning helpers, and it goes with the commit",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "672b17acdd8a",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; the target tag implements the same feature natively with a server-persisted activeOrderKey, migration 049, a threadActiveReorder capability and mobile move actions, so the fork's local per-install DndContext, handleActiveDragEnd and manual read-order override are all superseded",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/user/thread-sidebar.md",
+          "commit": "672b17acdd8a",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; upstream's thread-sidebar section already documents active reordering and is now more accurate than the fork paragraph, which claimed order was stored per browser install",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "commit": "65cd9c914590",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's resolvedPanelRef and its synthetic-panel environmentId spread stand as the tag wrote them, and the fork's linkedRepository binding was re-inserted above the branch, which every later navigate call in this function already reads",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexAdapter.ts",
+          "commit": "e8bdcdb7e9e6",
+          "subject": "feat(server): preserve child result and diff detail",
+          "domain": "custom-agents",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's rate-limit and usage-limit handling around the mapper stands whole, the fork's childItemRenderDetail import was added beside upstream's widened codexUsageLimits import, and the fork's only change inside the hunk, the cwd workspace-root argument to mapToRuntimeEvents, was re-applied to upstream's call",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "commit": "d98db7c073ff",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's sidebar list, drop-target and drop-plan helpers stand as the tag wrote them, and the fork's group layout builder and mid-row drop test were re-inserted beside them; the retired commit's ordering helper was dropped with its commit",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "d98db7c073ff",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "class": "seam-moved",
+          "resolution": "reworked onto upstream: upstream's single sidebar DndContext, sortable list and drag handlers stand verbatim, and grouping now rides them - a mid-row drop is detected in upstream's drag-over pass and short-circuits its drag-end, and the group header renders inside upstream's list loop; the fork's parallel DndContext, its own drag handlers and the manual sort order are gone",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/uiStateStore.test.ts",
+          "commit": "d98db7c073ff",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept the fork side: upstream deleted nothing here, so the fork's thread-group store tests were re-inserted whole",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/uiStateStore.ts",
+          "commit": "d98db7c073ff",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept the fork side: upstream deleted nothing here, so the fork's per-project thread group state and its mutators were re-inserted whole",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/README.md",
+          "commit": "ef81a6e9a919",
+          "subject": "feat(web): bookmark project and global browser pages (#219)",
+          "domain": "browser-bookmarks",
+          "class": "mechanical",
+          "resolution": "kept both: the two doc-index entries are a pure co-insertion at the same list position, so upstream's SnapShots link and the fork's Browser bookmarks link both stand",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "commit": "e3168be21fca",
+          "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both: the test layer's reveal stub now records the fork's reveal-request counter and still calls upstream's onReveal spy, and upstream's prepareReveal stub stands; both hooks are already declared on the shared input type",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "commit": "24571b041515",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "kept both: one contracts import list holding upstream's PullRequestMergeMethod and the fork's WireThreadEnvMode; ContextMenuItem was left out because nothing in the merged file still uses it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/settings.ts",
+          "commit": "24571b041515",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "kept both: the fork's WireThreadEnvMode joins upstream's environment import and the fork's keybindings import stands beside it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "commit": "d865354880c3",
+          "subject": "fix(web): make sidebar thread ordering direct (#246)",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; these order-marker and manual-sort helpers exist only to drive the retired manual ordering mode",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "d865354880c3",
+          "subject": "fix(web): make sidebar thread ordering direct (#246)",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; the target tag reorders active threads by direct drag with server-side persistence, so the sort-threads control, the flip-to-manual-on-drop and the order marker have nothing left to fix",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/user/thread-sidebar.md",
+          "commit": "d865354880c3",
+          "subject": "fix(web): make sidebar thread ordering direct (#246)",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; upstream's thread-sidebar section already describes direct drag reordering, and the stale grouping sentence is corrected in the lane repair",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "280a5b44944c",
+          "subject": "fix(web): keep sidebar groups in automatic order",
+          "domain": "thread-ordering",
+          "class": "retire-candidate",
+          "resolution": "retired: the fork commit is dropped whole and upstream's tree stands verbatim; it only strips the manual-mode gates from grouping, and the grouping rework onto upstream's single sidebar drag context already removed every one of them",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "90adcdf616fc",
+          "subject": "fix(web): align sidebar group controls",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's per-row file-drop machinery and its dragend reset stand, and the fork's shared rename input takes over thread renaming - the row's own rename key and blur handlers were dropped because the shared input owns that behaviour, and the favicon import keeps upstream's project type beside the fork's new import",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.fork.test.ts",
+          "commit": "eafe693fd98d",
+          "subject": "fix(web): keep sidebar group drag layout stable",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept the fork side: upstream deleted nothing here, so the fork's new tests for the group sortable-item builder and the group layout order were re-inserted whole beside the existing ones",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "eafe693fd98d",
+          "subject": "fix(web): keep sidebar group drag layout stable",
+          "domain": "thread-ordering",
+          "class": "seam-moved",
+          "resolution": "reworked onto upstream: the fork commit fixed drag layout inside the fork's own parallel sidebar drag context, which the grouping rework already retired in favour of upstream's single sortable list, so upstream's markers, drag handlers and render loop stand and the commit's duplicate handlers, sortable model and second drag context are gone; the persistence half of its intent - a move persisted against the visible thread order with group cleanup below two members - is already carried by the reworked drag-end and by the group store, which merged clean. Residual polish: the group header no longer travels with its rows mid-drag; tracked for the post-rebase grouping pass",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "commit": "1c867f8552f9",
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's drop-projection helper stands untouched and the fork's new grouping-target test - which accepts a group header or the central band of a member row, and refuses a drop inside the thread's own group - was inserted beside it; the retired manual-ordering helper that shared this hunk was dropped with its commit",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "1c867f8552f9",
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "class": "seam-moved",
+          "resolution": "reworked onto upstream: the commit widened the grouping drop band and added header targets inside the fork's own parallel drag context, which the grouping rework retired, so upstream's drag handlers and render loop stand and the duplicate handlers are gone; the widened band survives because the reworked drag-over pass now asks the fork's grouping-target test instead of the bare centre-band test. Header targets stay inert until the post-rebase pass puts group headers back into upstream's sortable list",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "commit": "c7216b32e096",
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "kept both: upstream's drop-projection helper stands untouched and the fork's two new tests - the pair-about-to-dissolve test and the detach-onto-own-header test - were inserted beside it; the retired manual-ordering helper that shared this hunk was dropped with its commit",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "c7216b32e096",
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "class": "seam-moved",
+          "resolution": "reworked onto upstream: the commit's drag preview lived in the fork's retired parallel drag context, so upstream's handlers and render loop stand and the duplicates are gone; the dissolution preview was ported onto upstream's drag pass, so a two-thread group losing a member drops its header and indent during the drag and the preview clears on release or cancel. The second gesture in this commit - detaching the first member by dragging onto its own group header - needs group headers to be sortable targets, which upstream's list does not yet carry, so it stays out with its state; the logic and its tests are kept for the post-rebase grouping pass",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "commit": "830a0aa85f57",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both: the desktop window's IPC channel list is a pure co-insertion at the same sorted position, so the fork's SnapShots channel and the new window-demand channel both stand",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "commit": "830a0aa85f57",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both: the desktop window's IPC channel list is a pure co-insertion at the same sorted position, so the fork's SnapShots channel and the new window-demand channel both stand",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/terminal/Manager.ts",
+          "commit": "830a0aa85f57",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both: one import block holding the fork's native telemetry client and the new managed attachment lifecycle module; a pure co-insertion at the same sorted position",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.fork.test.ts",
+          "commit": "c1882c41dcca",
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "took the fork side: the commit's whole job is to leave each test file importing only what it actually tests, so the fork-owned file now names just its own grouping, scope and status helpers; the four manual-ordering imports it also carried were dropped with that retired feature",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.test.ts",
+          "commit": "c1882c41dcca",
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "class": "mechanical",
+          "resolution": "took the fork side: the fork-only import the upstream-owned test file no longer uses was removed, which is the commit's intent and shrinks the shared import list upstream keeps touching",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "5bc8eba05a3f",
+          "subject": "test(fork): move fork test blocks into fork-owned siblings",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "took the fork side for the import the commit moves out - the Issues navigation test now lives in the fork-owned sibling - and kept the neighbouring project-action import that HEAD still tests in this file; the commit only ever meant to remove the moved one",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/preview.ts",
+          "commit": "9be1bdc75dae",
+          "subject": "refactor(desktop): centralize preview window policy",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "took the fork side: this commit is the extraction itself, so the sender-authorization and event-routing rules the earlier fork commit had inlined in this upstream-owned file now live in the fork-owned window policy module and the file keeps one hook line per method; upstream's text in this file is untouched and the electron window imports left with the logic they served",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "commit": "0d7765517845",
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "kept both: the fork's refresh of the two legacy generated worktree setup commands to a frozen install is a pure insertion and stands whole, and the error class beneath it takes upstream's renamed schema error base, which is the only thing upstream moved in this hunk",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+          "commit": "95b6f9edb97c",
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "kept both by taking upstream's transport and the fork's policy: the project rows now carry upstream's shared favicon project shape and pass the project straight to the favicon, while the fork's explicit flag keeps owning whether a project window shows the project filter at all, so the nullable-projects sentinel this commit retires stays retired",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "commit": "e3793784800e",
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "kept both: upstream's appearance read keeps the layout flag it gained, and the fork's inline show-ignored-files preference lookup leaves this screen for the fork-owned listing hook the commit introduces, which is the whole point of the commit",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.test.ts",
+          "commit": "e2f5145928b5",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "class": "seam-moved",
+          "resolution": "restored upstream's text for the whole block and moved out only the fork's custom-agent test: the commit meant to remove a fork test, but upstream has since written its own tests over the same lines, so taking the deletion whole would have dropped them; this also repairs a truncated upstream assertion an earlier replay left behind, and the moved test gained the raw resume stub upstream's client now requires",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.test.ts",
+          "commit": "e2f5145928b5",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "class": "seam-moved",
+          "resolution": "same shape: upstream now owns most of the block this commit deletes, so upstream's tests and the import they need stand and only the fork's two Agents-panel tests left for the fork-owned sibling; the sibling's ui-state fixture gained the merge-method field upstream made required",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.fork.test.ts",
+          "commit": "a7d1dee28222",
+          "subject": "refactor(provider): isolate fork agent option extensions",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "took the fork side, which is this commit's rewrite of the custom-agent test to cover both a fresh start and a resume, then ported it onto upstream's resume transport: resuming now goes through the raw request and carries upstream's exclude-history flag, so the test asserts that shape while still proving the agent's model and instructions ride either call",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "390ef3eaaff2",
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "took the fork side: this commit is the extraction itself, so the import block for the fork-owned physical-scope module lands and the project-window scoping this file used to derive inline now comes from that module; upstream's own imports below were untouched, and the commit's new fork test dropped its manual-order case with that retired feature",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/terminal/Manager.ts",
+          "commit": "a1ace44b593e",
+          "subject": "fix(server): ensure managed sessions on first terminal open",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both: a pure co-insertion in the import block, where upstream's new native telemetry client and the fork's zmux session binder each stand and neither touches the other's line",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/preview.test.ts",
+          "commit": "90c5cff45c79",
+          "subject": "fix(fork): enforce selected-target test ownership",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "took the fork side, the deletion this commit exists to make: the three per-project-window preview ownership tests move out of the upstream-owned file into the fork-owned sibling the same commit adds, and upstream's tree at the target has no test over those lines, so nothing upstream wrote was dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+          "commit": "ea8cb4881c9b",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "restored upstream's text and moved the fork's rule onto the test it was actually written against: upstream has since added its own placeholder-branch test over these lines, and the replay had landed the fork's rename on it, so upstream's test stands whole and the fork's checkout-scoped rule now rewrites upstream's shared-worktree test, which is the one behaviour the fork deliberately inverts",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.ts",
+          "commit": "ea8cb4881c9b",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "kept both by taking upstream's rule and the fork's policy: upstream now owns whether a thread whose recorded branch is a first-turn placeholder follows the checkout, and the fork's skip for that case was dropped since upstream's compare-and-swap already guards the rename race; what stays fork-owned is the scope, where drift belongs to the physical checkout rather than one thread, so every idle thread on it follows the new head, an active turn anywhere on it defers, and the managed session reconciles first",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "commit": "580154f42ae9",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "kept both on the same element: upstream's new no-press-scale styling stands with its reason, and the fork's extra disabled condition stays, so the branch picker still locks while a checkout move is in flight without dragging the open popup",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/terminal/Manager.ts",
+          "commit": "038461370d11",
+          "subject": "fix(server): preserve busy unmanaged terminals on checkout moves",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "kept both by taking upstream's transport and the fork's policy: the fork's whole point here is that one reusable process-table inspection now serves both the background activity poll and the checkout-move gate, so those two helpers stand, and they were rethreaded onto upstream's inspector record so the poll still reports whether its snapshot succeeded and upstream's snapshot-failure counter keeps working",
+          "decidedBy": "human"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "commit": "ddf804fe35bd",
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "class": "generated",
+          "resolution": "restore HEAD and regenerate",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/preview.test.ts",
+          "commit": "345be8811e7b",
+          "subject": "test(fork): move remaining pure fork titles behind the sibling boundary",
+          "domain": "fork-meta",
+          "class": "seam-moved",
+          "resolution": "restored upstream's text and moved out only what is still fork-owned: one of the three titles this commit relocates is upstream's own automation-status test, which upstream has since written over these lines, so it stays in the upstream-owned file with the window mocks and imports it needs and its copy was dropped from the fork sibling; the other two moves stand, and the right-panel half of the commit moves four genuinely fork-only titles that upstream does not have",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "commit": "e2f7f67dbd8b",
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "kept both by dropping only what this commit exists to drop: the fork's project-window type moves out with the bridge members it belonged to, and upstream's snapshot-event type stays because upstream still uses it in this file",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "commit": "533729ea3a1a",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "took upstream's import block verbatim and removed only the one fork type this commit exists to remove: upstream has since restyled that block and added its own merge-method type, and the fork's stale copy would have dropped both, while the fork-owned thread-mode type keeps its own line beside it",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/settings.ts",
+          "commit": "533729ea3a1a",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "kept both by taking the fork's swap of its wide thread-mode type for the fork-owned one and leaving upstream's keybinding import in place, which the fork's older copy of the block did not yet have",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): add physical project sidebar scope",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add project route subtree",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): preserve project thread routes",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): render scoped project shell",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): register windows by identity",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): open forwarded project intents",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): load project scope from hash routes",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): namespace previews by window",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(desktop): authorize and route preview IPC by window",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): hand every provider process its project and thread id",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): expose Worktrunk hook settings",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): confirm batch worktree deletion once (#156)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): honor embedded browser wheel zoom (#169)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): serve paginated child work (#195)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering",
+          "verdict": "retire",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): preserve child result and diff detail",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "feat(web): bookmark project and global browser pages (#219)",
+          "domain": "browser-bookmarks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.37)"
+        },
+        {
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): make sidebar thread ordering direct (#246)",
+          "domain": "thread-ordering",
+          "verdict": "retire",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): keep sidebar groups in automatic order",
+          "domain": "thread-ordering",
+          "verdict": "retire",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): align sidebar group controls",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add sidebar group membership actions",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): keep sidebar group drag layout stable",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "ci(fork): run the matrix on merge_group, not on ready",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): read the blocked issue body at gate 1",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(fork): name the real nightly condition in orientation",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): name the rehearsal lane after the head it replays",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): restore the lockfile before the rehearsed rebase",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): assign the target tag inside the gate 1 block",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): install before the gate 3 scan",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): tell registry drift from manifest drift after the replay",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(fork): print the repair each scan gap class needs",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(desktop): centralize preview window policy",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(worktree): make setup independent of shell environment",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(dev): open isolated test apps alongside stable",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): ensure managed sessions on first terminal open",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): preserve terminals on failed managed retarget",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(terminal): isolate terminal viewer attachments",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(mobile): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): retain large zmux redraws during retarget",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): read physical sidebar scope from an ambient provider",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "chore(fork): consolidate fork tooling for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/web/src/components/LegacySidebar.tsx",
+          "hunks": null,
+          "commit": "629a4aabce6d0423d9272a3052bc88a5d82f0ad5",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "hunks": null,
+          "commit": "629a4aabce6d0423d9272a3052bc88a5d82f0ad5",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "hunks": null,
+          "commit": "629a4aabce6d0423d9272a3052bc88a5d82f0ad5",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/electron/ElectronWindow.ts",
+          "hunks": null,
+          "commit": "ba2cfafc49acb1dc7781d3fe7338037183968984",
+          "subject": "feat(desktop): register windows by identity",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "hunks": null,
+          "commit": "947b89d4005543e8e8cdb6c5302c2416c7793895",
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "hunks": null,
+          "commit": "0700d3b63ec1d0e23fc67e89bfead33eb6902987",
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/app/DesktopClerk.ts",
+          "hunks": null,
+          "commit": "3b1a670fdfe130e9208e675b8f3d31a83870ca25",
+          "subject": "fix(desktop): open forwarded project intents",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/preview/Manager.ts",
+          "hunks": null,
+          "commit": "226825e65dc89f3ff3fd1175120d96c42cb105bc",
+          "subject": "feat(desktop): namespace previews by window",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/ipc/DesktopIpc.ts",
+          "hunks": null,
+          "commit": "58278bc53d93f65189c462f7447a5a8b50cd77f5",
+          "subject": "fix(desktop): authorize and route preview IPC by window",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "hunks": null,
+          "commit": "1e10116c030489d44ee9abb55f424f549d18e68b",
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "packages/contracts/src/ipc.ts",
+          "hunks": null,
+          "commit": "5da720a3759ceb0a581530719522e04a2d59342a",
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "hunks": null,
+          "commit": "cecedaaaf8ce9561cf364f0e47472ebc9044b55b",
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "hunks": null,
+          "commit": "a0d7154e97451db16f63383991ec523c6309b90e",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/package.json",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexAdapter.ts",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.test.ts",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "docs/user/providers-codex.md",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "hunks": null,
+          "commit": "38c6018d1c93fb130ba078828187db1d5efefc0b",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "hunks": null,
+          "commit": "ee76023a925fbcc22272ada4a4faa1b22c410185",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.ts",
+          "hunks": null,
+          "commit": "ee76023a925fbcc22272ada4a4faa1b22c410185",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+          "hunks": null,
+          "commit": "e013a33c192a2909f87b4d07954f139928bf141f",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "e013a33c192a2909f87b4d07954f139928bf141f",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/server/src/environment/ServerEnvironment.test.ts",
+          "hunks": null,
+          "commit": "b83f3c69c1b2fb2c15f99f602c7a68a4648d51a4",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "b83f3c69c1b2fb2c15f99f602c7a68a4648d51a4",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "hunks": null,
+          "commit": "b83f3c69c1b2fb2c15f99f602c7a68a4648d51a4",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "hunks": null,
+          "commit": "b83f3c69c1b2fb2c15f99f602c7a68a4648d51a4",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.logic.ts",
+          "hunks": null,
+          "commit": "375cbd6f50f246f9078953ccdfae9cd67957c883",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts",
+          "hunks": null,
+          "commit": "375cbd6f50f246f9078953ccdfae9cd67957c883",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.ts",
+          "hunks": null,
+          "commit": "672b17acdd8a016cc39d0923e7f3e23c9423c3e7",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering"
+        },
+        {
+          "path": "docs/user/thread-sidebar.md",
+          "hunks": null,
+          "commit": "672b17acdd8a016cc39d0923e7f3e23c9423c3e7",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "domain": "thread-ordering"
+        },
+        {
+          "path": "docs/README.md",
+          "hunks": null,
+          "commit": "ef81a6e9a9193687573c5c2ea489437e3d605c19",
+          "subject": "feat(web): bookmark project and global browser pages (#219)",
+          "domain": "browser-bookmarks"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "hunks": null,
+          "commit": "24571b0415152d8418661e92abfabf0c77072712",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "packages/contracts/src/settings.ts",
+          "hunks": null,
+          "commit": "24571b0415152d8418661e92abfabf0c77072712",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "apps/server/src/terminal/Manager.ts",
+          "hunks": null,
+          "commit": "830a0aa85f5702c791f921126fb6846654ef2872",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "0d7765517845b86d967bde4f6516f680c7293331",
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.test.ts",
+          "hunks": null,
+          "commit": "e2f5145928b5878004ddb4018d7be1fbe9be17c8",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.test.ts",
+          "hunks": null,
+          "commit": "ea8cb4881c9b337070294d2a0e11e686bf1cbd8b",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/CheckpointReactor.ts",
+          "hunks": null,
+          "commit": "ea8cb4881c9b337070294d2a0e11e686bf1cbd8b",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "hunks": null,
+          "commit": "580154f42ae91a4a4974822f9f96a5430c4f1ade",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/web/src/components/ThreadTerminalDrawer.tsx",
+          "hunks": null,
+          "commit": "580154f42ae91a4a4974822f9f96a5430c4f1ade",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate"
+        }
+      ],
+      "repairCommits": [
+        {
+          "sha": "1f8c22dc68a9723263761b4c4918263d9c870fcb",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "1fec3a607ddd288c42829e17c4f079d0014336e9",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        }
+      ],
+      "additive": {
+        "pass": true,
+        "attempts": 1,
+        "findings": 0
+      },
+      "walkDecisions": [
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/components/LegacySidebar.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/components/LegacySidebar.tsx"
+        },
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/components/Sidebar.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/components/Sidebar.tsx"
+        },
+        {
+          "kind": "stop",
+          "subject": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx",
+          "outcome": "conflict",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "9b0b7d91af6348ac4bd205a8037f16e601fc1e3b28afd27e5b81b1103eeb069c",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/components/LegacySidebar.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "bbbeede8cce1016e977c3d5ce8c667464f60fd926f27c987a6c78800a4f9b056",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/components/Sidebar.tsx"
+        },
+        {
+          "kind": "conflict",
+          "subject": "d7dcf66f2a4695e4f4a42674b0feb80283cbaa8d26d1453f30faafc60b4831e0",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z",
+          "path": "apps/web/src/routes/_chat.$environmentId.$threadId.tsx"
+        },
+        {
+          "kind": "retire",
+          "subject": "refactor(web): centralize thread route navigation",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "refactor(web): add physical project sidebar scope",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): render scoped project shell",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): open project windows from hub actions",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): keep pull requests on origin",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): confirm batch worktree deletion once (#156)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): honor embedded browser wheel zoom (#169)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): retain completed thread timing",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add manual sidebar thread ordering",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): make sidebar thread ordering direct (#246)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(worktree): make setup independent of shell environment",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260908.1414",
+          "recordedAt": "2026-09-08T21:27:24.406Z"
+        }
+      ]
     }
   ],
   "seamRecords": [
