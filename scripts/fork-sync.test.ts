@@ -1981,6 +1981,62 @@ it("tests retire candidates against the target tree instead of proximity", () =>
   }
 });
 
+// RSI-Software/t3code-hyprws#688: an unscoped probe read roughly 35 of 40 rows as retire
+// candidates on sightings like these, and the operator's per-row test stopped being run.
+it("finds no retirement evidence in harness paths, prose, or a bare mention", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-retire-noise-"));
+  const run = (...args: ReadonlyArray<string>): void => {
+    NodeChildProcess.execFileSync("git", args, {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.test",
+        GIT_COMMITTER_NAME: "fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.test",
+      },
+    });
+  };
+  const write = (path: string, contents: string): void => {
+    NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), contents);
+  };
+  run("init", "-b", "fixture");
+  // The target tree names the fork's identifier three ways, none of which implement it.
+  write(".agents/skills/notes/SKILL.md", "export const ForkOnlyHelper = 1;\n");
+  write("docs/internals/notes.md", "export const ForkOnlyHelper = 1;\n");
+  write("apps/web/src/x.ts", "// ForkOnlyHelper is what the fork calls this\n");
+  run("add", "-A");
+  run("commit", "-m", "upstream: base");
+  run("tag", "v1.2.3");
+  write("apps/web/src/fork.ts", "export const ForkOnlyHelper = 1;\n");
+  run("add", "-A");
+  run("commit", "-m", "feat: only the fork implements this");
+  const runner = new SystemRunner();
+  const git = (...args: ReadonlyArray<string>): string =>
+    runner.run("git", args, root).stdout.trim();
+  const targetSha = git("rev-parse", "refs/tags/v1.2.3^{commit}");
+  try {
+    const evidence = collectRetireEvidence(
+      runner,
+      root,
+      targetSha,
+      { sharedBase: targetSha, source: git("rev-parse", "HEAD") },
+      [
+        {
+          subject: "feat: only the fork implements this",
+          domain: "fork-meta",
+          verdict: "candidate" as const,
+          decidedBy: "human" as const,
+        },
+      ],
+    );
+    assert.deepStrictEqual(evidence[0]?.matches, []);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("Gate 4 keeps a candidate whether or not the target tree already carries it", () => {
   const root = fixtureRoot();
   const orientation = "  [candidate] `feat: candidate` (fork-meta)\n";
