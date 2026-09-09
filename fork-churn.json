@@ -23831,6 +23831,43 @@
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34278775760"
     },
     {
+      "kind": "attempt",
+      "targetSha": "5d14c0e9686d8bedf47dd93dd3811fd639255c7e",
+      "attemptId": "34312846417/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "5d14c0e9686d8bedf47dd93dd3811fd639255c7e",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "5d14c0e9686d8bedf47dd93dd3811fd639255c7e",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "5d14c0e9686d8bedf47dd93dd3811fd639255c7e",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260909.1426",
@@ -23893,6 +23930,61 @@
       "status": "succeeded",
       "detail": "churn policy verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34311752164"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "5c511436e2075a36a46393b0f46f8a415cfc0494",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "report-publication",
+      "status": "not-attempted",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3e6f856f2359421958a3aa046f2c393e00f3dc6a",
+      "attemptId": "34312846417/1/rebase",
+      "stage": "report-policy",
+      "status": "not-attempted",
+      "detail": "churn policy verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34312846417"
     }
   ]
 }
