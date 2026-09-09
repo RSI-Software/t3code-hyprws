@@ -374,7 +374,7 @@ const DIFF_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const DIFF_TIMEOUT_MS = 60_000;
 /** Pierre expansion is for source files, not blobs large enough to stall a review surface. */
 const DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
-export const GITHUB_IMAGE_EXTENSION_VERSION = "gh-image 1.2.0";
+const GITHUB_IMAGE_EXTENSION_VERSION = "gh-image 1.2.0";
 /** 1.3.0 uploads under the `gh` token's account before the browser session, so the pin is exact. */
 const GITHUB_IMAGE_INSTALL_HINT =
   "Install it on the server with `gh extension install drogers0/gh-image --pin v1.2.0`.";

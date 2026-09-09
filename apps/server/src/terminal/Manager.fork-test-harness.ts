@@ -16,7 +16,7 @@ import * as ZmuxSessionBinder from "../zmux/ZmuxSessionBinder.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
-export class FakePtyProcess implements PtyAdapter.PtyProcess {
+class FakePtyProcess implements PtyAdapter.PtyProcess {
   readonly writes: string[] = [];
   readonly resizeCalls: Array<{
     cols: number;
@@ -144,7 +144,7 @@ export function resolvedZmuxProcessRunner(): FakeProcessRunner {
     ),
   );
 }
-export class FakePtyAdapter {
+class FakePtyAdapter {
   readonly spawnInputs: PtyAdapter.PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
   readonly spawnFailures: Error[] = [];
