@@ -337,7 +337,7 @@ export class GitHubWorkflowApprovalHeadChangedError extends Schema.TaggedError<G
   }
 }
 
-export class GitHubAttachmentUploadError extends Schema.TaggedErrorClass<GitHubAttachmentUploadError>()(
+export class GitHubAttachmentUploadError extends Schema.TaggedError<GitHubAttachmentUploadError>()(
   "GitHubAttachmentUploadError",
   {
     command: Schema.Literal("gh"),

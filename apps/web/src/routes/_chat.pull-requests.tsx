@@ -1,8 +1,6 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { pullRequestHostOf, resolveEnvironmentMachineKind, ThreadId } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -163,7 +161,6 @@ import { getSourceControlPresentationForKind } from "~/sourceControlPresentation
 export interface PullRequestsSearch {
   readonly involvement: PullRequestInvolvement;
   readonly state: PullRequestListState;
-  /**
    * Narrows the list to one server. Absent means every connected one, which is the default the
    * page has now — so a link written before servers could be chosen still opens the whole list.
    */
@@ -253,7 +250,6 @@ function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch,
   const values = (Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : []).slice(
     0,
     MAX_SEARCH_LABEL_CANDIDATES,
-  );
   const labels: Array<string> = [];
   const seen = new Set<string>();
   for (const rawValue of values) {
@@ -330,7 +326,6 @@ function HubPullRequestsRouteView() {
       search={search}
       onNavigate={(update) => void navigate({ search: update, replace: true })}
     />
-  );
 }
 
 export function PullRequestsPage({
@@ -351,7 +346,6 @@ export function PullRequestsPage({
   // keys, the scope key and the stored snapshot all read the same whichever order the
   // connections happened to come up in.
   const capableEnvironments = useMemo(
-    () =>
       environments
         .filter(
           (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,

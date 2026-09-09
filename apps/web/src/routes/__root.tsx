@@ -186,7 +186,6 @@ function RootRouteView() {
         <Outlet />
       ) : (
         <AppSidebarLayout>
-          <Outlet />
         </AppSidebarLayout>
       )}
     </CommandPalette>
