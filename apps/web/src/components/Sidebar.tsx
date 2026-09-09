@@ -149,6 +149,7 @@ import { threadGroupEnvironment } from "../state/threadGroups";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
+  buildThreadRouteParams,
   resolveActiveThreadRouteRef,
   resolveThreadRouteFamily,
   resolveThreadRouteTarget,

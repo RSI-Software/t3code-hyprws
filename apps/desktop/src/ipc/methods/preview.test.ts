@@ -30,6 +30,7 @@ const { fromPartition, fromWebContents, fromId } = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
+    fromWebContents,
   },
   session: {
     fromPartition,
