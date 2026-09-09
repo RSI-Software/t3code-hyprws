@@ -361,6 +361,39 @@ describe("rightPanelStore", () => {
     });
   });
 
+  // Upstream replaces the standalone explorer with peer file surfaces. The fork keeps the upstream
+  // case here, inverted, because `ff0aac6c4eb fix(web): keep the files explorer tab when a file
+  // opens (#84)` keeps the explorer beside them. The fork contract is covered in
+  // rightPanelStore.fork.test.ts.
+  it("keeps the standalone explorer beside peer file surfaces", () => {
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().openFile(refA, "src/index.ts");
+    useRightPanelStore.getState().openFile(refA, "README.md");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "file:README.md",
+      surfaces: [
+        { id: "files", kind: "files" },
+        {
+          id: "file:src/index.ts",
+          kind: "file",
+          relativePath: "src/index.ts",
+          revealLine: null,
+          revealRequestId: 2,
+        },
+        {
+          id: "file:README.md",
+          kind: "file",
+          relativePath: "README.md",
+          revealLine: null,
+          revealRequestId: 1,
+        },
+      ],
+    });
+  });
+
   it("opens an attachment as a file surface without the standalone explorer", () => {
     const attachment = {
       type: "file" as const,

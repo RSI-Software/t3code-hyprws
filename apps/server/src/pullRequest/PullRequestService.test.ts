@@ -1564,6 +1564,23 @@ it.effect("flags a review request for the viewer but not on their own change req
   }),
 );
 
+it.effect("refuses a repository that does not belong to the requested project", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
+      ],
+      providers: [fakeProvider("github")],
+    });
+
+    const error = yield* service
+      .diff({ projectId: "p1" as ProjectId, repository: "attacker/repo", number: 1 })
+      .pipe(Effect.flip);
+
+    assert.strictEqual(error._tag, "PullRequestOperationError");
+  }),
+);
+
 it.effect("caches stack membership separately from action details", () =>
   Effect.gen(function* () {
     const reads: Array<boolean> = [];
