@@ -58,7 +58,29 @@ it("keeps the formatter scoped to the resolved paths so a rebase stays continuab
     verifyPlan("/root", ["apps/web/src/window.ts"], present(["apps/web/src/window.test.ts"])),
     [
       { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
-      { command: "vp", args: ["test", "run", "apps/web/src/window.test.ts"] },
+      { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
+    ],
+  );
+});
+
+it("runs each suite from its own workspace so it gets that workspace's test config", () => {
+  assert.deepStrictEqual(
+    verifyPlan(
+      "/root",
+      ["apps/web/src/window.test.ts", "scripts/build.test.ts", "packages/contracts/src/rpc.ts"],
+      present([
+        "apps/web/src/window.test.ts",
+        "scripts/build.test.ts",
+        "packages/contracts/src/rpc.test.ts",
+      ]),
+    ),
+    [
+      { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
+      { command: "vp", args: ["run", "--filter", "./packages/contracts", "typecheck"] },
+      { command: "vp", args: ["run", "--filter", "./scripts", "typecheck"] },
+      { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
+      { command: "vp", args: ["test", "run", "src/rpc.test.ts"], cwd: "packages/contracts" },
+      { command: "vp", args: ["test", "run", "build.test.ts"], cwd: "scripts" },
     ],
   );
 });
@@ -182,6 +204,30 @@ it("blames the replay for a typecheck the runner did run", () => {
   );
   assert.strictEqual(spawned.failure?.kind, "environment");
   assert.include(spawned.failure?.detail ?? "", "ENOENT");
+});
+
+it("runs a scoped step in its own directory and records where it ran", () => {
+  const seen: Array<string> = [];
+  const outcome = runRepairs(
+    {
+      run(_command, _args, cwd): CommandResult {
+        seen.push(cwd);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    },
+    "/root",
+    [
+      { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
+      { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
+    ],
+  );
+  assert.deepStrictEqual(seen, ["/root", "/root/apps/web"]);
+  assert.deepStrictEqual(
+    outcome.ran.map(({ command }) => command),
+    ["vp run --filter ./apps/web typecheck", "apps/web: vp test run src/window.test.ts"],
+  );
+  // The scoped label still reads as a test run, so the repair it owns is attributed the same way.
+  assert.strictEqual(repairKind("apps/web: vp test run src/window.test.ts"), "tests");
 });
 
 it("names the command that dirtied the worktree and writes it up as one attributable commit", () => {
