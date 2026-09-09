@@ -332,10 +332,7 @@ const blockAt = (
   start: number,
 ): boolean => needle.every((line, offset) => haystack[start + offset] === line);
 
-const containsBlock = (
-  haystack: ReadonlyArray<string>,
-  needle: ReadonlyArray<string>,
-): boolean => {
+const containsBlock = (haystack: ReadonlyArray<string>, needle: ReadonlyArray<string>): boolean => {
   for (let start = 0; start + needle.length <= haystack.length; start += 1)
     if (blockAt(haystack, needle, start)) return true;
   return false;
@@ -453,9 +450,11 @@ const dropReaddedLines = (
     let placed = false;
     for (let start = 0; start + block.length <= trimmed.length; start += 1) {
       if (!blockAt(trimmed, block, start)) continue;
-      if (Array.from({ length: block.length }, (_, offset) => start + offset).some((index) =>
-        removals.has(index),
-      ))
+      if (
+        Array.from({ length: block.length }, (_, offset) => start + offset).some((index) =>
+          removals.has(index),
+        )
+      )
         continue;
       for (let offset = 0; offset < block.length; offset += 1) removals.add(start + offset);
       placed = true;

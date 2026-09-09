@@ -3851,7 +3851,11 @@ const additiveWalkFixture = (
     'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
   );
   // Previous upstream base.
-  write(root, "apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n");
+  write(
+    root,
+    "apps/web/src/thing.ts",
+    "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
+  );
   write(root, "apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
   write(root, "apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
   write(
@@ -3876,7 +3880,7 @@ const additiveWalkFixture = (
   git(root, "add", "-A");
   git(root, "commit", "-m", "feat: one");
   const expectedOld = git(root, "rev-parse", "HEAD");
-  // The target: upstream deletes the stale line and grows tests, files and migrations.
+  // The target: upstream deletes the stale hunk and grows tests, files and migrations.
   git(root, "checkout", "-q", "fixture");
   write(root, "apps/web/src/thing.ts", "export const keep = 1;\n");
   write(
@@ -4008,7 +4012,10 @@ const additiveWalkFixture = (
 
 it("repairs a re-added upstream line as an additive commit and applies", () => {
   const state = additiveWalkFixture([
-    ["apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n"],
+    [
+      "apps/web/src/thing.ts",
+      "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
+    ],
   ]);
   try {
     const { output, result } = captureStdout(() =>
@@ -4018,7 +4025,7 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
     assert.include(output, `- additive: fixed on retry`);
     assert.include(
       output,
-      `  - readded apps/web/src/thing.ts: re-adds 1 line(s) upstream deleted — consider keeping ours`,
+      `  - readded apps/web/src/thing.ts: re-adds 1 hunk(s) upstream deleted — consider keeping ours`,
     );
     assert.include(output, `applied: ${ADDITIVE_TAG}`);
     assert.include(output, "- ledger: published");
@@ -4038,7 +4045,7 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
     // The fix removed the re-add, and the commit carries the repair trailers.
     assert.notInclude(
       NodeFS.readFileSync(NodePath.join(state.lane, "apps/web/src/thing.ts"), "utf8"),
-      "export const stale = 1;",
+      "export const stale = () => {",
     );
     const subjects = additiveGit(
       state.lane,
