@@ -565,9 +565,12 @@ alongside `core.commentChar=auto` so adjacent additions that share boilerplate d
 into a single false-conflict hunk. An intermediate slice issue is opened only when a walk stops at a
 judgement and the operator chooses to bisect; a slice is never the default unit of work.
 
-Every decision cell names its decider. `unblock-check` carries the cells already filled through the
-regeneration it performs, and refuses when a filled cell disagrees with the decision the report
-carries. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
+Every decision cell names its decider. `unblock-check` and `unblock-refresh` both carry the cells
+already filled through the regeneration they perform, and the check refuses when a filled cell
+disagrees with the decision the report carries. A refresh rebinds the head and the stack size and
+nothing else: a filled cell survives it, and the only sanctioned way one disappears is its subject
+leaving the replay, which the refresh names on its own output rather than resetting the cell to
+`TODO`. A cell still reading `TODO` is nobody's decision: the churn ledger counts it for neither
 the agent nor the human, and apply refuses it. The churn ledger stores nightly proposal and review
 provenance separately; agent review never increments the human decision count.
 
