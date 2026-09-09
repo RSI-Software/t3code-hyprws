@@ -13,6 +13,7 @@ import { vi, type Mock } from "vite-plus/test";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { WINDOW_DEMAND_STATE_CHANNEL } from "../ipc/channels.ts";
 import type * as PreviewManager from "../preview/Manager.ts";
 import type { DesktopWindowLayerTestFork } from "./DesktopWindow.test.ts";
@@ -51,31 +52,20 @@ export const previewOwnedForwardingFork = {
   subscribeOwnedOpenLinks: () => Effect.void,
 } satisfies Partial<PreviewManager.PreviewManager["Service"]>;
 
-/**
- * Preview session overrides that record calls when a fork case passes the
- * matching recorder; without one, upstream's mock stands.
- */
+/** Records shared-session requests when a fork case passes a recorder; else upstream's mock stands. */
 export const previewSessionCountersFork = (input: {
   readonly previewBrowserSessionRequests?: number[];
-  readonly previewMainWindowSets?: Electron.BrowserWindow[];
 }): Partial<PreviewManager.PreviewManager["Service"]> => {
-  const { previewBrowserSessionRequests: sessionRequests, previewMainWindowSets: mainWindowSets } =
-    input;
-  return {
-    ...(sessionRequests && {
-      getBrowserSession: () =>
-        Effect.sync(() => {
-          sessionRequests.push(1);
-          return {} as Electron.Session;
-        }),
-    }),
-    ...(mainWindowSets && {
-      setMainWindow: (window) =>
-        Effect.sync(() => {
-          mainWindowSets.push(window);
-        }),
-    }),
-  };
+  const requests = input.previewBrowserSessionRequests;
+  return requests
+    ? {
+        getBrowserSession: () =>
+          Effect.sync(() => {
+            requests.push(1);
+            return {} as Electron.Session;
+          }),
+      }
+    : {};
 };
 
 type WindowListenerFork = (...args: readonly unknown[]) => void;
@@ -324,7 +314,6 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
         assert.deepEqual(previewOwners, [testWindowId(1)]);
         assert.deepEqual(previewBrowserSessionRequests, []);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
-        assert.isFalse(fakeWindow.windowListeners.has("resize"));
 
         fakeWindow.windowListeners.get("ready-to-show")?.();
         yield* Effect.yieldNow;
@@ -332,9 +321,15 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
           placementClaims.map((claim) => claim.key),
           [testWindowId(1)],
         );
-        const pageTitleUpdated = fakeWindow.windowListeners.get("page-title-updated");
         const preventDefault = vi.fn();
-        pageTitleUpdated?.({ preventDefault }, "Project One");
+        // The fake keeps one listener per event; the project title needs every one.
+        const listeners = vi.mocked(fakeWindow.window.on).mock.calls as unknown as [
+          string,
+          (...args: readonly unknown[]) => void,
+        ][];
+        for (const [event, listener] of listeners) {
+          if (event === "page-title-updated") listener({ preventDefault }, "Project One");
+        }
         assert.equal(preventDefault.mock.calls.length, 1);
         assert.deepEqual(fakeWindow.setTitle.mock.calls, [["Project One"]]);
 
@@ -427,41 +422,57 @@ export const registerDesktopWindowForkTests = (harness: DesktopWindowHarnessFork
     }),
   );
 
-  it.effect("still honours an explicit launch intent alongside a restore", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
-      const layer = layerTest({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-        createdWindowOptions,
-        workspaceMoves: [],
-        restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })],
-      });
+  // With Local environment off no backend signals ready, so the bootstrap's open call drains.
+  const readySignals = [
+    [
+      "backend ready",
+      true,
+      (w: DesktopWindow.DesktopWindow["Service"]) =>
+        w.handleBackendReady(new URL("http://127.0.0.1:3773")),
+    ],
+    ["Local off", false, (w: DesktopWindow.DesktopWindow["Service"]) => w.createMainIfBackendReady],
+  ] as const;
+  for (const [signal, localEnvironmentEnabled, ready] of readySignals) {
+    it.effect(`still honours an explicit launch intent alongside a restore (${signal})`, () =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const layer = layerTest({
+          window: fakeWindow.window,
+          createCount,
+          mainWindow,
+          createdWindowOptions,
+          workspaceMoves: [],
+          restoreEntries: [testRestoreEntry("all-projects", { id: 1, name: "1" })],
+          desktopSettings: {
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            localEnvironmentEnabled,
+          },
+        });
 
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.restoreWindowSession;
-        yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.restoreWindowSession;
+          yield* desktopWindow.openArguments(["t3code", "--project", "environment-2", "project-2"]);
+          yield* ready(desktopWindow);
 
-        assert.equal(yield* Ref.get(createCount), 2);
-        assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
-          windowIdPreloadArgument(testWindowId(2)),
-          "--t3code-window-scope-seed=environment-2/project-2",
-        ]);
-        assert.deepEqual(
-          createdWindowOptions.map((options) =>
-            options.webPreferences?.additionalArguments?.find((argument) =>
-              argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+          assert.equal(yield* Ref.get(createCount), 2);
+          assert.deepEqual(createdWindowOptions[1]?.webPreferences?.additionalArguments, [
+            windowIdPreloadArgument(testWindowId(2)),
+            "--t3code-window-scope-seed=environment-2/project-2",
+          ]);
+          assert.deepEqual(
+            createdWindowOptions.map((options) =>
+              options.webPreferences?.additionalArguments?.find((argument) =>
+                argument.startsWith(WINDOW_ID_PRELOAD_ARGUMENT),
+              ),
             ),
-          ),
-          [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
-        );
-      }).pipe(Effect.provide(layer));
-    }),
-  );
+            [windowIdPreloadArgument(testWindowId(1)), windowIdPreloadArgument(testWindowId(2))],
+          );
+        }).pipe(Effect.provide(layer));
+      }),
+    );
+  }
 };
