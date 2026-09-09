@@ -18,7 +18,7 @@ import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import {
   budgetFindings,
   budgetRaises,
-  forkBudgetFindingMessage,
+  forkBudgetRefusalMessage,
   FORK_BUDGET_PATH,
   parseForkBudget,
   renderForkBudget,
@@ -623,6 +623,7 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
   const shas = yield* readBudgetCommitShas(base, head);
   const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
   const findings: Array<ForkFinding> = [];
+  const raises: Array<ForkBudgetRaise & { readonly short: string; readonly reason: string }> = [];
   for (const sha of shas) {
     const commit = bySha.get(sha);
     if (commit === undefined) continue;
@@ -648,7 +649,8 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
       findings.push({ short: commit.short, subject: commit.subject, problem: outcome.problem });
       continue;
     }
-    if (outcome.raises.length > 0 && !isForkBudgetRaise(commit.budget)) {
+    if (outcome.raises.length === 0) continue;
+    if (!isForkBudgetRaise(commit.budget)) {
       const detail = outcome.raises
         .map((raise) => `${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}`)
         .join(", ");
@@ -657,9 +659,15 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
         subject: commit.subject,
         problem: `raises ${detail} without Fork-Budget: raise <reason>`,
       });
+      continue;
+    }
+    // A raise is never silent: it is echoed into the gate output so the
+    // ceiling growth stays auditable at the point it was accepted.
+    for (const raise of outcome.raises) {
+      raises.push({ ...raise, short: commit.short, reason: commit.budget ?? "" });
     }
   }
-  return findings;
+  return { findings, raises };
 });
 
 // The squash-body check (hyprws-body CI) sees one prospective commit: a
@@ -999,11 +1007,8 @@ const command = Command.make(
         }
         // A raise is a trailer problem like any other: it fails with the ledger's
         // findings, naming the commit, the domain, and the numbers it pushed up.
-        const raiseFindings = yield* collectBudgetRaiseFindings(
-          ledger.commits,
-          resolvedBase,
-          resolvedHead,
-        );
+        const { findings: raiseFindings, raises: budgetRaisesMade } =
+          yield* collectBudgetRaiseFindings(ledger.commits, resolvedBase, resolvedHead);
         const findings = [...ledger.findings, ...raiseFindings];
         for (const finding of findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
@@ -1079,7 +1084,12 @@ const command = Command.make(
           const stack = yield* collectInventory(budgetTarget, resolvedHead);
           const overBudget = budgetFindings(stack.domains, budget);
           for (const finding of overBudget) {
-            process.stderr.write(`over budget: ${forkBudgetFindingMessage(finding)}\n`);
+            process.stderr.write(`over budget: ${forkBudgetRefusalMessage(finding)}\n`);
+          }
+          for (const raise of budgetRaisesMade) {
+            process.stdout.write(
+              `budget raise: ${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to} (${raise.short} ${raise.reason})\n`,
+            );
           }
           if (overBudget.length > 0) {
             process.stderr.write(
