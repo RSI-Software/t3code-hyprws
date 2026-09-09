@@ -63,6 +63,12 @@ export interface ChurnConflict {
 export interface RepairCommit {
   readonly sha: string;
   readonly subject: string;
+  /**
+   * A fix to the walk harness itself (scripts/**, the fork's internals pages). Recorded on the
+   * row under fork-meta without a retroactive trailer (RSI-Software/t3code-hyprws#690); absent
+   * on rows written before tooling repairs were attributed.
+   */
+  readonly tooling?: true;
 }
 
 export interface CensusHotPath {
@@ -129,6 +135,16 @@ export interface ChurnEntry {
   readonly pending?: true;
   /** Proposer/reviewer provenance for a humanless nightly apply. */
   readonly nightlyReview?: NightlyReview;
+  /**
+   * How long the applied walk ran, from the walk report (RSI-Software/t3code-hyprws#703).
+   * Absent on rows written before the field existed; a missing value renders as absent.
+   */
+  readonly elapsedMs?: number;
+  /**
+   * The host model and effort the walk ran under, from the `ghb attest handoff` attestation
+   * (RSI-Software/t3code-hyprws#703). Absent on rows written before the field existed.
+   */
+  readonly effort?: { readonly model: string; readonly effort: string };
 }
 
 export interface ChurnHotSeam {
@@ -383,6 +399,7 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
               return {
                 sha: requireString(row.sha, "repair commit sha"),
                 subject: requireString(row.subject, "repair commit subject"),
+                ...(row.tooling === true ? { tooling: true as const } : {}),
               };
             });
           })();
@@ -398,6 +415,27 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
       entry.walkDecisions === undefined
         ? undefined
         : requireWalkDecisions(entry.walkDecisions, `walkDecisions in entry ${entryIndex}`);
+    const elapsedMs =
+      entry.elapsedMs === undefined
+        ? undefined
+        : (() => {
+            const value = entry.elapsedMs;
+            if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+              throw new Error(`invalid elapsedMs in entry ${entryIndex}`);
+            return value;
+          })();
+    const effort =
+      entry.effort === undefined
+        ? undefined
+        : (() => {
+            if (typeof entry.effort !== "object" || entry.effort === null)
+              throw new Error(`invalid effort in entry ${entryIndex}`);
+            const row = entry.effort as Record<string, unknown>;
+            return {
+              model: requireString(row.model, `effort model in entry ${entryIndex}`),
+              effort: requireString(row.effort, `effort value in entry ${entryIndex}`),
+            };
+          })();
     return {
       tag: requireString(entry.tag, "tag"),
       before: requireString(entry.before, "before"),
@@ -417,6 +455,8 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
       ...(walkDecisions === undefined ? {} : { walkDecisions }),
       ...(entry.pending === true ? { pending: true as const } : {}),
       ...(nightlyReview === undefined ? {} : { nightlyReview }),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+      ...(effort === undefined ? {} : { effort }),
     } satisfies ChurnEntry;
   });
   const tags = new Set<string>();
