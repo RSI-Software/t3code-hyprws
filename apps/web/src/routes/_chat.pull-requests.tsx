@@ -1,6 +1,7 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { useAtomValue } from "@effect/atom-react";
+import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -158,9 +159,7 @@ import { cn } from "~/lib/utils";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 
-export interface PullRequestsSearch {
-  readonly involvement: PullRequestInvolvement;
-  readonly state: PullRequestListState;
+export interface PullRequestsSearch extends PullRequestListPreferences {
    * Narrows the list to one server. Absent means every connected one, which is the default the
    * page has now — so a link written before servers could be chosen still opens the whole list.
    */
@@ -183,17 +182,6 @@ export interface PullRequestsSearch {
    * link without it still opens, resolved by project id alone where that is unambiguous.
    */
   readonly selectedEnvironmentId?: EnvironmentId;
-  readonly q?: string;
-  /**
-   * The narrowings beyond state and involvement, each absent when that group is unfiltered. Flat
-   * in the URL because a link is read and edited by hand; folded into one record for the listing.
-   */
-  readonly draft?: "only" | "hide";
-  readonly review?: NonNullable<PullRequestListFilters["review"]>;
-  readonly checks?: NonNullable<PullRequestListFilters["checks"]>;
-  readonly author?: string;
-  readonly labels?: ReadonlyArray<string>;
-  readonly sort?: PullRequestListSort;
   /** Project-window list scope. Absent keeps the physical project scope. */
   readonly scope?: "all";
 }
@@ -326,6 +314,7 @@ function HubPullRequestsRouteView() {
       search={search}
       onNavigate={(update) => void navigate({ search: update, replace: true })}
     />
+  );
 }
 
 export function PullRequestsPage({
@@ -400,12 +389,14 @@ export function PullRequestsPage({
           id: project.id,
           title: project.title,
           workspaceRoot: project.workspaceRoot,
+          repositoryIdentity: project.repositoryIdentity ?? null,
           faviconPath: project.faviconPath ?? null,
           projectIcon: project.projectIcon ?? null,
         })),
         environmentLabels,
+        scopedProject,
       ),
-    [environmentLabels, projects],
+    [environmentLabels, projects, scopedProject],
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
