@@ -1565,7 +1565,11 @@ it.effect("reads a repository that does not belong to the requested project", ()
       projects: [
         project({ id: "p1", title: "t3code", workspaceRoot: "/a", repository: "pingdotgg/t3code" }),
       ],
-      providers: [fakeProvider("github", { getDiff: () => Effect.succeed({ patch: "", truncated: false, nextCursor: null }) })],
+      providers: [
+        fakeProvider("github", {
+          getDiff: () => Effect.succeed({ patch: "", truncated: false, nextCursor: null }),
+        }),
+      ],
     });
 
     yield* service.diff({ projectId: "p1" as ProjectId, repository: "other/repo", number: 1 });
