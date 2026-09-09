@@ -41,7 +41,8 @@ const upstreamFixture = (): {
   };
   run("init", "-b", "fixture");
   // Previous upstream base: a source file with a line upstream will delete, two tests, one migration.
-  write("apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n");
+  // The stale hunk is three lines: a lone re-added token is not evidence a hunk came back.
+  write("apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n");
   write("apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
   write("apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
   write(
@@ -61,7 +62,7 @@ const upstreamFixture = (): {
   const previous = NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
     .toString()
     .trim();
-  // Target: upstream deletes the stale line, grows the tests, adds a file and a migration.
+  // Target: upstream deletes the stale hunk, grows the tests, adds a file and a migration.
   write("apps/web/src/thing.ts", "export const keep = 1;\n");
   write(
     "apps/web/src/thing.test.ts",
@@ -377,7 +378,7 @@ it("restores a wholly missing upstream test file", () => {
 it("catches a clean-applying fork commit re-adding what upstream deleted, and drops the re-add", () => {
   const fixture = upstreamFixture();
   const runner = new SystemCommandRunner();
-  replay(fixture, [["apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = 1;\n"]]);
+  replay(fixture, [["apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n"]]);
   try {
     const trees = { target: fixture.target, previous: fixture.previous };
     const findings = checkAdditive(runner, fixture.root, trees);
@@ -387,8 +388,8 @@ it("catches a clean-applying fork commit re-adding what upstream deleted, and dr
         {
           check: "readded",
           path: "apps/web/src/thing.ts",
-          lines: ["export const stale = 1;"],
-          detail: "re-adds 1 line(s) upstream deleted",
+          lines: ["export const stale = () => {", "return 1;", "};"],
+          detail: "re-adds 1 hunk(s) upstream deleted",
         },
       ],
     );
@@ -402,9 +403,9 @@ it("catches a clean-applying fork commit re-adding what upstream deleted, and dr
   }
 });
 
-it("ignores insignificant lines but refuses a brace-dangling removal", () => {
-  // Upstream deleted a code line; the fork's replay adds only a comment about it. A comment is
-  // not the deleted line, so nothing came back.
+it("ignores a comment and a lone re-added token, and refuses a brace-dangling removal", () => {
+  // Upstream deleted a code hunk; the fork's replay adds only a comment about it. A comment is
+  // not the deleted hunk, so nothing came back.
   const fixture = upstreamFixture();
   const runner = new SystemCommandRunner();
   replay(fixture, [["apps/web/src/thing.ts", "export const keep = 1;\n// stale is gone\n"]]);
@@ -417,8 +418,9 @@ it("ignores insignificant lines but refuses a brace-dangling removal", () => {
     NodeFS.rmSync(fixture.root, { recursive: true, force: true });
   }
 
-  // Upstream deleted a closing brace and the replay re-adds it: removing the re-add would leave
-  // the block dangling, so the fix refuses and the tree stays exactly as the replay left it.
+  // Upstream deleted a closing brace and the replay writes one of its own. A single structural
+  // token is syntax, not upstream intent coming back, so the check leaves the tree alone: cutting
+  // it is what leaves the block dangling.
   const dangling = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-additive-dangling-"));
   const run = (...args: ReadonlyArray<string>): void => {
     NodeChildProcess.execFileSync("git", args, {
@@ -454,13 +456,10 @@ it("ignores insignificant lines but refuses a brace-dangling removal", () => {
   run("commit", "-m", "feat: re-add the brace");
   try {
     const findings = checkAdditive(runner, dangling, { target, previous });
-    assert.deepStrictEqual(
-      findings.map(({ check, lines }) => ({ check, lines })),
-      [{ check: "readded", lines: ["};"] }],
-    );
+    assert.deepStrictEqual(findings, []);
     const fixes = applyAdditiveFixes(runner, dangling, target, findings);
     assert.deepStrictEqual(fixes.fixed, []);
-    assert.deepStrictEqual(fixes.remaining, findings);
+    assert.deepStrictEqual(fixes.remaining, []);
     assert.strictEqual(
       read(dangling, "apps/web/src/block.ts"),
       "export const block = () => {\n  return 1;\n};\n",
