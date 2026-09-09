@@ -5254,6 +5254,50 @@ it("a recorded retire verdict drops the commit from the replay and verifies as r
   }
 });
 
+it("reads a previous walk's repair on trunk as part of the baseline, not as a shrunk stack", () => {
+  const state = retireReplay();
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  // A repair the last walk appended is an ordinary trunk commit by the time this walk reads its
+  // baseline. The lane's proof drops repairs, so a baseline that keeps them counts one commit the
+  // replay can never produce and halts a walk that is entirely healthy.
+  const withRepair: SyncReport = {
+    ...replayed,
+    originalMessages:
+      `${RETIRE_SUBJECT}\nFork-Domain: fork-meta\n\x1e` +
+      "chore(fork-sync): repair fmt after v1.2.2\nFork-Domain: fork-meta\nFork-Repair: v1.2.2\n\x1e" +
+      `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`,
+    originalCount: 3,
+    recordDecisions: [{ subject: RETIRE_SUBJECT, action: "retire", decidedBy: "human" }],
+  };
+  NodeFS.writeFileSync(state.reportPath, JSON.stringify(withRepair));
+  signRecord(withRepair.recordPath, "retire", "human");
+  state.runner.set("git", ["-c", "core.commentChar=auto", "rev-list", "--count", `${B}..HEAD`], {
+    stdout: "1\n",
+  });
+  state.runner.set(
+    "git",
+    [
+      "-c",
+      "core.commentChar=auto",
+      "log",
+      "--reverse",
+      "--topo-order",
+      "--format=%B%x1e",
+      `${B}..HEAD`,
+    ],
+    { stdout: `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e` },
+  );
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const checked = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("retire enacts exactly one subject: other count or message changes still fail", () => {
   const keptMessages = `${RETIRE_KEEP_SUBJECT}\nFork-Domain: web\n\x1e`;
   // Extra drop beyond the one retired commit -> count still throws
