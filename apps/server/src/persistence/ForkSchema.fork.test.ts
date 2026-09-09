@@ -28,7 +28,17 @@ layer("ForkSchema", (it) => {
       assert.deepStrictEqual(second, []);
     }),
   );
+});
 
+// A separate top-level `layer(...)` block gets its own memo map, and so its own
+// in-memory database. Sharing one database across the two blocks silently
+// turned this case into a no-op once upstream added 049
+// (`ProjectionThreadsActiveOrderKey`): the first test migrated the shared
+// database past 048, so `runMigrations` below had nothing left to run and the
+// assertion on upstream 048 failed even though the repair behaves correctly on
+// the shipped-nightly state it models (fresh database at 047 plus the stale
+// fork row).
+layer("ForkSchema repair", (it) => {
   it.effect("repairs a stale fork migration row so upstream 048 still runs", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
