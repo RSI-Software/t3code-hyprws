@@ -4323,6 +4323,68 @@ it("carries a decision cell filled in the record through the regeneration a chec
   }
 });
 
+// RSI-Software/t3code-hyprws#695: a refresh rebinds the head and the stack size. The decision
+// cells are not a binding, they are the human's answer, and `unblock-check` already keeps them.
+it("carries a decision cell filled in the record through the regeneration a refresh performs", () => {
+  const state = undecidedRun();
+  const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  state.runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], {
+    stdout: `${C}\n`,
+  });
+  try {
+    signRecord(recordPath, "retire", "human");
+    const { output } = captureStdout(() =>
+      execute(["unblock-refresh", "--report", state.reportPath], state.root, state.runner),
+    );
+    const refreshed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    assert.deepStrictEqual(refreshed.recordDecisions, [
+      { subject: SUBJECT, action: "retire", decidedBy: "human" },
+    ]);
+    const row = NodeFS.readFileSync(recordPath, "utf8")
+      .split("\n")
+      .find((line) => line.startsWith(`| \`${SUBJECT}\` |`));
+    assert.include(row ?? "", "| retire |");
+    assert.include(row ?? "", "| human |");
+    assert.include(output, "Decision cells preserved: 1");
+    assert.notInclude(output, "Decision cells dropped");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("drops a filled decision cell whose subject left the replay, and names it", () => {
+  const state = undecidedRun();
+  const { recordPath } = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  state.runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], {
+    stdout: `${C}\n`,
+  });
+  try {
+    signRecord(recordPath, "retire", "human");
+    // The subject leaves the replay: the rebound lane no longer carries the commit it was about.
+    const withoutSubject = validateReport(
+      JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")),
+    );
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({ ...withoutSubject, orientationDecisions: [] }),
+    );
+    const { output } = captureStdout(() =>
+      execute(["unblock-refresh", "--report", state.reportPath], state.root, state.runner),
+    );
+    const record = NodeFS.readFileSync(recordPath, "utf8");
+    assert.notInclude(record, `| \`${SUBJECT}\` |`);
+    assert.include(output, "Decision cells preserved: 0");
+    assert.include(output, "Decision cells dropped, subject no longer in the replay:");
+    assert.include(output, `  - ${SUBJECT} (human)`);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("surfaces each failing CI job with its last 40 failed-log lines verbatim", () => {
   const state = replayedRun();
   const runListArgs = [
