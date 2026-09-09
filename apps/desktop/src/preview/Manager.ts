@@ -984,6 +984,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           if (wc && !wc.isDestroyed()) {
             yield* attempt({ operation: "applyZoom", tabId, webContentsId: wc.id }, () =>
               wc.setZoomFactor(next),
+            );
           }
         }
         yield* update(tabId, { zoomFactor: next });
@@ -2500,7 +2501,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           );
         });
         // Every exit from this session runs through `claimSettle`, so the
-        // renderer's `pickElement` promise resolves exactly once.
+        // renderer's `pickElement` promise resolves exactly once. The previous
+        // identity check let a cancelled or replaced session return without
+        // resuming, which left the composer waiting forever.
         let settled = false;
         const claimSettle = (): boolean => {
           if (settled) return false;
@@ -2542,7 +2545,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           }
           resume(Effect.succeed(null));
         });
-        const cancel = session.cancel;
         const onMessage = (_event: Electron.IpcMainEvent, ...args: unknown[]): void => {
           const payload = args[0];
           if (!isPreviewAnnotationPayload(payload)) {
@@ -2553,6 +2555,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           const submission = args[2] === "send" ? "send" : "attach";
           runFork(
             captureAnnotationScreenshot(tabId, wc, cropRect).pipe(
+              // The renderer cannot tell a dropped crop from a comment-only
+              // pick by the null alone, so a failed or timed-out capture is
+              // flagged on the result.
               Effect.match({
                 onFailure: (): PreviewAnnotationSubmissionResult => ({
                   annotation: payload,
@@ -2566,7 +2571,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
               }),
               Effect.flatMap((result) => {
                 // A capture that outlives its session must not touch the
-                // overlay: by now it may be running a newer pick.
+                // overlay: the preload tears down on the captured signal, and
+                // by now it may be running a newer pick.
                 if (!claimSettle()) return Effect.void;
                 return attempt(
                   { operation: "pickElement.captureComplete", tabId, webContentsId: wc.id },
@@ -2588,6 +2594,21 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           if (isMainFrame) settle(null);
         };
         const registerPickElement = Effect.fn("PreviewManager.registerPickElement")(function* () {
+          // Two picks on one tab can overlap. Swap this session in and cancel
+          // the previous holder in one step, so no third pick can slip into an
+          // empty slot in between and the session we push out still resumes
+          // its renderer.
+          const replaced = yield* Ref.modify(pickSessionsRef, (sessions) => [
+            sessions.get(tabId) ?? null,
+            replaceMap(sessions, (copy) => {
+              copy.set(tabId, session);
+            }),
+          ]);
+          if (replaced) yield* replaced.cancel;
+          // A newer pick may have cancelled this session while the previous
+          // one was torn down. Cleanup already ran, so attaching listeners now
+          // would leak them and start an overlay nobody is waiting on.
+          if (settled) return;
           yield* attempt({ operation: "pickElement.register", tabId, webContentsId: wc.id }, () => {
             wc.ipc.on(ELEMENT_PICKED_CHANNEL, onMessage);
             wc.once("destroyed", onDestroyed);
@@ -2595,21 +2616,17 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             if (!wc.isFocused()) wc.focus();
             wc.send(START_PICK_CHANNEL, annotationTheme);
           });
-          yield* Ref.update(pickSessionsRef, (sessions) =>
-            replaceMap(sessions, (copy) => {
-              copy.set(tabId, session);
-            }),
-          );
         });
         runFork(
           registerPickElement().pipe(
             Effect.catch((error: PreviewManagerError) => {
+              if (!claimSettle()) return Effect.void;
               resume(Effect.fail(error));
               return cleanup();
             }),
           ),
         );
-        return cancel;
+        return session.cancel;
       },
     );
   });
