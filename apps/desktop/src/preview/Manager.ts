@@ -4839,7 +4839,7 @@ export class PreviewAutomationControlInterruptedError extends Schema.TaggedError
   }
 }
 
-export class PreviewTabOwnershipError extends Schema.TaggedErrorClass<PreviewTabOwnershipError>()(
+export class PreviewTabOwnershipError extends Schema.TaggedError<PreviewTabOwnershipError>()(
   "PreviewTabOwnershipError",
   { tabId: Schema.String, requestingWindow: Schema.String },
 ) {
