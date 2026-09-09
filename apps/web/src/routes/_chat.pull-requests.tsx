@@ -1,6 +1,7 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { useAtomValue } from "@effect/atom-react";
+import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -355,6 +356,7 @@ function HubPullRequestsRouteView() {
       search={search}
       onNavigate={(update) => void navigate({ search: update, replace: true })}
     />
+  );
 }
 
 export function PullRequestsPage({
@@ -429,12 +431,14 @@ export function PullRequestsPage({
           id: project.id,
           title: project.title,
           workspaceRoot: project.workspaceRoot,
+          repositoryIdentity: project.repositoryIdentity ?? null,
           faviconPath: project.faviconPath ?? null,
           projectIcon: project.projectIcon ?? null,
         })),
         environmentLabels,
+        scopedProject,
       ),
-    [environmentLabels, projects],
+    [environmentLabels, projects, scopedProject],
   );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
