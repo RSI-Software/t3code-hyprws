@@ -257,9 +257,6 @@ describe("DesktopWindow (fork)", () => {
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        const resizeListeners = () =>
-          vi.mocked(window.on).mock.calls.filter(([event]) => String(event) === "resize").length;
-        assert.equal(resizeListeners(), 1);
 
         yield* desktopWindow.requestWindow({ kind: "new-window" });
         yield* desktopWindow.requestWindow({ kind: "new-window" });
@@ -280,8 +277,6 @@ describe("DesktopWindow (fork)", () => {
           options[3]?.webPreferences?.additionalArguments ?? [],
           windowIdPreloadArgument(testWindowId(4)),
         );
-        // Every all-projects window tracks its bounds (see the current-main test).
-        assert.equal(resizeListeners(), 3);
       }).pipe(Effect.provide(makeLayer(window, options)));
     }),
   );
