@@ -39,6 +39,7 @@ import {
   type RepairFailure,
 } from "./lib/fork-repairs.ts";
 import {
+  runCommand,
   SystemCommandRunner as SystemRunner,
   type CwdCommandRunner as CommandRunner,
 } from "./lib/fork-command.ts";
@@ -2159,8 +2160,13 @@ const ledgerWrite = (report: SyncReport, label: string, write: () => void): Sync
  * so it can only be written after the trunk push, and it is written before the invocation
  * reports `applied` so no outcome survives only in a runner file.
  */
-const publishChurnRow = (report: SyncReport, tag: string): SyncReport =>
-  ledgerWrite(report, "churn row", () =>
+const publishChurnRow = (report: SyncReport, tag: string): SyncReport => {
+  // The leased push moved the trunk from the lane, so the fork root may not yet have the applied
+  // head's objects; the row's repair scan cites the applied range (`before..after`), so fetch the
+  // trunk into the root first (#700). A failed fetch is absorbed: the scan degrades to an empty
+  // listing rather than failing the append, and the row shows the absence instead of dying.
+  runCommand("git", ["fetch", "--quiet", "origin", HYPRWS_REF], { cwd: report.repositoryRoot });
+  return ledgerWrite(report, "churn row", () =>
     appendChurnRow(
       [
         "--record",
@@ -2178,6 +2184,7 @@ const publishChurnRow = (report: SyncReport, tag: string): SyncReport =>
       report.repositoryRoot,
     ),
   );
+};
 
 /** The retained outcome receipts for the same walk, from the report this invocation just wrote. */
 const publishWalkOutcomes = (report: SyncReport): SyncReport =>
