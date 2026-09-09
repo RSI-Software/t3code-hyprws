@@ -9,7 +9,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
+import { FORK_PR_TEMPLATE_PATH } from "./lib/fork-pr-template.ts";
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
+import { FORK_DOMAINS } from "./lib/fork-trailers.ts";
 import {
   budgetFindings,
   budgetRaises,
@@ -79,6 +81,19 @@ const createGitFixture = () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-delta-squash-"));
   const contracts = NodePath.join(root, "packages/contracts/src");
   NodeFS.mkdirSync(contracts, { recursive: true });
+  // `--check` refuses a pull-request template whose domain list drifts from FORK_DOMAINS, so
+  // every fixture repository carries one. Generated rather than pasted: a fixture that drifts
+  // from the constant is the same bug the guard exists to catch.
+  NodeFS.mkdirSync(NodePath.join(root, ".github"), { recursive: true });
+  NodeFS.writeFileSync(
+    NodePath.join(root, FORK_PR_TEMPLATE_PATH),
+    [
+      "<!-- Valid Fork-Domain values (copy one exactly):",
+      ...FORK_DOMAINS.map((domain) => `       ${domain}`),
+      "-->",
+      "",
+    ].join("\n"),
+  );
   git(root, ["init", "-b", "fixture"]);
   return { root, contracts };
 };
