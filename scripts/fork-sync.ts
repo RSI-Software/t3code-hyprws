@@ -79,6 +79,7 @@ import { executeStable } from "./fork-sync-stable.ts";
 import { humanVerdictsBySubject, readChurnLedger, readChurnState } from "./fork-churn-ledger.ts";
 import {
   assertOnly,
+  baseDecisionRows,
   BLOCK_LABEL,
   BOT_COMMIT_CONFIG,
   commandText,
@@ -2118,8 +2119,21 @@ const unblockRefresh = (
   if (report.stage !== "checked" && report.stage !== "replayed")
     throw new Error(`unblock-refresh requires checked or replayed state, got ${report.stage}`);
   const refreshed = refreshRehearsalHead(report, runner);
+  // A subject that left the replay takes its row with it, which is the only sanctioned way a
+  // filled cell disappears. Say which ones, so the loss is a line the operator reads rather than a
+  // `TODO` they rediscover at apply time.
+  const surviving = baseDecisionRows(refreshed);
+  const filled = refreshed.recordDecisions ?? [];
+  const dropped = filled.filter(({ subject }) => !surviving.has(subject));
   process.stdout.write(
-    `${refreshed.reportPath}\nRebased head refreshed to ${refreshed.rebasedHead ?? "absent"}\n`,
+    `${refreshed.reportPath}\n` +
+      `Rebased head refreshed to ${refreshed.rebasedHead ?? "absent"}\n` +
+      `Decision cells preserved: ${filled.length - dropped.length}\n` +
+      (dropped.length === 0
+        ? ""
+        : `Decision cells dropped, subject no longer in the replay:\n${dropped
+            .map(({ subject, decidedBy }) => `  - ${subject} (${decidedBy})`)
+            .join("\n")}\n`),
   );
   return refreshed;
 };
@@ -2801,9 +2815,14 @@ const refreshRehearsalHead = (report: SyncReport, runner: CommandRunner): SyncRe
   delete next.ciHead;
   delete next.proposedBy;
   delete next.nightlyReview;
-  writeReport(next);
-  writeRecord(next);
-  return next;
+  // A refresh rebinds the head and the stack size; it is not a second opinion about a decision.
+  // `unblock-check` already keeps a cell the operator filled, and the refresh has to keep it too:
+  // without this the rebind re-mints every `Decided by` cell back to `TODO`, and `unblock-apply`
+  // then refuses one verb later on answers nobody withdrew (RSI-Software/t3code-hyprws#695).
+  const preserved = preserveRecordDecisions(next);
+  writeReport(preserved);
+  writeRecord(preserved);
+  return preserved;
 };
 
 const trackerTargetIssues = (runner: CommandRunner, root: string): ReadonlyArray<AutoTargetIssue> =>

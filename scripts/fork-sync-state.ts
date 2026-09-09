@@ -810,26 +810,24 @@ export const renderNightlyReview = (report: SyncReport): ReadonlyArray<string> =
   ];
 };
 
-export const renderRecord = (report: SyncReport): string => {
-  if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
-  const target = report.target;
-  const source = report.source;
-  const lane = report.lane;
-  const head = report.rebasedHead ?? "absent";
-  const rows = report.conflicts.map(
-    (row) =>
-      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} | ${row.decidedBy} |`,
-  );
-  const decisions = new Map<
-    string,
-    {
-      readonly subject: string;
-      readonly domain: string;
-      readonly classSummary: string;
-      readonly action: string;
-      readonly decidedBy: DecidedBy;
-    }
-  >();
+/** One row of the record's `## Decisions` table, before any filled cell is merged into it. */
+export interface DecisionTableRow {
+  readonly subject: string;
+  readonly domain: string;
+  readonly classSummary: string;
+  readonly action: string;
+  readonly decidedBy: DecidedBy;
+}
+
+/**
+ * Every subject the record's `## Decisions` table can carry, derived from the replay alone: one row
+ * per orientation verdict, plus every conflict row a human has to answer. A filled cell only
+ * survives regeneration by attaching to a row here, so this is also the test for whether a subject
+ * has left the replay — `unblock-refresh` reads it to name the cells it drops instead of letting
+ * them disappear without a word (RSI-Software/t3code-hyprws#695).
+ */
+export const baseDecisionRows = (report: SyncReport): ReadonlyMap<string, DecisionTableRow> => {
+  const decisions = new Map<string, DecisionTableRow>();
   const evidence = new Map((report.retireEvidence ?? []).map((row) => [row.subject, row]));
   for (const row of report.orientationDecisions ?? []) {
     decisions.set(row.subject, {
@@ -854,6 +852,20 @@ export const renderRecord = (report: SyncReport): string => {
       decidedBy: existing?.decidedBy ?? row.decidedBy,
     });
   }
+  return decisions;
+};
+
+export const renderRecord = (report: SyncReport): string => {
+  if (report.kind === "rewrite" && report.rewrite !== undefined) return renderRewriteRecord(report);
+  const target = report.target;
+  const source = report.source;
+  const lane = report.lane;
+  const head = report.rebasedHead ?? "absent";
+  const rows = report.conflicts.map(
+    (row) =>
+      `| \`${row.commit.slice(0, 12)}\` \`${escapeCell(row.subject)}\` | ${row.domain} | \`${escapeCell(row.path)}\` | ${row.class} | ${escapeCell(row.resolution)} | ${escapeCell(row.agentSafe)} | ${row.decidedBy} |`,
+  );
+  const decisions = new Map(baseDecisionRows(report));
   // A cell an operator filled by hand outlives regeneration; the report is otherwise the only truth
   // and would reset the decision to TODO.
   for (const filled of report.recordDecisions ?? []) {
