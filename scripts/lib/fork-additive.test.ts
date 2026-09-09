@@ -42,7 +42,10 @@ const upstreamFixture = (): {
   run("init", "-b", "fixture");
   // Previous upstream base: a source file with a line upstream will delete, two tests, one migration.
   // The stale hunk is three lines: a lone re-added token is not evidence a hunk came back.
-  write("apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n");
+  write(
+    "apps/web/src/thing.ts",
+    "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
+  );
   write("apps/web/src/thing.test.ts", 'it("first", () => {});\nit("second", () => {});\n');
   write("apps/server/src/persistence/Migrations/001_Base.ts", "export default 1;\n");
   write(
@@ -378,7 +381,12 @@ it("restores a wholly missing upstream test file", () => {
 it("catches a clean-applying fork commit re-adding what upstream deleted, and drops the re-add", () => {
   const fixture = upstreamFixture();
   const runner = new SystemCommandRunner();
-  replay(fixture, [["apps/web/src/thing.ts", "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n"]]);
+  replay(fixture, [
+    [
+      "apps/web/src/thing.ts",
+      "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
+    ],
+  ]);
   try {
     const trees = { target: fixture.target, previous: fixture.previous };
     const findings = checkAdditive(runner, fixture.root, trees);
