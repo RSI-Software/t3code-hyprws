@@ -74,6 +74,13 @@ export const isVerifiablePath = (path: string): boolean =>
 export interface RepairCommand {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  /**
+   * Where the command runs, relative to the lane root. A workspace's test config is its own —
+   * `apps/web` is the workspace that teaches Vite about `.wasm` assets — so a suite invoked from
+   * the lane root loads a different config than the one its authors wrote it against and fails on
+   * a transform nobody broke.
+   */
+  readonly cwd?: string;
 }
 
 /**
@@ -88,7 +95,8 @@ export const formatCommand = (paths: ReadonlyArray<string>): RepairCommand | nul
 
 /**
  * The read-only half, run once on the finished replay: typecheck scoped to the workspaces the
- * replay touched, and the suites that sit beside the touched files. Nothing here writes, so it
+ * replay touched, and the suites that sit beside the touched files, each run from its own
+ * workspace so it gets the test config its authors wrote it against. Nothing here writes, so it
  * cannot dirty the lane it is verifying.
  */
 export const verifyPlan = (
@@ -99,8 +107,18 @@ export const verifyPlan = (
   const plan: Array<RepairCommand> = [];
   for (const workspace of touchedWorkspaces(paths))
     plan.push({ command: "vp", args: ["run", "--filter", `./${workspace}`, "typecheck"] });
-  const tests = focusedTests(root, paths, exists);
-  if (tests.length > 0) plan.push({ command: "vp", args: ["test", "run", ...tests] });
+  const byWorkspace = new Map<string, Array<string>>();
+  for (const test of focusedTests(root, paths, exists)) {
+    const workspace = touchedWorkspaces([test])[0] ?? "";
+    const relative = workspace === "" ? test : test.slice(workspace.length + 1);
+    byWorkspace.set(workspace, [...(byWorkspace.get(workspace) ?? []), relative]);
+  }
+  for (const [workspace, tests] of [...byWorkspace].sort(([a], [b]) => (a < b ? -1 : 1)))
+    plan.push({
+      command: "vp",
+      args: ["test", "run", ...tests],
+      ...(workspace === "" ? {} : { cwd: workspace }),
+    });
   return plan;
 };
 
@@ -189,11 +207,17 @@ export const runRepairs = (
   const ran: Array<RepairRun> = [];
   let dirtiedBy: string | undefined;
   for (const step of plan) {
-    const label = commandText(step.command, step.args);
+    // The record names where a step ran, because the same suite passes from its workspace and
+    // fails from the lane root, and a bare command text hides which of the two the walk did.
+    const label =
+      step.cwd === undefined
+        ? commandText(step.command, step.args)
+        : `${step.cwd}: ${commandText(step.command, step.args)}`;
+    const cwd = step.cwd === undefined ? worktree : NodePath.join(worktree, step.cwd);
     let status: number;
     let detail: string;
     try {
-      const result = runner.run(step.command, step.args, worktree, undefined, env);
+      const result = runner.run(step.command, step.args, cwd, undefined, env);
       if (result.error !== undefined)
         return {
           ran,
