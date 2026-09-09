@@ -3,6 +3,7 @@ import type {
   EnvironmentId,
   ProjectId,
   PullRequestInvolvement,
+  ProjectIconOverride,
   PullRequestListFilters,
   PullRequestListState,
   SourceControlProviderKind,
@@ -292,6 +293,7 @@ function PullRequestAuthorFilter({
               }}
               placeholder="Search authors"
               aria-label="Search authors"
+            />
           </InputGroup>
         </div>
         <MenuRadioGroup value={selected?.actor.login ?? value ?? ""} onValueChange={select}>
@@ -451,7 +453,7 @@ export function PullRequestFiltersMenu({
   unavailable: ReadonlyMap<string, string>;
   /** The environment comes with the project id, since picking a row picks a specific server's copy of it. */
   onProject: (projectId: ProjectId | undefined, environmentId: EnvironmentId | undefined) => void;
-  /** Fork integration: project windows own this choice in their project/all-project toggle. */
+  /** Project windows own this choice in their project/all-project toggle. */
   showProjectFilter?: boolean;
 }) {
   const selectedLabels = (filters.labels ?? []).flatMap((group) => group);
@@ -580,6 +582,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
+        {/* fork-hook: project-windows/pull-request-filter-visibility */}
         {showProjectFilter ? (
           <>
             <MenuSeparator />
@@ -597,6 +600,7 @@ export function PullRequestFiltersMenu({
             />
           </>
         ) : null}
+        {/* fork-hook-end */}
       </MenuPopup>
     </Menu>
   );
