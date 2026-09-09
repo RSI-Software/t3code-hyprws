@@ -220,9 +220,9 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    names a grounding claim, get that confirmation too. Put only those supplied decisions in the
    rendered record; never record a recommendation as the human's decision. Write the decider in the
    `Decided by` cell beside every action you fill; a cell left on `TODO` records no decision, is
-   counted for nobody in the churn ledger, and is refused at apply. A rerun of the check keeps the
+   counted for nobody in the churn ledger, and is refused at apply. A rerun of the check, and a refresh, keep the
    cells already filled; a filled cell wins over a rerun that classifies the same subject
-   differently.
+   differently, and a refresh names any cell it drops for a subject that left the replay.
 
 5. Apply the record:
 
