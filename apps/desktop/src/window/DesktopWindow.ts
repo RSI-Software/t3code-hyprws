@@ -1275,6 +1275,14 @@ export const make = Effect.gen(function* () {
           Effect.flatMap((staged) => (staged.queued ? Effect.void : requestWindow(staged.request))), // fork-hook: multi-window/dispatch-drain-arguments
         ),
   ); // fork-hook: multi-window/startup-drain-stage-arguments-def
+  const startupDrainLocalOff: Partial<Pick<DesktopWindow["Service"], "createMainIfBackendReady">> =
+    {
+      // With Local environment off no backend signals ready, so the bootstrap's open call drains.
+      createMainIfBackendReady: Effect.suspend(() =>
+        startupDrain.drain(drainServices, resolveDrainOpeners),
+      ),
+    }; // fork-hook: multi-window/startup-drain-local-off-def
+
   return DesktopWindow.of({
     createMain: createMain.pipe(Effect.flatMap(requireWindow)),
     ensureMain: ensureMain.pipe(Effect.flatMap(requireWindow)),
@@ -1316,6 +1324,7 @@ export const make = Effect.gen(function* () {
       yield* createMainIfBackendReady;
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
+    ...startupDrainLocalOff, // fork-hook: multi-window/startup-drain-local-off
     showConnectingSplash,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       backendHasStarted = true;
