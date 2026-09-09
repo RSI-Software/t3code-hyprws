@@ -14,7 +14,7 @@ so a new domain fails the check until a commit adds its row.
 | browser-bookmarks | 1       | 816   | 29      | 0      |
 | custom-agents     | 10      | 8745  | 739     | 0      |
 | distribution      | 16      | 1107  | 44      | 0      |
-| fork-meta         | 10      | 65533 | 5107    | 0      |
+| fork-meta         | 11      | 65536 | 5110    | 0      |
 | github-issues     | 9       | 7442  | 1021    | 0      |
 | markdown-editing  | 4       | 3908  | 1293    | 0      |
 | project-windows   | 46      | 14177 | 2862    | 0      |
@@ -22,4 +22,4 @@ so a new domain fails the check until a commit adds its row.
 | upstream-fixes    | 25      | 4465  | 451     | 2      |
 | workspace-files   | 4       | 403   | 48      | 0      |
 | worktrunk-hooks   | 6       | 2146  | 894     | 1      |
-| zmux-estate       | 23      | 13133 | 1431    | 3      |
+| zmux-estate       | 23      | 13137 | 1431    | 3      |
