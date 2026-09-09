@@ -14,7 +14,7 @@ so a new domain fails the check until a commit adds its row.
 | browser-bookmarks | 1       | 816   | 29      | 0      |
 | custom-agents     | 10      | 8745  | 739     | 0      |
 | distribution      | 16      | 1107  | 44      | 0      |
-| fork-meta         | 11      | 65536 | 5110    | 0      |
+| fork-meta         | 12      | 65617 | 5190    | 0      |
 | github-issues     | 9       | 7442  | 1021    | 0      |
 | markdown-editing  | 4       | 3908  | 1293    | 0      |
 | project-windows   | 46      | 14177 | 2862    | 0      |

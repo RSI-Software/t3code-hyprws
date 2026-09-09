@@ -7,7 +7,7 @@ import type { ProviderSessionStartInput } from "@t3tools/contracts";
  * created with its project id as the window title, so `T3CODE_PROJECT_ID` is
  * the stable key back to the window hosting the agent.
  */
-export const PROVIDER_SESSION_IDENTITY_ENV = {
+const PROVIDER_SESSION_IDENTITY_ENV = {
   projectId: "T3CODE_PROJECT_ID",
   threadId: "T3CODE_THREAD_ID",
 } as const;
