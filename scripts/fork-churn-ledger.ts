@@ -93,11 +93,25 @@ export interface CensusChurn {
   readonly seams: ReadonlyArray<SeamAssessment>;
 }
 
+export interface ForecastEntry {
+  readonly main: string;
+  readonly base: string;
+  readonly conflicts: ReadonlyArray<{
+    readonly commit: string;
+    readonly subject: string;
+    readonly domain: string;
+    readonly conflicts: boolean;
+    readonly files: ReadonlyArray<string>;
+    readonly seam: string | null;
+  }>;
+}
+
 export interface ChurnState {
   readonly version: 3;
   readonly walks: ReadonlyArray<ChurnEntry>;
   readonly seamRecords: ReadonlyArray<SeamRecord>;
   readonly outcomes: ReadonlyArray<OutcomeReceipt>;
+  readonly forecasts: ReadonlyArray<ForecastEntry>;
 }
 
 export interface ChurnEntry {
@@ -467,19 +481,51 @@ const parseWalks = (value: unknown): ReadonlyArray<ChurnEntry> => {
   return entries;
 };
 
+const requireForecasts = (value: unknown): ReadonlyArray<ForecastEntry> => {
+  if (!Array.isArray(value)) throw new Error("invalid forecasts");
+  const mains = new Set<string>();
+  return value.map((item, index) => {
+    const row = (item ?? {}) as Record<string, unknown>;
+    const main = requireString(row.main, `forecast main ${index}`);
+    if (mains.has(main)) throw new Error(`duplicate forecast main: ${main}`);
+    mains.add(main);
+    if (!Array.isArray(row.conflicts)) throw new Error(`invalid forecast conflicts ${index}`);
+    return {
+      main,
+      base: requireString(row.base, `forecast base ${index}`),
+      conflicts: row.conflicts.map((conflict, conflictIndex) => {
+        const value = (conflict ?? {}) as Record<string, unknown>;
+        if (typeof value.conflicts !== "boolean" || !Array.isArray(value.files))
+          throw new Error(`invalid forecast conflict ${conflictIndex}`);
+        return {
+          commit: requireString(value.commit, "forecast commit"),
+          subject: requireString(value.subject, "forecast subject"),
+          domain: requireString(value.domain, "forecast domain"),
+          conflicts: value.conflicts,
+          files: value.files.map((path) => requireString(path, "forecast file")),
+          seam: value.seam === null ? null : requireString(value.seam, "forecast seam"),
+        };
+      }),
+    };
+  });
+};
+
 export const parseChurnState = (raw: string): ChurnState => {
   const value: unknown = JSON.parse(raw);
   if (Array.isArray(value))
-    return { version: 3, walks: parseWalks(value), seamRecords: [], outcomes: [] };
+    return { version: 3, walks: parseWalks(value), seamRecords: [], outcomes: [], forecasts: [] };
   if (typeof value !== "object" || value === null) throw new Error("invalid churn ledger envelope");
   const state = value as Record<string, unknown>;
   if (
     (state.version !== 2 && state.version !== 3) ||
     Object.keys(state).some(
       (key) =>
-        !["version", "walks", "seamRecords", ...(state.version === 3 ? ["outcomes"] : [])].includes(
-          key,
-        ),
+        ![
+          "version",
+          "walks",
+          "seamRecords",
+          ...(state.version === 3 ? ["outcomes", "forecasts"] : []),
+        ].includes(key),
     )
   )
     throw new Error("unsupported churn ledger envelope");
@@ -488,6 +534,8 @@ export const parseChurnState = (raw: string): ChurnState => {
     walks: parseWalks(state.walks),
     seamRecords: requireSeamRecords(state.seamRecords),
     outcomes: state.version === 2 ? [] : requireOutcomeReceipts(state.outcomes),
+    forecasts:
+      state.version === 2 || state.forecasts === undefined ? [] : requireForecasts(state.forecasts),
   };
 };
 
@@ -581,7 +629,7 @@ export const writeChurnLedger = (
   const existing = readBotRefFile(root, ref, CHURN_LEDGER_FILE);
   const state =
     existing === null
-      ? { version: 3 as const, walks: [], seamRecords: [], outcomes: [] }
+      ? { version: 3 as const, walks: [], seamRecords: [], outcomes: [], forecasts: [] }
       : parseChurnState(existing);
   return writeChurnState(root, { ...state, walks: entries }, message, ref);
 };
