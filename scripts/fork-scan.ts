@@ -393,7 +393,8 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
 ];
 
 // The two gap classes need different repairs: a ledger gap is an entry the human adds, and a
-// typecheck gap is a silent seam fixed in the fork commit that owns the file.
+// typecheck gap is a silent seam the walk fixes in its appended `Fork-Repair` commit. No replayed
+// fork commit is ever amended, so the summary must never send the operator back into one.
 export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> => {
   const summary: Array<string> = [];
   const ledgerGaps =
@@ -406,7 +407,7 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
   }
   if (result.typecheckGaps.length > 0) {
     summary.push(
-      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun`,
+      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file`,
     );
   }
   const workflowGaps = result.workflowDrift.filter(({ problem }) => problem !== undefined).length;
