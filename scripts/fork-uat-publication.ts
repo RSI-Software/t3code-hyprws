@@ -193,14 +193,21 @@ export const ensureCreated = (
   }
   let created = readReceipt(receiptPath);
   if (created === null) {
-    const urls = [
-      ...output.matchAll(/https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/([1-9][0-9]*)/g),
-    ];
-    const url = urls.at(-1)?.[0];
-    const number = Number(urls.at(-1)?.[1]);
-    if (url === undefined || !Number.isInteger(number)) {
-      throw new Error(`ghb did not report a completed issue: ${receiptPath}`);
+    // Scraping is the fallback for a run that filed the issue but left no receipt. Output can name
+    // a parent or a related issue beside the new one, and picking the wrong number here writes a
+    // false receipt: the parent link and the `--after` ordering of every later child follow it, and
+    // a rerun resumes the lie instead of repairing it. One unambiguous URL, or nothing.
+    const urls = new Map(
+      [...output.matchAll(/https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/([1-9][0-9]*)/g)].map(
+        (match) => [match[0], Number(match[1])],
+      ),
+    );
+    if (urls.size !== 1) {
+      throw new Error(
+        `ghb did not report exactly one created issue (${urls.size} found): ${receiptPath}`,
+      );
     }
+    const [url, number] = [...urls][0] as [string, number];
     created = { number, url };
     NodeFS.writeFileSync(receiptPath, `${JSON.stringify({ phase: "complete", issue: created })}\n`);
   }
