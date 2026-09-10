@@ -164,6 +164,7 @@ the scope and merge strategy. GitHub rebases the remaining stack after merging.
 It can rewrite history and restart checks. If a layer fails, earlier updates remain; resolve that
 layer before retrying. GitHub may require manual conflict resolution after a lower layer is amended,
 even when its changes look independent. Stack actions require an environment that supports them.
+
 ## Moving a started thread between checkouts
 
 A started thread can move to another existing checkout from the branch selector. Provider
