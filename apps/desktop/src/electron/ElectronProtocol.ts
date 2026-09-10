@@ -8,6 +8,12 @@ import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
 
+import {
+  type DesktopStaticProtocolRegistrationInput,
+  isDesktopStaticProtocolRegistration,
+  serveDesktopStaticRequest,
+} from "./ElectronProtocolStatic.fork.ts";
+
 export const DESKTOP_HOST = "app";
 const DESKTOP_PRODUCTION_SCHEME = "t3code";
 const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
@@ -55,16 +61,24 @@ export interface DesktopProtocolRegistrationInput {
   readonly clerkFrontendApiHostname: string | undefined;
 }
 
+/**
+ * A client-only packaged launch registers the fork-owned static shape instead. Both carry the
+ * scheme and the Clerk host the response policy is built from.
+ */
+export type DesktopProtocolRegistration =
+  | DesktopProtocolRegistrationInput
+  | DesktopStaticProtocolRegistrationInput;
+
 export class ElectronProtocol extends Context.Service<
   ElectronProtocol,
   {
     readonly registerDesktopProtocol: (
-      input: DesktopProtocolRegistrationInput,
+      input: DesktopProtocolRegistration,
     ) => Effect.Effect<void, ElectronProtocolRegistrationError, Scope.Scope>;
   }
 >()("@t3tools/desktop/electron/ElectronProtocol") {}
 
-export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInput): string {
+export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistration): string {
   const clerkOrigin = input.clerkFrontendApiHostname
     ? `https://${input.clerkFrontendApiHostname}`
     : undefined;
@@ -210,7 +224,7 @@ export const make = Effect.gen(function* () {
   const registered = yield* Ref.make(false);
 
   const registerDesktopProtocol = Effect.fn("desktop.electron.protocol.registerDesktopProtocol")(
-    function* (input: DesktopProtocolRegistrationInput) {
+    function* (input: DesktopProtocolRegistration) {
       if (yield* Ref.get(registered)) return;
 
       const contentSecurityPolicy = makeDesktopContentSecurityPolicy(input);
@@ -218,9 +232,14 @@ export const make = Effect.gen(function* () {
       yield* Effect.acquireRelease(
         Effect.try({
           try: () => {
-            Electron.protocol.handle(input.scheme, (request) =>
-              proxyRequest(request, input.targetOrigin, contentSecurityPolicy),
-            );
+            Electron.protocol.handle(input.scheme, (request) => {
+              if (isDesktopStaticProtocolRegistration(input)) {
+                return serveDesktopStaticRequest(request, input.staticRoot).then((response) =>
+                  withContentSecurityPolicy(response, contentSecurityPolicy),
+                );
+              }
+              return proxyRequest(request, input.targetOrigin, contentSecurityPolicy);
+            });
           },
           catch: (cause) => new ElectronProtocolRegistrationError({ scheme: input.scheme, cause }),
         }).pipe(Effect.andThen(Ref.set(registered, true))),

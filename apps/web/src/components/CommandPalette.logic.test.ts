@@ -55,7 +55,6 @@ describe("linked pull request thread navigation", () => {
   });
 });
 
-
 describe("reduceCommandPaletteUiState", () => {
   const closedState = { open: false, mode: "command", openIntent: null } as const;
 
