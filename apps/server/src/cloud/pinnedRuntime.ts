@@ -18,6 +18,7 @@ import {
 } from "@t3tools/shared/cliRelease";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { forkServerTarballUrl, isForkServiceVersion } from "./forkRuntimeRelease.ts"; // fork-hook: distribution/pinned-runtime-fork-release-import
 
 /**
  * A pinned runtime is an exact t3 release archive unpacked into
@@ -225,6 +226,68 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
   yield* fs.remove(archivePath, { force: true }).pipe(Effect.ignore);
 });
 
+/**
+ * A fork version installs the `npm pack`-shaped server tarball its release
+ * publishes (the fork ships no npm package and no per-platform archives),
+ * re-placed at the archive seam (d92d70ba08f3): download `t3-<version>.tgz`
+ * from the fork's GitHub release, extract the `package/` layout into the
+ * staging directory, and link the server entry to the `t3` path the upstream
+ * archive layout guarantees. An upstream version keeps the verified archive
+ * install above unchanged.
+ */
+const installFromForkTarball = Effect.fn("cloud.pinned_runtime.install_fork_tarball")(function* (
+  input: PinnedRuntimeInstallInput,
+  stagingDir: string,
+) {
+  const { fs, path } = input;
+  const tarball = yield* fetchReleaseAsset(
+    input.httpClient,
+    forkServerTarballUrl(input.version),
+    "downloading the fork server tarball",
+  );
+  const archivePath = path.join(stagingDir, PINNED_RUNTIME_ARCHIVE_FILE);
+  yield* fs
+    .writeFile(archivePath, tarball)
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new PinnedRuntimeInstallError({ step: "writing the fork server tarball", cause }),
+      ),
+    );
+  const extractStep = "extracting the fork server tarball";
+  // The tarball wraps the server package in `package/`; strip it so the
+  // staging directory holds `dist/` (and the rest of the package) directly.
+  yield* input.runner
+    .run({
+      command: cliArchiveTarCommand(input.platform, process.env),
+      args: ["-xf", archivePath, "-C", stagingDir, "--strip-components=1"],
+      timeout: PINNED_RUNTIME_INSTALL_TIMEOUT,
+    })
+    .pipe(
+      Effect.mapError((cause) => new PinnedRuntimeInstallError({ step: extractStep, cause })),
+      Effect.filterOrFail(
+        (result) => result.code === 0,
+        (result) =>
+          new PinnedRuntimeInstallError({
+            step: extractStep,
+            exitCode: Number(result.code),
+            stdoutLength: result.stdout.length,
+            stderrLength: result.stderr.length,
+          }),
+      ),
+    );
+  yield* fs.remove(archivePath, { force: true }).pipe(Effect.ignore);
+  // The package's bin runs through its shebang exactly as the npm install it
+  // replaces did; the relative link survives the staging directory rename.
+  yield* fs
+    .symlink("dist/bin.mjs", path.join(stagingDir, "t3"))
+    .pipe(
+      Effect.mapError(
+        (cause) => new PinnedRuntimeInstallError({ step: "linking the fork server entry", cause }),
+      ),
+    );
+});
+
 const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(function* (
   input: PinnedRuntimeInstallInput,
 ) {
@@ -288,7 +351,13 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
   };
 
   return yield* Effect.gen(function* () {
-    yield* installFromArchive(input, stagingDir);
+    // fork-hook: distribution/pinned-runtime-fork-release — a fork version
+    // installs its release tarball; an upstream version the release archive.
+    if (isForkServiceVersion(input.version)) {
+      yield* installFromForkTarball(input, stagingDir);
+    } else {
+      yield* installFromArchive(input, stagingDir);
+    }
 
     yield* input.validate(stagingPaths);
     yield* fs
