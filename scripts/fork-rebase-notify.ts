@@ -830,7 +830,11 @@ export const lastErrorLineFromFile = (path: string): string => {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  return lines.at(-1) ?? UNKNOWN_FAILURE;
+  const failedLine = lines.findLast((line) => line.startsWith("failed: "));
+  if (failedLine !== undefined) return failedLine;
+  const informativeLine = lines.findLast((line) => /[a-zA-Z]/.test(line));
+  if (informativeLine !== undefined) return informativeLine;
+  return UNKNOWN_FAILURE;
 };
 
 export const run = (argv: ReadonlyArray<string>): number => {
