@@ -2,7 +2,7 @@ import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
 import type { Project } from "../../types";
-import { searchSidebarThreadsByTitle } from "../Sidebar.logic";
+import { searchSidebarThreads } from "../Sidebar.logic";
 import {
   filterSidebarProjects,
   filterSidebarThreads,
@@ -86,12 +86,12 @@ describe("physical sidebar boundary", () => {
     const scoped = rows.filter((row) =>
       scope.projectKeys?.has(`${row.environmentId}:${row.projectId}`),
     );
-    expect(searchSidebarThreadsByTitle(scoped, "matching").map((row) => row.id)).toEqual([
+    expect(searchSidebarThreads(scoped, "matching").map((row) => row.id)).toEqual([
       "target",
     ]);
     expect(filterSidebarThreads(rows, target)).toEqual(scoped);
     expect(filterSidebarThreads(rows, null)).toBe(rows);
-    expect(searchSidebarThreadsByTitle(rows, "matching")).toHaveLength(3);
+    expect(searchSidebarThreads(rows, "matching")).toHaveLength(3);
   });
 
   it("keeps upstream logical scope and setter ownership in the hub", () => {
