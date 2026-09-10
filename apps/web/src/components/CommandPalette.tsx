@@ -119,7 +119,7 @@ import {
 } from "../lib/utils";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadRouteFamily } from "../lib/threadRouteNavigation";
-import { resolveThreadRouteTarget } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
