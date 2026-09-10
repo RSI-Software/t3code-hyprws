@@ -1402,6 +1402,7 @@ const commitWalkRepairs = (
   report: SyncReport,
   runner: CommandRunner,
   worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
   outcome: {
     readonly ran: ReadonlyArray<{ readonly command: string }>;
     readonly dirtiedBy?: string;
@@ -1416,6 +1417,17 @@ const commitWalkRepairs = (
   botGit(runner, worktree, ["add", "-A"]);
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
+  // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
+  // inside the conflict, before the verify battery, the additive fixes and the budget raise exist;
+  // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
+  // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
+  // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
+  const format = formatCommand(paths);
+  if (format !== null) {
+    const formatted = runRepairs(runner, worktree, [format], verificationEnv);
+    if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+    botGit(runner, worktree, ["add", "-A"]);
+  }
   const command =
     outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
   const message = repairCommitMessage({
@@ -1499,6 +1511,7 @@ const reconcileForkBudget = (
     report,
     runner,
     worktree,
+    verificationEnv,
     { ran: [], dirtiedBy: "fork:delta --inventory" },
     { kind: "budget", budgetRaise: budgetRaiseReason(tag, findings) },
   );
@@ -1533,7 +1546,7 @@ const runAdditivePhase = (
   if (fixes.paths.length > 0) {
     // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
     // appended trailers are proven in the lane exactly like the repair pass's.
-    const [repaired] = commitWalkRepairs(report, runner, worktree, {
+    const [repaired] = commitWalkRepairs(report, runner, worktree, verificationEnv, {
       ran: [],
       dirtiedBy: "additive",
     });
@@ -1768,7 +1781,9 @@ const unblockCheck = (
   // repairs. The series rewrite is excluded: its head is a constructed manifest result, so an
   // extra commit there would contradict the proposal its reviewer signed.
   const repaired =
-    report.kind === "rewrite" ? [] : commitWalkRepairs(report, runner, worktree, repairs);
+    report.kind === "rewrite"
+      ? []
+      : commitWalkRepairs(report, runner, worktree, verificationEnv, repairs);
   const repairCommits = [
     ...(report.walk?.repairCommits ?? []).filter(
       (previous) => !repaired.some(({ sha }) => sha === previous.sha),

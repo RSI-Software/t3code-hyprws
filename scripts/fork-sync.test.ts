@@ -3913,6 +3913,34 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
   }
 });
 
+it("formats what the repair rewrote before it commits", () => {
+  const state = dirtyRepairRun();
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const order = state.runner.calls.filter(
+      ({ command, args }) =>
+        (command === "vp" && args[0] === "fmt") ||
+        (command === "git" && (args.includes("add") || args.includes("commit"))),
+    );
+    const formatted = order.findIndex(({ command }) => command === "vp");
+    assert.notStrictEqual(formatted, -1, "the repair commit ran no formatter");
+    // The formatter reads exactly the paths the repair staged — the conflict-time format ran long
+    // before these files were rewritten.
+    assert.deepStrictEqual(order[formatted]?.args, [
+      "fmt",
+      "--no-error-on-unmatched-pattern",
+      "scripts/fork-sync.ts",
+    ]);
+    // What it rewrote is re-staged and committed, not left behind for trunk's `vp check` to find.
+    assert.isTrue(order[formatted + 1]?.args.includes("add"));
+    assert.isTrue(order[formatted + 2]?.args.includes("commit"));
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("adds no commit when the repair pass rewrote nothing", () => {
   const state = repairingRun();
   try {
