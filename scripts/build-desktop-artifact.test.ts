@@ -313,7 +313,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "prerelease",
-        channel: "nightly",
+        channel: "hyprws-nightly",
       });
     }),
   );
