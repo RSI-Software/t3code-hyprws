@@ -2591,7 +2591,11 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     owner,
     repo,
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
-    ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+    // electron-updater derives the update-file name from the release tag's
+    // first semver prerelease identifier, so the nightly channel file must be
+    // named after the fork tag identifier `hyprws-nightly`. Keep in sync with
+    // apps/desktop/src/updates/updateChannels.fork.ts (RSI-Software/t3code-hyprws#762).
+    ...(updateChannel === "nightly" ? { channel: "hyprws-nightly" as const } : {}),
   };
 });
 
