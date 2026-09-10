@@ -18,6 +18,7 @@ import {
   forkBudgetFindingMessage,
   forkBudgetRefusalMessage,
   parseForkBudget,
+  raiseForkBudget,
   renderForkBudget,
 } from "./lib/fork-budget.ts";
 import {
@@ -899,6 +900,57 @@ it("fails a stack over a gated ceiling, naming the domain and both numbers", () 
     ),
     [],
   );
+});
+
+it("raises only the exceeded ceilings, to the measured numbers, and leaves the rest alone", () => {
+  const before = renderForkBudget({
+    rows: [
+      { domain: "fork-meta", commits: 2, added: 10, deleted: 4, overlaps: 1 },
+      { domain: "custom-agents", commits: 5, added: 100, deleted: 20, overlaps: 3 },
+    ],
+  });
+  const measured = [
+    { domain: "fork-meta", commits: 2, added: 8, deleted: 4, overlaps: 1 },
+    { domain: "custom-agents", commits: 6, added: 130, deleted: 20, overlaps: 4 },
+    { domain: "zmux-estate", commits: 1, added: 5, deleted: 2, overlaps: 0 },
+  ];
+  const findings = budgetFindings(measured, parseForkBudget(before));
+  const after = raiseForkBudget(before, findings, measured);
+  const rows = parseForkBudget(after).rows;
+  // Only what was over moves, and only up to what was measured. `fork-meta` came in under its
+  // ceiling, so its headroom survives the raise instead of being ratcheted down to today's stack.
+  assert.deepStrictEqual(rows.get("fork-meta"), {
+    domain: "fork-meta",
+    commits: 2,
+    added: 10,
+    deleted: 4,
+    shared: 1,
+  });
+  assert.deepStrictEqual(rows.get("custom-agents"), {
+    domain: "custom-agents",
+    commits: 5,
+    added: 130,
+    deleted: 20,
+    shared: 3,
+  });
+  // A domain with no row is a ceiling of zero, not an absent domain: the raise appends its row,
+  // seeded from the live numbers for the cells the check only records.
+  assert.deepStrictEqual(rows.get("zmux-estate"), {
+    domain: "zmux-estate",
+    commits: 1,
+    added: 5,
+    deleted: 2,
+    shared: 0,
+  });
+  assert.ok(after.startsWith("# Fork budget\n"));
+  assert.deepStrictEqual(budgetFindings(measured, parseForkBudget(after)), []);
+  // What the walk wrote is exactly what the gate will read back as a raise, so its repair commit
+  // owes `Fork-Budget: raise <reason>` for these and nothing else.
+  assert.deepStrictEqual(budgetRaises(before, after), [
+    { domain: "custom-agents", measure: "added", from: 100, to: 130 },
+    { domain: "zmux-estate", measure: "added", from: 0, to: 5 },
+    { domain: "zmux-estate", measure: "deleted", from: 0, to: 2 },
+  ]);
 });
 
 it("records commit counts and shared attributions without gating on them", () => {
