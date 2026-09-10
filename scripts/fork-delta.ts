@@ -21,7 +21,9 @@ import {
   forkBudgetRefusalMessage,
   FORK_BUDGET_PATH,
   parseForkBudget,
+  projectSquashDomains,
   renderForkBudget,
+  squashBudgetRefusalMessage,
   type ForkBudget,
   type ForkBudgetRaise,
 } from "./lib/fork-budget.ts";
@@ -31,6 +33,7 @@ import {
   commitNumstatArguments,
   EMPTY_NUMSTAT,
   parseCommitNumstat,
+  parseDiffNumstat,
   type CommitNumstat,
 } from "./lib/fork-numstat.ts";
 import {
@@ -609,6 +612,20 @@ const raisesOrParseProblem = (
   }
 };
 
+// The same shape for the table itself, so a projection can read the ceilings the
+// squash will land without putting the parse failure in the Effect error channel.
+const parsedBudgetOrProblem = (
+  markdown: string,
+): { readonly budget: ForkBudget } | { readonly problem: string } => {
+  try {
+    return { budget: parseForkBudget(markdown) };
+  } catch (error) {
+    return {
+      problem: `${FORK_BUDGET_PATH} does not parse at this commit: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
 // A commit that pushes a budget ceiling up owes `Fork-Budget: raise <reason>` in
 // its own message; the trailer is the audit, not anything stamped in the file.
 // Adding the file is the initial seed — there is no prior baseline to raise
@@ -671,14 +688,46 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
   return { findings, raises };
 });
 
+// The diff the squash will carry: the whole pull request as one commit, which is
+// what GitHub composes from the merge base rather than from the live base.
+const readSquashNumstat = Effect.fn("readForkSquashNumstat")(function* (
+  base: string,
+  head: string,
+  cwd: string,
+) {
+  const mergeBase = yield* resolveMergeBase(base, head, cwd);
+  const result = yield* runGit(
+    ["-c", "core.quotePath=false", "diff", "--numstat", "--no-renames", `${mergeBase}..${head}`],
+    cwd,
+  );
+  if (result.exitCode !== 0) {
+    return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
+  }
+  return parseDiffNumstat(result.stdout);
+});
+
 // The squash-body check (hyprws-body CI) sees one prospective commit: a
 // budget-baseline change between --base and --head lands inside the squashed
 // commit, so its raise trailer must come from the body's final trailer
 // paragraph. Adding the file is the initial seed and is not a raise; removing
 // an established baseline is refused outright, exactly like the per-commit
 // check.
+//
+// The trailer is only half the gate. A raise number is worth nothing unless it
+// covers what the squash itself will measure, and that number is not the
+// branch's: the squash is one commit carrying one `Fork-Domain`, so every line
+// the branch attributed to another domain lands on the body's domain instead.
+// Three trunks went red on a ceiling written from a pre-merge reading before
+// this projection existed (RSI-Software/t3code-hyprws#765).
 export const collectSquashBudgetRaiseFindings = Effect.fn("collectSquashBudgetRaiseFindings")(
-  function* (base: string, head: string, budget: string | undefined, cwd = process.cwd()) {
+  function* (
+    base: string,
+    head: string,
+    budget: string | undefined,
+    domain: string | undefined,
+    target: string,
+    cwd = process.cwd(),
+  ) {
     const [before, after] = yield* Effect.all(
       [
         readRevisionPath(`${base}:${FORK_BUDGET_PATH}`, cwd),
@@ -714,7 +763,29 @@ export const collectSquashBudgetRaiseFindings = Effect.fn("collectSquashBudgetRa
         },
       ];
     }
-    return [];
+    // A body with no domain attributes nothing, so there is nothing to project;
+    // the ledger's own trailer check already refuses that body.
+    if (domain === undefined) return [];
+    // An initial seed reaches here without `after` ever being parsed: budgetRaises
+    // skips a missing baseline before it reads the file it would raise from.
+    const parsed = parsedBudgetOrProblem(after);
+    if ("problem" in parsed) {
+      return [{ short: "squash", subject: "pull-request body", problem: parsed.problem }];
+    }
+    const [stack, squash] = yield* Effect.all(
+      [collectInventory(target, base), readSquashNumstat(base, head, cwd)],
+      { concurrency: "unbounded" },
+    );
+    const projected = projectSquashDomains(stack.domains, {
+      domain,
+      added: squash.added,
+      deleted: squash.deleted,
+    });
+    return budgetFindings(projected, parsed.budget).map((finding) => ({
+      short: "squash",
+      subject: "pull-request body",
+      problem: squashBudgetRefusalMessage(finding),
+    }));
   },
 );
 
@@ -940,10 +1011,13 @@ const command = Command.make(
         // body's trailers: if the squash moves a gated ceiling up, the body must
         // carry Fork-Budget: raise <reason>. Adding the file is the initial seed —
         // there is no prior baseline, so it is not a raise.
+        const squashTrailerBlock = parseSquashBody("pull-request body", body);
         const squashBudgetFindings = yield* collectSquashBudgetRaiseFindings(
           squashBase,
           squashHead,
-          parseSquashBody("pull-request body", body).budget,
+          squashTrailerBlock.budget,
+          squashTrailerBlock.domain,
+          Option.getOrElse(upstream, () => "upstream/main"),
         );
         for (const finding of [...ledger.findings, ...squashBudgetFindings]) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
