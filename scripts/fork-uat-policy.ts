@@ -155,19 +155,38 @@ const conventionalIdentity = (
   return match === null ? null : { type: match[1] ?? "", scope: match[2] ?? null };
 };
 
-const isSupportingPath = (path: string): boolean =>
-  path.startsWith(".github/") ||
-  path.startsWith("scripts/") ||
-  path.startsWith("docs/") ||
-  path.startsWith(".agents/") ||
-  /(^|\/)[^/]+\.test\.[^/]+$/.test(path) ||
-  /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|yarn\.lock|[^/]+\.lock)$/.test(
-    path,
-  );
+// Most of `scripts/` is maintainer tooling, but a packaging or icon task turns its script into a
+// build input: what it emits is the artifact a user installs, so a change there is as user-visible
+// as one in `apps/`. Deriving the set from the reviewed tree's own tasks keeps it accurate when a
+// task is added or a script is renamed, rather than freezing a list that silently rots.
+const SHIPPED_ARTIFACT_TASK = /^(dist|icons):/;
+const SCRIPT_REFERENCE = /scripts\/[\w.-]+\.[cm]?[jt]s/g;
+
+export const shippedScriptPaths = (packageJson: string): ReadonlySet<string> => {
+  const tasks = (JSON.parse(packageJson) as { scripts?: Record<string, string> }).scripts ?? {};
+  const paths = new Set<string>();
+  for (const [task, command] of Object.entries(tasks)) {
+    if (!SHIPPED_ARTIFACT_TASK.test(task)) continue;
+    for (const reference of command.match(SCRIPT_REFERENCE) ?? []) paths.add(reference);
+  }
+  return paths;
+};
+
+const isSupportingPath = (path: string, shippedScripts: ReadonlySet<string>): boolean =>
+  !shippedScripts.has(path) &&
+  (path.startsWith(".github/") ||
+    path.startsWith("scripts/") ||
+    path.startsWith("docs/") ||
+    path.startsWith(".agents/") ||
+    /(^|\/)[^/]+\.test\.[^/]+$/.test(path) ||
+    /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|yarn\.lock|[^/]+\.lock)$/.test(
+      path,
+    ));
 
 export const exclusionReason = (
   row: Pick<DifferenceRow, "domain" | "paths" | "subject">,
   isUpstream = false,
+  shippedScripts: ReadonlySet<string> = new Set(),
 ): ExclusionReason | null => {
   if (row.domain === "fork-meta") return "fork-meta";
   const conventional = conventionalIdentity(row.subject);
@@ -178,7 +197,8 @@ export const exclusionReason = (
   ) {
     return "conventional";
   }
-  if (row.paths.length > 0 && row.paths.every(isSupportingPath)) return "supporting-paths";
+  if (row.paths.length > 0 && row.paths.every((path) => isSupportingPath(path, shippedScripts)))
+    return "supporting-paths";
   if (isUpstream) return "upstream";
   return null;
 };
@@ -186,6 +206,7 @@ export const exclusionReason = (
 export const partitionUatRows = (
   rows: ReadonlyArray<DifferenceRow>,
   isUpstream: (row: DifferenceRow) => boolean = () => false,
+  shippedScripts: ReadonlySet<string> = new Set(),
 ): {
   readonly rows: ReadonlyArray<DifferenceRow>;
   readonly excluded: ReadonlyArray<ExcludedRow>;
@@ -193,7 +214,7 @@ export const partitionUatRows = (
   const included: Array<DifferenceRow> = [];
   const excluded: Array<ExcludedRow> = [];
   for (const row of rows) {
-    const reason = exclusionReason(row, isUpstream(row));
+    const reason = exclusionReason(row, isUpstream(row), shippedScripts);
     if (reason === null) included.push(row);
     else excluded.push({ ...row, reason });
   }
