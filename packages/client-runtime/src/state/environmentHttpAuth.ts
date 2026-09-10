@@ -89,6 +89,7 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
     return { authorization: `DPoP ${authorization.accessToken}`, dpop: proof };
   },
 );
+export { buildEnvironmentAuthHeaders }; // fork-hook: backend-attach/export-auth-headers
 
 /**
  * A DPoP request is T3 Connect work, so its span starts an exported trace that
