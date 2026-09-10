@@ -404,8 +404,15 @@ it("refuses a rewritten upstream case and a shrunk upstream test file", () => {
     );
     const fixes = applyAdditiveFixes(runner, shrunk.root, shrunk.target, findings);
     assert.deepStrictEqual(fixes.fixed, []);
-    assert.deepStrictEqual(fixes.remaining, findings);
     assert.deepStrictEqual(fixes.paths, []);
+    // The refusals keep their finding but name the shape that declined them.
+    assert.deepStrictEqual(
+      fixes.remaining.map(({ detail }) => detail),
+      [
+        `${findings[0]?.detail} — no fix: upstream test lines are gone from a file the replay kept; which line comes back is a maintainer's call`,
+        `${findings[1]?.detail} — no fix: the upstream test file shrank from 3 to 2 declaration(s) rather than vanishing; only a wholly missing file restores`,
+      ],
+    );
   } finally {
     NodeFS.rmSync(shrunk.root, { recursive: true, force: true });
   }
