@@ -7,6 +7,7 @@ import * as LogLevel from "effect/LogLevel";
 import * as Path from "effect/Path";
 import type * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import { deriveServerRuntimeStatePath } from "@t3tools/shared/serverRuntimeState";
 
 import type { OtlpEndpointSource } from "@t3tools/contracts";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
@@ -167,7 +168,11 @@ export const deriveServerPaths = Effect.fn(function* (
     terminalLogsDir: join(logsDir, "terminals"),
     anonymousIdPath: join(stateDir, "anonymous-id"),
     environmentIdPath: join(stateDir, "environment-id"),
-    serverRuntimeStatePath: join(stateDir, "server-runtime.json"),
+    serverRuntimeStatePath: deriveServerRuntimeStatePath({
+      baseDir,
+      variant: devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
+      joinPath: join,
+    }),
     secretsDir: join(stateDir, "secrets"),
   };
 });
