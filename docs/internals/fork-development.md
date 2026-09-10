@@ -294,8 +294,9 @@ Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
 
-While a fork-sync report holds a walk lease, `hyprws` takes no landing at all; see the
-[walk freeze](../operations/fork-sync.md#walk-freeze).
+A fork-sync walk folds linear landings on `hyprws` instead of freezing them; non-linear movement
+(merge commits, a rewritten trunk, a moved shared base or target) still voids the walk; see the
+[fold rule](../operations/fork-sync.md#the-fold-rule). `hyprws-next` stays inspection-only.
 
 ## Upstream citations
 
@@ -342,6 +343,8 @@ tree-neutral. The general never-squash rule otherwise stands. See
   lockfile into an unrelated commit. A real dependency change is its own commit, in the domain
   that needs the dependency.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
+
+When a walk repair belongs unambiguously to one replayed fork commit, write it as a trailer-free `fixup!` and autosquash it before the leased push; split repairs across owners, and leave tooling, documentation, budget, or otherwise unattributable work as a standalone commit rather than guessing.
 
 ### Ledger guards run in the scan
 
