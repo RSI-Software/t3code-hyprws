@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Verify object-only construction in isolated Git repositories.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -210,7 +211,8 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         let reviewer = false,
           movedMarker = false,
           archiveSha: string | null = null,
-          rejectTrunkPush = false;
+          rejectTrunkPush = false,
+          appliedRecordPath: string | null = null;
         const blocker = "f".repeat(40);
         const archiveRef = `refs/heads/archive/hyprws-pre-rewrite-${manifest.source.slice(0, 12)}`;
         const runner: CommandRunner = {
@@ -265,6 +267,16 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
                 }),
               );
             if (command === "gh" && args[0] === "variable") return ok("candidate");
+            if (
+              command === "gh" &&
+              args[0] === "api" &&
+              args[1] !== undefined &&
+              args[1].includes("/issues/comments/") &&
+              appliedRecordPath !== null
+            )
+              // Post-push record readback (drift check before an in-place republish): the
+              // comment always names the record that was pushed, so no PATCH ever fires.
+              return ok(NodeFS.readFileSync(appliedRecordPath, "utf8"));
             if (command === "gh" && args[0] === "issue" && args[1] === "list")
               return ok(
                 encodeJson([
@@ -415,6 +427,7 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
         }
         yield* fs.writeFileString(reviewed.reportPath, encodeJson(reviewed));
         const originalRecord = yield* fs.readFileString(reviewed.recordPath);
+        appliedRecordPath = reviewed.recordPath;
         yield* fs.writeFileString(
           reviewed.recordPath,
           // Move the bound lease: free prose never enters the review
