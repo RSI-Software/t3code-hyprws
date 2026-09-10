@@ -20,6 +20,14 @@ import {
   saveRerereCache,
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
+import {
+  budgetFindings,
+  FORK_BUDGET_PATH,
+  parseForkBudget,
+  raiseForkBudget,
+  type ForkBudgetFinding,
+  type ForkBudgetMeasured,
+} from "./lib/fork-budget.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import {
@@ -34,6 +42,7 @@ import {
   formatCommand,
   repairCommitMessage,
   repairKind,
+  type RepairKind,
   runRepairs,
   verifyPlan,
   type RepairFailure,
@@ -58,6 +67,8 @@ import {
 } from "./lib/fork-policy.ts";
 import {
   forkCommitSourceExtensions,
+  isFixtureLiteral,
+  isModuleSpecifierLine,
   isOpaqueDiffPath,
   isRetireEvidenceSite,
   RETIRE_PROBE_EXCLUSIONS,
@@ -1113,18 +1124,29 @@ const unblockRehearse = (
         row.agentSafe === "TODO" ||
         row.agentSafe === "pending regeneration",
     );
+    // Every gap here is a row a human still owns, so they are collected and raised together: a
+    // stop that names one row at a time costs the operator a rerun for each of them.
+    const handoffGaps: Array<string> = [];
     for (const row of pending.filter(({ class: klass }) => klass !== "generated")) {
       const edited = recordRows.find(
         (candidate) => candidate.path === row.path && candidate.subject === row.subject,
       );
-      if (
-        edited === undefined ||
-        edited.class === "TODO" ||
-        edited.resolution === "TODO" ||
-        edited.agentSafe === "TODO" ||
-        edited.decidedBy === "TODO"
+      if (edited === undefined) {
+        handoffGaps.push(`${row.path}: the record carries no row for ${row.subject}`);
+        continue;
+      }
+      const blank = (
+        [
+          ["class", edited.class],
+          ["resolution", edited.resolution],
+          ["agent-safe", edited.agentSafe],
+          ["decided by", edited.decidedBy],
+        ] as const
       )
-        throw new Error(`record row remains incomplete for ${row.path}`);
+        .filter(([, cell]) => cell === "TODO")
+        .map(([name]) => name);
+      if (blank.length > 0)
+        handoffGaps.push(`${row.path}: record row still on TODO for ${blank.join(", ")}`);
     }
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
@@ -1133,9 +1155,13 @@ const unblockRehearse = (
     const unstaged = new Set(lines(git(runner, lane.worktree, ["diff", "--name-only"], true)));
     for (const row of pending.filter(({ path }) => !isGeneratedPath(path))) {
       if (conflictResolutionIsReady(row.path, staged, unmerged, unstaged)) continue;
-      if (unmerged.has(row.path)) throw new Error(`conflict remains unmerged: ${row.path}`);
-      throw new Error(`resolved conflict is not staged or restored to HEAD: ${row.path}`);
+      handoffGaps.push(
+        unmerged.has(row.path)
+          ? `${row.path}: conflict remains unmerged`
+          : `${row.path}: resolved conflict is not staged or restored to HEAD`,
+      );
     }
+    if (handoffGaps.length > 0) throw new HandoffIncomplete(handoffGaps);
     // A finished rebase already carries the regenerated lockfile in its commits; regenerating it
     // again would only dirty the lane.
     if (rebasing && pending.some(({ path }) => isGeneratedPath(path))) {
@@ -1205,7 +1231,11 @@ const unblockRehearse = (
     const commit = currentCommit(runner, report.lane.worktree);
     const rerereResolved = rerereResolvedPaths(runner, report.lane.worktree, conflicts);
     const additions = rehearsalConflictRows(commit, conflicts, rerereResolved);
-    report = { ...report, stage: "conflicts", conflicts: [...report.conflicts, ...additions] };
+    report = preserveRecordDecisions({
+      ...report,
+      stage: "conflicts",
+      conflicts: [...report.conflicts, ...additions],
+    });
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
@@ -1231,13 +1261,13 @@ const unblockRehearse = (
   );
   // Every walk records the size of the stack it replayed (RSI-Software/t3code-hyprws#672).
   const size = walkSizeRecord(report, runner);
-  report = {
+  report = preserveRecordDecisions({
     ...report,
     stage: "replayed",
     rebasedHead,
     stackSize,
     walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-  };
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -1372,10 +1402,13 @@ const commitWalkRepairs = (
   report: SyncReport,
   runner: CommandRunner,
   worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
   outcome: {
     readonly ran: ReadonlyArray<{ readonly command: string }>;
     readonly dirtiedBy?: string;
   },
+  /** A budget reconciliation names its own kind and owes the raise trailer the gate reads. */
+  overrides?: { readonly kind?: RepairKind; readonly budgetRaise?: string },
 ): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
   const tag = report.target?.tag;
   const base = report.target?.sha;
@@ -1384,13 +1417,25 @@ const commitWalkRepairs = (
   botGit(runner, worktree, ["add", "-A"]);
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
+  // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
+  // inside the conflict, before the verify battery, the additive fixes and the budget raise exist;
+  // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
+  // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
+  // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
+  const format = formatCommand(paths);
+  if (format !== null) {
+    const formatted = runRepairs(runner, worktree, [format], verificationEnv);
+    if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+    botGit(runner, worktree, ["add", "-A"]);
+  }
   const command =
     outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
   const message = repairCommitMessage({
-    kind: repairKind(command),
+    kind: overrides?.kind ?? repairKind(command),
     tag,
     domain: repairDomain(runner, worktree, base, paths),
     command,
+    ...(overrides?.budgetRaise === undefined ? {} : { budgetRaise: overrides.budgetRaise }),
   });
   botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
   const [sha = "", subject = ""] = git(
@@ -1400,6 +1445,78 @@ const commitWalkRepairs = (
     true,
   ).split("\x1f");
   return [{ sha, subject }];
+};
+
+/** `vp run` prints its own command banner above the script's stdout; the JSON starts at its first line. */
+const jsonPayload = (raw: string): string => {
+  const start = raw.startsWith("{") ? 0 : raw.indexOf("\n{");
+  if (start === -1)
+    throw new Error(`fork:delta --inventory --json printed no JSON object:\n${raw}`);
+  return raw.slice(start);
+};
+
+export interface ForkBudgetReconciliation {
+  readonly findings: ReadonlyArray<ForkBudgetFinding>;
+  readonly commit?: { readonly sha: string; readonly subject: string };
+}
+
+/** The `Fork-Budget: raise <reason>` text, naming the walk and every ceiling it moved. */
+export const budgetRaiseReason = (
+  tag: string,
+  findings: ReadonlyArray<ForkBudgetFinding>,
+): string =>
+  `the ${tag} replay widened ${findings
+    .map(
+      (finding) => `${finding.domain} ${finding.measure} ${finding.ceiling} -> ${finding.actual}`,
+    )
+    .join(", ")}`;
+
+/**
+ * Reconcile the budget with the stack the replay produced (RSI-Software/t3code-hyprws#745). A
+ * kept-both resolution grows the domain it lands in, so a ceiling the fork measured before the
+ * replay can be genuinely too low the moment the replay ends. The gate names the whole fix in its
+ * refusal — raise the exceeded ceiling and carry `Fork-Budget: raise <reason>` on the commit that
+ * does — and none of it is a judgement, so the walk takes that route itself instead of crashing on
+ * a refusal whose repair it already knows. Only an exceeded ceiling moves, and only up to the
+ * number now measured: a re-render would ratchet every untouched domain down to today's numbers
+ * and spend headroom nobody decided to spend. The raise rides in the walk's own `Fork-Repair`
+ * commit, whose lines the inventory already excludes, so writing it cannot widen a domain again.
+ */
+const reconcileForkBudget = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
+): ForkBudgetReconciliation => {
+  const tag = report.target?.tag;
+  const budgetFile = NodePath.join(worktree, FORK_BUDGET_PATH);
+  if (tag === undefined || !NodeFS.existsSync(budgetFile)) return { findings: [] };
+  const inventory = JSON.parse(
+    jsonPayload(
+      requireSuccess(
+        runner,
+        "vp",
+        ["run", "--no-cache", "fork:delta", "--inventory", "--json"],
+        worktree,
+        undefined,
+        verificationEnv,
+      ),
+    ),
+  ) as { readonly domains: ReadonlyArray<ForkBudgetMeasured> };
+  const markdown = NodeFS.readFileSync(budgetFile, "utf8");
+  const findings = budgetFindings(inventory.domains, parseForkBudget(markdown));
+  if (findings.length === 0) return { findings: [] };
+  NodeFS.writeFileSync(budgetFile, raiseForkBudget(markdown, findings, inventory.domains));
+  const [commit] = commitWalkRepairs(
+    report,
+    runner,
+    worktree,
+    verificationEnv,
+    { ran: [], dirtiedBy: "fork:delta --inventory" },
+    { kind: "budget", budgetRaise: budgetRaiseReason(tag, findings) },
+  );
+  if (commit === undefined) throw new Error("the budget raise wrote no commit");
+  return { findings, commit };
 };
 
 /**
@@ -1429,7 +1546,7 @@ const runAdditivePhase = (
   if (fixes.paths.length > 0) {
     // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
     // appended trailers are proven in the lane exactly like the repair pass's.
-    const [repaired] = commitWalkRepairs(report, runner, worktree, {
+    const [repaired] = commitWalkRepairs(report, runner, worktree, verificationEnv, {
       ran: [],
       dirtiedBy: "additive",
     });
@@ -1470,15 +1587,11 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * The record is the operator's surface, so a human cell filled there outlives the regeneration a
- * check performs. A machine cell does not: the walk re-derives every agent row on each run, so an
- * agent-written cell that disagrees is an older copy of this same derivation, not a second opinion,
- * and refusing on it only turned a rerun into a human stop.
- */
-/**
  * The record is the decision surface, so a cell filled there is the decision — a rerun that
  * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
- * was a human gate on a lane that has no human in it.
+ * was a human gate on a lane that has no human in it. Every verb that rewrites the record runs
+ * this first, rehearse included: a rehearsal resumed after the operator filled a cell must not
+ * re-mint it as `TODO`.
  */
 export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   if (!NodeFS.existsSync(report.recordPath)) return report;
@@ -1578,11 +1691,38 @@ const unblockCheck = (
           (report.rewrite as NonNullable<typeof report.rewrite>).base,
         ))
       : (report.target as NonNullable<typeof report.target>).tag;
+  // Before the gate, not after its refusal: the replay's own resolutions can put a domain over a
+  // ceiling measured before them, and that raise is the walk's to take (see reconcileForkBudget).
+  // The rewrite lane is excluded — its head is a constructed manifest result its reviewer signed,
+  // so the walk appends nothing to it.
+  const budget =
+    report.kind === "rewrite"
+      ? { findings: [] as ReadonlyArray<ForkBudgetFinding> }
+      : reconcileForkBudget(report, runner, worktree, verificationEnv);
+  if (budget.commit !== undefined) {
+    installedHead = budget.commit.sha;
+    report = {
+      ...report,
+      walk: {
+        ...(report.walk ?? {}),
+        repairCommits: [...(report.walk?.repairCommits ?? []), budget.commit],
+      },
+    };
+    writeReport(report);
+  }
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
     { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
     { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
+  // A raise widens what the fork may hold, so it is named in the record rather than left to the
+  // commit body alone.
+  if (budget.commit !== undefined) {
+    verification.push({
+      command: `fork budget raise: ${budgetRaiseReason(report.target?.tag ?? "", budget.findings)}`,
+      result: "recorded",
+    });
+  }
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
@@ -1641,7 +1781,9 @@ const unblockCheck = (
   // repairs. The series rewrite is excluded: its head is a constructed manifest result, so an
   // extra commit there would contradict the proposal its reviewer signed.
   const repaired =
-    report.kind === "rewrite" ? [] : commitWalkRepairs(report, runner, worktree, repairs);
+    report.kind === "rewrite"
+      ? []
+      : commitWalkRepairs(report, runner, worktree, verificationEnv, repairs);
   const repairCommits = [
     ...(report.walk?.repairCommits ?? []).filter(
       (previous) => !repaired.some(({ sha }) => sha === previous.sha),
@@ -1696,7 +1838,7 @@ const unblockCheck = (
     // A repair moves the lane head the apply publishes, so the record's head and stack size bind
     // that head. The gate compares them against the checkout, and the fork series is still
     // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommit === undefined
+    ...(repaired.length === 0 && additiveCommit === undefined && budget.commit === undefined
       ? {}
       : {
           rebasedHead: checkedHead,
@@ -2021,12 +2163,20 @@ const porcelainPaths = (status: string): ReadonlyArray<string> => {
  * answer, so a resumed walk at that stop may carry dirt on exactly the paths the stop named —
  * every conflict row the stopped report records, whether its decision cells are still `TODO`
  * (the resume asks for them, via unblock-rehearse's record check) or already filled
- * (fill-then-resume). Every other stage is a fresh or finished lane and stays
- * strictly clean; dirt anywhere outside the stopped rows refuses and names it.
+ * (fill-then-resume), plus the paths of an additive finding no mechanical fix cleared.
+ *
+ * The stop reason is what earns the allowance, not the stage it was recorded at: a conflict stop
+ * the repair or additive phase raises sits at a later stage than `conflicts` and its lane is dirty
+ * for the same reason (RSI-Software/t3code-hyprws#748). A lane with no conflict stop on its report
+ * is fresh or finished and stays strictly clean; dirt outside the stopped rows refuses and names
+ * it.
  */
 export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<string> => {
-  if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict") return new Set();
-  return new Set(report.conflicts.map(({ path }) => path));
+  if (report.walk?.stop?.reason !== "conflict") return new Set();
+  return new Set([
+    ...report.conflicts.map(({ path }) => path),
+    ...(report.walk.additive?.findings ?? []).map(({ path }) => path),
+  ]);
 };
 
 export const validateAutoLaneClean = (report: SyncReport, runner: CommandRunner): void => {
@@ -2718,6 +2868,21 @@ class AdditiveStop extends Error {
 }
 
 /**
+ * The rehearsal resumed on a handoff nobody finished: a record row still on `TODO`, a conflict
+ * still unmerged, or a resolution nobody staged. Every one of those rows belongs to a human, which
+ * is the `conflict` stop the walk already owns — so it leaves the walk as that stop and never as
+ * an unclassified crash (RSI-Software/t3code-hyprws#747).
+ */
+class HandoffIncomplete extends Error {
+  readonly gaps: ReadonlyArray<string>;
+
+  constructor(gaps: ReadonlyArray<string>) {
+    super(`the conflict handoff is incomplete:\n${gaps.map((gap) => `  - ${gap}`).join("\n")}`);
+    this.gaps = gaps;
+  }
+}
+
+/**
  * `hyprws` moved under the walk, so every binding it holds is void. The walk re-lists and re-reads
  * the moved trunk itself: a restart is mechanical, and asking a human to type it was never a
  * decision anyone made.
@@ -3166,7 +3331,9 @@ const isDistinctiveKey = (key: string): boolean => key.length >= 6 && /[.\-A-Z]/
 /**
  * The names a fork commit introduces: exported bindings, test titles, settings keys, and long
  * string literals. Conflicting near upstream work is not evidence that upstream implemented the
- * fork behaviour; finding one of these names in the target tree is.
+ * fork behaviour; finding one of these names in the target tree is. A module specifier and a
+ * fixture literal are neither name nor behaviour, so neither reaches the probe
+ * (RSI-Software/t3code-hyprws#750).
  */
 export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
   const found = new Set<string>();
@@ -3190,9 +3357,12 @@ export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
       /\b(?:it|test|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1).)+?)\1/g,
     ))
       if (match[2] !== undefined) found.add(match[2]);
+    if (isModuleSpecifierLine(added)) continue;
     for (const match of added.matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)) {
       const literal = match[2] ?? "";
-      if (literal.length >= MINIMUM_LITERAL_LENGTH && !literal.includes("${")) found.add(literal);
+      if (literal.length < MINIMUM_LITERAL_LENGTH || literal.includes("${")) continue;
+      if (isFixtureLiteral(literal)) continue;
+      found.add(literal);
     }
   }
   return [...found].filter((value) => value.trim().length > 0).slice(0, IDENTIFIER_LIMIT);
@@ -3711,6 +3881,15 @@ const walkOnce = (
         started,
       );
     }
+    if (error instanceof HandoffIncomplete)
+      return stopWalk(
+        report,
+        "conflict",
+        ["The conflict handoff is incomplete:", ...error.gaps.map((gap) => `  - ${gap}`)].join(
+          "\n",
+        ),
+        started,
+      );
     if (error instanceof AutoStop || error instanceof AutoBotRefusal || error instanceof WalkStale)
       throw error;
     if (isStaleTrunk(error))
