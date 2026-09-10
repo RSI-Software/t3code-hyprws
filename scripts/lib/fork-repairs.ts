@@ -145,8 +145,11 @@ export interface RepairOutcome {
   readonly dirtiedBy?: string;
 }
 
-/** What a repair pass did, named after the command that wrote to the worktree. */
-export type RepairKind = "fmt" | "typecheck" | "tests" | "additive";
+/**
+ * What a repair pass did, named after the command that wrote to the worktree. `budget` is the
+ * exception: nothing rewrote the worktree, the walk reconciled the ceilings its own replay widened.
+ */
+export type RepairKind = "fmt" | "typecheck" | "tests" | "additive" | "budget";
 
 export const repairKind = (command: string): RepairKind =>
   /(^|\s)additive(\s|$)/.test(command)
@@ -162,6 +165,13 @@ export interface RepairCommitInput {
   readonly tag: string;
   readonly domain: string;
   readonly command: string;
+  /**
+   * The reason for a `Fork-Budget: raise <reason>` trailer. `fork:delta --check` refuses a commit
+   * that pushes a gated ceiling up without one, so the walk's own budget reconciliation carries it
+   * here rather than leaving a raise the gate would then reject
+   * (RSI-Software/t3code-hyprws#745).
+   */
+  readonly budgetRaise?: string;
 }
 
 /**
@@ -170,16 +180,25 @@ export interface RepairCommitInput {
  * exists only to keep this fork's replay green, so it is never a candidate to send anywhere — and
  * `Fork-Repair` is what the replay proofs read to keep it out of the fork series.
  */
-export const repairCommitMessage = ({ kind, tag, domain, command }: RepairCommitInput): string =>
+export const repairCommitMessage = ({
+  kind,
+  tag,
+  domain,
+  command,
+  budgetRaise,
+}: RepairCommitInput): string =>
   [
     `chore(fork-sync): repair ${kind} after ${tag}`,
     "",
-    `\`${command}\` rewrote the worktree while replaying onto ${tag}.`,
+    budgetRaise === undefined
+      ? `\`${command}\` rewrote the worktree while replaying onto ${tag}.`
+      : `Replaying onto ${tag} widened the stack past its own ceilings; \`${command}\` measured the new numbers.`,
     "",
     `Fork-Domain: ${domain}`,
     "Fork-Tier: bugfix",
     "Fork-Upstreamable: no",
     `Fork-Repair: ${tag}`,
+    ...(budgetRaise === undefined ? [] : [`Fork-Budget: raise ${budgetRaise}`]),
     "",
   ].join("\n");
 
