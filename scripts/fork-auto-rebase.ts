@@ -27,6 +27,8 @@ export {
   createRebasedStack,
   selectNewestTag,
   selectVerificationDependencySetup,
+  verificationLauncher,
+  verifyReplay,
   verifyReplayMetadata,
   type AutoRebasePlan,
   type PositionedTag,
