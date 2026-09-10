@@ -6,8 +6,42 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+
+const verificationSpawns: Array<{
+  command: string;
+  args: ReadonlyArray<string>;
+  cwd?: string;
+}> = vi.hoisted(() => []);
+
+// Record every non-git spawn so replay verification can be observed without running vp,
+// while SystemGit and every fixture keeps using the real runner for git.
+vi.mock("./lib/fork-command.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/fork-command.ts")>();
+  return {
+    ...actual,
+    runCommand: (command: string, args: ReadonlyArray<string>, options: CommandOptions = {}) => {
+      if (command !== "git") {
+        verificationSpawns.push({
+          command,
+          args,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        });
+        if (command === "vp" && args[0] === "i" && options.cwd !== undefined) {
+          NodeFS.mkdirSync(NodePath.join(options.cwd, "node_modules", ".bin"), {
+            recursive: true,
+          });
+          NodeFS.writeFileSync(NodePath.join(options.cwd, "node_modules", ".bin", "vp"), "");
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return actual.runCommand(command, args, options);
+    },
+  };
+});
 
 import { findUpstreamReferences } from "./fork-upstream-refs.ts";
+import type { CommandOptions } from "./lib/fork-command.ts";
 import {
   buildBlockedIssue,
   parseSequentialCensusEvidence,
@@ -25,6 +59,8 @@ import {
   selectVerificationDependencySetup,
   SystemGit,
   UsageError,
+  verificationLauncher,
+  verifyReplay,
   verifyReplayMetadata,
   type PositionedTag,
 } from "./fork-auto-rebase.ts";
@@ -1164,6 +1200,109 @@ it("refuses an existing create-only release before changing any remote ref", () 
     assert.deepStrictEqual(pushOrder(fixture), []);
     assert.strictEqual(remoteHeads(fixture).main, fixture.base);
   } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+const replayWorktree = (fixture: Fixture, target: string): { worktree: string; head: string } => {
+  const worktree = NodePath.join(fixture.container, "replay");
+  git(fixture.root, ["worktree", "add", "--detach", worktree, fixture.fork]);
+  git(worktree, [
+    "-c",
+    "rerere.enabled=false",
+    "rebase",
+    "--onto",
+    target,
+    fixture.base,
+    fixture.fork,
+  ]);
+  return { worktree, head: git(worktree, ["rev-parse", "HEAD"]) };
+};
+
+it("resolves the replay worktree's own vp launcher, not the root's and not bare vp", () => {
+  const worktree = NodePath.join(NodeOS.tmpdir(), "some-replay-worktree");
+  const launcher = verificationLauncher(worktree);
+  assert.strictEqual(launcher, NodePath.join(worktree, "node_modules", ".bin", "vp"));
+  assert.strictEqual(NodePath.isAbsolute(launcher), true);
+  assert.notStrictEqual(launcher, "vp");
+  assert.notStrictEqual(launcher, NodePath.join(process.cwd(), "node_modules", ".bin", "vp"));
+});
+
+it("spawns the four replay verification commands through the worktree's own vp launcher", () => {
+  const fixture = fixtureRepository();
+  const { worktree, head } = replayWorktree(fixture, fixture.base);
+  try {
+    NodeFS.mkdirSync(NodePath.join(worktree, "node_modules", ".bin"), { recursive: true });
+    const launcher = NodePath.join(worktree, "node_modules", ".bin", "vp");
+    NodeFS.writeFileSync(launcher, "");
+    verificationSpawns.length = 0;
+    assert.strictEqual(
+      verifyReplay(fixture.root, worktree, fixture.fork, fixture.base, fixture.base, head),
+      "shared-install",
+    );
+    const spawns = verificationSpawns.filter((spawn) => spawn.command !== "git");
+    assert.deepStrictEqual(
+      spawns.map((spawn) => [spawn.command, [...spawn.args]]),
+      [
+        [launcher, ["run", "fork:delta", "--check"]],
+        [launcher, ["check"]],
+        [launcher, ["run", "typecheck"]],
+        [launcher, ["run", "test"]],
+      ],
+    );
+    assert.deepStrictEqual(new Set(spawns.map((spawn) => spawn.cwd)), new Set([worktree]));
+  } finally {
+    git(fixture.root, ["worktree", "remove", "--force", worktree]);
+    git(fixture.root, ["worktree", "prune"]);
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("still installs with a bare vp on the fresh-install path before using the local launcher", () => {
+  const fixture = fixtureRepository();
+  git(fixture.root, ["switch", "--detach", fixture.base]);
+  NodeFS.writeFileSync(NodePath.join(fixture.root, "package.json"), '{"private":true}\n');
+  const manifestTarget = commit(fixture.root, "build: change upstream manifest");
+  const { worktree, head } = replayWorktree(fixture, manifestTarget);
+  try {
+    verificationSpawns.length = 0;
+    assert.strictEqual(
+      verifyReplay(fixture.root, worktree, fixture.fork, fixture.base, manifestTarget, head),
+      "fresh-install",
+    );
+    const launcher = NodePath.join(worktree, "node_modules", ".bin", "vp");
+    const spawns = verificationSpawns.filter((spawn) => spawn.command !== "git");
+    assert.deepStrictEqual(spawns[0], { command: "vp", args: ["i"], cwd: worktree });
+    assert.deepStrictEqual(
+      spawns.slice(1).map((spawn) => [spawn.command, [...spawn.args]]),
+      [
+        [launcher, ["run", "fork:delta", "--check"]],
+        [launcher, ["check"]],
+        [launcher, ["run", "typecheck"]],
+        [launcher, ["run", "test"]],
+      ],
+    );
+  } finally {
+    git(fixture.root, ["worktree", "remove", "--force", worktree]);
+    git(fixture.root, ["worktree", "prune"]);
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("raises instead of falling back to bare vp when the replay worktree has no launcher", () => {
+  const fixture = fixtureRepository();
+  const { worktree, head } = replayWorktree(fixture, fixture.base);
+  try {
+    verificationSpawns.length = 0;
+    assert.throws(
+      () => verifyReplay(fixture.root, worktree, fixture.fork, fixture.base, fixture.base, head),
+      /verification launcher missing after install/,
+    );
+    const spawns = verificationSpawns.filter((spawn) => spawn.command !== "git");
+    assert.deepStrictEqual(spawns, []);
+  } finally {
+    git(fixture.root, ["worktree", "remove", "--force", worktree]);
+    git(fixture.root, ["worktree", "prune"]);
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
 });
