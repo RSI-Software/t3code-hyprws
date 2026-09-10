@@ -646,6 +646,9 @@ it("passes the live base ref and exact pull-request head to squash-body validati
     workflow,
     'fork:delta --check --base "$BASE_REF" --head "$HEAD_SHA" --squash-body',
   );
+  // The projection measures the stack below the pull request against upstream,
+  // which the fork checkout does not carry.
+  assert.include(workflow, "git fetch --no-tags upstream main");
 });
 
 it("fails a pull-request body whose last paragraph is prose, not trailers", () => {
@@ -1486,6 +1489,150 @@ it("fails a squash body that raises a ceiling without the Fork-Budget trailer", 
       result.stderr,
       "pull-request body: raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>",
     );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A branch whose commits carry two domains, so the squash's single Fork-Domain
+// has to absorb both. This is the shape three trunks went red on: every
+// per-domain reading of the branch is under its ceiling, and the one commit that
+// lands is not (RSI-Software/t3code-hyprws#765).
+const createSplitDomainFixture = (budget: string) => {
+  const { root } = createGitFixture();
+  const docs = NodePath.join(root, "docs/internals");
+  NodeFS.mkdirSync(docs, { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-delta.md"), RETIREMENT_SECTIONS);
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-wire-baseline.md"), "");
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-budget.md"), budget);
+  git(root, ["add", "."]);
+  const base = commitAll(root, "fixture: seed the budget");
+  git(root, ["switch", "-c", "upstream"]);
+  NodeFS.writeFileSync(NodePath.join(root, "untouched.ts"), "upstream grew\n");
+  const upstream = commitAll(root, "upstream: change a file the fork never touches");
+  git(root, ["switch", "fixture"]);
+  NodeFS.writeFileSync(NodePath.join(root, "meta.ts"), "one\ntwo\nthree\n");
+  commitAll(root, "feat: the fork-meta half", "Fork-Domain: fork-meta\nFork-Tier: qol\n");
+  NodeFS.writeFileSync(NodePath.join(root, "windows.ts"), "one\ntwo\nthree\nfour\n");
+  commitAll(
+    root,
+    "feat: the project-windows half",
+    "Fork-Domain: project-windows\nFork-Tier: qol\n",
+  );
+  const head = git(root, ["rev-parse", "HEAD"]);
+  return { root, base, upstream, head };
+};
+
+const splitDomainBudget = (metaAdded: number, windowsAdded: number): string =>
+  renderForkBudget({
+    rows: [
+      { domain: "fork-meta", commits: 1, added: metaAdded, deleted: 0, overlaps: 0 },
+      { domain: "project-windows", commits: 1, added: windowsAdded, deleted: 0, overlaps: 0 },
+    ],
+  });
+
+const squashBodyArgs = (
+  root: string,
+  base: string,
+  head: string,
+  upstream: string,
+  body: string,
+) => {
+  const bodyPath = NodePath.join(root, "pr-body.md");
+  NodeFS.writeFileSync(bodyPath, body);
+  return [
+    "--check",
+    "--base",
+    base,
+    "--head",
+    head,
+    "--upstream",
+    upstream,
+    "--squash-body",
+    bodyPath,
+  ];
+};
+
+it("refuses a squash whose single domain absorbs another domain's lines past its ceiling", () => {
+  // Every branch commit sits inside its own ceiling; the squash charges all
+  // seven lines to the body's fork-meta and blows a ceiling nobody raised.
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(3, 4));
+  try {
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        head,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+      ),
+    );
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      "pull-request body: the prospective squash measures fork-meta added 7 > 3 ceiling",
+    );
+    assert.include(result.stderr, "(over by 4)");
+    assert.include(
+      result.stderr,
+      "edit docs/internals/fork-budget.md on the branch to set the fork-meta added ceiling to at least 7",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a squash whose ceiling covers everything its single domain absorbs", () => {
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(7, 4));
+  try {
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        head,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+      ),
+    );
+    assert.strictEqual(result.status, 0, result.stderr);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a raise measured below what the prospective squash lands, trailer and all", () => {
+  // The RSI-Software/t3code-hyprws#759 shape: the trailer is present and the
+  // number beside it was measured before the squash collapsed the branch.
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(1, 4));
+  try {
+    NodeFS.writeFileSync(
+      NodePath.join(root, "docs/internals/fork-budget.md"),
+      splitDomainBudget(3, 4),
+    );
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "chore: raise the fork-meta ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        raising,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise measured before the squash\n",
+      ),
+    );
+    assert.strictEqual(result.status, 1);
+    // The trailer satisfies the raise check, so only the projection catches it.
+    assert.notInclude(result.stderr, "without Fork-Budget: raise");
+    assert.include(result.stderr, "the prospective squash measures fork-meta added");
+    assert.include(result.stderr, "> 3 ceiling");
+    void head;
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
