@@ -188,12 +188,25 @@ jobs:
           fi
 
       - name: Reconcile fork notification issues
-        if: ${{ always() && (steps.rebase.outputs.status == 'blocked' || steps.rebase.outputs.status == 'clear' || steps.rebase.outputs.status == 'stable-candidate') }}
+        if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ISSUE_JSON: ${{ runner.temp }}/fork-auto-rebase-issues.json
-        run: node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
+          REBASE_STATUS: ${{ steps.rebase.outputs.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "$REBASE_STATUS" in
+            blocked|clear|stable-candidate)
+              node scripts/fork-rebase-notify.ts --input "$ISSUE_JSON"
+              ;;
+            *)
+              node scripts/fork-rebase-notify.ts --hard-failure \
+                --failing-step "Rebase fork stack" \
+                --error-log "$RUNNER_TEMP/fork-auto-rebase-error.log" \
+                --run-url "$RUN_URL"
+              ;;
+          esac
 
       # The ledger is read from refs/fork/churn, which this repository serves
       # unauthenticated, so the stripped checkout credential is not needed. The
