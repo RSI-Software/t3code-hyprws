@@ -109,6 +109,7 @@ export class DesktopWindow extends Context.Service<
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
+    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>; // fork-hook: backend-attach/renderer-ready-type
     readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
@@ -1032,6 +1033,13 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
+    // The packaged or Vite renderer is loadable whether or not this desktop
+    // process owns a backend.
+    Effect.andThen(Effect.suspend(() => startupDrain.drain(drainServices, resolveDrainOpeners))),
+    Effect.withSpan("desktop.window.handleRendererReady"),
+  ); // fork-hook: backend-attach/renderer-ready
+
   return DesktopWindow.of({
     createMain: createMain.pipe(Effect.flatMap(requireWindow)),
     ensureMain: ensureMain.pipe(Effect.flatMap(requireWindow)),
@@ -1062,6 +1070,7 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     showConnectingSplash,
+    handleRendererReady, // fork-hook: backend-attach/renderer-ready-entry
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
