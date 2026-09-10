@@ -1,12 +1,23 @@
 // @effect-diagnostics globalDate:off - Fixed Date fixtures make Refresh log rows deterministic.
+// @effect-diagnostics nodeBuiltinImport:off - Error-log fixtures use synchronous Node helpers.
+
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
 import { stableCrossingCandidate } from "./fork-stable-crossing.ts";
 import {
+  UNKNOWN_FAILURE,
+  closeRecoveredHardFailures,
   findIssueTypeId,
+  hardFailureBody,
   hasPlainSingleSelectOption,
+  lastErrorLineFromFile,
+  parseNotifyArgs,
   reconcileForkIssues,
+  reconcileHardFailure,
   reconcileRebaseBlock,
   reconcileStableCandidates,
   type CreateNotificationIssue,
@@ -15,6 +26,7 @@ import {
   type RebaseGitHubClient,
   type RebaseIssue,
   type RebaseIssueComment,
+  UsageError,
 } from "./fork-rebase-notify.ts";
 import {
   blockedIssueTitle,
@@ -112,6 +124,16 @@ class FakeGitHub implements RebaseGitHubClient {
 
   ensureBlockedLabel(): void {
     this.labelsEnsured += 1;
+  }
+
+  ensureHardFailureLabel(): void {
+    this.labelsEnsured += 1;
+  }
+
+  listHardFailureIssues(): ReadonlyArray<RebaseIssue> {
+    return this.issues
+      .filter((issue) => issue.body.includes("<!-- hyprws-rebase-hard-failure -->"))
+      .map((issue) => ({ ...issue }));
   }
 
   listBlockedIssues(): ReadonlyArray<RebaseIssue> {
@@ -605,4 +627,126 @@ it("closes the old identity before creating a new one and leaves at most one ope
   assert.strictEqual(client.created.length, 1);
   assert.strictEqual(openIssues(client).length, 1);
   assert.include(openIssues(client)[0]?.body ?? "", `<!-- blocking-sha:${SHA_B} -->`);
+});
+
+const hardFailureReport = (lastErrorLine = "fatal: unable to access upstream") => ({
+  failingStep: "Rebase fork stack",
+  lastErrorLine,
+  runUrl: "https://github.com/RSI-Software/t3code-hyprws/actions/runs/1234",
+});
+
+const hardFailureIssue = (number: number): RebaseIssue => ({
+  number,
+  nodeId: `issue-${number}`,
+  state: "open",
+  title: "🔔 hyprws auto-rebase crashed (hard failure)",
+  body: `<!-- hyprws-rebase-hard-failure -->\nprevious crash`,
+  issueType: null,
+});
+
+it("notifies a hard failure even with no issue JSON", () => {
+  const client = new FakeGitHub();
+
+  reconcileHardFailure(client, hardFailureReport(), new Date("2026-08-30T00:13:00Z"));
+
+  assert.deepStrictEqual(client.created, [
+    {
+      title: "🔔 hyprws auto-rebase crashed (hard failure)",
+      body: hardFailureBody(hardFailureReport(), new Date("2026-08-30T00:13:00Z")),
+      labels: ["rebase-hard-failure", "ci"],
+      assignee: "donjor",
+      priority: "High",
+    },
+  ]);
+  assert.deepStrictEqual(client.issueTypeLookups, ["Notification"]);
+  assert.deepStrictEqual(client.issueTypeEdits, [1]);
+  assert.strictEqual(openIssues(client).length, 1);
+});
+
+it("accepts a hard-failure report for an unrecognised or empty status", () => {
+  const client = new FakeGitHub();
+
+  // The workflow maps every non-reported status into --hard-failure, including
+  // unknown ones; reconcileHardFailure never inspects the status itself.
+  reconcileHardFailure(
+    client,
+    { ...hardFailureReport(), failingStep: "Rebase fork stack (status: )" },
+    new Date("2026-08-30T00:13:00Z"),
+  );
+
+  assert.strictEqual(client.created.length, 1);
+  assert.strictEqual(openIssues(client).length, 1);
+});
+
+it("rejects mixing --hard-failure with --input and rejects both-or-neither", () => {
+  assert.throws(
+    () =>
+      parseNotifyArgs([
+        "--hard-failure",
+        "--failing-step",
+        "s",
+        "--error-log",
+        "e",
+        "--run-url",
+        "u",
+        "--input",
+        "i",
+      ]),
+    UsageError,
+  );
+  assert.throws(() => parseNotifyArgs(["--hard-failure"]), UsageError);
+  assert.throws(() => parseNotifyArgs(["--input", "i", "--run-url", "u"]), UsageError);
+  assert.deepStrictEqual(parseNotifyArgs(["--input", "i"]), { mode: "issues", input: "i" });
+});
+
+it("falls back to the unknown-failure constant for an empty error log", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
+  const emptyLog = NodePath.join(root, "empty.log");
+  NodeFS.writeFileSync(emptyLog, "\n\n  \n");
+  try {
+    assert.strictEqual(lastErrorLineFromFile(emptyLog), UNKNOWN_FAILURE);
+    assert.strictEqual(lastErrorLineFromFile(NodePath.join(root, "missing.log")), UNKNOWN_FAILURE);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("strips ANSI escapes and keeps the last non-blank line", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
+  const log = NodePath.join(root, "error.log");
+  NodeFS.writeFileSync(
+    log,
+    "\u001B[31mfirst failure\u001B[0m\n\n\u001B[1;31mfatal: could not rebase fork series\u001B[0m\n",
+  );
+  try {
+    assert.strictEqual(lastErrorLineFromFile(log), "fatal: could not rebase fork series");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("comments on the existing hard-failure issue instead of opening a second one", () => {
+  const client = new FakeGitHub([hardFailureIssue(5)]);
+
+  reconcileHardFailure(client, hardFailureReport(), new Date("2026-08-30T00:13:00Z"));
+
+  assert.deepStrictEqual(client.created, []);
+  assert.deepStrictEqual(client.bodyEdits, [5]);
+  assert.deepStrictEqual(client.issueTypeLookups, []);
+  assert.strictEqual(
+    client.comments.get(5)?.[0]?.body,
+    "Recurred: https://github.com/RSI-Software/t3code-hyprws/actions/runs/1234",
+  );
+  assert.strictEqual(openIssues(client).length, 1);
+});
+
+it("closes a recovered hard-failure issue as completed", () => {
+  const client = new FakeGitHub([hardFailureIssue(5)]);
+
+  closeRecoveredHardFailures(client, new Date("2026-08-30T01:13:00Z"));
+
+  assert.deepStrictEqual(client.closed, [5]);
+  assert.strictEqual(client.closeReasons.get(5), "completed");
+  assert.match(client.comments.get(5)?.[0]?.body ?? "", /^Recovered: /);
+  assert.strictEqual(openIssues(client).length, 0);
 });
