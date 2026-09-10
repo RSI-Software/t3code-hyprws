@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
   type ClientSettings,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -40,6 +41,10 @@ const clientSettings: ClientSettings = {
   diffIgnoreWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
+  environmentAccentColors: {
+    [EnvironmentId.make("environment-1")]: "#2563eb",
+  },
+  environmentDisplayNames: {},
   favorites: [],
   fontFamilyCode: "",
   fontFamilyComposer: "",
@@ -209,7 +214,9 @@ describe("DesktopClientSettings", () => {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.clientSettingsPath, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.clientSettingsPath, {
+          recursive: true,
+        });
 
         const error = yield* settings.set(clientSettings).pipe(Effect.flip);
         assert.instanceOf(error, DesktopClientSettings.DesktopClientSettingsWriteError);
@@ -232,7 +239,9 @@ describe("DesktopClientSettings", () => {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(
           environment.clientSettingsPath,
           `{
@@ -256,7 +265,9 @@ describe("DesktopClientSettings", () => {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(
           environment.clientSettingsPath,
           `{
@@ -281,7 +292,9 @@ describe("DesktopClientSettings", () => {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(environment.clientSettingsPath, "{}\n");
 
         assert.deepEqual(yield* settings.get, Option.some(yield* decodeClientSettingsJson("{}")));

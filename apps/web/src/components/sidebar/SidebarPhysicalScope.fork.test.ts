@@ -86,9 +86,7 @@ describe("physical sidebar boundary", () => {
     const scoped = rows.filter((row) =>
       scope.projectKeys?.has(`${row.environmentId}:${row.projectId}`),
     );
-    expect(searchSidebarThreads(scoped, "matching").map((row) => row.id)).toEqual([
-      "target",
-    ]);
+    expect(searchSidebarThreads(scoped, "matching").map((row) => row.id)).toEqual(["target"]);
     expect(filterSidebarThreads(rows, target)).toEqual(scoped);
     expect(filterSidebarThreads(rows, null)).toBe(rows);
     expect(searchSidebarThreads(rows, "matching")).toHaveLength(3);
