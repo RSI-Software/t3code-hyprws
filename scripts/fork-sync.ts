@@ -58,6 +58,8 @@ import {
 } from "./lib/fork-policy.ts";
 import {
   forkCommitSourceExtensions,
+  isFixtureLiteral,
+  isModuleSpecifierLine,
   isOpaqueDiffPath,
   isRetireEvidenceSite,
   RETIRE_PROBE_EXCLUSIONS,
@@ -1113,18 +1115,29 @@ const unblockRehearse = (
         row.agentSafe === "TODO" ||
         row.agentSafe === "pending regeneration",
     );
+    // Every gap here is a row a human still owns, so they are collected and raised together: a
+    // stop that names one row at a time costs the operator a rerun for each of them.
+    const handoffGaps: Array<string> = [];
     for (const row of pending.filter(({ class: klass }) => klass !== "generated")) {
       const edited = recordRows.find(
         (candidate) => candidate.path === row.path && candidate.subject === row.subject,
       );
-      if (
-        edited === undefined ||
-        edited.class === "TODO" ||
-        edited.resolution === "TODO" ||
-        edited.agentSafe === "TODO" ||
-        edited.decidedBy === "TODO"
+      if (edited === undefined) {
+        handoffGaps.push(`${row.path}: the record carries no row for ${row.subject}`);
+        continue;
+      }
+      const blank = (
+        [
+          ["class", edited.class],
+          ["resolution", edited.resolution],
+          ["agent-safe", edited.agentSafe],
+          ["decided by", edited.decidedBy],
+        ] as const
       )
-        throw new Error(`record row remains incomplete for ${row.path}`);
+        .filter(([, cell]) => cell === "TODO")
+        .map(([name]) => name);
+      if (blank.length > 0)
+        handoffGaps.push(`${row.path}: record row still on TODO for ${blank.join(", ")}`);
     }
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
@@ -1133,9 +1146,13 @@ const unblockRehearse = (
     const unstaged = new Set(lines(git(runner, lane.worktree, ["diff", "--name-only"], true)));
     for (const row of pending.filter(({ path }) => !isGeneratedPath(path))) {
       if (conflictResolutionIsReady(row.path, staged, unmerged, unstaged)) continue;
-      if (unmerged.has(row.path)) throw new Error(`conflict remains unmerged: ${row.path}`);
-      throw new Error(`resolved conflict is not staged or restored to HEAD: ${row.path}`);
+      handoffGaps.push(
+        unmerged.has(row.path)
+          ? `${row.path}: conflict remains unmerged`
+          : `${row.path}: resolved conflict is not staged or restored to HEAD`,
+      );
     }
+    if (handoffGaps.length > 0) throw new HandoffIncomplete(handoffGaps);
     // A finished rebase already carries the regenerated lockfile in its commits; regenerating it
     // again would only dirty the lane.
     if (rebasing && pending.some(({ path }) => isGeneratedPath(path))) {
@@ -1205,7 +1222,11 @@ const unblockRehearse = (
     const commit = currentCommit(runner, report.lane.worktree);
     const rerereResolved = rerereResolvedPaths(runner, report.lane.worktree, conflicts);
     const additions = rehearsalConflictRows(commit, conflicts, rerereResolved);
-    report = { ...report, stage: "conflicts", conflicts: [...report.conflicts, ...additions] };
+    report = preserveRecordDecisions({
+      ...report,
+      stage: "conflicts",
+      conflicts: [...report.conflicts, ...additions],
+    });
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
@@ -1231,13 +1252,13 @@ const unblockRehearse = (
   );
   // Every walk records the size of the stack it replayed (RSI-Software/t3code-hyprws#672).
   const size = walkSizeRecord(report, runner);
-  report = {
+  report = preserveRecordDecisions({
     ...report,
     stage: "replayed",
     rebasedHead,
     stackSize,
     walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-  };
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -1470,15 +1491,11 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * The record is the operator's surface, so a human cell filled there outlives the regeneration a
- * check performs. A machine cell does not: the walk re-derives every agent row on each run, so an
- * agent-written cell that disagrees is an older copy of this same derivation, not a second opinion,
- * and refusing on it only turned a rerun into a human stop.
- */
-/**
  * The record is the decision surface, so a cell filled there is the decision — a rerun that
  * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
- * was a human gate on a lane that has no human in it.
+ * was a human gate on a lane that has no human in it. Every verb that rewrites the record runs
+ * this first, rehearse included: a rehearsal resumed after the operator filled a cell must not
+ * re-mint it as `TODO`.
  */
 export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   if (!NodeFS.existsSync(report.recordPath)) return report;
@@ -2021,12 +2038,20 @@ const porcelainPaths = (status: string): ReadonlyArray<string> => {
  * answer, so a resumed walk at that stop may carry dirt on exactly the paths the stop named —
  * every conflict row the stopped report records, whether its decision cells are still `TODO`
  * (the resume asks for them, via unblock-rehearse's record check) or already filled
- * (fill-then-resume). Every other stage is a fresh or finished lane and stays
- * strictly clean; dirt anywhere outside the stopped rows refuses and names it.
+ * (fill-then-resume), plus the paths of an additive finding no mechanical fix cleared.
+ *
+ * The stop reason is what earns the allowance, not the stage it was recorded at: a conflict stop
+ * the repair or additive phase raises sits at a later stage than `conflicts` and its lane is dirty
+ * for the same reason (RSI-Software/t3code-hyprws#748). A lane with no conflict stop on its report
+ * is fresh or finished and stays strictly clean; dirt outside the stopped rows refuses and names
+ * it.
  */
 export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<string> => {
-  if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict") return new Set();
-  return new Set(report.conflicts.map(({ path }) => path));
+  if (report.walk?.stop?.reason !== "conflict") return new Set();
+  return new Set([
+    ...report.conflicts.map(({ path }) => path),
+    ...(report.walk.additive?.findings ?? []).map(({ path }) => path),
+  ]);
 };
 
 export const validateAutoLaneClean = (report: SyncReport, runner: CommandRunner): void => {
@@ -2718,6 +2743,21 @@ class AdditiveStop extends Error {
 }
 
 /**
+ * The rehearsal resumed on a handoff nobody finished: a record row still on `TODO`, a conflict
+ * still unmerged, or a resolution nobody staged. Every one of those rows belongs to a human, which
+ * is the `conflict` stop the walk already owns — so it leaves the walk as that stop and never as
+ * an unclassified crash (RSI-Software/t3code-hyprws#747).
+ */
+class HandoffIncomplete extends Error {
+  readonly gaps: ReadonlyArray<string>;
+
+  constructor(gaps: ReadonlyArray<string>) {
+    super(`the conflict handoff is incomplete:\n${gaps.map((gap) => `  - ${gap}`).join("\n")}`);
+    this.gaps = gaps;
+  }
+}
+
+/**
  * `hyprws` moved under the walk, so every binding it holds is void. The walk re-lists and re-reads
  * the moved trunk itself: a restart is mechanical, and asking a human to type it was never a
  * decision anyone made.
@@ -3166,7 +3206,9 @@ const isDistinctiveKey = (key: string): boolean => key.length >= 6 && /[.\-A-Z]/
 /**
  * The names a fork commit introduces: exported bindings, test titles, settings keys, and long
  * string literals. Conflicting near upstream work is not evidence that upstream implemented the
- * fork behaviour; finding one of these names in the target tree is.
+ * fork behaviour; finding one of these names in the target tree is. A module specifier and a
+ * fixture literal are neither name nor behaviour, so neither reaches the probe
+ * (RSI-Software/t3code-hyprws#750).
  */
 export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
   const found = new Set<string>();
@@ -3190,9 +3232,12 @@ export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
       /\b(?:it|test|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1).)+?)\1/g,
     ))
       if (match[2] !== undefined) found.add(match[2]);
+    if (isModuleSpecifierLine(added)) continue;
     for (const match of added.matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)) {
       const literal = match[2] ?? "";
-      if (literal.length >= MINIMUM_LITERAL_LENGTH && !literal.includes("${")) found.add(literal);
+      if (literal.length < MINIMUM_LITERAL_LENGTH || literal.includes("${")) continue;
+      if (isFixtureLiteral(literal)) continue;
+      found.add(literal);
     }
   }
   return [...found].filter((value) => value.trim().length > 0).slice(0, IDENTIFIER_LIMIT);
@@ -3711,6 +3756,15 @@ const walkOnce = (
         started,
       );
     }
+    if (error instanceof HandoffIncomplete)
+      return stopWalk(
+        report,
+        "conflict",
+        ["The conflict handoff is incomplete:", ...error.gaps.map((gap) => `  - ${gap}`)].join(
+          "\n",
+        ),
+        started,
+      );
     if (error instanceof AutoStop || error instanceof AutoBotRefusal || error instanceof WalkStale)
       throw error;
     if (isStaleTrunk(error))
