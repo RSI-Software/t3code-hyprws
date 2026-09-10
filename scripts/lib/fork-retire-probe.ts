@@ -59,6 +59,30 @@ export const forkCommitSourceExtensions = (diff: string): ReadonlySet<string> =>
   return extensions;
 };
 
+/**
+ * An import specifier names the package, never the fork. Harvesting one puts a string every tree
+ * that depends on that package already carries into the probe, and {@link isDefinitionOrImportSite}
+ * then reads the dependency's own import line back as proof of the retirement. That is how
+ * `smol-toml`, `effect/Effect` and `@effect/vitest` became retire evidence on the
+ * `v0.0.41-nightly.20260910.1473` walk (RSI-Software/t3code-hyprws#750).
+ */
+export const isModuleSpecifierLine = (line: string): boolean =>
+  /^\s*(?:import|export)\b[^=]*\bfrom\s*["'`]/.test(line) ||
+  /^\s*import\s*["'`]/.test(line) ||
+  /\b(?:require|import)\s*\(\s*["'`]/.test(line) ||
+  /\bvi\.mock\s*\(\s*["'`]/.test(line);
+
+/**
+ * Fixture data reads as a long literal but names nothing: a timestamp, a filesystem path, a run of
+ * digits or punctuation, or a quoted fragment of some other file's content. Every tree with a
+ * similar fixture matches it, so it proves nothing about the fork behaviour.
+ */
+export const isFixtureLiteral = (literal: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(literal) ||
+  /^(?:~|\.{1,2})?\/|^[A-Za-z]:\\/.test(literal) ||
+  /["'`]/.test(literal) ||
+  !/[A-Za-z]{3}/.test(literal);
+
 const escapeRegExp = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
