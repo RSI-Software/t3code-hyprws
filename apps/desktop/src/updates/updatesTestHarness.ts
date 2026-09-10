@@ -50,6 +50,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   let downloadCount = 0;
   let allowDowngrade = false;
   let fullChangelog = false;
+  const channels: string[] = [];
   const feedUrls: ElectronUpdater.ElectronUpdaterFeedUrl[] = [];
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
@@ -81,7 +82,10 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       }),
     setAutoDownload: () => Effect.void,
     setAutoInstallOnAppQuit: () => Effect.void,
-    setChannel: () => Effect.void,
+    setChannel: (channel) =>
+      Effect.sync(() => {
+        channels.push(channel);
+      }),
     setAllowPrerelease: () => Effect.void,
     allowDowngrade: Effect.sync(() => allowDowngrade),
     setAllowDowngrade: (value) =>
@@ -301,6 +305,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     capturedSessions,
     downloadCount: () => downloadCount,
     feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
+    channels: () => channels,
     fullChangelog: () => fullChangelog,
     listenerCount: () =>
       Array.from(listeners.values()).reduce(
