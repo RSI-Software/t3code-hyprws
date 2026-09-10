@@ -711,6 +711,23 @@ it("falls back to the unknown-failure constant for an empty error log", () => {
   }
 });
 
+it("prefers an informative line over a trailing vitest separator", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
+  const log = NodePath.join(root, "error.log");
+  NodeFS.writeFileSync(
+    log,
+    "TypeError: cannot read properties of undefined\n────────────────────── [6/6] ──────────────────────\n",
+  );
+  try {
+    assert.strictEqual(
+      lastErrorLineFromFile(log),
+      "TypeError: cannot read properties of undefined",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("strips ANSI escapes and keeps the last non-blank line", () => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
   const log = NodePath.join(root, "error.log");
@@ -720,6 +737,31 @@ it("strips ANSI escapes and keeps the last non-blank line", () => {
   );
   try {
     assert.strictEqual(lastErrorLineFromFile(log), "fatal: could not rebase fork series");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("prefers the last failed: line over later decoration", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
+  const log = NodePath.join(root, "error.log");
+  NodeFS.writeFileSync(
+    log,
+    "failed: first problem\nfailed: rebase aborted at commit abc123\nrebase result: FAILURE\n",
+  );
+  try {
+    assert.strictEqual(lastErrorLineFromFile(log), "failed: rebase aborted at commit abc123");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects separator-only logs and returns the unknown-failure constant", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-notify-test-"));
+  const log = NodePath.join(root, "error.log");
+  NodeFS.writeFileSync(log, "──────\n────── [6/6] ──────\n === \n\n");
+  try {
+    assert.strictEqual(lastErrorLineFromFile(log), UNKNOWN_FAILURE);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
