@@ -7337,6 +7337,1241 @@
           "recordedAt": "2026-09-09T05:11:18.184Z"
         }
       ]
+    },
+    {
+      "tag": "v0.0.41-nightly.20260910.1473",
+      "before": "1f7f253232ee745791d9f40eab18fe81908009ef",
+      "after": "c6a47162883af2c04a0725ca63fe61bb274bcca5",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/733#issuecomment-5614140408",
+      "conflicts": [
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "bb1c77f1fc3e",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "outcome executor: keep both (co-insertion; consider keeping ours)",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
+          "commit": "110a90554d98",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "keep both: fork `agent` field and `agentDeveloperInstructions` spread retained; upstream's rewritten `credential` comment stands",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "commit": "245298c88966",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "keep both: fork route extraction retained; upstream's `selectedHost` field and parsing ported into `pullRequestListRoute.ts` so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.tsx",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.test.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "commit": "787d95a98659",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork Issues surface retained; upstream's relocated `changeRequestUrl` re-export and azure-devops identity branch stand, fork keeps only `parseGitHubIssueUrl`/`GitHubIssueLink`/`repositoryIdentityOf`",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "0f3ec4f81202",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's extracted `rightPanelSurfaceActions` helper and Issues launcher retained; upstream's new `Linked pull requests` launcher, its `onAddPullRequests`/`pullRequestsAvailable` props and `pull-requests` surface kind ported into that helper so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.test.tsx",
+          "commit": "0f3ec4f81202",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's extracted `rightPanelSurfaceActions` helper and Issues launcher retained; upstream's new `Linked pull requests` launcher, its `onAddPullRequests`/`pullRequestsAvailable` props and `pull-requests` surface kind ported into that helper so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.tsx",
+          "commit": "0f3ec4f81202",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's extracted `rightPanelSurfaceActions` helper and Issues launcher retained; upstream's new `Linked pull requests` launcher, its `onAddPullRequests`/`pullRequestsAvailable` props and `pull-requests` surface kind ported into that helper so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "commit": "0f3ec4f81202",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's extracted `rightPanelSurfaceActions` helper and Issues launcher retained; upstream's new `Linked pull requests` launcher, its `onAddPullRequests`/`pullRequestsAvailable` props and `pull-requests` surface kind ported into that helper so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "commit": "0f3ec4f81202",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's extracted `rightPanelSurfaceActions` helper and Issues launcher retained; upstream's new `Linked pull requests` launcher, its `onAddPullRequests`/`pullRequestsAvailable` props and `pull-requests` surface kind ported into that helper so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.test.ts",
+          "commit": "bad140d09a6f",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's `shouldShowSidebarDoneStatus` export and `resolveCompletedTurnTiming` call retained; upstream's rename of `searchSidebarThreadsByTitle` to `searchSidebarThreads` stands and its `useSupportsMultiplePullRequests` hook line is kept",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "bad140d09a6f",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "keep both: fork's `shouldShowSidebarDoneStatus` export and `resolveCompletedTurnTiming` call retained; upstream's rename of `searchSidebarThreadsByTitle` to `searchSidebarThreads` stands and its `useSupportsMultiplePullRequests` hook line is kept",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.ts",
+          "commit": "2379b6921cba",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's `findProjectOnChangeRequestHost` and the fork's `findProjectForGitHubLink`/`linkedRepository` both stand, with the fork lookup as the fallback after upstream's panel path; upstream's `host`/`url` panel fields and capability-aware repository binding stand, the fork's duplicate binding dropped; the fork's extracted `handleExternalLinkContextMenu` stands with its body moved onto upstream's `linkedThreadPullRequestFor` check; on the server upstream's host-aware `requireProject` resolution supersedes the fork's removal of the repository guard, which it already implements",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatMarkdown.tsx",
+          "commit": "2379b6921cba",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's `findProjectOnChangeRequestHost` and the fork's `findProjectForGitHubLink`/`linkedRepository` both stand, with the fork lookup as the fallback after upstream's panel path; upstream's `host`/`url` panel fields and capability-aware repository binding stand, the fork's duplicate binding dropped; the fork's extracted `handleExternalLinkContextMenu` stands with its body moved onto upstream's `linkedThreadPullRequestFor` check; on the server upstream's host-aware `requireProject` resolution supersedes the fork's removal of the repository guard, which it already implements",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.test.ts",
+          "commit": "2379b6921cba",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's `findProjectOnChangeRequestHost` and the fork's `findProjectForGitHubLink`/`linkedRepository` both stand, with the fork lookup as the fallback after upstream's panel path; upstream's `host`/`url` panel fields and capability-aware repository binding stand, the fork's duplicate binding dropped; the fork's extracted `handleExternalLinkContextMenu` stands with its body moved onto upstream's `linkedThreadPullRequestFor` check; on the server upstream's host-aware `requireProject` resolution supersedes the fork's removal of the repository guard, which it already implements",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "commit": "2379b6921cba",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's `findProjectOnChangeRequestHost` and the fork's `findProjectForGitHubLink`/`linkedRepository` both stand, with the fork lookup as the fallback after upstream's panel path; upstream's `host`/`url` panel fields and capability-aware repository binding stand, the fork's duplicate binding dropped; the fork's extracted `handleExternalLinkContextMenu` stands with its body moved onto upstream's `linkedThreadPullRequestFor` check; on the server upstream's host-aware `requireProject` resolution supersedes the fork's removal of the repository guard, which it already implements",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+          "commit": "99fd81e0b17f",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "keep both: upstream's `PullRequestReadCache` import and the fork's `PullRequestAttachmentStore` import are adjacent co-insertions",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.ts",
+          "commit": "99fd81e0b17f",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "keep both: upstream's `PullRequestReadCache` import and the fork's `PullRequestAttachmentStore` import are adjacent co-insertions",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "95ba4229886a",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "keep both: the fork's parameterised `addAgentsSurface` using `openAgents` stands in place of upstream's plain `open(ref, \"agents\")`, which it supersedes, and upstream's new `supportsThreadPullRequests` and `addPullRequestsSurface` bindings are kept unchanged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.test.ts",
+          "commit": "71fc09274e1d",
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: the fork-only `shouldShowSidebarDoneStatus` import leaves the shared test file, and upstream's rename of `searchSidebarThreadsByTitle` to `searchSidebarThreads` stands",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "934d960c3a9b",
+          "subject": "test(fork): move fork test blocks into fork-owned siblings",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: only the fork-owned blocks leave the shared test files - the `buildIssuesNavigationCommand` describe and the `findProjectForGitHubLink`/`findProjectForGitHubIssue` imports - while upstream's `linked pull request thread navigation`, `browseInputEndPaddingClass` and `findProjectOnChangeRequestHost` tests stand",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.test.ts",
+          "commit": "934d960c3a9b",
+          "subject": "test(fork): move fork test blocks into fork-owned siblings",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: only the fork-owned blocks leave the shared test files - the `buildIssuesNavigationCommand` describe and the `findProjectForGitHubLink`/`findProjectForGitHubIssue` imports - while upstream's `linked pull request thread navigation`, `browseInputEndPaddingClass` and `findProjectOnChangeRequestHost` tests stand",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/pullRequestListRoute.ts",
+          "commit": "3f6959236d49",
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "delete/modify: the fork's move of `pullRequestListRoute.ts` into `PullRequestProjectScope.ts` and `_chat.pull-requests.tsx` stands, and upstream's `selectedHost` field and its parsing travel with it into `PullRequestsSearch`/`validatePullRequestsSearch` at the new location, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+          "commit": "f54913fafa28",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: only the fork-owned `uses the requested project to read another repository on the same host` block leaves the shared file, and every upstream stack, hosted-reference and Azure routing test in that region stands; the migrated fork test now names its host so it travels through upstream's hosted-reference resolution, which implements the same fork behaviour",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "9252e76645f4",
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "keep both: upstream's `useSupportsMultiplePullRequests`, `LinkBranchPullRequestButton` and `threadPullRequests` imports and the fork's `SidebarPhysicalScope` import are adjacent co-insertions",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "fa7e54efbb7d",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "keep both: upstream's `linkCreatedPullRequest` import and the fork's `CheckoutMutationCoordinator` import are adjacent co-insertions",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/client-runtime/src/operations/commands.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/client-runtime/src/state/threadCommands.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "commit": "f56a7de4093c",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "keep both where both add: upstream's thread pull-request link, un-link and link-sync decider cases, client commands, contract payloads and event structs all stand, and the fork's `thread.checkout-move.request`/`prepare` cases, `moveThreadCheckout` command and `thread.checkout-move-updated` payload are added beside them with their own return blocks; in the projection the fork's `checkoutMove` field is grafted onto upstream's thread shell builders while upstream's `mapThreadPullRequests`/`pullRequests` shape stands, and the fork hunk's stale `linkedPullRequest` spreads are dropped because upstream replaced that field before this rebase, so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "commit": "3999522d0003",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "keep both: upstream's `ThreadPullRequestBadgeControl` badge stands and the fork's `displayedCheckoutMove` control is added beside it; the fork hunk's own `branchPr`/`branchPrStatus` badge markup is dropped because upstream replaced those bindings before this rebase and they no longer exist, so no upstream line is dropped; in `docs/user/source-control.md` upstream's linked-pull-request and GitHub-stacks sections stand and the fork's checkout-move section is appended",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/user/source-control.md",
+          "commit": "3999522d0003",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "keep both: upstream's `ThreadPullRequestBadgeControl` badge stands and the fork's `displayedCheckoutMove` control is added beside it; the fork hunk's own `branchPr`/`branchPrStatus` badge markup is dropped because upstream replaced those bindings before this rebase and they no longer exist, so no upstream line is dropped; in `docs/user/source-control.md` upstream's linked-pull-request and GitHub-stacks sections stand and the fork's checkout-move section is appended",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/client-runtime/src/operations/commands.ts",
+          "commit": "cdf1b03e3ca1",
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: only the fork-owned checkout-move surface leaves the shared files, becoming `export type { ThreadCheckoutMoveRequestInput as MoveThreadCheckoutInput }` and `export { requestThreadCheckoutMove as moveThreadCheckout }` from `checkoutMove.fork.ts`; upstream's `LinkThreadPullRequestInput`/`UnlinkThreadPullRequestInput` types, its two command implementations and its `LinkThreadPullRequestInput` re-export all stand, because the fork hunk only deleted them as a side effect of predating them",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/client-runtime/src/state/threadCommands.ts",
+          "commit": "cdf1b03e3ca1",
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "commit intent honoured: only the fork-owned checkout-move surface leaves the shared files, becoming `export type { ThreadCheckoutMoveRequestInput as MoveThreadCheckoutInput }` and `export { requestThreadCheckoutMove as moveThreadCheckout }` from `checkoutMove.fork.ts`; upstream's `LinkThreadPullRequestInput`/`UnlinkThreadPullRequestInput` types, its two command implementations and its `LinkThreadPullRequestInput` re-export all stand, because the fork hunk only deleted them as a side effect of predating them",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+          "commit": "becb66e9085f",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "class": "retire-candidate",
+          "resolution": "the repair's re-added `reads a repository that does not belong to the requested project` block is dropped: it is a stale hunk that inverts an upstream case, and upstream's host-aware `requireProject` now refuses exactly that hostless foreign-repository reference, so the block would fail; this walk already recorded at `2379b6921cba` that upstream's resolution supersedes the fork's guard removal and at `f54913fafa28` that the fork contract moved to `PullRequestService.fork.test.ts` naming its host; upstream's own `refuses a repository that does not belong to the requested project` test, which the superseded fork commit had removed, is restored here so no upstream line is dropped",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+          "commit": "9c604f8fd7e4",
+          "subject": "fix(fork): make the required statuses green on clean trunk",
+          "domain": "fork-meta",
+          "class": "mechanical",
+          "resolution": "the fork hunk only reflows the `getDiff` provider literal inside the block this walk dropped at `becb66e9085f`, so it is stale; upstream's `providers: [fakeProvider(\"github\")],` in the restored refusal test stands and no upstream line is dropped",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): make issue handoff prompt configurable (#118)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): bound child-work detail responses",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "verdict": "partial",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): preserve child result and diff detail",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "ci(fork): run the matrix on merge_group, not on ready",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): read the blocked issue body at gate 1",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): name the real nightly condition in orientation",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): name the rehearsal lane after the head it replays",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): restore the lockfile before the rehearsed rebase",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): assign the target tag inside the gate 1 block",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): install before the gate 3 scan",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): tell registry drift from manifest drift after the replay",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): print the repair each scan gap class needs",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): follow upstream pull-request listing behind the project scope seam",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): read physical sidebar scope from an ambient provider",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "human"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/server/src/ws.ts",
+          "hunks": null,
+          "commit": "bb1c77f1fc3ecfb9f9467a2bb1eacb88d6946ee5",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
+          "hunks": null,
+          "commit": "110a90554d98e30975d51ef657ac96c318d6d903",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "245298c88966a645f9a38c0e308079e32cae0484",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.ts",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.tsx",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.test.ts",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/rightPanelStore.ts",
+          "hunks": null,
+          "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "0f3ec4f81202e2140a7cb654ce32f1e1de0867c8",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.test.tsx",
+          "hunks": null,
+          "commit": "0f3ec4f81202e2140a7cb654ce32f1e1de0867c8",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.logic.test.ts",
+          "hunks": null,
+          "commit": "bad140d09a6fc7b7f8c456c6dd54b4f03264c0d2",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "hunks": null,
+          "commit": "bad140d09a6fc7b7f8c456c6dd54b4f03264c0d2",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.ts",
+          "hunks": null,
+          "commit": "2379b6921cbae5aff971188fb644f33f83dd96ae",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/ChatMarkdown.tsx",
+          "hunks": null,
+          "commit": "2379b6921cbae5aff971188fb644f33f83dd96ae",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+          "hunks": null,
+          "commit": "99fd81e0b17f14100ea612b4c90d862b53c8874e",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "packages/client-runtime/src/operations/commands.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "packages/client-runtime/src/state/threadCommands.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "hunks": null,
+          "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+          "hunks": null,
+          "commit": "3999522d0003f763552ee546b1b94e95af4657a3",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "docs/user/source-control.md",
+          "hunks": null,
+          "commit": "3999522d0003f763552ee546b1b94e95af4657a3",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate"
+        }
+      ],
+      "censusEvidence": {
+        "version": 1,
+        "method": "sequential-rebase-stage3-provisional",
+        "sourceSha": "1f7f253232ee745791d9f40eab18fe81908009ef",
+        "baseSha": "e16b8b059c9f5ff6dfed1addecffb831c6aee043",
+        "targetSha": "b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835",
+        "targetTag": "v0.0.41-nightly.20260910.1473",
+        "complete": true,
+        "rows": [
+          {
+            "stop": 1,
+            "commit": "bb1c77f1fc3ecfb9f9467a2bb1eacb88d6946ee5",
+            "subject": "feat(server): bind thread worktrees to a managed zmux session",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/ws.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 2,
+            "commit": "110a90554d98e30975d51ef657ac96c318d6d903",
+            "subject": "feat(agents): select custom main-thread agents (#31)",
+            "domain": "custom-agents",
+            "path": "apps/server/src/provider/Layers/CodexSessionRuntime.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 3,
+            "commit": "245298c88966a645f9a38c0e308079e32cae0484",
+            "subject": "feat(web): scope pull requests to project windows",
+            "domain": "project-windows",
+            "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/CommandPalette.logic.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/RightPanelTabs.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/lib/openPullRequestLink.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/lib/openPullRequestLink.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 4,
+            "commit": "787d95a986594a75242df8be439c5fea60d39d90",
+            "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+            "domain": "github-issues",
+            "path": "apps/web/src/rightPanelStore.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 5,
+            "commit": "0f3ec4f81202e2140a7cb654ce32f1e1de0867c8",
+            "subject": "fix(web): add Issues to right-panel launchers (#193)",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/ChatView.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 5,
+            "commit": "0f3ec4f81202e2140a7cb654ce32f1e1de0867c8",
+            "subject": "fix(web): add Issues to right-panel launchers (#193)",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/RightPanelTabs.test.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 6,
+            "commit": "bad140d09a6fc7b7f8c456c6dd54b4f03264c0d2",
+            "subject": "fix(web): retain completed thread timing",
+            "domain": "upstream-fixes",
+            "path": "apps/web/src/components/Sidebar.logic.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 6,
+            "commit": "bad140d09a6fc7b7f8c456c6dd54b4f03264c0d2",
+            "subject": "fix(web): retain completed thread timing",
+            "domain": "upstream-fixes",
+            "path": "apps/web/src/components/Sidebar.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 7,
+            "commit": "2379b6921cbae5aff971188fb644f33f83dd96ae",
+            "subject": "feat(web): add GitHub link destination controls (#178)",
+            "domain": "github-issues",
+            "path": "apps/server/src/pullRequest/PullRequestService.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 7,
+            "commit": "2379b6921cbae5aff971188fb644f33f83dd96ae",
+            "subject": "feat(web): add GitHub link destination controls (#178)",
+            "domain": "github-issues",
+            "path": "apps/web/src/components/ChatMarkdown.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 8,
+            "commit": "99fd81e0b17f14100ea612b4c90d862b53c8874e",
+            "subject": "fix(web): upload media in pull request descriptions",
+            "domain": "upstream-fixes",
+            "path": "apps/server/src/pullRequest/PullRequestService.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/server/src/orchestration/decider.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "packages/client-runtime/src/operations/commands.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "packages/client-runtime/src/state/threadCommands.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 9,
+            "commit": "f56a7de4093c966b8189b1766ec80424e98629b0",
+            "subject": "feat(server): coordinate durable checkout moves",
+            "domain": "zmux-estate",
+            "path": "packages/contracts/src/orchestration.ts",
+            "kind": "content"
+          },
+          {
+            "stop": 10,
+            "commit": "3999522d0003f763552ee546b1b94e95af4657a3",
+            "subject": "feat(web): follow coordinated checkout moves",
+            "domain": "zmux-estate",
+            "path": "apps/web/src/components/BranchToolbarBranchSelector.tsx",
+            "kind": "content"
+          },
+          {
+            "stop": 10,
+            "commit": "3999522d0003f763552ee546b1b94e95af4657a3",
+            "subject": "feat(web): follow coordinated checkout moves",
+            "domain": "zmux-estate",
+            "path": "docs/user/source-control.md",
+            "kind": "content"
+          }
+        ]
+      },
+      "silentSeams": [
+        {
+          "path": "apps/server/src/githubIssue/GitHubIssueService.ts",
+          "summary": "upstream moved repositoryIdentityOf to sourceControlRepositorySelector in @t3tools/shared/sourceControl with a byte-identical body; the fork import follows it",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.checkoutMove.fork.test.ts",
+          "summary": "upstream added the required pullRequests field to the thread shell; the fork fixture declares it empty",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.fork.test.ts",
+          "summary": "upstream added PullRequestReadCache to the service context; the fork harness provides the same memory-backed layer as the shared test",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.tsx",
+          "summary": "upstream added buildThreadRouteParams beside resolveThreadRouteTarget; the dropped import is restored",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "summary": "upstream removed the browseInputEndPaddingClass describe from the shared file; the fork copy in CommandPalette.logic.fork.test.ts is the surviving one",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/RightPanelTabs.fork.test.tsx",
+          "summary": "upstream added the onAddPullRequests and pullRequestsAvailable props; the fork render declares both",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/sidebar/SidebarPhysicalScope.fork.test.ts",
+          "summary": "upstream renamed searchSidebarThreadsByTitle to searchSidebarThreads; the fork test follows the rename",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/worktreeCleanup.fork.test.ts",
+          "summary": "upstream added the required pullRequests field to EnvironmentThread; the fork fixture declares it empty",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "packages/client-runtime/src/state/threadReducer.fork.test.ts",
+          "summary": "upstream added the required pullRequests field to OrchestrationThread; the fork fixture declares it empty",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/ChatMarkdown.fork.test.tsx",
+          "summary": "upstream added useServerConfigs to the state/entities surface the shared test already mocks; the fork mock declares it too",
+          "touchesBehaviour": false
+        }
+      ],
+      "repairCommits": [
+        {
+          "sha": "44e95710cc47e16cd729feaa37414dd5ee1ba535",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "76fab46fd70c124dbea17e4d5ff1ac5bf883066d",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "tooling": true
+        },
+        {
+          "sha": "8b29e73ae048cbb3469142f22a05122e8ac4db9b",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "1c455a78afd7aa11de3e876b469e886290b7a9cb",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "907fda9fa911c3a4fa37524d02193df96271531b",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "daa49fcdf77c2d0a6435144f4e2ae0d7f8b6d90e",
+          "subject": "chore(fork-sync): repair tests after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "d80ce4014ae8ad94a197b26222a06dd4e2a31f7b",
+          "subject": "chore(fork-sync): run each focused suite from its own workspace",
+          "tooling": true
+        },
+        {
+          "sha": "378a6031519f1000c6b346a1438f04f0bf66aaf2",
+          "subject": "chore(fork-sync): rebind the stack size when the rehearsal head is refreshed",
+          "tooling": true
+        },
+        {
+          "sha": "cbf775afc8f1b27d06428da615fc080b166d250e",
+          "subject": "chore(fork-sync): repair budget after v0.0.41-nightly.20260909.1426",
+          "tooling": true
+        },
+        {
+          "sha": "47bc5c885f97737d507f376ec8a639b3e61f1724",
+          "subject": "chore(fork-sync): repair fork budget after v0.0.41-nightly.20260910.1473",
+          "tooling": true
+        },
+        {
+          "sha": "608e3bef4054b177303a01187f92dc6249a70040",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260910.1473"
+        },
+        {
+          "sha": "c6a47162883af2c04a0725ca63fe61bb274bcca5",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473"
+        }
+      ],
+      "additive": {
+        "pass": true,
+        "attempts": 1,
+        "findings": 0
+      },
+      "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "4bbd323fd90452352060b4a53cc6df7e75c059fb591d3a35deb78b5d80650235",
+          "outcome": "keep-both",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z",
+          "path": "apps/server/src/ws.ts"
+        },
+        {
+          "kind": "retire",
+          "subject": "refactor(web): centralize thread route navigation",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): open project windows from hub actions",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): retain completed thread timing",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "outcome": "partial",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260910.1473",
+          "recordedAt": "2026-09-10T04:38:26.784Z"
+        }
+      ]
     }
   ],
   "seamRecords": [
