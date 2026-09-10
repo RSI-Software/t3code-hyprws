@@ -95,7 +95,7 @@ Options:
   --version <version>   Target version (default vX.Y.Z-hyprws from the upstream base).
   --since <stable-tag>  Override the previous stable tag used for comparison.
   --relates-to <issue>  Relate the UAT issue to repository issue N.
-  --output <path>       Draft path (default .dump/fork-uat/uat-<version>.md).
+  --output <path>       Draft path (default .dump/gh/fork-uat/uat-<version>.md).
   --dry-run             Render the review draft only (default).
   --prepare             Build and preflight an immutable publication bundle.
   --body <path>         Reviewed draft to prepare.
@@ -254,18 +254,21 @@ const sourceContext = (
 ): { readonly short: string; readonly subject: string; readonly prBody: string | null } => {
   const pullRequest = /\(#([1-9][0-9]*)\)/.exec(row.subject)?.[1];
   if (pullRequest === undefined) return { short: row.short, subject: row.subject, prBody: null };
-  const response = parseJsonOutput<{ readonly body: string }>(
-    requireSuccess(runner, "gh", [
-      "pr",
-      "view",
-      pullRequest,
-      "--repo",
-      REPOSITORY,
-      "--json",
-      "body",
-    ]),
-    `PR #${pullRequest}`,
-  );
+  // A trailing `(#N)` usually names a fork pull request, but not always: a cherry-pick carries the
+  // number it was written with, and a pull request can be deleted or transferred. The body is
+  // context for a reviewer who already has the subject, so a miss costs one sentence of prose. It
+  // must not cost the whole render, which is the only thing standing between here and a release.
+  const result = runner.run("gh", [
+    "pr",
+    "view",
+    pullRequest,
+    "--repo",
+    REPOSITORY,
+    "--json",
+    "body",
+  ]);
+  if (result.status !== 0) return { short: row.short, subject: row.subject, prBody: null };
+  const response = parseJsonOutput<{ readonly body: string }>(result.stdout, `PR #${pullRequest}`);
   const paragraph = firstParagraph(response.body);
   return { short: row.short, subject: row.subject, prBody: paragraph || null };
 };
@@ -280,7 +283,13 @@ const patchIdFor = (runner: CommandRunner, sha: string): string | null => {
   return result.stdout.trim().split(/\s+/)[0] || null;
 };
 
-const readLedger = (runner: CommandRunner, head: string): ForkLedger => {
+// The evaluated ref is gated: its trailers must be clean before its behavior reaches a human. A
+// published stable tag is not. Its history can never be rewritten, so today's trailer rules would
+// refuse it forever over a commit that shipped under the rules of its own day, and every later
+// release would inherit that refusal. The difference walk only reads it for its commit list.
+type LedgerGate = "gated" | "commits-only";
+
+const readLedger = (runner: CommandRunner, head: string, gate: LedgerGate): ForkLedger => {
   const output = requireSuccess(runner, "vp", [
     "run",
     "fork:delta",
@@ -294,7 +303,10 @@ const readLedger = (runner: CommandRunner, head: string): ForkLedger => {
   if (!Array.isArray(ledger.commits) || ledger.commits.length === 0) {
     throw new Error(`fork ledger for ${head} is empty`);
   }
-  if (!Array.isArray(ledger.findings) || ledger.findings.length > 0) {
+  if (!Array.isArray(ledger.findings)) {
+    throw new Error(`fork ledger for ${head} did not report findings`);
+  }
+  if (gate === "gated" && ledger.findings.length > 0) {
     throw new Error(`fork ledger for ${head} has trailer findings`);
   }
   return ledger;
@@ -372,6 +384,11 @@ export const reviewedDraft = (body: string): ReviewedDraft => {
   }
   if (/^## Excluded\s*$/m.test(body)) {
     throw new Error("reviewed draft still contains ## Excluded; remove it before --prepare");
+  }
+  if (/^## Carried with changes\s*$/m.test(body)) {
+    throw new Error(
+      "reviewed draft still contains ## Carried with changes; remove it before --prepare",
+    );
   }
   if (!body.includes("<!-- fork-uat:task-drafts:v1 -->")) {
     throw new Error("reviewed draft has no fork-uat task-drafts marker");
@@ -574,9 +591,8 @@ export const execute = (options: Options, runner: CommandRunner): string => {
   }
 
   verifyFirstParent(runner, sha);
-  verifyFirstParent(runner, previousStable.tag);
-  const currentLedger = readLedger(runner, sha);
-  const previousLedger = readLedger(runner, previousStable.tag);
+  const currentLedger = readLedger(runner, sha, "gated");
+  const previousLedger = readLedger(runner, previousStable.tag, "commits-only");
   const difference = differenceRows(
     currentLedger.commits,
     previousLedger.commits,
@@ -593,13 +609,20 @@ export const execute = (options: Options, runner: CommandRunner): string => {
         ]),
       ),
   );
-  const classified = partitionUatRows(difference, (row) => isUpstreamCommit(runner, row.sha));
+  const upstream = (row: DifferenceRow): boolean => isUpstreamCommit(runner, row.sha);
+  const classified = partitionUatRows(difference.rows, upstream);
+  // Carried drift is reviewer evidence, not a source. The same exclusions apply: a chore or a
+  // supporting-path commit that shifted during a rebase says nothing to a human tester.
+  const carried = partitionUatRows(difference.carried, upstream);
   const previousUat = readPreviousUat(runner, previousStable.tag);
   if (classified.rows.length === 0 && previousUat === null) {
     throw new Error("ref difference and previous UAT have no user-facing acceptance conditions");
   }
 
-  const output = options.output ?? `.dump/fork-uat/uat-${targetVersion}.md`;
+  // A draft is staged GitHub prose: this body becomes the tracker issue and its children. `gh/`
+  // is the lane that owns that, and unlike a lane named after this command it is one the .dump
+  // convention accepts, so the reviewer can read back what was just written.
+  const output = options.output ?? `.dump/gh/fork-uat/uat-${targetVersion}.md`;
   NodeFS.mkdirSync(NodePath.dirname(output), { recursive: true });
   NodeFS.writeFileSync(
     output,
@@ -614,6 +637,7 @@ export const execute = (options: Options, runner: CommandRunner): string => {
       relatesTo: options.relatesTo,
       previousUat,
       sources: classified.rows.map((row) => sourceContext(runner, row)),
+      carried: carried.rows,
       excluded: classified.excluded,
     }),
   );

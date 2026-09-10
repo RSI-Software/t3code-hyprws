@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 import { parentUatBody, renderUatTaskBody } from "./fork-uat-policy.ts";
+import { ensureCreated } from "./fork-uat-publication.ts";
 
 import {
   differenceRows,
@@ -115,7 +116,7 @@ it("uses an explicit related issue or declares no relationship", () => {
   ]);
 });
 
-it("diffs by exact subject before falling back to mocked stable patch IDs", () => {
+it("separates new behavior from carried work whose content drifted", () => {
   const previous = [
     commit("old-subject", "Keep the same subject"),
     commit("old-patch", "Old wording"),
@@ -138,7 +139,7 @@ it("diffs by exact subject before falling back to mocked stable patch IDs", () =
     ["new-empty", ["apps/web/src/patchless.ts"]],
   ]);
 
-  const rows = differenceRows(
+  const difference = differenceRows(
     current,
     previous,
     (sha) => patchIds.get(sha) ?? null,
@@ -146,11 +147,17 @@ it("diffs by exact subject before falling back to mocked stable patch IDs", () =
   );
 
   assert.deepStrictEqual(
-    rows.map((row) => ({ sha: row.sha, patchId: row.patchId, paths: row.paths })),
+    difference.rows.map((row) => ({ sha: row.sha, patchId: row.patchId, paths: row.paths })),
     [
       { sha: "new-row", patchId: "new-patch", paths: ["apps/web/src/new-row.ts"] },
       { sha: "new-empty", patchId: null, paths: ["apps/web/src/patchless.ts"] },
     ],
+  );
+  // `new-patch` was reworded but kept its content, so it stays silent. `new-subject` kept the
+  // subject a rebase preserves and changed underneath it, which is the drift a reviewer needs.
+  assert.deepStrictEqual(
+    difference.carried.map((row) => row.sha),
+    ["new-subject"],
   );
 });
 
@@ -195,6 +202,7 @@ it("renders sources and carries prior acceptance into fresh task drafts", () => 
     previousStable: "v1.3.0-hyprws.12",
     previousStableOverridden: true,
     relatesTo: 321,
+    carried: [{ short: "cafe1234", subject: "feat(desktop): route project window intents" }],
     previousUat: {
       issue: 245,
       url: "https://github.com/RSI-Software/t3code-hyprws/issues/245",
@@ -247,13 +255,22 @@ it("renders sources and carries prior acceptance into fresh task drafts", () => 
     body,
     "- [ ] Groups remain usable automatically <!-- fork-uat:carried-from #245 unsettled task #246 --> <!-- fork-uat:carried-from #245 accepted task #247 -->",
   );
+  assert.include(body, "## Carried with changes");
+  assert.include(
+    body,
+    "Product commits accepted in v1.3.0-hyprws.12 whose content changed since (1)",
+  );
+  assert.include(body, "`cafe1234` feat(desktop): route project window intents");
   assert.include(body, "## Excluded");
   assert.include(body, "<details>");
   assert.include(body, "`1234567` ci(fork): publish support — Fork-Domain fork-meta");
   assert.include(body, "## Close condition");
   assert.include(body, "open children remain non-blocking evidence");
 
-  const reviewed = body.replace(/^## (?:Sources|Excluded)\n[\s\S]*?(?=^## )/gm, "");
+  const reviewed = body.replace(
+    /^## (?:Sources|Carried with changes|Excluded)\n[\s\S]*?(?=^## )/gm,
+    "",
+  );
   const metadata = reviewedDraft(reviewed);
   assert.include(parentUatBody(reviewed), "- Previous UAT: RSI-Software/t3code-hyprws#245");
   assert.deepStrictEqual(metadata.tasks[1]?.carriedFrom, [
@@ -403,8 +420,6 @@ const uatListArgs = (targetVersion: string) => [
   "RSI-Software/t3code-hyprws",
   "--state",
   "all",
-  "--label",
-  "release",
   "--search",
   `"UAT ${targetVersion}" in:title`,
   "--limit",
@@ -456,26 +471,30 @@ it("uses child state as the authority for a structured previous UAT", () => {
       },
     ]),
   });
-  runner.set("gh issue view 516 --repo RSI-Software/t3code-hyprws --json subIssues", {
-    stdout: JSON.stringify({
-      subIssues: {
-        nodes: [
-          {
-            number: 517,
-            title: "UAT v0.0.38-hyprws: Sidebar — Manual ordering works [📡#516]",
-            state: "CLOSED",
-            url: "https://github.com/RSI-Software/t3code-hyprws/issues/517",
-          },
-          {
-            number: 518,
-            title: "[📡#516] UAT v0.0.38-hyprws: Sidebar — Automatic groups remain usable",
-            state: "OPEN",
-            url: "https://github.com/RSI-Software/t3code-hyprws/issues/518",
-          },
-        ],
-      },
-    }),
-  });
+  runner.set(
+    "gh issue view 516 --repo RSI-Software/t3code-hyprws --json subIssues,subIssuesSummary",
+    {
+      stdout: JSON.stringify({
+        subIssuesSummary: { total: 2 },
+        subIssues: {
+          nodes: [
+            {
+              number: 517,
+              title: "UAT v0.0.38-hyprws: Sidebar — Manual ordering works [📡#516]",
+              state: "CLOSED",
+              url: "https://github.com/RSI-Software/t3code-hyprws/issues/517",
+            },
+            {
+              number: 518,
+              title: "[📡#516] UAT v0.0.38-hyprws: Sidebar — Automatic groups remain usable",
+              state: "OPEN",
+              url: "https://github.com/RSI-Software/t3code-hyprws/issues/518",
+            },
+          ],
+        },
+      }),
+    },
+  );
 
   assert.deepStrictEqual(
     readPreviousUat(runner, "v0.0.38-hyprws.1")?.tasks.map((task) => ({
@@ -550,4 +569,155 @@ it("preflights a tracker bundle and creates ordered acceptance children", () => 
     "--source",
     "fork-sync stable-prepare",
   ]);
+});
+
+it("renders against an immutable previous stable without judging its history", () => {
+  const sha = "c".repeat(40);
+  const base = "b".repeat(40);
+  const previousStable = "v1.4.0-hyprws.1";
+  const previousMerges = `git rev-list --merges upstream/main..${previousStable}`;
+  const runner = new RecordingRunner();
+  runner.set(`git rev-parse hyprws^{commit}`, { stdout: `${sha}\n` });
+  runner.set(`git merge-base ${sha} upstream/main`, { stdout: `${base}\n` });
+  runner.set(`git tag --points-at ${base} --sort=-v:refname`, {
+    stdout: "v1.4.0-nightly.20260830.1217\n",
+  });
+  runner.set("git tag --list v*-hyprws.*", { stdout: `${previousStable}\n` });
+  // A published tag can never be rewritten, so a trailer finding or a merge in its history is not
+  // a reason to refuse today's render. Both are seeded here and both must be ignored.
+  runner.set(previousMerges, { stdout: "d".repeat(40) });
+  runner.set(`vp run fork:delta --base upstream/main --head ${sha} --json`, {
+    stdout: JSON.stringify({
+      commits: [
+        commit("srcnew1", "feat(web): route project window intents (#42)"),
+        commit("srcnopr", "feat(web): keep terminals attached (#99)"),
+        commit("drifted", "feat(web): manual sidebar thread ordering"),
+      ],
+      findings: [],
+      warnings: [],
+    }),
+  });
+  runner.set(`vp run fork:delta --base upstream/main --head ${previousStable} --json`, {
+    stdout: JSON.stringify({
+      commits: [commit("prev-drifted", "feat(web): manual sidebar thread ordering")],
+      findings: ["prev-drifted is missing a Fork-Wire trailer"],
+      warnings: [],
+    }),
+  });
+  for (const row of ["srcnew1", "srcnopr", "drifted"]) {
+    runner.set(`git diff-tree --root --no-commit-id --name-only -r ${row}`, {
+      stdout: `apps/web/src/${row}.ts\n`,
+    });
+    runner.set(`git merge-base --is-ancestor ${row} upstream/main`, { status: 1 });
+  }
+  runner.set("gh pr view 42 --repo RSI-Software/t3code-hyprws --json body", {
+    stdout: JSON.stringify({ body: "Routes intents to the project window.\n\nDetails follow." }),
+  });
+  // A deleted, transferred, or cherry-picked pull request number must cost one sentence of prose,
+  // never the whole render.
+  runner.set("gh pr view 99 --repo RSI-Software/t3code-hyprws --json body", {
+    status: 1,
+    stderr: "could not resolve to a PullRequest",
+  });
+  runner.set(`gh ${uatListArgs("v1.4.0-hyprws").join(" ")}`, { stdout: "[]" });
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-uat-review-"));
+  const output = NodePath.join(root, "uat.md");
+
+  execute(parseArgs(["--output", output]), runner);
+  const body = NodeFS.readFileSync(output, "utf8");
+
+  assert.isFalse(runner.calls.some(({ args }) => `git ${args.join(" ")}` === previousMerges));
+  assert.include(
+    body,
+    "`srcnew1` feat(web): route project window intents (#42) — Routes intents to the project window.",
+  );
+  assert.include(body, "`srcnopr` feat(web): keep terminals attached (#99)\n");
+  assert.include(body, "## Carried with changes");
+  assert.match(
+    body,
+    /## Carried with changes[\s\S]*`drifted` feat\(web\): manual sidebar thread ordering/,
+  );
+});
+
+it("carries a renamed acceptance child and refuses a truncated child page", () => {
+  const structured = (nodes: ReadonlyArray<unknown>, total: number) => {
+    const runner = new RecordingRunner();
+    runner.set(`gh ${uatListArgs("v0.0.38-hyprws").join(" ")}`, {
+      stdout: JSON.stringify([
+        {
+          number: 516,
+          title: "UAT v0.0.38-hyprws",
+          body: "## Acceptance\n\n<!-- fork-uat:subissues:v1 -->",
+          url: "https://github.com/RSI-Software/t3code-hyprws/issues/516",
+        },
+      ]),
+    });
+    runner.set(
+      "gh issue view 516 --repo RSI-Software/t3code-hyprws --json subIssues,subIssuesSummary",
+      { stdout: JSON.stringify({ subIssuesSummary: { total }, subIssues: { nodes } }) },
+    );
+    return runner;
+  };
+  const child = {
+    number: 517,
+    title: "Sidebar ordering survives a restart",
+    state: "OPEN",
+    url: "https://github.com/RSI-Software/t3code-hyprws/issues/517",
+  };
+
+  // The human owns these titles and may reword one while testing. A rename must not drop the
+  // condition or refuse the next release.
+  assert.deepStrictEqual(readPreviousUat(structured([child], 1), "v0.0.38-hyprws.1")?.tasks, [
+    {
+      area: "Acceptance",
+      title: "Sidebar ordering survives a restart",
+      carriedFrom: [{ issue: 516, task: 517, status: "unsettled" }],
+    },
+  ]);
+  assert.throws(
+    () => readPreviousUat(structured([child], 3), "v0.0.38-hyprws.1"),
+    /listed 1 of 3 acceptance children/,
+  );
+});
+
+it("finds a previous UAT that carries no release label", () => {
+  const runner = new RecordingRunner();
+  runner.set(`gh ${uatListArgs("v0.0.36-hyprws").join(" ")}`, {
+    stdout: JSON.stringify([
+      {
+        number: 245,
+        title: "UAT v0.0.36-hyprws",
+        body: "## Close condition\n\n### Sidebar\n\n- [ ] Manual ordering works\n",
+        url: "https://github.com/RSI-Software/t3code-hyprws/issues/245",
+      },
+    ]),
+  });
+
+  assert.strictEqual(readPreviousUat(runner, "v0.0.36-hyprws.1")?.issue, 245);
+  // Labels are applied by hand and a missing one silently lost every carried condition.
+  assert.isFalse(runner.calls.some(({ args }) => args.includes("--label")));
+});
+
+it("refuses to guess which issue a receipt-less ghb run created", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-uat-receipt-"));
+  const receipt = NodePath.join(root, "create.json");
+  const url = (number: number) => `https://github.com/RSI-Software/t3code-hyprws/issues/${number}`;
+  const succeed =
+    (stdout: string) => (_runner: CommandRunner, _command: string, _args: ReadonlyArray<string>) =>
+      stdout;
+  const runner = new RecordingRunner();
+
+  assert.throws(
+    () =>
+      ensureCreated(runner, receipt, ["issue", "create"], succeed(`${url(900)}\n${url(901)}\n`)),
+    /exactly one created issue \(2 found\)/,
+  );
+  assert.throws(
+    () => ensureCreated(runner, receipt, ["issue", "create"], succeed("nothing filed\n")),
+    /exactly one created issue \(0 found\)/,
+  );
+  assert.deepStrictEqual(
+    ensureCreated(runner, receipt, ["issue", "create"], succeed(`${url(900)} ${url(900)}\n`)),
+    { number: 900, url: url(900) },
+  );
 });
