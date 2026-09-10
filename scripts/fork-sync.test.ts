@@ -16,6 +16,7 @@ import {
   collectRetireEvidence,
   completeGeneratedConflictRegeneration,
   conflictResolutionIsReady,
+  conflictStopDirtAllowance,
   decisionSurface,
   execute,
   filledDecisionCells,
@@ -37,6 +38,7 @@ import {
   parseSilentSeam,
   preserveRecordDecisions,
   reconcileAfterApply,
+  budgetRaiseReason,
   repairDomain,
   resumeRererePublication,
   rehearsalConflictRows,
@@ -1449,6 +1451,67 @@ it("round-trips escaped pipes and backslashes in conflict cells", () => {
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
+it("allows a conflict stop's dirt at whichever stage the stop was recorded", () => {
+  const root = fixtureRoot();
+  const rows = [
+    {
+      commit: C,
+      subject: "fix(web): preserve scoped behavior",
+      domain: "fork-meta",
+      path: "apps/web/src/reused.ts",
+      class: "mechanical" as const,
+      resolution: "kept both",
+      agentSafe: "yes",
+      decidedBy: "agent" as const,
+    },
+  ];
+  const stopped = (stage: SyncReport["stage"], overrides: Partial<SyncReport["walk"]> = {}) =>
+    report(root, {
+      stage,
+      conflicts: rows,
+      walk: { stop: { reason: "conflict" as const, detail: "declined" }, ...overrides },
+    });
+
+  // The conflicts stage is the shape the allowance was written for.
+  assert.deepStrictEqual(
+    [...conflictStopDirtAllowance(stopped("conflicts"))],
+    ["apps/web/src/reused.ts"],
+  );
+  // A conflict stop the additive phase raised sits at a later stage and its lane is dirty for the
+  // same reason, so the stop reason is what earns the allowance.
+  assert.deepStrictEqual(
+    [
+      ...conflictStopDirtAllowance(
+        stopped("replayed", {
+          additive: {
+            pass: false,
+            attempts: 1,
+            findings: [
+              { check: "readded", path: "apps/web/src/kept.ts", detail: "re-added upstream lines" },
+            ],
+            fixed: [],
+          },
+        }),
+      ),
+    ],
+    ["apps/web/src/reused.ts", "apps/web/src/kept.ts"],
+  );
+  // No stop, no allowance: a fresh or finished lane stays strictly clean.
+  assert.deepStrictEqual([...conflictStopDirtAllowance(report(root, { conflicts: rows }))], []);
+  assert.deepStrictEqual(
+    [
+      ...conflictStopDirtAllowance(
+        report(root, {
+          stage: "conflicts",
+          conflicts: rows,
+          walk: { stop: { reason: "environment", detail: "no lane" } },
+        }),
+      ),
+    ],
+    [],
+  );
+});
+
 it("distinguishes importer ownership drift from registry snapshot drift", () => {
   const base =
     "lockfileVersion: '9.0'\nimporters:\n  .:\n    specifiers: {}\nsnapshots:\n  a: old\n";
@@ -1898,6 +1961,27 @@ it("reads a fork commit's own identifiers out of its diff", () => {
     "window.perProject",
     "opens one window per project",
   ]);
+});
+
+it("keeps module specifiers and fixture data out of a fork commit's identifiers", () => {
+  // Every one of these was harvested on the v0.0.41-nightly.20260910.1473 walk and then proved a
+  // retirement against the dependency's own import line (RSI-Software/t3code-hyprws#750).
+  const diff = [
+    "diff --git a/apps/desktop/src/fork.ts b/apps/desktop/src/fork.ts",
+    "+++ b/apps/desktop/src/fork.ts",
+    '+import { parse } from "smol-toml";',
+    '+import * as Effect from "effect/Effect";',
+    '+import "@effect/vitest";',
+    '+export { openWindow } from "./scoped-window.ts";',
+    '+const mod = await import("node:child_process");',
+    '+vi.mock("@effect/vitest", () => ({}));',
+    '+const at = "2026-01-01T00:00:00.000Z";',
+    '+const config = "/tmp/fable.toml";',
+    '+const toml = `name = "fable"`;',
+    '+const digits = "0000000000000000";',
+    '+const real = "scoped project window";',
+  ].join("\n");
+  assert.deepStrictEqual(forkCommitIdentifiers(diff), ["scoped project window"]);
 });
 
 it("filters a retired middle commit without changing git-log record framing", () => {
@@ -3680,6 +3764,18 @@ const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   ...args,
 ];
 
+it("names the walk and every ceiling it moved in the budget raise trailer", () => {
+  // The trailer is the whole audit of a raise — nothing is stamped into the table — so it has to
+  // read as a reason on its own: which walk widened the stack, and by how much on which measure.
+  assert.strictEqual(
+    budgetRaiseReason("v0.0.41-nightly.20260910.1473", [
+      { domain: "custom-agents", measure: "added", actual: 130, ceiling: 100, baselined: true },
+      { domain: "zmux-estate", measure: "deleted", actual: 2, ceiling: 0, baselined: false },
+    ]),
+    "the v0.0.41-nightly.20260910.1473 replay widened custom-agents added 100 -> 130, zmux-estate deleted 0 -> 2",
+  );
+});
+
 it("attributes a repair to the domain that owns the files it rewrote", () => {
   const runner = new FakeRunner();
   const log = rehearsal(["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${B}..HEAD`]);
@@ -3810,6 +3906,34 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
     assert.deepStrictEqual(inspectRecord(record, { ...binding, rebasedHead: A }), [
       `Rebased head mismatch: record ${REPAIRED}, checkout ${A}`,
     ]);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("formats what the repair rewrote before it commits", () => {
+  const state = dirtyRepairRun();
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const order = state.runner.calls.filter(
+      ({ command, args }) =>
+        (command === "vp" && args[0] === "fmt") ||
+        (command === "git" && (args.includes("add") || args.includes("commit"))),
+    );
+    const formatted = order.findIndex(({ command }) => command === "vp");
+    assert.notStrictEqual(formatted, -1, "the repair commit ran no formatter");
+    // The formatter reads exactly the paths the repair staged — the conflict-time format ran long
+    // before these files were rewritten.
+    assert.deepStrictEqual(order[formatted]?.args, [
+      "fmt",
+      "--no-error-on-unmatched-pattern",
+      "scripts/fork-sync.ts",
+    ]);
+    // What it rewrote is re-staged and committed, not left behind for trunk's `vp check` to find.
+    assert.isTrue(order[formatted + 1]?.args.includes("add"));
+    assert.isTrue(order[formatted + 2]?.args.includes("commit"));
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -6464,7 +6588,7 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
     }
   });
 
-  it("refuses the resumed auto walk while the decision row is still TODO", () => {
+  it("stops the resumed auto walk on the conflict while the decision row is still TODO", () => {
     const root = fixtureRoot();
     const stopped = stoppedReport(root);
     NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
@@ -6474,12 +6598,19 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
     setOrientationResponses(runner);
     try {
       // The auto path reaches the record check inside unblockRehearse, which the resumed
-      // walkOnce loop calls before it continues the rebase — so an unclassified seam refuses
-      // before anything replays.
+      // walkOnce loop calls before it continues the rebase — so an unclassified seam takes the
+      // walk's own conflict stop before anything replays. It is a row a human owns, not a crash
+      // (RSI-Software/t3code-hyprws#747).
       assert.throws(
         () => execute(["unblock-auto", "--report", stopped.reportPath], root, runner),
-        new RegExp(`record row remains incomplete for ${declinedPath.replaceAll(".", "\\.")}`),
+        /walk stopped at a retained conflict/,
       );
+      const written = JSON.parse(
+        NodeFS.readFileSync(stopped.reportPath, "utf8"),
+      ) as unknown as SyncReport;
+      assert.strictEqual(written.walk?.stop?.reason, "conflict");
+      assert.include(written.walk?.stop?.detail ?? "", "The conflict handoff is incomplete:");
+      assert.include(written.walk?.stop?.detail ?? "", `${declinedPath}: record row still on TODO`);
       assert.isFalse(runner.calls.some(({ args }) => args.includes("--continue")));
       assert.isFalse(runner.calls.some(({ args }) => args.includes("--skip")));
     } finally {
