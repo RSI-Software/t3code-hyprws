@@ -20,6 +20,14 @@ import {
   saveRerereCache,
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
+import {
+  budgetFindings,
+  FORK_BUDGET_PATH,
+  parseForkBudget,
+  raiseForkBudget,
+  type ForkBudgetFinding,
+  type ForkBudgetMeasured,
+} from "./lib/fork-budget.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import {
@@ -34,6 +42,7 @@ import {
   formatCommand,
   repairCommitMessage,
   repairKind,
+  type RepairKind,
   runRepairs,
   verifyPlan,
   type RepairFailure,
@@ -58,12 +67,18 @@ import {
 } from "./lib/fork-policy.ts";
 import {
   forkCommitSourceExtensions,
+  isFixtureLiteral,
+  isModuleSpecifierLine,
   isOpaqueDiffPath,
   isRetireEvidenceSite,
   RETIRE_PROBE_EXCLUSIONS,
 } from "./lib/fork-retire-probe.ts";
 import { type StableCandidate } from "./lib/fork-rebase-issues.ts";
-import { normalizeReplayMessages, withoutRepairMessages } from "./lib/fork-replay-messages.ts";
+import {
+  isRepairMessage,
+  normalizeReplayMessages,
+  withoutRepairMessages,
+} from "./lib/fork-replay-messages.ts";
 import {
   forkLogArguments,
   isForkDomain,
@@ -71,6 +86,15 @@ import {
   parseForkTrailers,
 } from "./lib/fork-trailers.ts";
 import { commitNumstatArguments, parseCommitNumstat } from "./lib/fork-numstat.ts";
+import { classifyTrunkMovement } from "./lib/fork-sync-fold.ts";
+import {
+  finishActiveFold,
+  foldAndRecheck,
+  foldLinearMovement,
+  leasedPushWithFoldRetry,
+  unblockFold,
+  type FoldVerbContext,
+} from "./fork-sync-fold-verb.ts";
 import { retainRewriteArchive, rewriteArchiveBinding } from "./lib/fork-rewrite-archive.ts";
 import { buildWalkSize, type WalkSize } from "./lib/fork-walk-size.ts";
 
@@ -474,8 +498,12 @@ const voidedLeaseMessage = (
 ): string => {
   const trash =
     worktree !== undefined ? `\nStale rehearsal worktree is pending trash: trash ${worktree}` : "";
-  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Any movement of origin/hyprws voids the rehearsal.\nReport stage is void; the walk re-lists from the moved trunk, and a single verb restarts at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the walk freeze in docs/operations/fork-sync.md.`;
+  return `staleness: origin/hyprws moved past the report's lease; report leased at ${expectedOld}, origin/hyprws is now ${live}. Movement that cannot fold — a merge, a rewritten trunk, a moved shared base, or a moved target — voids the rehearsal.\nReport stage is void; the walk re-lists from the moved trunk, and a single verb restarts at vp run fork:sync unblock-list. Rehearsal branch ${branch} is orphaned.${trash}\nSee the fold rule in docs/operations/fork-sync.md.`;
 };
+
+/** The linear-movement notice that replaces the void at `replayed`/`checked` (RSI-Software/t3code-hyprws#922). */
+const foldNotice = (report: SyncReport, live: string): string =>
+  `fold: origin/hyprws advanced to \`${live}\` past lease \`${report.source!.expectedOld}\`; the movement is a linear landing sequence, so \`vp run fork:sync unblock-fold\` folds it into the candidate instead of voiding the walk.`;
 
 const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => {
   // Make every unblock verb stale-aware. A report that has no source binding
@@ -490,6 +518,34 @@ const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => 
   const live = result.stdout.trim();
   if (result.status !== 0 || live.length === 0) return;
   if (live === leaseSha) return;
+  // A walk with a lane at `replayed`/`checked` no longer voids on linear trunk movement: the
+  // movement folds (RSI-Software/t3code-hyprws#922). A resumed fold (stage `conflicts` or
+  // `folding` with an active fold) is mid-flight: its movement is already being incorporated, so
+  // linear movement continues instead of voiding. Any other stage never had a lane to fold into,
+  // and movement classify cannot fold keeps the void.
+  if (
+    report.kind !== "rewrite" &&
+    report.source !== undefined &&
+    report.target !== undefined &&
+    report.lane !== undefined &&
+    (report.stage === "replayed" ||
+      report.stage === "checked" ||
+      ((report.stage === "conflicts" || report.stage === "folding") &&
+        report.activeFold !== undefined))
+  ) {
+    const movement = classifyTrunkMovement(
+      report.repositoryRoot,
+      report.source.expectedOld,
+      live,
+      report.source.sharedBase,
+      report.target.sha,
+    );
+    if (movement.kind === "linear") {
+      if (report.stage === "replayed" || report.stage === "checked")
+        process.stdout.write(`${foldNotice(report, live)}\n`);
+      return;
+    }
+  }
   const branch =
     report.lane?.branch ??
     (() => {
@@ -588,7 +644,7 @@ const unblockList = (
   writeRecord(report);
   const leaseHead = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   process.stdout.write(
-    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\nFreeze: walk lease taken at \`${leaseHead}\` (origin/hyprws) — while this report holds the lease, hyprws takes no landing until unblock-apply or an explicit void; see the walk freeze in docs/operations/fork-sync.md.\n`,
+    `${reportPath}\nStop. Ask the human to select one listed target:\n${offeredTagLines(candidates, values.has("--all")).join("\n")}\n${renderBotSnapshot(bot)}\nFreeze: walk lease taken at \`${leaseHead}\` (origin/hyprws) — while this report holds the lease, linear landings on hyprws fold at vp run fork:sync unblock-fold; see the fold rule in docs/operations/fork-sync.md.\n`,
   );
   return report;
 };
@@ -707,6 +763,21 @@ const unblockOrient = (
 
 const replayMessages = (runner: CommandRunner, cwd: string, range: string): string =>
   gitRaw(runner, cwd, ["log", "--reverse", "--topo-order", "--format=%B%x1e", range], true);
+
+/** Replay messages with their commit SHAs, so fold repairs can be excluded exactly (RSI-Software/t3code-hyprws#922). */
+const replayMessagesWithShas = (
+  runner: CommandRunner,
+  cwd: string,
+  range: string,
+): ReadonlyArray<{ sha: string; message: string }> =>
+  gitRaw(runner, cwd, ["log", "--reverse", "--topo-order", "--format=%H%x1f%B%x1e", range], true)
+    .split("\x1e")
+    .flatMap((part) => {
+      if (part === "" || part === "\n") return [];
+      const separator = part.indexOf("\x1f");
+      if (separator === -1) return [];
+      return [{ sha: part.slice(0, separator).trim(), message: part.slice(separator + 1) }];
+    });
 const currentCommit = (
   runner: CommandRunner,
   cwd: string,
@@ -854,7 +925,10 @@ const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
     for (const row of filledDecisionCells(text)) {
       if (row.action === "retire") subjects.add(row.subject);
     }
-    for (const row of parseDecisionRows(text)) {
+    // A record a stop left partly undecided carries fork-commit rows whose Action cell is still
+    // TODO (#876). This reader only looks for retire rows, so it tolerates the undecided cells
+    // instead of rejecting a record the pending ledger row legally carries.
+    for (const row of parseDecisionRows(text, { allowIncomplete: true })) {
       if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
     }
   }
@@ -908,10 +982,11 @@ const originalSeries = (report: SyncReport): { messages: string; count: number }
   return { messages: stripped.messages, count: (report.originalCount ?? 0) - stripped.removed };
 };
 
-const expectedReplayCount = (report: SyncReport, retired: ReadonlySet<string>): number => {
-  const baseline = originalSeries(report);
-  return baseline.count - matchedRetiredCount(baseline.messages, retired);
-};
+const expectedReplayCount = (
+  report: SyncReport,
+  retired: ReadonlySet<string>,
+  baseline = originalSeries(report),
+): number => baseline.count - matchedRetiredCount(baseline.messages, retired);
 
 /**
  * Measures the stack the walk replayed: the three numbers per cycle the walk records as its size
@@ -954,6 +1029,30 @@ const walkSizeRecord = (report: SyncReport, runner: CommandRunner): WalkSize | u
   return buildWalkSize({ commits, statsBySha, forkChanged, upstreamChanged });
 };
 
+/**
+ * The expected series is the original replay (`sharedBase..T`) followed by every fold segment's
+ * own `originalMessages` in order (RSI-Software/t3code-hyprws#922). Standalone fold repairs are
+ * excluded from the candidate side by SHA, from `repairCommits` on the segments, because they
+ * never autosquash into the proved prefix.
+ */
+const expectedSeriesWithFolds = (report: SyncReport): { messages: string; count: number } => {
+  const baseline = originalSeries(report);
+  const folds = report.folds ?? [];
+  if (folds.length === 0) return baseline;
+  const foldParts = folds.map((fold) => ({
+    ...withoutRepairMessages(fold.originalMessages),
+    declared: fold.originalCount,
+  }));
+  return {
+    messages: [baseline.messages, ...foldParts.map((part) => part.messages)].join(""),
+    count:
+      baseline.count + foldParts.reduce((total, part) => total + (part.declared - part.removed), 0),
+  };
+};
+
+const standaloneRepairShas = (report: SyncReport): ReadonlySet<string> =>
+  new Set((report.folds ?? []).flatMap((fold) => (fold.repairCommits ?? []).map(({ sha }) => sha)));
+
 export const verifyReplay = (report: SyncReport, runner: CommandRunner): void => {
   if (
     report.target === undefined ||
@@ -963,23 +1062,35 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   )
     throw new Error("replay binding is incomplete");
   const retired = retiredSubjectsForReport(report);
-  const baseline = originalSeries(report);
+  const baseline = expectedSeriesWithFolds(report);
   const matched = matchedRetiredCount(baseline.messages, retired);
-  const expectedCount = expectedReplayCount(report, retired);
+  const expectedCount = expectedReplayCount(report, retired, baseline);
   // The walk appends its own repair commits after the replay, so both proofs run over the fork
   // series alone. A rerun that already carries a repair still has to show the same fork commits.
+  // With folds, standalone fold repairs are dropped by SHA from `repairCommits`, not by message,
+  // so a folded landing that merely shares a subject with a repair still counts
+  // (RSI-Software/t3code-hyprws#922).
+  const standalone = standaloneRepairShas(report);
   const series = withoutRepairMessages(
     replayMessages(runner, report.lane.worktree, `${report.target.sha}..HEAD`),
   );
+  const messagesWithShas =
+    standalone.size > 0
+      ? replayMessagesWithShas(runner, report.lane.worktree, `${report.target.sha}..HEAD`).filter(
+          ({ sha, message }) => !standalone.has(sha) && !isRepairMessage(message),
+        )
+      : undefined;
   const count =
-    Number(
-      git(
-        runner,
-        report.lane.worktree,
-        ["rev-list", "--count", `${report.target.sha}..HEAD`],
-        true,
-      ),
-    ) - series.removed;
+    messagesWithShas === undefined
+      ? Number(
+          git(
+            runner,
+            report.lane.worktree,
+            ["rev-list", "--count", `${report.target.sha}..HEAD`],
+            true,
+          ),
+        ) - series.removed
+      : messagesWithShas.length;
   if (count !== expectedCount) {
     if (matched === 0)
       throw new Error(`replay commit count changed: ${baseline.count} -> ${count}`);
@@ -988,7 +1099,11 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
     );
   }
   const expectedMessages = filterRetiredMessages(baseline.messages, retired);
-  if (normalizeReplayMessages(series.messages) !== normalizeReplayMessages(expectedMessages))
+  const candidateMessages =
+    messagesWithShas === undefined
+      ? series.messages
+      : `${messagesWithShas.map(({ message }) => message).join("\x1e")}\x1e`;
+  if (normalizeReplayMessages(candidateMessages) !== normalizeReplayMessages(expectedMessages))
     throw new Error("replay commit messages changed");
 };
 
@@ -1061,14 +1176,9 @@ const unblockRehearse = (
     const live = git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]);
     if (live !== source.expectedOld)
       throw new Error(
-        voidedLeaseMessage(
-          `rehearse/${target.tag}-from-${source.expectedOld.slice(0, 12)}`,
-          source.expectedOld,
-          live,
-          undefined,
-        ),
+        voidedLeaseMessage(expectedRehearsalBranch(report), source.expectedOld, live, undefined),
       );
-    const branch = `rehearse/${target.tag}-from-${source.expectedOld.slice(0, 12)}`;
+    const branch = expectedRehearsalBranch(report);
     if (
       runner.run(
         "git",
@@ -1102,7 +1212,10 @@ const unblockRehearse = (
     );
     if (rebase.status !== 0 && pendingConflicts(runner, worktree).length === 0)
       throw new Error(`git rebase failed without conflicts: ${rebase.stderr.trim()}`);
-  } else if (report.stage === "conflicts") {
+  } else if (
+    report.stage === "conflicts" ||
+    (report.stage === "folding" && report.activeFold !== undefined)
+  ) {
     if (report.lane === undefined) throw new Error("rehearsal lane is missing");
     const lane = report.lane;
     const rebasing = rebaseInProgress(runner, lane.worktree);
@@ -1113,18 +1226,29 @@ const unblockRehearse = (
         row.agentSafe === "TODO" ||
         row.agentSafe === "pending regeneration",
     );
+    // Every gap here is a row a human still owns, so they are collected and raised together: a
+    // stop that names one row at a time costs the operator a rerun for each of them.
+    const handoffGaps: Array<string> = [];
     for (const row of pending.filter(({ class: klass }) => klass !== "generated")) {
       const edited = recordRows.find(
         (candidate) => candidate.path === row.path && candidate.subject === row.subject,
       );
-      if (
-        edited === undefined ||
-        edited.class === "TODO" ||
-        edited.resolution === "TODO" ||
-        edited.agentSafe === "TODO" ||
-        edited.decidedBy === "TODO"
+      if (edited === undefined) {
+        handoffGaps.push(`${row.path}: the record carries no row for ${row.subject}`);
+        continue;
+      }
+      const blank = (
+        [
+          ["class", edited.class],
+          ["resolution", edited.resolution],
+          ["agent-safe", edited.agentSafe],
+          ["decided by", edited.decidedBy],
+        ] as const
       )
-        throw new Error(`record row remains incomplete for ${row.path}`);
+        .filter(([, cell]) => cell === "TODO")
+        .map(([name]) => name);
+      if (blank.length > 0)
+        handoffGaps.push(`${row.path}: record row still on TODO for ${blank.join(", ")}`);
     }
     const staged = new Set(
       lines(git(runner, lane.worktree, ["diff", "--cached", "--name-only"], true)),
@@ -1133,9 +1257,13 @@ const unblockRehearse = (
     const unstaged = new Set(lines(git(runner, lane.worktree, ["diff", "--name-only"], true)));
     for (const row of pending.filter(({ path }) => !isGeneratedPath(path))) {
       if (conflictResolutionIsReady(row.path, staged, unmerged, unstaged)) continue;
-      if (unmerged.has(row.path)) throw new Error(`conflict remains unmerged: ${row.path}`);
-      throw new Error(`resolved conflict is not staged or restored to HEAD: ${row.path}`);
+      handoffGaps.push(
+        unmerged.has(row.path)
+          ? `${row.path}: conflict remains unmerged`
+          : `${row.path}: resolved conflict is not staged or restored to HEAD`,
+      );
     }
+    if (handoffGaps.length > 0) throw new HandoffIncomplete(handoffGaps);
     // A finished rebase already carries the regenerated lockfile in its commits; regenerating it
     // again would only dirty the lane.
     if (rebasing && pending.some(({ path }) => isGeneratedPath(path))) {
@@ -1169,6 +1297,11 @@ const unblockRehearse = (
     const retiredForRehearse = retiredSubjectsForReport(report);
     const pendingRetired = pending.some((row) => retiredForRehearse.has(row.subject));
     if (!rebasing) {
+      if (report.activeFold !== undefined) {
+        // The fold's rebase outlived the worker that ran it; finishing the fold proves whatever
+        // the lane holds instead of the full-replay assertion below (RSI-Software/t3code-hyprws#922).
+        return finishActiveFold(report, runner, foldVerbContext);
+      }
       // The replay outlived the worker that ran it: verify the lane it left instead of
       // continuing a rebase that already finished.
       assertReplayedWithoutRebase(report, runner);
@@ -1205,7 +1338,11 @@ const unblockRehearse = (
     const commit = currentCommit(runner, report.lane.worktree);
     const rerereResolved = rerereResolvedPaths(runner, report.lane.worktree, conflicts);
     const additions = rehearsalConflictRows(commit, conflicts, rerereResolved);
-    report = { ...report, stage: "conflicts", conflicts: [...report.conflicts, ...additions] };
+    report = preserveRecordDecisions({
+      ...report,
+      stage: "conflicts",
+      conflicts: [...report.conflicts, ...additions],
+    });
     writeReport(report);
     writeRecord(report);
     process.stdout.write(
@@ -1219,6 +1356,7 @@ const unblockRehearse = (
     );
     return report;
   }
+  if (report.activeFold !== undefined) return finishActiveFold(report, runner, foldVerbContext);
   verifyReplay(report, runner);
   const rebasedHead = git(runner, report.lane.worktree, ["rev-parse", "HEAD"], true);
   const stackSize = Number(
@@ -1231,13 +1369,13 @@ const unblockRehearse = (
   );
   // Every walk records the size of the stack it replayed (RSI-Software/t3code-hyprws#672).
   const size = walkSizeRecord(report, runner);
-  report = {
+  report = preserveRecordDecisions({
     ...report,
     stage: "replayed",
     rebasedHead,
     stackSize,
     walk: { ...(report.walk ?? {}), ...(size === undefined ? {} : { size }) },
-  };
+  });
   writeReport(report);
   writeRecord(report);
   process.stdout.write(
@@ -1361,21 +1499,51 @@ export const repairDomain = (
   return isForkDomain(only) ? only : "fork-meta";
 };
 
+/** The replayed fork commit that last owned each changed path. */
+const repairOwners = (
+  runner: CommandRunner,
+  worktree: string,
+  base: string,
+): ReadonlyMap<string, { readonly sha: string; readonly subject: string }> => {
+  const owners = new Map<string, { readonly sha: string; readonly subject: string }>();
+  const raw = gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${base}..HEAD`],
+    true,
+  );
+  for (const record of raw.split("\x1e").slice(1)) {
+    const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
+    const trailers = parseForkTrailers(body);
+    // Only a declared fork commit can own a repair. A prior fixup has no trailers,
+    // and a standalone walk repair is bookkeeping rather than an ownership claim.
+    if (
+      trailers.domain === undefined ||
+      trailers.tier === undefined ||
+      trailers.repair !== undefined
+    )
+      continue;
+    for (const file of lines(files)) if (!owners.has(file)) owners.set(file, { sha, subject });
+  }
+  return owners;
+};
+
 /**
- * Commit whatever a repair pass rewrote, as the walk's own commit. Nothing is amended and nothing
- * is squashed into a replayed fork commit: the SHAs the rehearsal proved stay exactly as they are,
- * and the repair arrives with an author, a subject and the trailers that say which walk made it
- * (RSI-Software/t3code-hyprws#663). A conflict resolution is not a repair — rebase semantics put
- * it inside the commit being replayed, and `autoResolveConflicts` leaves it there.
+ * Commit a repair as one trailer-free fixup per unambiguous fork owner. Paths with no declared
+ * owner stay together in the walk's standalone bookkeeping commit; guessing would fold a repair
+ * into the wrong fork decision.
  */
 const commitWalkRepairs = (
   report: SyncReport,
   runner: CommandRunner,
   worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
   outcome: {
     readonly ran: ReadonlyArray<{ readonly command: string }>;
     readonly dirtiedBy?: string;
   },
+  /** A budget reconciliation names its own kind and owes the raise trailer the gate reads. */
+  overrides?: { readonly kind?: RepairKind; readonly budgetRaise?: string },
 ): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
   const tag = report.target?.tag;
   const base = report.target?.sha;
@@ -1384,22 +1552,138 @@ const commitWalkRepairs = (
   botGit(runner, worktree, ["add", "-A"]);
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
+  // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
+  // inside the conflict, before the verify battery, the additive fixes and the budget raise exist;
+  // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
+  // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
+  // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
+  const format = formatCommand(paths);
+  if (format !== null) {
+    const formatted = runRepairs(runner, worktree, [format], verificationEnv);
+    if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+    botGit(runner, worktree, ["add", "-A"]);
+  }
   const command =
     outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
-  const message = repairCommitMessage({
-    kind: repairKind(command),
-    tag,
-    domain: repairDomain(runner, worktree, base, paths),
-    command,
-  });
-  botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
-  const [sha = "", subject = ""] = git(
+  const owners = repairOwners(runner, worktree, base);
+  // A repair whose owner lies in an already-proved prefix may not autosquash: the fold proof
+  // covers that prefix verbatim (RSI-Software/t3code-hyprws#922). Such repairs ride in the
+  // standalone commit appended to the head, recorded in the newest segment's `repairCommits`.
+  const folds = report.folds ?? [];
+  const provedBoundary = folds.length > 0 ? folds[folds.length - 1]!.onto : undefined;
+  const ownerIsProved = (sha: string): boolean =>
+    provedBoundary !== undefined &&
+    runner.run("git", ["merge-base", "--is-ancestor", sha, provedBoundary], worktree).status === 0;
+  const owned = new Map<string, Array<string>>();
+  const standalone: Array<string> = [];
+  for (const path of paths) {
+    const owner = owners.get(path);
+    if (owner === undefined || ownerIsProved(owner.sha)) standalone.push(path);
+    else owned.set(owner.sha, [...(owned.get(owner.sha) ?? []), path]);
+  }
+  // Split the staged repair by owning commit. `reset` only changes the index; each
+  // commit below adds exactly its own paths back, so autosquash has one target.
+  botGit(runner, worktree, ["reset"]);
+  const committed: Array<{ readonly sha: string; readonly subject: string }> = [];
+  const commit = (message: string, files: ReadonlyArray<string>): void => {
+    botGit(runner, worktree, ["add", "--", ...files]);
+    botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
+    const [sha = "", subject = ""] = git(
+      runner,
+      worktree,
+      ["show", "-s", "--format=%H%x1f%s", "HEAD"],
+      true,
+    ).split("\x1f");
+    committed.push({ sha, subject });
+  };
+  for (const [sha, files] of owned) {
+    const owner = [...owners.values()].find((candidate) => candidate.sha === sha);
+    if (owner === undefined) throw new Error(`repair owner disappeared: ${sha}`);
+    commit(`fixup! ${owner.subject}`, files);
+  }
+  if (standalone.length > 0) {
+    const message = repairCommitMessage({
+      kind: overrides?.kind ?? repairKind(command),
+      tag,
+      domain: repairDomain(runner, worktree, base, standalone),
+      command,
+      ...(overrides?.budgetRaise === undefined ? {} : { budgetRaise: overrides.budgetRaise }),
+    });
+    commit(message, standalone);
+  }
+  return committed;
+};
+
+/** `vp run` prints its own command banner above the script's stdout; the JSON starts at its first line. */
+const jsonPayload = (raw: string): string => {
+  const start = raw.startsWith("{") ? 0 : raw.indexOf("\n{");
+  if (start === -1)
+    throw new Error(`fork:delta --inventory --json printed no JSON object:\n${raw}`);
+  return raw.slice(start);
+};
+
+export interface ForkBudgetReconciliation {
+  readonly findings: ReadonlyArray<ForkBudgetFinding>;
+  readonly commit?: { readonly sha: string; readonly subject: string };
+}
+
+/** The `Fork-Budget: raise <reason>` text, naming the walk and every ceiling it moved. */
+export const budgetRaiseReason = (
+  tag: string,
+  findings: ReadonlyArray<ForkBudgetFinding>,
+): string =>
+  `the ${tag} replay widened ${findings
+    .map(
+      (finding) => `${finding.domain} ${finding.measure} ${finding.ceiling} -> ${finding.actual}`,
+    )
+    .join(", ")}`;
+
+/**
+ * Reconcile the budget with the stack the replay produced (RSI-Software/t3code-hyprws#745). A
+ * kept-both resolution grows the domain it lands in, so a ceiling the fork measured before the
+ * replay can be genuinely too low the moment the replay ends. The gate names the whole fix in its
+ * refusal — raise the exceeded ceiling and carry `Fork-Budget: raise <reason>` on the commit that
+ * does — and none of it is a judgement, so the walk takes that route itself instead of crashing on
+ * a refusal whose repair it already knows. Only an exceeded ceiling moves, and only up to the
+ * number now measured: a re-render would ratchet every untouched domain down to today's numbers
+ * and spend headroom nobody decided to spend. The raise rides in the walk's own `Fork-Repair`
+ * commit, whose lines the inventory already excludes, so writing it cannot widen a domain again.
+ */
+const reconcileForkBudget = (
+  report: SyncReport,
+  runner: CommandRunner,
+  worktree: string,
+  verificationEnv: NodeJS.ProcessEnv,
+): ForkBudgetReconciliation => {
+  const tag = report.target?.tag;
+  const budgetFile = NodePath.join(worktree, FORK_BUDGET_PATH);
+  if (tag === undefined || !NodeFS.existsSync(budgetFile)) return { findings: [] };
+  const inventory = JSON.parse(
+    jsonPayload(
+      requireSuccess(
+        runner,
+        "vp",
+        ["run", "--no-cache", "fork:delta", "--inventory", "--json"],
+        worktree,
+        undefined,
+        verificationEnv,
+      ),
+    ),
+  ) as { readonly domains: ReadonlyArray<ForkBudgetMeasured> };
+  const markdown = NodeFS.readFileSync(budgetFile, "utf8");
+  const findings = budgetFindings(inventory.domains, parseForkBudget(markdown));
+  if (findings.length === 0) return { findings: [] };
+  NodeFS.writeFileSync(budgetFile, raiseForkBudget(markdown, findings, inventory.domains));
+  const [commit] = commitWalkRepairs(
+    report,
     runner,
     worktree,
-    ["show", "-s", "--format=%H%x1f%s", "HEAD"],
-    true,
-  ).split("\x1f");
-  return [{ sha, subject }];
+    verificationEnv,
+    { ran: [], dirtiedBy: "fork:delta --inventory" },
+    { kind: "budget", budgetRaise: budgetRaiseReason(tag, findings) },
+  );
+  if (commit === undefined) throw new Error("the budget raise wrote no commit");
+  return { findings, commit };
 };
 
 /**
@@ -1429,7 +1713,7 @@ const runAdditivePhase = (
   if (fixes.paths.length > 0) {
     // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
     // appended trailers are proven in the lane exactly like the repair pass's.
-    const [repaired] = commitWalkRepairs(report, runner, worktree, {
+    const [repaired] = commitWalkRepairs(report, runner, worktree, verificationEnv, {
       ran: [],
       dirtiedBy: "additive",
     });
@@ -1470,15 +1754,11 @@ export const parseSilentSeam = (value: string): SilentSeam => {
 };
 
 /**
- * The record is the operator's surface, so a human cell filled there outlives the regeneration a
- * check performs. A machine cell does not: the walk re-derives every agent row on each run, so an
- * agent-written cell that disagrees is an older copy of this same derivation, not a second opinion,
- * and refusing on it only turned a rerun into a human stop.
- */
-/**
  * The record is the decision surface, so a cell filled there is the decision — a rerun that
  * classifies the same subject differently loses to it instead of refusing the walk. A refusal here
- * was a human gate on a lane that has no human in it.
+ * was a human gate on a lane that has no human in it. Every verb that rewrites the record runs
+ * this first, rehearse included: a rehearsal resumed after the operator filled a cell must not
+ * re-mint it as `TODO`.
  */
 export const preserveRecordDecisions = (report: SyncReport): SyncReport => {
   if (!NodeFS.existsSync(report.recordPath)) return report;
@@ -1578,11 +1858,38 @@ const unblockCheck = (
           (report.rewrite as NonNullable<typeof report.rewrite>).base,
         ))
       : (report.target as NonNullable<typeof report.target>).tag;
+  // Before the gate, not after its refusal: the replay's own resolutions can put a domain over a
+  // ceiling measured before them, and that raise is the walk's to take (see reconcileForkBudget).
+  // The rewrite lane is excluded — its head is a constructed manifest result its reviewer signed,
+  // so the walk appends nothing to it.
+  const budget =
+    report.kind === "rewrite"
+      ? { findings: [] as ReadonlyArray<ForkBudgetFinding> }
+      : reconcileForkBudget(report, runner, worktree, verificationEnv);
+  if (budget.commit !== undefined) {
+    installedHead = budget.commit.sha;
+    report = {
+      ...report,
+      walk: {
+        ...(report.walk ?? {}),
+        repairCommits: [...(report.walk?.repairCommits ?? []), budget.commit],
+      },
+    };
+    writeReport(report);
+  }
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
     { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
     { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
+  // A raise widens what the fork may hold, so it is named in the record rather than left to the
+  // commit body alone.
+  if (budget.commit !== undefined) {
+    verification.push({
+      command: `fork budget raise: ${budgetRaiseReason(report.target?.tag ?? "", budget.findings)}`,
+      result: "recorded",
+    });
+  }
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
@@ -1641,25 +1948,79 @@ const unblockCheck = (
   // repairs. The series rewrite is excluded: its head is a constructed manifest result, so an
   // extra commit there would contradict the proposal its reviewer signed.
   const repaired =
-    report.kind === "rewrite" ? [] : commitWalkRepairs(report, runner, worktree, repairs);
-  const repairCommits = [
+    report.kind === "rewrite"
+      ? []
+      : commitWalkRepairs(report, runner, worktree, verificationEnv, repairs);
+  let repairCommits = [
     ...(report.walk?.repairCommits ?? []).filter(
       (previous) => !repaired.some(({ sha }) => sha === previous.sha),
     ),
     ...repaired,
   ];
   if (repaired.length > 0) {
-    // Prove the appended trailers in the lane rather than leaving them to trunk CI.
+    // Prove the repair in the lane before folding it into its declared owner.
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
-  // A repair commit is the lane head by construction, so the head the walk publishes needs no
-  // second read of `HEAD`.
-  const checkedHead = repaired[repaired.length - 1]?.sha ?? installedHead;
-  // The series rewrite is a human-driven proposal with no machine path: it rewrites the whole fork
-  // stack at once, so its reviewer still signs a CI verdict on a pushed lane. The unblock walk does
-  // not; its lane repair above is the verification, and trunk CI confirms after the apply.
+  const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
+  if (hasFixups) {
+    // Interactive autosquash matches `fixup!` targets by SUBJECT, so with folds on the stack it
+    // must run from the newest fold's `onto`: a target outside the todo cannot be matched, and an
+    // older commit sharing the subject cannot steal the fixup into the proved prefix
+    // (RSI-Software/t3code-hyprws#922).
+    const autosquashBase =
+      (report.folds ?? []).length > 0
+        ? report.folds![report.folds!.length - 1]!.onto
+        : report.target!.sha;
+    requireSuccess(
+      runner,
+      "git",
+      rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", autosquashBase]),
+      worktree,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+    );
+    if (
+      (report.folds ?? []).length > 0 &&
+      runner.run(
+        "git",
+        ["merge-base", "--is-ancestor", report.folds![report.folds!.length - 1]!.onto, "HEAD"],
+        worktree,
+      ).status !== 0
+    )
+      throw new Error("autosquash rewrote the proved fold prefix; the walk cannot prove its stack");
+  }
+  // Fixups no longer exist after autosquash; only standalone bookkeeping remains reportable.
+  repairCommits = repairCommits.filter(({ subject }) => !subject.startsWith("fixup! "));
+  // Autosquash rewrites the SHAs of every commit above its targets, the appended standalone
+  // repairs included. Re-read them from the finished head so the newest fold segment's
+  // `repairCommits` carries the SHAs the replay proof excludes (RSI-Software/t3code-hyprws#922).
+  const folds = report.folds ?? [];
+  let foldsWithRepairs = folds;
+  if (folds.length > 0 && repairCommits.length > 0) {
+    // The standalone repairs ride at the head, above the newest fold's `onto`, and autosquash
+    // rewrote their SHAs — so re-identify them by the `Fork-Repair` trailer their message
+    // carries, never by subject: a landing that shares the repair's subject would otherwise
+    // steal its identity (RSI-Software/t3code-hyprws#922).
+    const newestOnto = folds[folds.length - 1]!.onto;
+    const resolved = replayMessagesWithShas(runner, worktree, `${newestOnto}..HEAD`)
+      .filter(({ message }) => isRepairMessage(message))
+      .map(({ sha, message }) => ({
+        sha,
+        subject: normalizeReplayMessages(message).split("\n")[0] ?? "",
+      }));
+    const last = folds.length - 1;
+    const previous = folds[last]!.repairCommits ?? [];
+    const additions = resolved.filter(({ sha }) => !previous.some((item) => item.sha === sha));
+    if (additions.length > 0)
+      foldsWithRepairs = folds.map((fold, position) =>
+        position === last ? { ...fold, repairCommits: [...previous, ...additions] } : fold,
+      );
+  }
+  const checkedHead = hasFixups
+    ? git(runner, worktree, ["rev-parse", "HEAD"], true)
+    : (repaired[repaired.length - 1]?.sha ?? installedHead);
   let ciHead: string | undefined;
   let proposedBy = report.proposedBy;
   if (report.kind === "rewrite") {
@@ -1696,7 +2057,7 @@ const unblockCheck = (
     // A repair moves the lane head the apply publishes, so the record's head and stack size bind
     // that head. The gate compares them against the checkout, and the fork series is still
     // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommit === undefined
+    ...(repaired.length === 0 && additiveCommit === undefined && budget.commit === undefined
       ? {}
       : {
           rebasedHead: checkedHead,
@@ -1709,6 +2070,15 @@ const unblockCheck = (
             ),
           ),
         }),
+    ...(foldsWithRepairs.length > 0 &&
+    (foldsWithRepairs !== report.folds ||
+      foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
+      ? {
+          folds: foldsWithRepairs.map((fold, position) =>
+            position === foldsWithRepairs.length - 1 ? { ...fold, checkedHead } : fold,
+          ),
+        }
+      : {}),
     ...(ciHead === undefined ? {} : { ciHead }),
     ...(proposedBy === undefined ? {} : { proposedBy }),
     verification,
@@ -1725,7 +2095,7 @@ const unblockCheck = (
   const leaseLine =
     leaseSha === undefined
       ? "Freeze: report holds no lease — rerun unblock-list."
-      : `Freeze: walk lease \`${leaseSha}\` beside the candidate above — hyprws takes no landing until unblock-apply or an explicit void; see the walk freeze in docs/operations/fork-sync.md.`;
+      : `Lease: walk lease \`${leaseSha}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\`; see the fold rule in docs/operations/fork-sync.md.`;
   process.stdout.write(
     `${report.reportPath}\n${decisionSurface(NodeFS.readFileSync(report.recordPath, "utf8"))}${leaseLine}\n`,
   );
@@ -1987,7 +2357,10 @@ export const expectedRehearsalBranch = (report: SyncReport): string => {
   }
   if (report.target === undefined || report.source === undefined)
     throw new Error("rehearsal branch binding is incomplete");
-  return `rehearse/${report.target.tag}-from-${report.source.expectedOld.slice(0, 12)}`;
+  // The lane name binds to the immutable oriented source T, never the advancing frontier B: a
+  // folded walk keeps its lane name (RSI-Software/t3code-hyprws#922). B equals T until the first
+  // fold, so existing lanes keep their names.
+  return `rehearse/${report.target.tag}-from-${report.source.sha.slice(0, 12)}`;
 };
 
 export const validateAutoLane = (report: SyncReport, runner: CommandRunner): void => {
@@ -2021,12 +2394,20 @@ const porcelainPaths = (status: string): ReadonlyArray<string> => {
  * answer, so a resumed walk at that stop may carry dirt on exactly the paths the stop named —
  * every conflict row the stopped report records, whether its decision cells are still `TODO`
  * (the resume asks for them, via unblock-rehearse's record check) or already filled
- * (fill-then-resume). Every other stage is a fresh or finished lane and stays
- * strictly clean; dirt anywhere outside the stopped rows refuses and names it.
+ * (fill-then-resume), plus the paths of an additive finding no mechanical fix cleared.
+ *
+ * The stop reason is what earns the allowance, not the stage it was recorded at: a conflict stop
+ * the repair or additive phase raises sits at a later stage than `conflicts` and its lane is dirty
+ * for the same reason (RSI-Software/t3code-hyprws#748). A lane with no conflict stop on its report
+ * is fresh or finished and stays strictly clean; dirt outside the stopped rows refuses and names
+ * it.
  */
 export const conflictStopDirtAllowance = (report: SyncReport): ReadonlySet<string> => {
-  if (report.stage !== "conflicts" || report.walk?.stop?.reason !== "conflict") return new Set();
-  return new Set(report.conflicts.map(({ path }) => path));
+  if (report.walk?.stop?.reason !== "conflict") return new Set();
+  return new Set([
+    ...report.conflicts.map(({ path }) => path),
+    ...(report.walk.additive?.findings ?? []).map(({ path }) => path),
+  ]);
 };
 
 export const validateAutoLaneClean = (report: SyncReport, runner: CommandRunner): void => {
@@ -2090,6 +2471,154 @@ export const resumeRererePublication = (
       { cause: error },
     );
   }
+};
+
+/**
+ * Every post-push publication step of an unblock apply, resumable from the applied stage
+ * (RSI-Software/t3code-hyprws#922). Each step is idempotent on its own durable marker — the
+ * record comment only republishes when the comment body drifted from the local record, the
+ * churn row only appends when the ledger has no applied row for the tag, the announcement only
+ * posts once, the rerere publication and the outcome rows keep their own pending state — so the
+ * normal apply path calls this right after the push and any rerun with a persisted applied stage
+ * publishes exactly what is still missing, never a second push.
+ */
+const resumeAppliedPublication = (report: SyncReport, runner: CommandRunner): SyncReport => {
+  if (report.stage !== "applied") throw new Error("applied recovery requires an applied report");
+  if (
+    report.kind === "rewrite" ||
+    report.lane === undefined ||
+    report.target === undefined ||
+    report.source === undefined ||
+    report.installedHead === undefined
+  ) {
+    // A rewrite keeps its own publication sequence, and a thin report applied by an older walk
+    // carries nothing resumable beyond the rerere cache publication.
+    return resumeRererePublication(report);
+  }
+  const source = report.source;
+  const worktree = report.lane.worktree;
+  const recordPath = report.recordPath;
+  // The comment must keep naming the record that was pushed: republish in place when the remote
+  // body drifted from the local record (a fold after the comment went up) (RSI-Software/t3code-hyprws#922).
+  const recordCommentUrl = report.recordCommentUrl;
+  if (recordCommentUrl !== undefined && recordCommentUrl.length > 0) {
+    const commentId = /#issuecomment-(\d+)$/.exec(recordCommentUrl)?.[1];
+    if (commentId !== undefined) {
+      const remoteBody = requireSuccess(
+        runner,
+        "gh",
+        ["api", `repos/${REPOSITORY}/issues/comments/${commentId}`, "--jq", ".body"],
+        worktree,
+      ).trim();
+      if (remoteBody !== NodeFS.readFileSync(recordPath, "utf8").trim()) {
+        requireSuccess(
+          runner,
+          "gh",
+          [
+            "api",
+            `repos/${REPOSITORY}/issues/comments/${commentId}`,
+            "-X",
+            "PATCH",
+            "-F",
+            `body=@${recordPath}`,
+          ],
+          worktree,
+        );
+        process.stdout.write(`record: republished the applied record on ${recordCommentUrl}\n`);
+      }
+    }
+  }
+  const gateTag = report.target.tag;
+  // A stable upstream tag is snapshotted and announced by whichever lane moves the fork base past
+  // it (RSI-Software/t3code-hyprws#499). The pre-push candidate bindings are persisted on the
+  // report and announced from there: re-creating the list after the push would skip the snapshot
+  // branches that already exist on `origin` and drop every candidate. `reconcileStableCandidates`
+  // is idempotent, so a resume re-announces safely.
+  const persistedCandidates = report.stableCandidates;
+  announceStableCandidates(
+    persistedCandidates ??
+      (() => {
+        const newBaseSha = git(runner, worktree, ["rev-parse", `${gateTag}^{commit}`]);
+        return snapshotCrossedStableTags({
+          root: worktree,
+          oldSha: source.expectedOld,
+          oldBaseSha: git(runner, worktree, ["merge-base", source.expectedOld, newBaseSha]),
+          newBaseSha,
+          warn: (message) => process.stderr.write(`warning: ${message}\n`),
+        });
+      })(),
+  );
+  // The trunk has moved, so the row is owed now. A row the ledger already carries as applied is
+  // never appended twice (RSI-Software/t3code-hyprws#664).
+  if (report.walk?.ledger?.state !== "published") {
+    fetchBotRef(report.repositoryRoot, CHURN_REF);
+    const existing = readChurnLedger(report.repositoryRoot).find((entry) => entry.tag === gateTag);
+    if (existing === undefined || existing.pending === true)
+      report = publishChurnRow(report, gateTag);
+  }
+  // The applied-walk announcement posts exactly once, on the durable `announcementUrl` marker.
+  if (!report.announcementUrl) {
+    const announcementUrl = requireSuccess(
+      runner,
+      "gh",
+      [
+        "issue",
+        "comment",
+        String(report.issue.number),
+        "-R",
+        REPOSITORY,
+        "--body",
+        `Resolved blocking upstream commit \`${report.issue.blockingSha}\` while rebasing \`hyprws\` onto \`${gateTag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`,
+      ],
+      worktree,
+    ).trim();
+    report = { ...report, announcementUrl };
+    writeReport(report);
+  }
+  report = resumeRererePublication(report);
+  if (report.walk?.ledger?.state !== "published") {
+    report = publishWalkOutcomes(report);
+    report = {
+      ...report,
+      walk: { ...(report.walk ?? {}), ledger: { state: "published", tag: gateTag } },
+    };
+    writeReport(report);
+    process.stdout.write(`ledger: ${gateTag} row and outcomes on ${CHURN_REF}\n`);
+  }
+  return report;
+};
+
+/**
+ * An interrupted applied push (RSI-Software/t3code-hyprws#922): the publication receipt is
+ * already applied, or is pending while the trunk already advertises the receipt's head — the
+ * leased push landed. The walk regresses to the applied stage and resumes publication from
+ * there; the staleness probe, the orientation check, the gate and the push would all refuse the
+ * walk's own pushed head.
+ */
+const appliedPushRecovery = (report: SyncReport, runner: CommandRunner): SyncReport => {
+  if (report.stage !== "checked" || report.kind === "rewrite" || report.publication === undefined)
+    return report;
+  const landed =
+    report.publication.outcome === "applied" ||
+    (() => {
+      git(runner, report.repositoryRoot, ["fetch", "--quiet", "origin", HYPRWS_REF]);
+      return (
+        git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]) ===
+        report.publication.head
+      );
+    })();
+  if (!landed) return report;
+  const receipt = report.publication;
+  const recovered: SyncReport = {
+    ...report,
+    stage: "applied",
+    publication: { ...receipt, outcome: "applied" },
+  };
+  writeReport(recovered);
+  process.stdout.write(
+    `apply: origin/hyprws carries the leased push ${receipt.head}; resuming publication\n`,
+  );
+  return recovered;
 };
 
 /**
@@ -2274,7 +2803,9 @@ export const recordDecisions = (
   if (report.lane === undefined) throw new UsageError("the stopped report has no lane");
   const worktree = report.lane.worktree;
   const declined = pendingAutoConflictRows(report);
-  if (declined.length === 0)
+  // A rerun of an already-recorded report has no TODO rows left; the persisted record URL is what
+  // distinguishes it from a report that never named a declined row (#876).
+  if (declined.length === 0 && report.recordCommentUrl === undefined)
     throw new UsageError("the stopped report names no rows a human has to resolve");
   void cwd;
   // Stage the recorded resolutions: the human resolved the worktree and staged it; this makes
@@ -2313,35 +2844,77 @@ export const recordDecisions = (
       ...stamp,
     });
   }
-  const recorded: SyncReport = { ...report, decisions };
-  writeReport(recorded);
-  writeRecord(recorded);
+  const recorded: SyncReport = {
+    ...report,
+    decisions,
+    // The human resolution replaces the stop's TODO cells on each declined row (#876): the record
+    // shows the seam as resolved, and the pending ledger row reads the same resolved values.
+    conflicts: report.conflicts.map((row) =>
+      declined.includes(row)
+        ? {
+            ...row,
+            class: "human",
+            resolution: "resolved by hand in the lane",
+            agentSafe: "no",
+            decidedBy: "human",
+          }
+        : row,
+    ),
+  };
   // The record must be on the issue before the ledger row names it: recordUrl is the pointer a
-  // maintainer follows from the ledger to the human's own words.
-  const recordUrl = requireSuccess(
-    runner,
-    "gh",
-    [
-      "issue",
-      "comment",
-      String(recorded.issue.number),
-      "-R",
-      REPOSITORY,
-      "--body-file",
-      recorded.recordPath,
-    ],
-    worktree,
-  ).trim();
-  process.stdout.write(`record: ${recordUrl}\n`);
-  publishPendingDecisionRow(recorded, tag);
+  // maintainer follows from the ledger to the human's own words. The record body does not depend
+  // on the URL, so it is written to disk before the post; a rerun reuses the URL the first run
+  // persisted on the report instead of posting a second comment (#876).
+  writeRecord(recorded);
+  const recordUrl =
+    report.recordCommentUrl ??
+    requireSuccess(
+      runner,
+      "gh",
+      [
+        "issue",
+        "comment",
+        String(report.issue.number),
+        "-R",
+        REPOSITORY,
+        "--body-file",
+        report.recordPath,
+      ],
+      worktree,
+    ).trim();
+  const published: SyncReport = { ...recorded, recordCommentUrl: recordUrl };
+  writeReport(published);
+  process.stdout.write(
+    report.recordCommentUrl === undefined
+      ? `record: ${recordUrl}\n`
+      : `record: ${recordUrl} (already posted)\n`,
+  );
+  publishPendingDecisionRow(published, tag);
   for (const row of declined)
     process.stdout.write(`recorded: ${row.path} (${row.seamKey ?? "no seam key"}) by hand\n`);
-  return recorded;
+  return published;
+};
+
+/** Everything the fold verbs (scripts/fork-sync-fold-verb.ts) need from this module. */
+const recordWalkStop = (report: SyncReport, detail: string): SyncReport => ({
+  ...report,
+  walk: {
+    ...(report.walk ?? {}),
+    stop: { reason: "conflict" satisfies WalkStopReason, detail },
+  },
+});
+
+const foldVerbContext: FoldVerbContext = {
+  rehearsalRebaseArgs,
+  preserveRecordDecisions,
+  unblockCheck,
+  rehearsalConflictStop,
+  recordWalkStop,
 };
 
 const unblockApply = (
   values: ReadonlyMap<string, string>,
-  _cwd: string,
+  cwd: string,
   runner: CommandRunner,
 ): SyncReport => {
   assertOnly(values, ["--report", "--record"]);
@@ -2351,10 +2924,23 @@ const unblockApply = (
       NodePath.resolve(oneValue(values, "--record") ?? "") !== NodePath.resolve(report.recordPath)
     )
       throw new Error("record path does not match the report binding");
-    return resumeRererePublication(report);
+    return resumeAppliedPublication(report, runner);
   }
   if (report.stage !== "checked")
     throw new Error(`unblock-apply requires checked state, got ${report.stage}`);
+  // An interrupted applied push (RSI-Software/t3code-hyprws#922): the trunk already advertises
+  // the pending receipt's head, or the outcome is already applied. Route straight into the
+  // applied-resume path — the staleness probe, the orientation check, the gate, and the push
+  // would all refuse the walk's own pushed head.
+  const recovered = appliedPushRecovery(report, runner);
+  if (recovered !== report) {
+    if (
+      NodePath.resolve(oneValue(values, "--record") ?? "") !==
+      NodePath.resolve(recovered.recordPath)
+    )
+      throw new Error("record path does not match the report binding");
+    return resumeAppliedPublication(recovered, runner);
+  }
   // A checked report that is already stale must void as staleness
   // even when the bot is back on. Probe staleness before the bot so a stale
   // rehearsal silences the bot complaint. When the lease is still live, the
@@ -2431,19 +3017,35 @@ const unblockApply = (
   // lease must surface the botMode complaint, so staleBeforeBot is only used
   // to restore staleness wording when orientationCoheres would otherwise give
   // the generic phrasing.
-  if (!isRewrite && !orientationCoheres(report, runner))
+  if (!isRewrite && !orientationCoheres(report, runner)) {
+    const incoherence = orientationIncoherence(report, runner);
     throw (
       staleBeforeBot ??
       new Error(
-        voidedLeaseMessage(
+        `${voidedLeaseMessage(
           lane.branch,
           source.expectedOld,
           git(runner, report.repositoryRoot, ["rev-parse", "origin/hyprws^{commit}"]),
           lane.worktree,
-        ),
+        )}${incoherence === null ? "" : `\nBinding check: ${incoherence}`}`,
       )
     );
+  }
   validateAutoLane(report, runner);
+  // Fold before the gate: a landing that arrived between `unblock-check` and this apply is
+  // linear movement the gate would refuse (live != B). Fold it and recheck here, sharing the
+  // exact fold-and-recheck step the push-retry loop uses, so the gate runs against the advanced
+  // B (RSI-Software/t3code-hyprws#922). A refusal keeps the existing void paths above.
+  if (!isRewrite) {
+    report = foldAndRecheck(
+      report,
+      runner,
+      foldVerbContext,
+      (folded) =>
+        captureStdout(() => unblockCheck(new Map([["--report", folded.reportPath]]), cwd, runner))
+          .value,
+    );
+  }
   const applyEnv = laneEnv(worktree);
   // The gate is tag-pinned. A rewrite keeps the fork's current base, so its
   // release tag is the one the gate must see.
@@ -2480,6 +3082,30 @@ const unblockApply = (
     // renders only the immutable ref/SHA binding, so this readback does not change its digest.
     writeReport(report);
   }
+  // A stable upstream tag is snapshotted and announced by whichever lane moves the
+  // fork base past it. The bot only ever sees the tags inside its own walk window, so
+  // the ones this apply crosses are the lane's to publish
+  // (RSI-Software/t3code-hyprws#499). Snapshots are pushed before the trunk, exactly
+  // as the bot orders them, because a create-only snapshot stands on its own.
+  const newBaseSha = git(runner, worktree, ["rev-parse", `${gateTag}^{commit}`]);
+  // The pre-push candidate bindings are persisted immediately, before any gh call: if the record
+  // comment post throws, the retry must find them on the report instead of re-snapshotting —
+  // `skipExisting` would drop the branches that already exist and the candidates would never be
+  // announced (RSI-Software/t3code-hyprws#922).
+  let stableCandidates = report.stableCandidates ?? [];
+  if (stableCandidates.length === 0) {
+    stableCandidates = snapshotCrossedStableTags({
+      root: worktree,
+      oldSha: report.source!.expectedOld,
+      oldBaseSha: git(runner, worktree, ["merge-base", report.source!.expectedOld, newBaseSha]),
+      newBaseSha,
+      warn: (message) => process.stderr.write(`warning: ${message}\n`),
+    });
+    if (!isRewrite && stableCandidates.length > 0) {
+      report = { ...report, stableCandidates };
+      writeReport(report);
+    }
+  }
   const recordCommentUrl =
     report.recordCommentUrl ??
     requireSuccess(
@@ -2496,60 +3122,68 @@ const unblockApply = (
       ],
       worktree,
     ).trim();
-  if (isRewrite && report.recordCommentUrl === undefined) {
+  // Persist the record comment URL before the push for both kinds: an interrupted applied push
+  // resumes from the report alone, and the resume needs the comment it must keep current. The
+  // candidate bindings, persisted above, are never overwritten here.
+  if (report.recordCommentUrl === undefined) {
     report = { ...report, recordCommentUrl };
     writeReport(report);
   }
-  // A stable upstream tag is snapshotted and announced by whichever lane moves the
-  // fork base past it. The bot only ever sees the tags inside its own walk window, so
-  // the ones this apply crosses are the lane's to publish
-  // (RSI-Software/t3code-hyprws#499). Snapshots are pushed before the trunk, exactly
-  // as the bot orders them, because a create-only snapshot stands on its own.
-  const newBaseSha = git(runner, worktree, ["rev-parse", `${gateTag}^{commit}`]);
-  const stableCandidates = snapshotCrossedStableTags({
-    root: worktree,
-    oldSha: source.expectedOld,
-    oldBaseSha: git(runner, worktree, ["merge-base", source.expectedOld, newBaseSha]),
-    newBaseSha,
-    warn: (message) => process.stderr.write(`warning: ${message}\n`),
-  });
-  const push = runner.run(
-    "git",
-    [
-      "-c",
-      "core.commentChar=auto",
-      "push",
-      `--force-with-lease=${HYPRWS_REF}:${source.expectedOld}`,
-      "origin",
-      `HEAD:${HYPRWS_REF}`,
-    ],
-    worktree,
-    undefined,
-    { ...process.env, ...COMMENT_CONFIG },
-  );
-  if (push.status !== 0 || push.error !== undefined) {
-    const pushFailure = push.error?.message ?? (push.stderr.trim() || push.stdout.trim());
-    if (isRewrite && report.rewrite?.archive?.verification !== undefined) {
-      const archive = report.rewrite.archive;
-      const verification = archive.verification;
-      if (verification === undefined)
-        throw new Error("rewrite archive lost its verified remote readback");
-      report = {
-        ...report,
-        rewrite: {
-          ...report.rewrite,
-          archive: {
-            ...archive,
-            verification: { ...verification, trunkOutcome: "failed" },
+  if (isRewrite) {
+    const push = runner.run(
+      "git",
+      [
+        "-c",
+        "core.commentChar=auto",
+        "push",
+        `--force-with-lease=${HYPRWS_REF}:${source.expectedOld}`,
+        "origin",
+        `HEAD:${HYPRWS_REF}`,
+      ],
+      worktree,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG },
+    );
+    if (push.status !== 0 || push.error !== undefined) {
+      const pushFailure = push.error?.message ?? (push.stderr.trim() || push.stdout.trim());
+      if (report.rewrite?.archive?.verification !== undefined) {
+        const archive = report.rewrite.archive;
+        const verification = archive.verification;
+        if (verification === undefined)
+          throw new Error("rewrite archive lost its verified remote readback");
+        report = {
+          ...report,
+          rewrite: {
+            ...report.rewrite,
+            archive: {
+              ...archive,
+              verification: { ...verification, trunkOutcome: "failed" },
+            },
           },
-        },
-      };
-      writeReport(report);
-      throw new Error(
-        `leased apply refused; rewrite archive ${archive.ref}@${archive.sha} retained as failed-attempt evidence; this report cannot be refreshed: ${pushFailure}`,
-      );
+        };
+        writeReport(report);
+        throw new Error(
+          `leased apply refused; rewrite archive ${archive.ref}@${archive.sha} retained as failed-attempt evidence; this report cannot be refreshed: ${pushFailure}`,
+        );
+      }
+      throw new Error(`leased apply refused; this report cannot be refreshed: ${pushFailure}`);
     }
-    throw new Error(`leased apply refused; this report cannot be refreshed: ${pushFailure}`);
+  } else {
+    // The unblock apply leases B and folds a definite lease rejection (bounded), so landings that
+    // moved the trunk during the walk surface here instead of voiding the walk
+    // (RSI-Software/t3code-hyprws#922).
+    report = leasedPushWithFoldRetry({
+      report,
+      runner,
+      context: foldVerbContext,
+      worktree,
+      head: report.installedHead!,
+      lease: report.source!.expectedOld,
+      recordPath,
+      recheck: (folded) =>
+        captureStdout(() => unblockCheck(new Map([["--report", folded.reportPath]]), cwd, runner))
+          .value,
+    });
   }
   const appliedRewrite =
     isRewrite && report.rewrite?.archive?.verification !== undefined
@@ -2564,6 +3198,8 @@ const unblockApply = (
           },
         }
       : report.rewrite;
+  // The push landed: persist the applied stage before any publication step, so a failure below
+  // leaves a resumable applied push rather than a stranded trunk (RSI-Software/t3code-hyprws#922).
   report = {
     ...report,
     stage: "applied",
@@ -2575,43 +3211,70 @@ const unblockApply = (
     },
   };
   writeReport(report);
-  // The trunk has moved, so the row is owed now. Everything after this line can fail without
-  // losing the walk from the ledger; a step that runs after this invocation cannot
-  // (RSI-Software/t3code-hyprws#664). A rewrite keeps the fork's current base, so it has no new
-  // tag to record and would only collide with the row that base already carries.
-  if (!isRewrite) report = publishChurnRow(report, gateTag);
-  announceStableCandidates(stableCandidates);
-  requireSuccess(
-    runner,
-    "gh",
-    [
-      "issue",
-      "comment",
-      String(report.issue.number),
-      "-R",
-      REPOSITORY,
-      "--body",
-      isRewrite
-        ? `Installed the rehearsed rewrite of the fork series on \`${gateTag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`
-        : `Resolved blocking upstream commit \`${report.issue.blockingSha}\` while rebasing \`hyprws\` onto \`${gateTag}\`; the leased rewrite replaced \`${source.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`,
-    ],
-    worktree,
-  );
-  // Only the rewrite lane ever pushed its rehearsal branch, so only it has one to retire.
-  if (isRewrite) git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
-  report = resumeRererePublication(report);
-  // Collected after the cache publication so the retained receipts carry its result, and before
-  // `applied` so the invocation never reports a walk the ledger cannot show.
-  if (!isRewrite) {
-    report = publishWalkOutcomes(report);
-    report = {
-      ...report,
-      walk: { ...(report.walk ?? {}), ledger: { state: "published", tag: gateTag } },
-    };
-    writeReport(report);
-    process.stdout.write(`ledger: ${gateTag} row and outcomes on ${CHURN_REF}\n`);
+  if (isRewrite) {
+    // The reuse path must keep naming the record that was pushed: a fold before this apply
+    // changed the record bytes after the original comment went up. The republish runs only after
+    // the trunk push succeeded — a refused leased apply must take exactly the pre-existing path
+    // (archive retained, no publication reads or writes) — and the non-rewrite lane covers the
+    // same drift through `resumeAppliedPublication` below (RSI-Software/t3code-hyprws#922).
+    if (
+      report.recordCommentUrl !== undefined &&
+      report.recordCommentUrl.length > 0 &&
+      recordCommentUrl === report.recordCommentUrl
+    ) {
+      const commentId = /#issuecomment-(\d+)$/.exec(recordCommentUrl)?.[1];
+      if (commentId !== undefined) {
+        const remoteBody = requireSuccess(
+          runner,
+          "gh",
+          ["api", `repos/${REPOSITORY}/issues/comments/${commentId}`, "--jq", ".body"],
+          worktree,
+        ).trim();
+        if (remoteBody !== record.trim()) {
+          requireSuccess(
+            runner,
+            "gh",
+            [
+              "api",
+              `repos/${REPOSITORY}/issues/comments/${commentId}`,
+              "-X",
+              "PATCH",
+              "-F",
+              `body=@${recordPath}`,
+            ],
+            worktree,
+          );
+          process.stdout.write(`record: republished the drifted record on ${recordCommentUrl}\n`);
+        }
+      }
+    }
+    announceStableCandidates(stableCandidates);
+    requireSuccess(
+      runner,
+      "gh",
+      [
+        "issue",
+        "comment",
+        String(report.issue.number),
+        "-R",
+        REPOSITORY,
+        "--body",
+        `Installed the rehearsed rewrite of the fork series on \`${gateTag}\`; the leased rewrite replaced \`${report.source!.expectedOld}\`. Rehearsal record: ${recordCommentUrl}`,
+      ],
+      worktree,
+    );
+    // Only the rewrite lane ever pushed its rehearsal branch, so only it has one to retire.
+    git(runner, worktree, ["push", "origin", "--delete", lane.branch], true);
+    report = resumeRererePublication(report);
+  } else {
+    // Every post-push publication step (record republish, stable-tag announcements, churn row,
+    // issue announcement, rerere, outcome rows) runs through the idempotent applied-resume path,
+    // so a failure anywhere in it resumes with `unblock-apply` alone and never repushes
+    // (RSI-Software/t3code-hyprws#922).
+    report = resumeAppliedPublication(report, runner);
+    process.stdout.write(`ledger: ${report.walk?.ledger?.state ?? "unknown"} on ${CHURN_REF}\n`);
   }
-  process.stdout.write(`applied: ${gateTag} with lease ${source.expectedOld}\n`);
+  process.stdout.write(`applied: ${gateTag} with lease ${report.source!.expectedOld}\n`);
   return report;
 };
 
@@ -2714,6 +3377,21 @@ class AdditiveStop extends Error {
     super("walk stopped at a replay that is not purely additive");
     this.findings = findings;
     this.reportPath = reportPath;
+  }
+}
+
+/**
+ * The rehearsal resumed on a handoff nobody finished: a record row still on `TODO`, a conflict
+ * still unmerged, or a resolution nobody staged. Every one of those rows belongs to a human, which
+ * is the `conflict` stop the walk already owns — so it leaves the walk as that stop and never as
+ * an unclassified crash (RSI-Software/t3code-hyprws#747).
+ */
+class HandoffIncomplete extends Error {
+  readonly gaps: ReadonlyArray<string>;
+
+  constructor(gaps: ReadonlyArray<string>) {
+    super(`the conflict handoff is incomplete:\n${gaps.map((gap) => `  - ${gap}`).join("\n")}`);
+    this.gaps = gaps;
   }
 }
 
@@ -2932,14 +3610,34 @@ const orientationIncoherence = (report: SyncReport, runner: CommandRunner): stri
     );
   if (report.target.sha !== liveTarget)
     reasons.push(`${report.target.tag} now resolves to ${liveTarget}, not ${report.target.sha}`);
-  if (report.source.sha !== source || report.source.expectedOld !== source)
-    reasons.push(`origin/hyprws is at ${source}, leased at ${report.source.expectedOld}`);
+  // The oriented source T is immutable: the live trunk must still contain it (no rewritten
+  // trunk), but it may legitimately have moved past the incorporated frontier B through landings
+  // the walk folds (RSI-Software/t3code-hyprws#922). The lease check is against the report's own
+  // frontier binding: B must be the oriented source with no folds, or the newest fold's `to`.
+  if (
+    runner.run("git", ["merge-base", "--is-ancestor", report.source.sha, source], root).status !== 0
+  )
+    reasons.push(`origin/hyprws no longer contains the oriented source ${report.source.sha}`);
+  // During a mid-fold stop (`folding`, or a fold stop at `conflicts`), B is still the active
+  // segment's `from` by design; the fold completes before B advances (RSI-Software/t3code-hyprws#922).
+  const activeFold = report.activeFold;
+  const newestFold = report.folds?.[report.folds.length - 1];
+  const frontier =
+    activeFold !== undefined && report.folds !== undefined
+      ? report.folds[activeFold.index]!.from
+      : newestFold === undefined
+        ? report.source.sha
+        : newestFold.to;
+  if (report.source.expectedOld !== frontier)
+    reasons.push(
+      `the incorporated frontier ${report.source.expectedOld} does not match ${frontier}`,
+    );
   if (report.source.sharedBase !== sharedBase)
     reasons.push(`the shared base is ${sharedBase}, oriented at ${report.source.sharedBase}`);
-  if (
-    !/^mirror:\s+origin\/main matches upstream\/main at [0-9a-f]{7,64}$/m.test(report.orientation)
-  )
-    reasons.push("origin/main does not mirror upstream/main");
+  // The `mirror:` line is deliberately not part of coherence: a tag-pinned walk
+  // reports mirror currency as advisory (fork-preflight --tag-pinned), and
+  // upstream can advance behind the carried mirror mid-walk without any ref the
+  // walk leases having moved.
   return reasons.length === 0 ? null : reasons.join("; ");
 };
 
@@ -3166,7 +3864,9 @@ const isDistinctiveKey = (key: string): boolean => key.length >= 6 && /[.\-A-Z]/
 /**
  * The names a fork commit introduces: exported bindings, test titles, settings keys, and long
  * string literals. Conflicting near upstream work is not evidence that upstream implemented the
- * fork behaviour; finding one of these names in the target tree is.
+ * fork behaviour; finding one of these names in the target tree is. A module specifier and a
+ * fixture literal are neither name nor behaviour, so neither reaches the probe
+ * (RSI-Software/t3code-hyprws#750).
  */
 export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
   const found = new Set<string>();
@@ -3190,9 +3890,12 @@ export const forkCommitIdentifiers = (diff: string): ReadonlyArray<string> => {
       /\b(?:it|test|describe)(?:\.\w+)*\(\s*(["'`])((?:\\.|(?!\1).)+?)\1/g,
     ))
       if (match[2] !== undefined) found.add(match[2]);
+    if (isModuleSpecifierLine(added)) continue;
     for (const match of added.matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*)\1/g)) {
       const literal = match[2] ?? "";
-      if (literal.length >= MINIMUM_LITERAL_LENGTH && !literal.includes("${")) found.add(literal);
+      if (literal.length < MINIMUM_LITERAL_LENGTH || literal.includes("${")) continue;
+      if (isFixtureLiteral(literal)) continue;
+      found.add(literal);
     }
   }
   return [...found].filter((value) => value.trim().length > 0).slice(0, IDENTIFIER_LIMIT);
@@ -3494,6 +4197,9 @@ const walkOnce = (
 
   let executingPhase: AutoFailure["phase"] = "unblock-auto";
   try {
+    // An interrupted applied push resumes its publication before any staleness probe: the
+    // recovery path never re-lists and never repushes (RSI-Software/t3code-hyprws#922).
+    if (carried) report = appliedPushRecovery(report, runner);
     if (report.stage !== "applied") {
       if (carried) {
         // Time passed between the invocation that wrote this report and this one, so every
@@ -3560,7 +4266,11 @@ const walkOnce = (
       writeReport(report);
     }
 
-    while (report.stage === "oriented" || report.stage === "conflicts") {
+    while (
+      report.stage === "oriented" ||
+      report.stage === "conflicts" ||
+      (report.stage === "folding" && report.activeFold !== undefined)
+    ) {
       executingPhase = "unblock-rehearse";
       const rehearsal = captureStdout(() =>
         unblockRehearse(new Map([["--report", report.reportPath]]), cwd, runner),
@@ -3656,8 +4366,14 @@ const walkOnce = (
       );
     }
 
-    if (report.stage === "applied" && report.rererePublication?.state === "pending")
-      report = resumeRererePublication(report);
+    // An applied report with something still owed — a pending rerere cache, or a publication
+    // receipt whose record/churn/announcement steps may not have finished — resumes it here; a
+    // thin report with neither has nothing to resume (RSI-Software/t3code-hyprws#922).
+    if (
+      report.stage === "applied" &&
+      (report.rererePublication?.state === "pending" || report.publication !== undefined)
+    )
+      report = resumeAppliedPublication(report, runner);
 
     // The carrier's own apply pushes `hyprws`, and that push is the workflow's
     // trigger, so dispatching a second run would only duplicate the reconciliation
@@ -3711,6 +4427,15 @@ const walkOnce = (
         started,
       );
     }
+    if (error instanceof HandoffIncomplete)
+      return stopWalk(
+        report,
+        "conflict",
+        ["The conflict handoff is incomplete:", ...error.gaps.map((gap) => `  - ${gap}`)].join(
+          "\n",
+        ),
+        started,
+      );
     if (error instanceof AutoStop || error instanceof AutoBotRefusal || error instanceof WalkStale)
       throw error;
     if (isStaleTrunk(error))
@@ -3739,6 +4464,12 @@ const healCurrentTrunkRow = (values: ReadonlyMap<string, string>, runner: Comman
   } catch {
     return;
   }
+  // An applied-push recovery owns this report: its churn row is one step inside
+  // `resumeAppliedPublication`, which `unblock-auto` runs on the carried report. Healing here
+  // would append the row before the record republish and the other post-push steps, and a
+  // `LedgerUnpublished` here would stop the walk before the wrapper runs
+  // (RSI-Software/t3code-hyprws#922).
+  if (report.stage === "applied" && report.publication !== undefined) return;
   const tag = report.target?.tag;
   if (
     report.stage !== "applied" ||
@@ -4272,6 +5003,7 @@ export const execute = (
   if (verb === "unblock-orient") return unblockOrient(values, cwd, runner);
   if (verb === "unblock-rehearse") return unblockRehearse(values, cwd, runner);
   if (verb === "unblock-check") return unblockCheck(values, cwd, runner);
+  if (verb === "unblock-fold") return unblockFold(values, cwd, runner, foldVerbContext);
   if (verb === "unblock-review") return unblockReview(values, cwd, runner);
   if (verb === "unblock-refresh") return unblockRefresh(values, cwd, runner);
   if (verb === "unblock-apply") return unblockApply(values, cwd, runner);
@@ -4345,7 +5077,13 @@ export const run = (
     return 1;
   } finally {
     if (
-      ["unblock-auto", "unblock-rehearse", "unblock-check", "unblock-apply"].includes(argv[0] ?? "")
+      [
+        "unblock-auto",
+        "unblock-rehearse",
+        "unblock-check",
+        "unblock-apply",
+        "unblock-fold",
+      ].includes(argv[0] ?? "")
     ) {
       const path = completedReport?.reportPath ?? outcomeReportPath;
       if (path && NodeFS.existsSync(path)) {
