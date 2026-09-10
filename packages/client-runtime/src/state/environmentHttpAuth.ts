@@ -44,7 +44,7 @@ export function withOrchestrationProtocolHeader(
  * per-request via `FetchHttpClient.RequestInit`, which the fetch client reads
  * from the fiber context at request time.
  */
-const withEnvironmentCredentials = <A, E, R>(
+export const withEnvironmentCredentials = <A, E, R>(
   authorization: PreparedHttpAuthorization | null,
   request: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
@@ -85,6 +85,7 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
     return { authorization: `DPoP ${authorization.accessToken}`, dpop: proof };
   },
 );
+export { buildEnvironmentAuthHeaders }; // fork-hook: backend-attach/export-auth-headers
 
 /**
  * A DPoP request is T3 Connect work, so its span starts an exported trace that
