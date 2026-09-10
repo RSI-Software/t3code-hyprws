@@ -46,6 +46,7 @@ import {
 } from "./releaseNotes.ts";
 import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import { compareSemverVersions } from "@t3tools/shared/semver";
+import { resolveForkUpdaterChannel } from "./updateChannels.fork.ts";
 import {
   createInitialDesktopUpdateState,
   reduceDesktopUpdateStateOnCheckFailure,
@@ -524,7 +525,7 @@ export const make = Effect.gen(function* () {
   ) {
     yield* Effect.annotateCurrentSpan({ channel });
     const allowsPrerelease = channel === "nightly";
-    yield* electronUpdater.setChannel(channel);
+    yield* electronUpdater.setChannel(resolveForkUpdaterChannel(channel));
     yield* electronUpdater.setAllowPrerelease(allowsPrerelease);
     // An older build can lack migrations this one ran. Only a guarded track switch's own check
     // may offer one.
