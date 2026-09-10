@@ -24,6 +24,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
+import { DesktopLocalAutoPair } from "../connection/DesktopLocalAutoPair";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -60,7 +61,10 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
+import {
+  isDesktopClientOnlyMode,
+  resolveInitialServerAuthGateState,
+} from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { shellEnvironment } from "../state/shell";
@@ -97,7 +101,11 @@ export const Route = createRootRoute({
       };
     }
 
-    if (isLocalEnvironmentDisabled() || isHostedStaticApp(new URL(window.location.href))) {
+    if (
+      isLocalEnvironmentDisabled() ||
+      isHostedStaticApp(new URL(window.location.href)) ||
+      isDesktopClientOnlyMode()
+    ) {
       return {
         authGateState: {
           status: "hosted-static",
@@ -243,6 +251,7 @@ function RootRouteView() {
           <SlowRpcRequestToastCoordinator />
           <ProjectCloneToastCoordinator />
           <HostedStaticEnvironmentBootstrap />
+          <DesktopLocalAutoPair />
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />
           ) : null}
