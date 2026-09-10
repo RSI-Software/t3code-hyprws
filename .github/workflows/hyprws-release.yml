@@ -1,0 +1,516 @@
+name: hyprws Release
+
+# Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
+# Stable tags keep the v<upstream>-hyprws.<n> flow. Trunk landings publish the
+# commit `hyprws CI` just finished checking, once that CI run completes (a
+# workflow_run trigger, not the push itself, so the gate's CI lookup always
+# finds a completed run instead of racing it). Scheduled fallbacks and
+# nightly manual dispatches publish v<next>-hyprws-nightly.<date>.<run> from
+# hyprws.
+# Upstream release.yml stays disabled on the fork; this copy keeps its build shape,
+# setup, and action versions. The pin names the upstream commit it last matched;
+# fork:scan flags a sync past it (docs/fork/operations/fork-sync.md).
+# Its release test jobs stay out: the gate requires a green hyprws CI instead.
+# fork-mirror: .github/workflows/release.yml@4cb6945dc60ed03f567dc5daafd083e52308e82b
+
+on:
+  workflow_run:
+    workflows: ["hyprws CI"]
+    types: [completed]
+    branches:
+      - hyprws
+  push:
+    tags:
+      - "v*-hyprws.*"
+      - "!v*-hyprws-nightly.*"
+  schedule:
+    # Off minute zero: GitHub delays scheduled runs most at the top of the hour.
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Fork release channel"
+        required: false
+        default: nightly
+        type: choice
+        options:
+          - nightly
+          - stable
+
+# Stable tag pushes and stable dispatches use the stable queue; every other run uses nightly.
+# Preflight remains the only place that resolves the requested channel.
+# No queue: max here, unlike upstream. Upstream nightlies only fire on a schedule
+# behind a six-hour gap, so its nightly lane never holds more than one pending run
+# and keeping every one of them is free. The fork also builds every hyprws landing,
+# so a burst of merges queues a build per commit and the newest waits behind builds
+# it already contains. The default single pending slot supersedes them instead:
+# the running build finishes, the newest waiting commit survives, the rest drop.
+# The stable lane resolves to its own group and only ever carries one tag at a time.
+concurrency:
+  group: hyprws-release-${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || inputs.channel == 'stable') && 'stable' || 'nightly' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs first, as upstream's resolve_commit does, so an idle schedule skips
+  # preflight's install. A tip that already carries a nightly tag has nothing new.
+  check_changes:
+    name: Check for changes since last nightly
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - id: check
+        name: Compare hyprws to the nightly tags
+        env:
+          REMOTE: https://github.com/${{ github.repository }}.git
+        run: |
+          head_sha=$(git ls-remote "$REMOTE" refs/heads/hyprws | cut -f1)
+          if git ls-remote --tags "$REMOTE" | grep -E "^${head_sha}\s+refs/tags/v.*-hyprws-nightly\." ; then
+            echo "hyprws $head_sha already has a nightly. Skipping."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "hyprws $head_sha has no nightly yet. Proceeding."
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # A workflow_run fires on every hyprws CI conclusion; only a green one can cut.
+  preflight:
+    name: Preflight
+    needs: check_changes
+    if: |
+      !cancelled() &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      release_channel: ${{ steps.release_channel.outputs.channel }}
+      version: ${{ steps.release_meta.outputs.version }}
+      tag: ${{ steps.release_meta.outputs.tag }}
+      release_name: ${{ steps.release_meta.outputs.name }}
+      previous_tag: ${{ steps.release_meta.outputs.previous_tag }}
+      is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
+      make_latest: ${{ steps.release_meta.outputs.make_latest }}
+      upstream_base: ${{ steps.upstream_base.outputs.tag }}
+      delta_revision: ${{ steps.delta_revision.outputs.delta_revision }}
+      gate_proceed: ${{ steps.release_gate.outputs.gate_proceed }}
+      ref: ${{ steps.release_ref.outputs.sha }}
+    steps:
+      - id: release_channel
+        name: Resolve and validate release channel
+        shell: bash
+        env:
+          DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            schedule)
+              channel=nightly
+              ;;
+            workflow_dispatch)
+              channel="${DISPATCH_CHANNEL:-nightly}"
+              ;;
+            workflow_run)
+              channel=nightly
+              ;;
+            push)
+              if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+                channel=stable
+              else
+                channel=nightly
+              fi
+              ;;
+            *)
+              echo "Unsupported release event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$channel" != "nightly" && "$channel" != "stable" ]]; then
+            echo "Invalid fork release channel: $channel" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$channel" == "stable" && ( "$GITHUB_REF_TYPE" != "tag" || ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-hyprws\.[0-9]+$ ) ]]; then
+            echo "workflow_dispatch channel=stable must run from a vX.Y.Z-hyprws.N tag ref." >&2
+            exit 1
+          fi
+
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || ((github.event_name == 'push' || steps.release_channel.outputs.channel == 'stable') && github.sha || 'hyprws') }}
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - id: release_ref
+        name: Resolve release commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The release gate: the cut runs only after the lease push that moved
+      # hyprws. The release sha must be the current tip of origin/hyprws (so
+      # it is what the lease push landed) and that sha must carry a green
+      # `hyprws CI` conclusion. A human trigger is not a reason to cut from a
+      # red trunk, so the stable tag channel passes the same gate — and a tag
+      # on an older commit, or a trunk that advanced past the tag, closes the
+      # gate: the cut stays shut and this step fails with the reason.
+      # Missing or red means no cut: the step fails and the build never runs.
+      # Only a push run counts: a pull_request run may skip unaffected jobs.
+      - id: release_gate
+        name: Gate the cut on the lease push and a green hyprws CI
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+        with:
+          script: |
+            const { execSync } = require('node:child_process');
+            const releaseSha = process.env.RELEASE_SHA;
+            // The checkout fetches only the ref it checks out, so origin/hyprws
+            // may not exist here (notably on stable-tag runs); fetch the trunk
+            // explicitly the way the merge-tree job does, and read FETCH_HEAD.
+            // A fetch failure closes the gate with a reason, never a throw.
+            const close = async (reason) => {
+              core.setOutput('gate_proceed', 'false');
+              await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
+              core.setFailed(reason);
+            };
+            let trunkTip;
+            try {
+              execSync('git fetch --no-tags origin hyprws', { stdio: ['ignore', 'pipe', 'pipe'] });
+              trunkTip = execSync('git rev-parse FETCH_HEAD', { encoding: 'utf8' }).trim();
+            } catch (error) {
+              await close(
+                `release gate closed: could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const conclusion = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { ...context.repo, head_sha: releaseSha, event: 'push', per_page: 100 },
+            ).then((runs) =>
+              runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
+            );
+            core.info(`release sha: ${releaseSha}; hyprws tip: ${trunkTip}; hyprws CI: ${conclusion ?? 'missing'}`);
+            let first;
+            try {
+              first = execSync(
+                `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
+                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
+                { encoding: 'utf8' },
+              ).trim().split('\n')[0] ?? '';
+            } catch (error) {
+              await close(
+                `release gate closed: the gate decision failed (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const proceed = first.startsWith('proceed');
+            const reason = first.replace(/^(proceed|skip):\s*/, '');
+            core.setOutput('gate_proceed', proceed ? 'true' : 'false');
+            if (!proceed) {
+              await close(reason);
+              return;
+            }
+            await core.summary.addHeading('Release gate: open').addRaw(reason).write();
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - id: release_meta
+        name: Resolve release version
+        shell: bash
+        env:
+          RELEASE_CHANNEL: ${{ steps.release_channel.outputs.channel }}
+          NIGHTLY_DATE: ${{ github.run_started_at }}
+          NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+        run: |
+          if [[ "$RELEASE_CHANNEL" == "nightly" ]]; then
+            nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
+            node scripts/fork-release-version.ts \
+              --channel "$RELEASE_CHANNEL" \
+              --date "$nightly_date" \
+              --run-number "$NIGHTLY_RUN_NUMBER" \
+              --sha "$RELEASE_SHA" \
+              --github-output
+          else
+            node scripts/fork-release-version.ts \
+              --channel "$RELEASE_CHANNEL" \
+              --tag "$GITHUB_REF_NAME" \
+              --github-output
+          fi
+
+      - name: Fork ledger
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          # --force: upstream re-points moving tags such as android-nightly.
+          git fetch --tags --force upstream main
+          vp run fork:delta --check
+
+      - id: upstream_base
+        name: Resolve upstream base
+        run: |
+          base_commit="$(git merge-base HEAD upstream/main)"
+          tags="$(git tag --points-at "$base_commit" --sort=-v:refname)"
+          base="$(printf '%s\n' "$tags" | grep -v -- '-nightly\.' | head -n 1 || true)"
+          if [[ -z "$base" ]]; then
+            base="$(printf '%s\n' "$tags" | head -n 1)"
+          fi
+          if [[ -z "$base" ]]; then
+            base="$(git describe --tags --abbrev=0 "$base_commit")"
+          fi
+          echo "tag=$base" >> "$GITHUB_OUTPUT"
+          echo "upstream base: $base"
+
+      - id: delta_revision
+        name: Resolve delta revision
+        run: node scripts/fork-release-delta-rev.ts --base upstream/main --head HEAD --github-output
+
+  # The release gate already requires a green push run of hyprws CI on this
+  # sha, a superset of upstream's release quality and test jobs; rerunning
+  # them here would retest the same commit.
+  build:
+    name: Build Linux x64
+    outputs:
+      expected_assets: ${{ steps.assets.outputs.expected_assets }}
+    needs: preflight
+    if: |
+      !failure() && !cancelled() && needs.preflight.result == 'success' &&
+      needs.preflight.outputs.gate_proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      T3CODE_RELAY_URL: ${{ vars.T3CODE_RELAY_URL }}
+      T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.T3CODE_CLERK_PUBLISHABLE_KEY }}
+      T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.T3CODE_CLERK_JWT_TEMPLATE }}
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/desktop...
+              - --filter=t3...
+              - --filter=@t3tools/scripts...
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Install ImageMagick
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+          if command -v magick >/dev/null 2>&1; then
+            magick -version
+          else
+            convert -version
+          fi
+
+      - name: Build desktop artifact
+        shell: bash
+        run: |
+          vp run dist:desktop:artifact \
+            --platform linux \
+            --target AppImage \
+            --arch x64 \
+            --build-version "${{ needs.preflight.outputs.version }}" \
+            --verbose
+
+      # The self-contained CLI archive every runtime installer downloads.
+      # Mirrors the cli_archive steps of upstream release-desktop.yml for
+      # linux-x64; mirror them again on every rebase. The fork publishes no npm
+      # packages, so upstream publish_cli has no counterpart here. Setup Vite+
+      # selects the exact engines.node version the executable embeds.
+      - name: Build CLI single-executable
+        shell: bash
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      # The desktop artifact build above compiled the resource monitor for this target.
+      - name: Stage resource monitor for the CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$target_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$target_dir/t3-resource-monitor"
+
+      - name: Build CLI archive
+        shell: bash
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ needs.preflight.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Smoke-test CLI archive
+        shell: bash
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.preflight.outputs.version }}"
+
+      - name: Collect release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          assets=()
+          shopt -s nullglob
+          for file in release/*.AppImage release/*.yml release-cli/*.tar.gz; do
+            cp "$file" release-publish/
+            assets+=("$(basename "$file")")
+          done
+          echo "expected_assets=$(jq -cn --args '$ARGS.positional' "${assets[@]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-linux-x64
+          path: release-publish/*
+          if-no-files-found: error
+          # Build-to-release handoff only; the Release keeps the bytes (same as the upstream js-bundle handoff).
+          retention-days: 1
+
+  release:
+    name: Publish GitHub Release
+    needs: [preflight, build]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      # Installers verify archives against this file, so it is written from the
+      # bytes that get uploaded, never from an earlier stage.
+      - name: Write CLI archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          archives=(t3-*.tar.gz)
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No CLI archives were produced." >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          target_commitish: ${{ needs.preflight.outputs.ref }}
+          name: ${{ needs.preflight.outputs.release_name }}
+          body: |
+            Upstream base: `${{ needs.preflight.outputs.upstream_base }}`
+            Delta revision: `${{ needs.preflight.outputs.delta_revision }}`
+            Channel: `${{ needs.preflight.outputs.release_channel }}`
+          generate_release_notes: true
+          previous_tag: ${{ needs.preflight.outputs.previous_tag }}
+          prerelease: ${{ needs.preflight.outputs.is_prerelease }}
+          draft: ${{ needs.preflight.outputs.is_prerelease }}
+          make_latest: ${{ needs.preflight.outputs.make_latest }}
+          files: |
+            release-assets/*.AppImage
+            release-assets/*.yml
+            release-assets/*.tar.gz
+            release-assets/SHA256SUMS
+          fail_on_unmatched_files: true
+          token: ${{ github.token }}
+
+      # The action keeps a stable release a draft until its assets finish uploading, but publishes a
+      # prerelease first. Desktop clients update connected servers from the CLI archives as soon as
+      # they see the release, so a prerelease also goes public only once every asset is attached.
+      - name: Publish prerelease
+        if: needs.preflight.outputs.is_prerelease == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Prune old nightlies
+        if: needs.preflight.outputs.release_channel == 'nightly'
+        continue-on-error: false
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT_TAG: ${{ needs.preflight.outputs.tag }}
+          NIGHTLY_KEEP: 7
+        run: |
+          set -euo pipefail
+
+          releases="$(gh release list \
+            --limit 1000 \
+            --json tagName,isPrerelease,isDraft)"
+          stale_tags="$(
+            jq -r \
+              '
+                .[]
+                | select(
+                    .isPrerelease == true and
+                    .isDraft == false and
+                    (.tagName | test("^.*-hyprws-nightly\\..*$"))
+                  )
+                | .tagName
+              ' <<< "$releases" \
+              | sort -Vr \
+              | tail -n "+$((NIGHTLY_KEEP + 1))" \
+              | grep -Fvx "$CURRENT_TAG" || true
+          )"
+
+          if [[ -z "$stale_tags" ]]; then
+            echo "No old nightly releases to prune."
+            exit 0
+          fi
+
+          while IFS= read -r tag; do
+            echo "Deleting old nightly release and tag: $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done <<< "$stale_tags"
