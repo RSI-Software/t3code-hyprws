@@ -68,7 +68,6 @@ function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | n
     : null;
 }
 
-
 export function findProjectForChangeRequest(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
