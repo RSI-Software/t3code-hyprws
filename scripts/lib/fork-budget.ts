@@ -27,6 +27,15 @@ export interface ForkBudget {
   readonly unknownDomains: ReadonlyArray<string>;
 }
 
+/** One domain's live `--inventory` numbers, the side of the gate the ceilings face. */
+export interface ForkBudgetMeasured {
+  readonly domain: string;
+  readonly commits: number;
+  readonly added: number;
+  readonly deleted: number;
+  readonly overlaps: number;
+}
+
 /** One measured number over its ceiling, worded to name the domain and both values. */
 export interface ForkBudgetFinding {
   readonly domain: string;
@@ -49,6 +58,16 @@ export const forkBudgetFindingMessage = (finding: ForkBudgetFinding): string =>
  */
 export const forkBudgetRefusalMessage = (finding: ForkBudgetFinding): string =>
   `${forkBudgetFindingMessage(finding)} (over by ${finding.actual - finding.ceiling}) — to raise it: edit ${FORK_BUDGET_PATH} to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and carry Fork-Budget: raise <reason> on that commit`;
+
+/**
+ * The same refusal for a ceiling the prospective squash will exceed once it
+ * lands. The route differs from the per-commit one: the number is written on the
+ * branch, while the trailer that authorises it rides in the pull-request body.
+ */
+export const squashBudgetRefusalMessage = (finding: ForkBudgetFinding): string =>
+  `the prospective squash measures ${finding.domain} ${finding.measure} ${finding.actual} > ${finding.ceiling} ceiling${
+    finding.baselined ? "" : " (domain has no budget row)"
+  } (over by ${finding.actual - finding.ceiling}) — edit ${FORK_BUDGET_PATH} on the branch to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and keep Fork-Budget: raise <reason> in the body`;
 
 /** One ceiling number a commit pushed up; the raising commit owes its trailer. */
 export interface ForkBudgetRaise {
@@ -146,13 +165,7 @@ const gatedMeasures = (
  * ceiling zero on every measure it scores above.
  */
 export const budgetFindings = (
-  domains: ReadonlyArray<{
-    readonly domain: string;
-    readonly commits: number;
-    readonly added: number;
-    readonly deleted: number;
-    readonly overlaps: number;
-  }>,
+  domains: ReadonlyArray<ForkBudgetMeasured>,
   budget: ForkBudget,
 ): ReadonlyArray<ForkBudgetFinding> =>
   domains.flatMap((row) => {
@@ -173,6 +186,47 @@ export const budgetFindings = (
         baselined: ceiling !== undefined,
       }));
   });
+
+/**
+ * The per-domain numbers a prospective squash will measure once it lands: the
+ * stack it sits on, plus one commit carrying the whole pull request, attributed
+ * to the body's own `Fork-Domain`.
+ *
+ * A squash is one commit with one domain; the branch it collapses is many
+ * commits with many. Every line the branch attributed elsewhere lands on the
+ * body's domain instead, so that domain scores higher after the squash than any
+ * reading of the branch — which is why a ceiling measured before the merge is
+ * already wrong when it is pushed (RSI-Software/t3code-hyprws#765).
+ */
+export const projectSquashDomains = (
+  stack: ReadonlyArray<ForkBudgetMeasured>,
+  squash: { readonly domain: string; readonly added: number; readonly deleted: number },
+): ReadonlyArray<ForkBudgetMeasured> => {
+  const landed = stack.map((row) =>
+    row.domain === squash.domain
+      ? {
+          ...row,
+          commits: row.commits + 1,
+          added: row.added + squash.added,
+          deleted: row.deleted + squash.deleted,
+        }
+      : row,
+  );
+  // A squash into a domain the stack has never carried is that domain's first
+  // commit; a missing row is a ceiling of zero, so it still has to be measured.
+  return landed.some((row) => row.domain === squash.domain)
+    ? landed
+    : [
+        ...landed,
+        {
+          domain: squash.domain,
+          commits: 1,
+          added: squash.added,
+          deleted: squash.deleted,
+          overlaps: 0,
+        },
+      ];
+};
 
 /**
  * The ceiling numbers one commit pushed up, comparing the file it wrote against
@@ -207,13 +261,7 @@ const escapeCell = (value: string): string => value.replaceAll("|", "\\|").repla
  * anything stamped into this table; the initial seed carries no trailer.
  */
 export const renderForkBudget = (input: {
-  readonly rows: ReadonlyArray<{
-    readonly domain: string;
-    readonly commits: number;
-    readonly added: number;
-    readonly deleted: number;
-    readonly overlaps: number;
-  }>;
+  readonly rows: ReadonlyArray<ForkBudgetMeasured>;
 }): string =>
   [
     "# Fork budget",
@@ -235,15 +283,6 @@ export const renderForkBudget = (input: {
     ),
     "",
   ].join("\n");
-
-/** The live per-domain numbers a raise seeds a brand-new row from. */
-export interface ForkBudgetMeasured {
-  readonly domain: string;
-  readonly commits: number;
-  readonly added: number;
-  readonly deleted: number;
-  readonly overlaps: number;
-}
 
 const ADDED_CELL = 2;
 const DELETED_CELL = 3;
