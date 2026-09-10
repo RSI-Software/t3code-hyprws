@@ -257,7 +257,7 @@ it("summarises each gap class with its own repair", () => {
 
   const seam = [{ workspace: "apps/web", path: "apps/web/src/fork-only.ts" }];
   assert.deepStrictEqual(scanFailureSummary({ ...clean, typecheckGaps: seam }), [
-    "failed: 1 typecheck gap(s); fix each as a silent seam in the fork commit that owns the file, then rerun",
+    "failed: 1 typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file",
   ]);
 
   assert.lengthOf(scanFailureSummary({ ...ledgerOnly, typecheckGaps: seam }), 2);
