@@ -69,6 +69,12 @@ Each `hyprws-*.yml` copy of an upstream workflow **pins** the upstream file and 
 On a candidate, **`fork:scan --mirror-pins` fails** a copy whose upstream file changed since its pin, naming those commits, and a copy with **no pin**.
 Review each commit at the tip: **adapt the copy**, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
 
+### Workflow copies
+
+Each `hyprws-*.yml` copy of an upstream workflow pins the upstream file and commit it last matched: `# fork-mirror: <path>@<full sha>`.
+On a candidate, `fork:scan --mirror-pins` fails a copy whose upstream file changed since its pin, and names those commits; a copy with no pin fails too.
+Review each commit at the tip: **adapt** the copy, or **record a one-line no-change reason** in the commit that **moves the pin** to the target's commit.
+
 ## Local trunk
 
 The land run **force-pushes** `origin/hyprws`, so `git pull --ff-only` cannot follow it.
