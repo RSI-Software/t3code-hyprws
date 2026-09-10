@@ -281,6 +281,7 @@ function makeTestLayer(input: {
         }
         return { settings: desktopSettings, changed };
       }),
+    setBackendMode: () => Effect.die("unexpected backend mode update"),
     setServerExposureMode: () => Effect.die("unexpected server exposure update"),
     setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
     setUpdateChannel: () => Effect.die("unexpected update channel change"),
