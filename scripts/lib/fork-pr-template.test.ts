@@ -64,7 +64,8 @@ it("names the domains an author cannot pick", () => {
     "worktrunk-hooks",
   ])
     assert.include(problem ?? "", missing);
-  assert.include(problem ?? "", "offers 7 of the fork's 12 domains");
+  // Counted from FORK_DOMAINS, so opening a domain does not break this case.
+  assert.include(problem ?? "", `offers 7 of the fork's ${FORK_DOMAINS.length} domains`);
 });
 
 it("refuses an invented value and a reordered list", () => {
