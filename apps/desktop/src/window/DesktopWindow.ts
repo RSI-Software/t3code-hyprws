@@ -120,6 +120,9 @@ export class DesktopWindow extends Context.Service<
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     readonly showConnectingSplash: Effect.Effect<void>;
+    // Marks the packaged/Vite renderer as loadable independently of whether
+    // this desktop process owns a backend.
+    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>;
     readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
@@ -997,6 +1000,8 @@ export const make = Effect.gen(function* () {
       if (!window.isDestroyed()) {
         window.webContents.setBackgroundThrottling(true);
       }
+      // Reveal the real window, then close the connecting splash (if any) so the
+      // two don't overlap and there's no blank gap between them.
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
@@ -1206,6 +1211,11 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
+    Effect.andThen(createMainIfBackendReady),
+    Effect.withSpan("desktop.window.handleRendererReady"),
+  );
+
   return DesktopWindow.of({
     createMain,
     ensureMain,
@@ -1260,9 +1270,10 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     showConnectingSplash,
+    handleRendererReady,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
-      yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      yield* Ref.set(backendReadyRef, true);
       const restored = yield* drainPendingRestore;
       const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
       if (Option.isSome(pendingIdentity)) {
