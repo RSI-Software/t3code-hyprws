@@ -2319,6 +2319,8 @@ const stubGitHub = (candidate: StableCandidate, onRead: () => void = () => {}) =
   const client: RebaseGitHubClient = {
     ensureBlockedLabel: unreachable,
     listBlockedIssues: unreachable,
+    ensureHardFailureLabel: unreachable,
+    listHardFailureIssues: unreachable,
     listReleaseIssues: () => {
       onRead();
       return [
