@@ -232,6 +232,27 @@ it("keeps the checked-in workflow reviews on the current schema", () => {
   assert.lengthOf(parseWorkflowReviews(workflowReviews), WORKFLOW_COPIES.length);
 });
 
+it("binds each checked-in forkBlob to the working-tree workflow file it describes", () => {
+  // Only forkBlob is verified here: upstreamBlob and upstreamCommit need a
+  // fetched upstream/main, which would make this suite network-dependent, so
+  // CI's readWorkflowDrift still owns those. Comparing against the
+  // working-tree file (not HEAD) is deliberate — an uncommitted edit is the
+  // exact state the author is in when running this test, and it must fail.
+  for (const review of parseWorkflowReviews(workflowReviews)) {
+    const contents = NodeFS.readFileSync(new URL(`../${review.fork}`, import.meta.url));
+    const actual = NodeCrypto.createHash("sha1")
+      .update(`blob ${contents.byteLength}\0`)
+      .update(contents)
+      .digest("hex");
+    assert.strictEqual(
+      actual,
+      review.forkBlob,
+      `${review.fork}: working-tree blob ${actual} != recorded forkBlob ${review.forkBlob}` +
+        " — refresh forkBlob and extend reason in the same commit that edits the workflow.",
+    );
+  }
+});
+
 it("refuses provenance that names a different upstream blob", () => {
   const { git } = fixture({ upstream: before });
   const wrong = {
