@@ -4,6 +4,8 @@ import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./metho
 import * as DesktopIpc from "./DesktopIpc.ts";
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
+import { getBackendModeState, setBackendMode } from "./methods/backendMode.ts";
+import { discoverLocalServers, pairLocalServer } from "./methods/localServerDiscovery.ts";
 import {
   clearConnectionCatalog,
   getConnectionCatalog,
@@ -96,11 +98,15 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(completeLegacyLocalStorage);
   yield* ipc.handleSync(getAppBranding);
   yield* ipc.handleSync(getSystemLocale);
+  yield* ipc.handleSync(getBackendModeState);
   yield* ipc.handleSync(getWindowFullscreenState);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
   yield* ipc.handleSync(getLocalEnvironmentEnabled);
   yield* ipc.handle(setLocalEnvironmentEnabled);
   yield* ipc.handle(getLocalEnvironmentBearerToken);
+  yield* ipc.handle(discoverLocalServers);
+  yield* ipc.handle(pairLocalServer);
+  yield* ipc.handle(setBackendMode);
 
   yield* ipc.handle(getClientSettings);
   yield* ipc.handle(setClientSettings);
