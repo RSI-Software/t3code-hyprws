@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
 import type { Project } from "../../types";
@@ -73,12 +73,12 @@ describe("physical sidebar boundary", () => {
     expect(scope.effectiveScopeKey).toBeNull();
     expect([...scope.projectKeys!]).toEqual(["remote:shared"]);
     const rows = [
-      { ...target, id: "target", title: "matching thread" },
-      { environmentId: local, projectId, id: "other-env", title: "matching thread" },
+      { ...target, id: ThreadId.make("target"), title: "matching thread" },
+      { environmentId: local, projectId, id: ThreadId.make("other-env"), title: "matching thread" },
       {
         environmentId: remote,
         projectId: ProjectId.make("other"),
-        id: "other-project",
+        id: ThreadId.make("other-project"),
         title: "matching thread",
       },
     ];
@@ -86,9 +86,7 @@ describe("physical sidebar boundary", () => {
     const scoped = rows.filter((row) =>
       scope.projectKeys?.has(`${row.environmentId}:${row.projectId}`),
     );
-    expect(searchSidebarThreads(scoped, "matching").map((row) => row.id)).toEqual([
-      "target",
-    ]);
+    expect(searchSidebarThreads(scoped, "matching").map((row) => row.id)).toEqual(["target"]);
     expect(filterSidebarThreads(rows, target)).toEqual(scoped);
     expect(filterSidebarThreads(rows, null)).toBe(rows);
     expect(searchSidebarThreads(rows, "matching")).toHaveLength(3);
