@@ -145,6 +145,12 @@ interface ConflictRegion {
   readonly text: ReadonlyArray<string>;
 }
 
+interface Diff3ConflictRegion {
+  readonly upstream: string;
+  readonly base: string;
+  readonly fork: string;
+}
+
 /**
  * Split the `<<<<<<<`..`>>>>>>>` hunk regions out of a diff3 merge, without the marker lines.
  * Labels in the merged text separate the stages; when they are absent the region is kept without
@@ -166,6 +172,47 @@ const conflictRegions = (diff3: string): ReadonlyArray<ConflictRegion> => {
     if (current !== null) current.text.push(line);
   }
   return regions;
+};
+
+/** Read diff3 hunks without normalising their contents: the unchanged-side proof is byte-exact. */
+const diff3ConflictRegions = (diff3: string): ReadonlyArray<Diff3ConflictRegion> | null => {
+  const regions: Array<Diff3ConflictRegion> = [];
+  let current: {
+    upstream: Array<string>;
+    base: Array<string>;
+    fork: Array<string>;
+    part: "upstream" | "base" | "fork";
+  } | null = null;
+  for (const line of diff3.split(/(?<=\n)/)) {
+    if (line.startsWith("<<<<<<<")) {
+      if (current !== null) return null;
+      current = { upstream: [], base: [], fork: [], part: "upstream" };
+      continue;
+    }
+    if (current === null) continue;
+    if (line.startsWith("|||||||")) {
+      if (current.part !== "upstream") return null;
+      current.part = "base";
+      continue;
+    }
+    if (line.startsWith("=======")) {
+      if (current.part !== "base") return null;
+      current.part = "fork";
+      continue;
+    }
+    if (line.startsWith(">>>>>>>")) {
+      if (current.part !== "fork") return null;
+      regions.push({
+        upstream: current.upstream.join(""),
+        base: current.base.join(""),
+        fork: current.fork.join(""),
+      });
+      current = null;
+      continue;
+    }
+    current[current.part].push(line);
+  }
+  return current === null ? regions : null;
 };
 
 /** CRLF and per-line trailing whitespace do not move a seam; they should not move its key. */
@@ -277,6 +324,317 @@ const mergeFile = (
  * three-way merge is taken as it stands. A conflicted one is kept only when every hunk is a pure
  * co-insertion, and only on a path the lane can verify afterwards.
  */
+/**
+ * A moved neighbour can make Git put an otherwise untouched deletion into a rewrite conflict.
+ * Select the deleting side only when every base hunk it removes occurs exactly once, byte-for-byte,
+ * in the other side. Replacing that occurrence retains the other side's moved neighbours and any
+ * additions around it; duplicate occurrences are deliberately a judgement rather than a guess.
+ */
+/** Replace the one byte-exact base hunk without interpreting `$` sequences in the replacement. */
+const replaceBaseHunk = (text: string, base: string, replacement: string): string => {
+  const index = text.indexOf(base);
+  return text.slice(0, index) + replacement + text.slice(index + base.length);
+};
+
+const movedDeletion = (
+  runner: CommandRunner,
+  worktree: string,
+  stages: ConflictStages,
+): { readonly text: string; readonly outcome: ConflictOutcome } | null => {
+  const merged = mergeFile(runner, worktree, stages, "--diff3");
+  if (merged === null || merged.conflicts === 0) return null;
+  const regions = diff3ConflictRegions(merged.text);
+  if (regions === null || regions.length === 0) return null;
+  const directions = regions.map(({ base, upstream, fork }) => {
+    if (base.length === 0) return null;
+    const upstreamOccurrences = upstream.split(base).length - 1;
+    const forkOccurrences = fork.split(base).length - 1;
+    // The deleting side must remove at least one byte of this exact base hunk. An insertion that
+    // leaves the whole base hunk present belongs to the ordinary keep-both rule instead.
+    if (forkOccurrences === 0 && upstreamOccurrences === 1) return "fork" as const;
+    if (upstreamOccurrences === 0 && forkOccurrences === 1) return "upstream" as const;
+    return null;
+  });
+  const direction = directions[0];
+  if (direction === null || directions.some((value) => value !== direction)) return null;
+  let position = 0;
+  let resolved = "";
+  for (const region of regions) {
+    const start = merged.text.indexOf("<<<<<<<", position);
+    const end = merged.text.indexOf(">>>>>>>", start);
+    if (start === -1 || end === -1) return null;
+    const lineEnd = merged.text.indexOf("\n", end);
+    const replacement =
+      direction === "fork"
+        ? replaceBaseHunk(region.upstream, region.base, region.fork)
+        : replaceBaseHunk(region.fork, region.base, region.upstream);
+    resolved += merged.text.slice(position, start) + replacement;
+    position = lineEnd === -1 ? merged.text.length : lineEnd + 1;
+  }
+  resolved += merged.text.slice(position);
+  return direction === "fork"
+    ? {
+        text: resolved,
+        outcome: {
+          take: "theirs",
+          conflictClass: "mechanical",
+          source: "fork-only",
+          resolution:
+            "outcome executor: moved-deletion (fork deletion over byte-identical upstream base)",
+        },
+      }
+    : {
+        text: resolved,
+        outcome: {
+          take: "ours",
+          conflictClass: "mechanical",
+          source: "upstream-only",
+          resolution:
+            "outcome executor: moved-deletion (upstream deletion over byte-identical fork base)",
+        },
+      };
+};
+
+/** Match delimiters locally; uncertain syntax is a declined conflict, not a guessed resolution. */
+const matchingDelimiter = (
+  text: string,
+  start: number,
+  open: string,
+  close: string,
+): number | null => {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let comment: "line" | "block" | null = null;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (comment === "line") {
+      if (character === "\n") comment = null;
+      continue;
+    }
+    if (comment === "block") {
+      if (character === "*" && text[index + 1] === "/") {
+        comment = null;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "/") {
+      comment = "line";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      comment = "block";
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "`") return null;
+    if (character === open) depth += 1;
+    if (character === close && --depth === 0) return index;
+  }
+  return null;
+};
+
+const dependencyEntries = (
+  text: string,
+): ReadonlyArray<{ readonly name: string; readonly line: string }> | null => {
+  const lines = text.split(/(?<=\n)/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) return null;
+  const entries = lines.map((line) => {
+    const match = /^(\s*)([A-Za-z_$][\w$]*),?\s*(?:\r?\n)?$/.exec(line);
+    return match === null ? null : { name: match[2], line };
+  });
+  return entries.some((entry) => entry === null)
+    ? null
+    : (entries as ReadonlyArray<{ name: string; line: string }>);
+};
+
+const hookForDependencyRegion = (
+  text: string,
+  regionStart: number,
+): { readonly body: string; readonly dependenciesStart: number } | null => {
+  const hooks = /\b(?:useCallback|useMemo|useEffect)\s*\(/g;
+  const candidates: Array<{ body: string; dependenciesStart: number }> = [];
+  for (let match = hooks.exec(text); match !== null; match = hooks.exec(text)) {
+    const callEnd = matchingDelimiter(text, match.index + match[0].length - 1, "(", ")");
+    if (callEnd === null) continue;
+    const arrow = text.indexOf("=>", match.index + match[0].length);
+    if (arrow === -1 || arrow > callEnd) continue;
+    const bodyStart = text.indexOf("{", arrow + 2);
+    if (bodyStart === -1 || bodyStart > callEnd) continue;
+    const bodyEnd = matchingDelimiter(text, bodyStart, "{", "}");
+    if (bodyEnd === null) continue;
+    const comma = text.slice(bodyEnd + 1).match(/^\s*,\s*/);
+    if (comma === null) continue;
+    const dependenciesStart = bodyEnd + 1 + comma[0].length;
+    if (text[dependenciesStart] !== "[") continue;
+    const dependenciesEnd = matchingDelimiter(text, dependenciesStart, "[", "]");
+    if (dependenciesEnd === null) continue;
+    if (dependenciesStart < regionStart && regionStart < dependenciesEnd)
+      candidates.push({ body: text.slice(bodyStart + 1, bodyEnd), dependenciesStart });
+  }
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
+};
+
+const bindingNamesBefore = (
+  text: string,
+  position: number,
+  entries: ReadonlySet<string>,
+): ReadonlySet<string> => {
+  const bindings = new Map<string, number>();
+  let depth = 0;
+  let quote: '"' | "'" | "`" | null = null;
+  let comment: "line" | "block" | null = null;
+  for (let index = 0; index < position; index += 1) {
+    const character = text[index];
+    if (comment === "line") {
+      if (character === "\n") comment = null;
+      continue;
+    }
+    if (comment === "block") {
+      if (character === "*" && text[index + 1] === "/") {
+        comment = null;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "/") {
+      comment = "line";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      comment = "block";
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+      continue;
+    }
+    if (character === "}") {
+      depth -= 1;
+      for (const [name, bindingDepth] of bindings) if (bindingDepth > depth) bindings.delete(name);
+      continue;
+    }
+    const declaration = /\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/.exec(
+      text.slice(index),
+    );
+    if (declaration?.index === 0) {
+      const name = declaration[1];
+      if (name !== undefined && entries.has(name)) bindings.set(name, depth);
+      index += declaration[0].length - 1;
+    }
+  }
+  return new Set(bindings.keys());
+};
+
+const referencedDependencyNames = (
+  body: string,
+  entries: ReadonlySet<string>,
+): ReadonlySet<string> | null => {
+  // Templates can interpolate an identifier; unlike quoted strings and comments they cannot be
+  // removed without parsing, so this local scan declines them.
+  if (body.includes("`")) return null;
+  const source = body
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, " ");
+  const bound = new Set(
+    [...source.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)].map(
+      (match) => match[1],
+    ),
+  );
+  if ([...entries].some((name) => bound.has(name))) return null;
+  const referenced = new Set<string>();
+  for (const match of source.matchAll(/[A-Za-z_$][\w$]*/g)) {
+    const name = match[0];
+    if (!entries.has(name)) continue;
+    const before = source.slice(0, match.index).trimEnd();
+    const after = source.slice((match.index ?? 0) + name.length).trimStart();
+    if (before.endsWith(".")) continue;
+    // A colon usually follows an object-property key, which is not a dependency read. This local
+    // scan also misreads ternary arms, type annotations, and labels as keys; that can only omit a
+    // read, never invent one. An unbound candidate still declines below rather than hiding a rename.
+    if (after.startsWith(":")) continue;
+    referenced.add(name);
+  }
+  return referenced;
+};
+
+const dependencyArray = (
+  runner: CommandRunner,
+  worktree: string,
+  stages: ConflictStages,
+): { readonly text: string; readonly outcome: ConflictOutcome } | null => {
+  const merged = mergeFile(runner, worktree, stages, "--diff3");
+  if (merged === null || merged.conflicts === 0) return null;
+  const regions = diff3ConflictRegions(merged.text);
+  if (regions === null || regions.length === 0) return null;
+  let position = 0;
+  let resolved = "";
+  const dropped = new Set<string>();
+  for (const region of regions) {
+    const start = merged.text.indexOf("<<<<<<<", position);
+    const end = merged.text.indexOf(">>>>>>>", start);
+    if (start === -1 || end === -1) return null;
+    const hook = hookForDependencyRegion(merged.text, start);
+    const ours = dependencyEntries(region.upstream);
+    const theirs = dependencyEntries(region.fork);
+    if (hook === null || ours === null || theirs === null) return null;
+    const entries = [...ours, ...theirs];
+    const names = new Set(entries.map(({ name }) => name));
+    const bindings = bindingNamesBefore(merged.text, hook.dependenciesStart, names);
+    if (bindings.size !== names.size) return null;
+    const referenced = referencedDependencyNames(hook.body, names);
+    if (referenced === null) return null;
+    for (const name of names) if (!referenced.has(name)) dropped.add(name);
+    const replacement = entries
+      .filter(
+        ({ name }, index) =>
+          referenced.has(name) && entries.findIndex((entry) => entry.name === name) === index,
+      )
+      .map(({ line }) => line)
+      .join("");
+    if (replacement === "") return null;
+    const lineEnd = merged.text.indexOf("\n", end);
+    resolved += merged.text.slice(position, start) + replacement;
+    position = lineEnd === -1 ? merged.text.length : lineEnd + 1;
+  }
+  resolved += merged.text.slice(position);
+  return {
+    text: resolved,
+    outcome: {
+      take: "union",
+      conflictClass: "mechanical",
+      source: "keep-both",
+      resolution:
+        "outcome executor: dependency-array union kept referenced hook dependencies" +
+        (dropped.size === 0
+          ? ""
+          : `; dropped ${[...dropped].join(", ")} because the hook body does not read it`),
+    },
+  };
+};
+
 const keepBoth = (
   runner: CommandRunner,
   worktree: string,
@@ -347,10 +705,22 @@ export const executeConflictOutcome = (
   if (classified.take === "ours") resolved = ours;
   else if (classified.take === "theirs") resolved = theirs;
   else {
-    const kept = keepBoth(runner, worktree, path, stages);
-    if ("reason" in kept) return kept;
-    resolved = kept.text;
-    outcome = kept.outcome;
+    const deletion = movedDeletion(runner, worktree, stages);
+    if (deletion !== null) {
+      resolved = deletion.text;
+      outcome = deletion.outcome;
+    } else {
+      const dependencies = dependencyArray(runner, worktree, stages);
+      if (dependencies !== null) {
+        resolved = dependencies.text;
+        outcome = dependencies.outcome;
+      } else {
+        const kept = keepBoth(runner, worktree, path, stages);
+        if ("reason" in kept) return kept;
+        resolved = kept.text;
+        outcome = kept.outcome;
+      }
+    }
   }
   if (CONFLICT_MARKER.test(resolved))
     return { path, reason: "resolution still carries conflict markers" };
