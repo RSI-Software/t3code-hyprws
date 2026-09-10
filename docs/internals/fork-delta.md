@@ -190,6 +190,16 @@ skips it; a baseline the merge base has but the stack does not is a removed base
 check refuses that outright in both gates — ceilings ratchet down, they never disappear, and
 no trailer excuses the deletion, so lower the ceilings instead.
 
+The unblock walk raises its own ceilings. A kept-both conflict resolution grows the domain it
+lands in, so the numbers measured before a replay can be genuinely too low the moment it ends,
+and the refusal above names the whole fix rather than asking for a judgement. `unblock-check`
+therefore re-measures the inventory before the gate runs, raises only the exceeded ceilings and
+only to the number it just measured, and lands that edit in the walk's own `Fork-Repair` commit
+carrying `Fork-Budget: raise <reason>` naming the tag and every ceiling it moved. It never
+re-renders the table: a re-render would ratchet every untouched domain down to today's stack and
+spend headroom nobody decided to spend. A raise the walk takes is still a raise in the record —
+it lands in the checked report's verification lines.
+
 The same three numbers ride along with the sync: every `fork:sync` walk records the size of
 the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
 in its report's walk record, measured at replay completion against the pinned target tag,
