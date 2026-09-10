@@ -1,0 +1,29 @@
+# Fork budget
+
+Per-domain ceilings for the fork stack, measured by `vp run fork:delta --inventory`.
+`vp run fork:delta --check` fails when a domain's added or deleted lines exceed its ceiling.
+Commit counts and shared-file attributions are recorded, not gated: a commit count is not a
+cost, and shared attribution moves with every upstream tag even when the fork does not.
+Ceilings ratchet down only: lowering one is a normal commit, and raising one requires the
+raising commit to carry `Fork-Budget: raise <reason>`. The initial seed carries no trailer —
+there is no prior baseline to raise from. A domain without a row has every ceiling at zero,
+so a new domain fails the check until a commit adds its row.
+
+| Domain            | Commits | Added | Deleted | Shared |
+| ----------------- | ------- | ----- | ------- | ------ |
+| browser-bookmarks | 1       | 816   | 29      | 0      |
+| custom-agents     | 10      | 8745  | 739     | 0      |
+| distribution      | 16      | 1107  | 44      | 0      |
+<<<<<<<
+| fork-meta         | 12      | 65617 | 5190    | 0      |
+=======
+| fork-meta         | 14      | 66200 | 5150    | 0      |
+>>>>>>>
+| github-issues     | 9       | 7442  | 1021    | 0      |
+| markdown-editing  | 4       | 3908  | 1293    | 0      |
+| project-windows   | 46      | 14177 | 2862    | 0      |
+| thread-ordering   | 8       | 2338  | 229     | 0      |
+| upstream-fixes    | 25      | 4465  | 451     | 2      |
+| workspace-files   | 4       | 403   | 48      | 0      |
+| worktrunk-hooks   | 6       | 2146  | 894     | 1      |
+| zmux-estate       | 23      | 13137 | 1431    | 3      |
