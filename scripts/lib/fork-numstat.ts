@@ -27,24 +27,34 @@ export const commitNumstatArguments = (shas: ReadonlyArray<string>) =>
     ...shas,
   ] as const;
 
+/** The `added\tdeleted\tpath` rows of one numstat block, whatever produced them. */
+export const parseNumstatRows = (rows: ReadonlyArray<string>): CommitNumstat => {
+  let added = 0;
+  let deleted = 0;
+  const files: Array<string> = [];
+  for (const row of rows) {
+    const cells = row.split("\t");
+    const path = (cells[2] ?? "").trim();
+    if (path.length === 0) continue;
+    files.push(path);
+    // Binary files report "-" for both counts; they still count as touched.
+    added += Number.parseInt(cells[0] ?? "", 10) || 0;
+    deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
+  }
+  return { files, added, deleted };
+};
+
+// The same rows for a range rather than a commit, which is what a prospective
+// squash measures: one commit carrying the whole `base..head` diff.
+export const parseDiffNumstat = (raw: string): CommitNumstat =>
+  parseNumstatRows(raw.replace(/\r\n/g, "\n").split("\n"));
+
 export const parseCommitNumstat = (raw: string): ReadonlyMap<string, CommitNumstat> => {
   const stats = new Map<string, CommitNumstat>();
   for (const record of raw.replace(/\r\n/g, "\n").split(FORK_LOG_RECORD_SEPARATOR)) {
     const [sha = "", ...rows] = record.split("\n");
     if (sha.trim().length === 0) continue;
-    let added = 0;
-    let deleted = 0;
-    const files: Array<string> = [];
-    for (const row of rows) {
-      const cells = row.split("\t");
-      const path = (cells[2] ?? "").trim();
-      if (path.length === 0) continue;
-      files.push(path);
-      // Binary files report "-" for both counts; they still count as touched.
-      added += Number.parseInt(cells[0] ?? "", 10) || 0;
-      deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
-    }
-    stats.set(sha.trim(), { files, added, deleted });
+    stats.set(sha.trim(), parseNumstatRows(rows));
   }
   return stats;
 };

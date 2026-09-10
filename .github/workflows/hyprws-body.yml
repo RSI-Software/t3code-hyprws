@@ -68,6 +68,10 @@ jobs:
       # the current body fetched above for its trailer block. Both edited-trigger
       # runs and failed-job reruns use the live body. Draft and non-hyprws pull
       # requests are rehearsal surfaces that do not land by squash merge.
+      #
+      # The budget projection measures the stack below the pull request, so this
+      # job needs the same upstream remote the ledger step in hyprws-ci.yml adds:
+      # the fork checkout does not carry it.
       - name: Fork ledger (squash body)
         if: >-
           github.event_name == 'pull_request' &&
@@ -78,4 +82,6 @@ jobs:
           BASE_REF: origin/hyprws
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
           vp run fork:delta --check --base "$BASE_REF" --head "$HEAD_SHA" --squash-body "$RUNNER_TEMP/pull-request-body.md"
