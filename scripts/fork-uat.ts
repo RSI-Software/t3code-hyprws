@@ -28,6 +28,7 @@ import {
   renderUatBody,
   reviewedUatTasks,
   selectPreviousStable,
+  shippedScriptPaths,
   targetVersionFromUpstreamTag,
   upstreamParts,
   type DifferenceRow,
@@ -56,6 +57,7 @@ export {
   renderUatTaskBody,
   reviewedUatTasks,
   selectPreviousStable,
+  shippedScriptPaths,
   targetVersionFromUpstreamTag,
   uatTitle,
   type DifferenceRow,
@@ -610,10 +612,15 @@ export const execute = (options: Options, runner: CommandRunner): string => {
       ),
   );
   const upstream = (row: DifferenceRow): boolean => isUpstreamCommit(runner, row.sha);
-  const classified = partitionUatRows(difference.rows, upstream);
+  // Read the task list from the reviewed commit, not the working tree: a checkout sitting on
+  // another branch would otherwise decide which scripts ship in this candidate.
+  const shippedScripts = shippedScriptPaths(
+    requireSuccess(runner, "git", ["show", `${sha}:package.json`]),
+  );
+  const classified = partitionUatRows(difference.rows, upstream, shippedScripts);
   // Carried drift is reviewer evidence, not a source. The same exclusions apply: a chore or a
   // supporting-path commit that shifted during a rebase says nothing to a human tester.
-  const carried = partitionUatRows(difference.carried, upstream);
+  const carried = partitionUatRows(difference.carried, upstream, shippedScripts);
   const previousUat = readPreviousUat(runner, previousStable.tag);
   if (classified.rows.length === 0 && previousUat === null) {
     throw new Error("ref difference and previous UAT have no user-facing acceptance conditions");
