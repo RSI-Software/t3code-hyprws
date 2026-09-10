@@ -217,15 +217,6 @@ const bootstrap = Effect.gen(function* () {
     return;
   }
 
-  const pool = yield* DesktopBackendPool.DesktopBackendPool;
-  const primaryBackend = yield* pool.primary;
-  const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
-  const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
-
-  if (environment.isDevelopment && Option.isNone(environment.configuredBackendPort)) {
-    return yield* new DesktopDevelopmentBackendPortRequiredError();
-  }
-
   // A backend started while another server holds this home's lock can only exit with code 78.
   if (
     !(settings.wslOnly && settings.wslBackendEnabled) &&
@@ -240,6 +231,15 @@ const bootstrap = Effect.gen(function* () {
       DesktopHomeOwner.homeOwnedMessage(owner),
     );
     return yield* (yield* ElectronApp.ElectronApp).quit;
+  }
+
+  const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const primaryBackend = yield* pool.primary;
+  const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+  const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
+
+  if (environment.isDevelopment && Option.isNone(environment.configuredBackendPort)) {
+    return yield* new DesktopDevelopmentBackendPortRequiredError();
   }
 
   const backendPortSelection = yield* resolveDesktopBackendPort(environment.configuredBackendPort);
