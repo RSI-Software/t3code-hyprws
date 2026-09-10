@@ -21,7 +21,7 @@ or move, edit, create, or push a ref. `hyprws` is the default ref; a related iss
    If automatic selection looks wrong, stop and report it instead of silently pinning another tag.
 
    The target defaults to `vX.Y.Z-hyprws` from the ref's upstream base tag. It writes
-   `.dump/fork-uat/uat-<version>.md`. When the previous stable has a UAT issue, accepted and unsettled
+   `.dump/gh/fork-uat/uat-<version>.md`. When the previous stable has a UAT issue, accepted and unsettled
    conditions are copied into fresh unchecked task drafts with their prior evidence preserved.
    The snapshot links the previous UAT. Each carried task links its exact previous child when
    available, or the previous UAT for legacy checklist rows. These are provenance references;
