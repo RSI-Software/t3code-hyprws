@@ -65,7 +65,6 @@ function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | n
     : null;
 }
 
-
 /**
  * Returns a click handler that opens a pull request URL in the system browser.
  *
