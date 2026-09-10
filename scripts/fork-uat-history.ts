@@ -3,7 +3,12 @@
 
 import { requireCommandSuccess, type InputCommandRunner } from "./lib/fork-command.ts";
 import { parseStableForkTag } from "./lib/fork-policy.ts";
-import { legacyUatTasks, type PreviousUat, type UatTask } from "./fork-uat-policy.ts";
+import {
+  legacyUatTasks,
+  type PreviousUat,
+  type PriorUatStatus,
+  type UatTask,
+} from "./fork-uat-policy.ts";
 
 const REPOSITORY = "RSI-Software/t3code-hyprws";
 
@@ -51,6 +56,7 @@ const subIssueTasks = (
 ): ReadonlyArray<UatTask> => {
   const response = json<{
     readonly subIssues: { readonly nodes: ReadonlyArray<UatSubIssue> };
+    readonly subIssuesSummary: { readonly total: number };
   }>(
     run(runner, "gh", [
       "issue",
@@ -59,28 +65,35 @@ const subIssueTasks = (
       "--repo",
       REPOSITORY,
       "--json",
-      "subIssues",
+      "subIssues,subIssuesSummary",
     ]),
     `UAT #${issue.number} sub-issues`,
   );
+  // The node list is one unpaginated page. The summary counts every child, so a short page means
+  // conditions were dropped on the floor; say so rather than carry a silently truncated UAT.
+  if (response.subIssues.nodes.length !== response.subIssuesSummary.total) {
+    throw new Error(
+      `UAT #${issue.number} listed ${response.subIssues.nodes.length} of ${response.subIssuesSummary.total} acceptance children`,
+    );
+  }
   const prefix = `UAT ${targetVersion}: `;
   const tasks = response.subIssues.nodes.map((child): UatTask => {
     const title = withoutHomingMarker(child.title);
+    const carriedFrom = [
+      {
+        issue: issue.number,
+        task: child.number,
+        status: (child.state === "CLOSED" ? "accepted" : "unsettled") as PriorUatStatus,
+      },
+    ];
+    // These titles belong to a human, who is free to reword one while testing. A rename must not
+    // cost the next release its evidence, so a title that no longer parses is carried whole under
+    // the generic area instead of dropped or refused.
     if (!title.startsWith(prefix) || !title.slice(prefix.length).includes(" — ")) {
-      throw new Error(`UAT #${issue.number} has unrecognized acceptance child #${child.number}`);
+      return { area: "Acceptance", title, carriedFrom };
     }
     const [area, ...condition] = title.slice(prefix.length).split(" — ");
-    return {
-      area: area ?? "Acceptance",
-      title: condition.join(" — "),
-      carriedFrom: [
-        {
-          issue: issue.number,
-          task: child.number,
-          status: child.state === "CLOSED" ? "accepted" : "unsettled",
-        },
-      ],
-    };
+    return { area: area ?? "Acceptance", title: condition.join(" — "), carriedFrom };
   });
   if (tasks.length === 0) throw new Error(`UAT #${issue.number} has no acceptance children`);
   return tasks;
@@ -99,8 +112,6 @@ export const readPreviousUat = (
       REPOSITORY,
       "--state",
       "all",
-      "--label",
-      "release",
       "--search",
       `"UAT ${targetVersion}" in:title`,
       "--limit",
