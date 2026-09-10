@@ -12,8 +12,10 @@ import {
   DOCUMENT_PATH,
   hotSeams,
   parseCensusFiles,
+  FROZEN_MIRROR_MARKER,
   parseCensusTag,
   parseLedger,
+  renderMarkdown,
   run,
   trunkRepairCommits,
   walkElapsedMs,
@@ -28,6 +30,7 @@ import {
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
+import { freezeObservation, seamRecord } from "./lib/fork-churn-seams.ts";
 import { parseHostHandoff } from "./lib/fork-host-handoff.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
@@ -86,6 +89,46 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   const parsed = parseRecord(renderRecord(reportFixture()));
   assert.deepStrictEqual(parsed.conflicts, reportFixture().conflicts);
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
+});
+
+/**
+ * A stopped walk's record keeps TODO cells even after `record-decisions` upgrades the declined
+ * conflict rows: the fork-commit Action cells stay TODO (RSI-Software/t3code-hyprws#876). Only the
+ * pending ledger row's parse may read such a record.
+ */
+it("accepts TODO fork-commit Action cells only when allowIncomplete", () => {
+  // A declined seam whose subject has no orientation row: record-decisions upgrades the conflict
+  // row to human, but its fork-commit Action cell stays TODO.
+  const declinedSubject = "fix(web): a seam the executor declined";
+  const humanResolved = renderRecord({
+    ...reportFixture(),
+    stage: "conflicts",
+    conflicts: [{ ...reportFixture().conflicts[0]!, subject: declinedSubject }],
+  });
+  assert.throws(() => parseRecord(humanResolved), /Action/);
+  const parsed = parseRecord(humanResolved, { allowIncomplete: true });
+  assert.strictEqual(
+    parsed.decisions.find((row) => row.subject === declinedSubject)?.verdict,
+    "TODO",
+  );
+  const stillStopped = renderRecord({
+    ...reportFixture(),
+    stage: "conflicts",
+    conflicts: [
+      {
+        ...reportFixture().conflicts[0]!,
+        class: "TODO",
+        resolution: "TODO",
+        agentSafe: "TODO",
+        decidedBy: "TODO",
+      },
+    ],
+  });
+  assert.throws(() => parseRecord(stillStopped), /remains incomplete/);
+  assert.strictEqual(
+    parseRecord(stillStopped, { allowIncomplete: true }).conflicts[0]?.class,
+    "TODO",
+  );
 });
 
 it("keeps nightly proposer and reviewer separate in the record and ledger", () => {
@@ -938,6 +981,47 @@ it("measures hot-seam deltas against the previous churn section", () => {
   assert.include(third, "Dropped since the last report: `seam`.");
 });
 
+it("renders the notification KPIs from walk, seam, outcome, and delta inputs", () => {
+  const repeat = conflict("repeat.ts", "human");
+  const entries = [
+    { ...entry("v1", [repeat]), elapsedMs: 10_000, effort: { model: "model-a", effort: "low" } },
+    {
+      ...entry("v2", [repeat, { ...conflict("agent.ts", "generated"), decidedBy: "agent" }]),
+      elapsedMs: 20_000,
+    },
+  ];
+  const records = ["v0", "v1", "v2"].map((tag) =>
+    seamRecord(
+      freezeObservation({
+        tag,
+        fixedAt: null,
+        files: [censusFile("repeat.ts", "abcdef1", "feat: repeat")],
+      }),
+    ),
+  );
+  const section = renderChurnSection(entries, null, null, records, [], {
+    commits: 12,
+    overBudget: ["fork-meta"],
+  });
+  assert.include(section, "| decisions human : agent | 1 : 1 |");
+  assert.include(section, "| conflict files, this walk vs last | 2 vs 1 |");
+  assert.include(section, "| delta commits, and any domain over budget | 12; fork-meta |");
+  assert.include(
+    section,
+    "| repeat offenders (commits conflicting in 3+ notifications) | `abcdef1` |",
+  );
+  assert.include(section, "| noAgentCarry streak / 5 | 0 / 5 |");
+  assert.include(section, "| elapsed and effort | 20s; unrecorded |");
+});
+
+it("renders KPI fallbacks for a first walk", () => {
+  const section = renderChurnSection([entry("v1", [])]);
+  assert.include(section, "| conflict files, this walk vs last | 0 vs first walk |");
+  assert.include(section, "| delta commits, and any domain over budget | unrecorded |");
+  assert.include(section, "| elapsed and effort | unrecorded; unrecorded |");
+  assert.include(renderMarkdown([entry("v1", [])], ""), "## KPIs");
+});
+
 it("counts the conflict class mix and decided-by split across walks", () => {
   const section = renderChurnSection([
     entry("v1", [conflict("a", "generated"), conflict("b", "human")]),
@@ -1454,14 +1538,98 @@ it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
   }
 });
 
-it("returns exit 1 when render --check finds a stale committed document", () => {
+it("refuses render --check instead of comparing the frozen mirror", () => {
   const root = ledgerRepository([]);
   const internals = NodePath.join(root, "docs", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
   );
-  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.md"), "stale\n");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-churn.md"),
+    `stale\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render", "--check"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+    assert.match(stderr, /RSI-Software\/t3code-hyprws#476/);
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses bare render and leaves the frozen mirror byte-identical", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  const documentPath = NodePath.join(internals, "fork-churn.md");
+  NodeFS.writeFileSync(
+    documentPath,
+    `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+    assert.strictEqual(
+      NodeFS.readFileSync(documentPath, "utf8"),
+      `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+    );
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a mirror whose deprecation notice is rewrapped differently", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-churn.md"),
+    "# Reflown\n\n> This document is\na\nfrozen mirror.\nDeprecated.\n\n- Entries: 0\n",
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("still reports staleness for a mirror that is not frozen", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.md"), "stale, but not frozen\n");
   try {
     assert.strictEqual(run(["render", "--check"], root), 1);
   } finally {
