@@ -1,0 +1,34 @@
+name: hyprws sync resolution
+
+# A resolution pushed to sync/resolution reruns the upstream sync from the
+# trunk's own definition. Nothing from that branch ever runs here: `fork:sync`
+# imports it as data (docs/fork/operations/fork-sync.md#resolution-data).
+#
+# No `push` trigger: a push runs the workflow files of the pushed commit, and
+# the resolution commit holds none. The signal is rsi-pr-agent's sticky comment
+# on the sync attention issue turning `**pushed**`; `issue_comment` always runs
+# this file from the default branch. The job holds no secret and only
+# dispatches; the dispatched run queues behind any sync in flight.
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions: {}
+
+jobs:
+  rerun:
+    name: Rerun the upstream sync
+    if: >-
+      github.event.comment.user.login == 'rsi-pr-agent[bot]' &&
+      startsWith(github.event.comment.body, '<!-- rsi:fork-sync -->') &&
+      contains(github.event.comment.body, '**pushed**')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the trunk's sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run hyprws-upstream-sync.yml --ref hyprws --repo "$GITHUB_REPOSITORY"
