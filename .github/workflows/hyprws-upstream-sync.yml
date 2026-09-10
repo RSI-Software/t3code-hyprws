@@ -206,6 +206,9 @@ jobs:
           test -z "$(git config --local --get-regexp '^includeIf\.gitdir:' | grep 'git-credentials-.*\.config' || true)"
           ! compgen -G "$RUNNER_TEMP/git-credentials-*.config" > /dev/null
 
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -364,6 +367,9 @@ jobs:
             echo "::error::git-credentials file still present after scrub"
             exit 1
           fi
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
