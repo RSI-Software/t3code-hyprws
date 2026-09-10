@@ -15,7 +15,10 @@ import {
 } from "./lib/fork-rebase-issues.ts";
 
 const BLOCKED_LABEL = "rebase-blocked";
+const HARD_FAILURE_LABEL = "rebase-hard-failure";
 const DOMAIN_LABEL = "ci";
+const HARD_FAILURE_MARKER = "<!-- hyprws-rebase-hard-failure -->";
+export const UNKNOWN_FAILURE = "unknown failure";
 const RELEASE_LABEL = "release";
 const NOTIFICATION_ISSUE_TYPE = "Notification";
 const HIGH_PRIORITY = "High";
@@ -49,9 +52,17 @@ export interface RebaseIssueComment {
 export interface CreateNotificationIssue {
   readonly title: string;
   readonly body: string;
-  readonly labels: ReadonlyArray<typeof BLOCKED_LABEL | typeof DOMAIN_LABEL | typeof RELEASE_LABEL>;
+  readonly labels: ReadonlyArray<
+    typeof BLOCKED_LABEL | typeof HARD_FAILURE_LABEL | typeof DOMAIN_LABEL | typeof RELEASE_LABEL
+  >;
   readonly assignee?: "donjor";
   readonly priority: typeof HIGH_PRIORITY;
+}
+
+export interface HardFailureReport {
+  readonly failingStep: string;
+  readonly lastErrorLine: string;
+  readonly runUrl: string;
 }
 
 export interface RepositoryIssueType {
@@ -90,7 +101,9 @@ export type IssueCloseReason = "completed" | "not_planned";
 
 export interface RebaseGitHubClient {
   ensureBlockedLabel(): void;
+  ensureHardFailureLabel(): void;
   listBlockedIssues(): ReadonlyArray<RebaseIssue>;
+  listHardFailureIssues(): ReadonlyArray<RebaseIssue>;
   listReleaseIssues(): ReadonlyArray<RebaseIssue>;
   listIssueComments(issueNumber: number): ReadonlyArray<RebaseIssueComment>;
   lookupIssueTypeId(issueType: typeof NOTIFICATION_ISSUE_TYPE): string;
@@ -268,6 +281,55 @@ export const reconcileRebaseBlock = (
   client.createIssueComment(created.number, initialRefreshLog(input.blocked, at));
 };
 
+export const hardFailureBody = (report: HardFailureReport, at: Date): string =>
+  [
+    HARD_FAILURE_MARKER,
+    `The \`${report.failingStep}\` step of the hyprws auto-rebase workflow exited non-zero.`,
+    "",
+    `- Failing step: \`${report.failingStep}\``,
+    `- Last error line: \`${report.lastErrorLine}\``,
+    `- Run: ${report.runUrl}`,
+    `- Detected: ${at.toISOString()}`,
+  ].join("\n");
+
+/** Keep at most one open hard-failure issue; each recurrence comments with its run. */
+export const reconcileHardFailure = (
+  client: RebaseGitHubClient,
+  report: HardFailureReport,
+  at = new Date(),
+): void => {
+  client.ensureHardFailureLabel();
+  const body = hardFailureBody(report, at);
+  const existing = client
+    .listHardFailureIssues()
+    .filter((issue) => issue.state === "open")
+    .toSorted((left, right) => left.number - right.number)[0];
+  if (existing !== undefined) {
+    client.updateIssueBody(existing.number, body);
+    client.createIssueComment(existing.number, `Recurred: ${report.runUrl}`);
+    return;
+  }
+  const created = client.createIssue({
+    title: "🔔 hyprws auto-rebase crashed (hard failure)",
+    body,
+    labels: [HARD_FAILURE_LABEL, DOMAIN_LABEL],
+    assignee: "donjor",
+    priority: HIGH_PRIORITY,
+  });
+  client.applyIssueType(created, client.lookupIssueTypeId(NOTIFICATION_ISSUE_TYPE));
+};
+
+export const closeRecoveredHardFailures = (client: RebaseGitHubClient, at = new Date()): void => {
+  for (const issue of client.listHardFailureIssues()) {
+    if (issue.state !== "open") continue;
+    client.createIssueComment(
+      issue.number,
+      `Recovered: the auto-rebase completed cleanly at ${at.toISOString()}.`,
+    );
+    client.closeIssue(issue.number, "completed");
+  }
+};
+
 const matchesStableCandidate = (issue: RebaseIssue, candidate: StableCandidate): boolean =>
   issue.body.includes(candidate.marker);
 
@@ -391,6 +453,7 @@ export const reconcileForkIssues = (
   const failures: Array<unknown> = [];
   captureFailure(failures, () => reconcileRebaseBlock(client, input, at));
   captureFailure(failures, () => reconcileStableCandidates(client, input.stableCandidates));
+  captureFailure(failures, () => closeRecoveredHardFailures(client, at));
   if (failures.length > 0) {
     throw new Error(
       failures.map((error) => (error instanceof Error ? error.message : String(error))).join("; "),
@@ -580,6 +643,25 @@ export class SystemGitHub implements RebaseGitHubClient {
     return this.listIssuesByLabel(BLOCKED_LABEL);
   }
 
+  ensureHardFailureLabel(): void {
+    this.run([
+      "label",
+      "create",
+      HARD_FAILURE_LABEL,
+      "--color",
+      "B60205",
+      "--description",
+      "The hyprws auto-rebase workflow crashed before it could report",
+      "--force",
+      "--repo",
+      this.repository,
+    ]);
+  }
+
+  listHardFailureIssues(): ReadonlyArray<RebaseIssue> {
+    return this.listIssuesByLabel(HARD_FAILURE_LABEL);
+  }
+
   listReleaseIssues(): ReadonlyArray<RebaseIssue> {
     return this.listIssuesByLabel(RELEASE_LABEL);
   }
@@ -685,16 +767,71 @@ export class SystemGitHub implements RebaseGitHubClient {
 
 export { UsageError } from "./lib/fork-cli.ts";
 
-const HELP = `Usage: node scripts/fork-rebase-notify.ts --input <path>\n`;
+const HELP = `Usage: node scripts/fork-rebase-notify.ts --input <path>
+       node scripts/fork-rebase-notify.ts --hard-failure --failing-step <name> --error-log <path> --run-url <url>
+`;
 
-export const parseNotifyArgs = (argv: ReadonlyArray<string>): { readonly input: string } => {
-  const parsed = parseCliArgs(argv, { values: ["--input"] });
+const requireValue = (values: ReadonlyMap<string, string>, name: string): string => {
+  const value = values.get(name);
+  if (value === undefined) throw new UsageError(`expected ${name} <value>`);
+  return value;
+};
+
+export interface HardFailureCliOptions {
+  readonly failingStep: string;
+  readonly errorLog: string;
+  readonly runUrl: string;
+}
+
+export type NotifyCliOptions =
+  | { readonly mode: "issues"; readonly input: string }
+  | ({ readonly mode: "hard-failure" } & HardFailureCliOptions);
+
+export const parseNotifyArgs = (argv: ReadonlyArray<string>): NotifyCliOptions => {
+  const parsed = parseCliArgs(argv, {
+    values: ["--input", "--failing-step", "--error-log", "--run-url"],
+    flags: ["--hard-failure"],
+  });
   const input = parsed.values.get("--input");
+  if (parsed.flags.has("--hard-failure")) {
+    if (input !== undefined)
+      throw new UsageError("--hard-failure and --input are mutually exclusive");
+    return {
+      mode: "hard-failure",
+      failingStep: requireValue(parsed.values, "--failing-step"),
+      errorLog: requireValue(parsed.values, "--error-log"),
+      runUrl: requireValue(parsed.values, "--run-url"),
+    };
+  }
+  for (const name of ["--failing-step", "--error-log", "--run-url"]) {
+    if (parsed.values.has(name)) {
+      throw new UsageError(`${name} requires --hard-failure`);
+    }
+  }
   if (input === undefined) throw new UsageError("expected --input <path>");
-  return { input };
+  return { mode: "issues", input };
 };
 
 export { parseNotifyArgs as parseArgs };
+
+// eslint-disable-next-line no-control-regex -- ANSI CSI sequences start with the ESC control byte.
+const ANSI_ESCAPE = new RegExp("\\u001B\\[[0-9;]*[A-Za-z]", "g");
+
+/** Last non-blank line of the error log, ANSI-stripped; UNKNOWN_FAILURE when unusable. */
+export const lastErrorLineFromFile = (path: string): string => {
+  let text: string;
+  try {
+    text = NodeFS.readFileSync(path, "utf8");
+  } catch {
+    return UNKNOWN_FAILURE;
+  }
+  const lines = text
+    .replace(ANSI_ESCAPE, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return lines.at(-1) ?? UNKNOWN_FAILURE;
+};
 
 export const run = (argv: ReadonlyArray<string>): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -706,8 +843,17 @@ export const run = (argv: ReadonlyArray<string>): number => {
     if (!process.env.GH_TOKEN) throw new UsageError("GH_TOKEN is required");
     const repository = process.env.GH_REPO;
     if (!repository) throw new UsageError("GH_REPO is required");
+    const client = new SystemGitHub(repository);
+    if (options.mode === "hard-failure") {
+      reconcileHardFailure(client, {
+        failingStep: options.failingStep,
+        lastErrorLine: lastErrorLineFromFile(options.errorLog),
+        runUrl: options.runUrl,
+      });
+      return 0;
+    }
     const input = JSON.parse(NodeFS.readFileSync(options.input, "utf8")) as NotifyInput;
-    reconcileForkIssues(new SystemGitHub(repository), input);
+    reconcileForkIssues(client, input);
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
