@@ -47,6 +47,7 @@ the change. Upload evidence to GitHub and embed or link it here. Never commit PR
      git only reads trailers from the final paragraph.
 
      Valid Fork-Domain values (copy one exactly; never invent a value):
+       backend-attach
        browser-bookmarks
        custom-agents
        distribution
