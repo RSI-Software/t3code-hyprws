@@ -1,3 +1,6 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
+import * as Persistence from "effect/unstable/persistence/Persistence";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,7 +18,9 @@ import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit
 import { PullRequestProviderError, type PullRequestProviderApi } from "./PullRequestProvider.ts";
 import { PullRequestProviderRegistry, fromProviders } from "./PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./PullRequestService.ts";
+import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
+import { PullRequestFilesViewedRepository } from "../persistence/PullRequestFilesViewed.ts";
 function project(input: {
   readonly id: string;
   readonly title: string;
@@ -139,7 +144,16 @@ function makeService(input: {
           getProjectShellById: (projectId) =>
             Effect.succeed(Option.fromNullishOr(input.projects.find((p) => p.id === projectId))),
         }),
+        Layer.mock(PullRequestFilesViewedRepository)({
+          list: () => Effect.die("unused"),
+          set: () => Effect.die("unused"),
+        }),
         SourceControlRateLimit.layer,
+        Layer.effect(PullRequestReadCache.PullRequestReadCache, PullRequestReadCache.make).pipe(
+          Layer.provide(Persistence.layerKvs),
+          Layer.provide(KeyValueStore.layerMemory),
+          Layer.provide(NodeServices.layer),
+        ),
       ),
     ),
   );
