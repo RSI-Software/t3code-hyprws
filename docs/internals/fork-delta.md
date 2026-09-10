@@ -202,6 +202,7 @@ excluded from the recorded size the same way.
 | --------------------------------------- | ------ | ----------------- | ------------------------------------------------------------- |
 | [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                 |
 | [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile browser bookmarks. |
+| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach to a running local server.      |
 | [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.         |
 | [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection.                  |
 | [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing.                    |
@@ -858,6 +859,78 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 | `package.json` `engines` and `packageManager` | Runner toolchain expectations.                                                                                   |
 | `docs/internals/scripts.md`                   | Documents the fork's release and upstream-sync scripts.                                                          |
 | `README.md`                                   | Carries the fork's rewritten introduction, which is what tells a reader these are fork builds and fork releases. |
+
+## backend-attach
+
+### Need
+
+The developer runs `t3code-backend.service` on this machine and serves it publicly. Upstream's
+desktop app always spawns its own backend, so the AppImage and the service cannot both be up:
+the app finds `3773` busy, takes another port, and opens a second writer on the one
+`~/.t3/userdata/state.sqlite`. The runbook worked around that by never opening the GUI.
+
+The desktop app must attach to a backend it did not spawn, on the same machine and the same T3
+home, and report one environment for it.
+
+### Shape
+
+- `apps/desktop/src/app/DesktopBackendMode.ts` resolves the effective mode. A `managed`
+  configuration flips to `client-only` when a live `server-runtime.json` names a reachable
+  server, and the decision is logged on the `desktop.startup` span with its `source`.
+- `apps/desktop/src/app/DesktopRunningLocalServers.ts` discovers those servers and mints a
+  pairing URL through the bundled `t3 pair --json`. It cross-checks the returned environment id
+  and origin, and rejects a URL whose path is not `/pair`, whose search is not empty, or whose
+  token is not in the hash.
+- `packages/shared/src/serverRuntimeState.ts` holds the runtime-state read both the server and
+  the desktop main process need. The fork's `devUrl` field rides with it.
+- Client-only mode registers no spawned primary, so `getLocalEnvironmentBootstraps` returns an
+  empty list and the renderer has no same-origin environment.
+- `apps/web/src/connection/DesktopLocalAutoPair.tsx` closes that gap. It pairs the attached
+  server once per launch, only while the saved environment list is empty, only in client-only
+  mode, and only when discovery returns exactly one server. A user who removes the environment
+  on purpose is not re-paired behind their back within that session.
+
+The fork does not add the launch flag or the persistent setting. Both come from upstream's own
+design and ride in this domain unchanged.
+
+### Retirement condition
+
+Retire when upstream ships desktop attach. The live upstream attempt is `pingdotgg/t3code#9376`;
+this domain is an adapted subset of the `main`-based series
+`colonelpanic8/t3code:t3code/client-environment-suite-main`, without its environment-scoped
+settings half. Retire commit by commit as upstream lands the pieces.
+
+### Rebase scan
+
+| Path                                                      | Why it matters                                                               |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `apps/desktop/src/backend/DesktopBackendManager.ts`       | Upstream moves spawn lifecycle here, including the exit-code contract.       |
+| `apps/desktop/src/backend/DesktopBackendConfiguration.ts` | Upstream moves the packaged port here; attach reads the same value.          |
+| `apps/desktop/src/app/DesktopBackendMode.ts`              | Fork-owned mode resolution and its `existing-server` source.                 |
+| `apps/desktop/src/app/DesktopRunningLocalServers.ts`      | Discovery, the bundled pair call, and the pairing-URL validator.             |
+| `apps/desktop/src/app/DesktopEnvironment.ts`              | Registers the attached environment instead of a spawned primary.             |
+| `apps/desktop/src/app/DesktopLifecycle.ts`                | Skips backend startup and shutdown in client-only mode.                      |
+| `apps/desktop/src/window/DesktopWindow.ts`                | Shared with `project-windows`; the only window-layer conflict in the series. |
+| `apps/desktop/src/ipc/methods/backendMode.ts`             | Reads and writes the persisted mode over IPC.                                |
+| `apps/desktop/src/ipc/methods/localServerDiscovery.ts`    | Exposes discovery and pairing to the renderer.                               |
+| `apps/desktop/src/ipc/methods/window.ts`                  | Returns no local bootstrap in client-only mode.                              |
+| `apps/desktop/src/settings/DesktopAppSettings.ts`         | Persists the backend mode.                                                   |
+| `apps/desktop/src/main.ts`                                | Parses `--backend-mode`.                                                     |
+| `apps/desktop/src/preload.ts`                             | Bridges discovery and pairing.                                               |
+| `apps/server/src/cli/pair.ts`                             | Upstream adds `--json` and moves its state read into `packages/shared`.      |
+| `apps/server/src/serverRuntimeState.ts`                   | The module the read moves out of; carries the fork's `devUrl` field.         |
+| `packages/shared/src/serverRuntimeState.ts`               | The moved read, used by the desktop main process.                            |
+| `packages/shared/package.json`                            | Its subpath export; a standing adjacent-insert conflict.                     |
+| `packages/contracts/src/localServerDiscovery.ts`          | The discovery and pairing wire shapes.                                       |
+| `packages/contracts/src/ipc.ts`                           | Carries those IPC methods.                                                   |
+| `packages/contracts/src/settings.ts`                      | Carries the persisted backend mode.                                          |
+| `packages/client-runtime/src/state/authHttp.ts`           | Credential exchange for a server the client did not spawn.                   |
+| `packages/client-runtime/src/state/auth.ts`               | Consumes it.                                                                 |
+| `packages/client-runtime/src/connection/presentation.ts`  | Names an attached local environment.                                         |
+| `apps/web/src/connection/DesktopLocalAutoPair.tsx`        | Fork-owned. The subset's only renderer consumer of `pairLocalServer`.        |
+| `apps/web/src/environments/primary/target.ts`             | Reports client-only mode to the renderer.                                    |
+| `apps/web/src/environmentPresence.ts`                     | Answers whether any environment is reachable.                                |
+| `apps/web/src/routes/__root.tsx`                          | Gates the client-only auth state and mounts the auto-pair.                   |
 
 ## workspace-files
 
