@@ -154,6 +154,19 @@ const verificationEnvironment = (): NodeJS.ProcessEnv => {
   return env;
 };
 
+/**
+ * The replay worktree's own `vp` launcher. Resolved absolutely because a bare
+ * `vp` on PATH can resolve its @voidzero-dev/vite-plus-core out of an unrelated
+ * checkout's node_modules (its own cwd-independent install), leaving the
+ * worktree's vitest and the module runner as two distinct vite-plus-core
+ * instances. That split is invisible until a test collects: the `describe`
+ * re-exported by the worktree's @effect/vitest belongs to a copy whose
+ * collection state the running copy never initialised, so the first
+ * `describe(...)` at module evaluation reads `.config` off undefined.
+ */
+export const verificationLauncher = (worktree: string): string =>
+  NodePath.join(worktree, "node_modules", ".bin", "vp");
+
 export const selectVerificationDependencySetup = (
   git: Pick<FeasibilityGit, "runResult">,
   baseSha: string,
@@ -224,17 +237,28 @@ export const verifyReplay = (
   const dependencySetup = selectVerificationDependencySetup(original, baseSha, targetSha);
   const env = verificationEnvironment();
   if (dependencySetup === "fresh-install") {
+    // Bare `vp`: there is no local install yet, so there is no launcher to resolve.
     requireSuccess("vp i", commandResult("vp", ["i"], worktree, env));
   } else {
     linkInstalledModules(root, worktree);
   }
-  for (const [command, args] of [
-    ["vp", ["run", "fork:delta", "--check"]],
-    ["vp", ["check"]],
-    ["vp", ["run", "typecheck"]],
-    ["vp", ["run", "test"]],
-  ] as const) {
-    requireSuccess(`${command} ${args.join(" ")}`, commandResult(command, args, worktree, env));
+  // Absolute launcher, both setups: see verificationLauncher. Under shared-install it
+  // resolves through the root symlink into the checkout's install, which is exactly the
+  // install the tree is meant to use; under fresh-install it is the worktree's own.
+  const launcher = verificationLauncher(worktree);
+  if (!NodeFS.existsSync(launcher)) {
+    throw new Error(
+      `verification launcher missing after install: ${launcher} (bare "vp" on PATH can resolve its core from an unrelated checkout)`,
+    );
+  }
+  const verificationCommands = [
+    ["run", "fork:delta", "--check"],
+    ["check"],
+    ["run", "typecheck"],
+    ["run", "test"],
+  ] as const;
+  for (const args of verificationCommands) {
+    requireSuccess(`vp ${args.join(" ")}`, commandResult(launcher, args, worktree, env));
   }
   return dependencySetup;
 };
