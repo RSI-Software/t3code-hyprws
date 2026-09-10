@@ -754,11 +754,7 @@ export function PullRequestSummaryTab({
                 detail.capabilities.attachments === true && Option.isSome(preparedConnection)
                   ? {
                       httpBaseUrl: preparedConnection.value.httpBaseUrl,
-                      reference: {
-                        projectId: detail.projectId,
-                        repository: detail.repository,
-                        number: detail.number,
-                      },
+                      reference,
                     }
                   : undefined
               }
