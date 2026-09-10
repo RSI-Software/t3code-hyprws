@@ -59,6 +59,7 @@ export interface UatBodyInput {
     readonly subject: string;
     readonly prBody: string | null;
   }>;
+  readonly carried: ReadonlyArray<Pick<DifferenceRow, "short" | "subject">>;
   readonly excluded: ReadonlyArray<Pick<ExcludedRow, "short" | "subject" | "reason">>;
 }
 
@@ -113,12 +114,19 @@ export const selectPreviousStable = (
   return candidates.at(-1)?.tag ?? null;
 };
 
+// A rebase preserves subjects and rewrites content, so a subject shared with the previous stable
+// means the work was already accepted there, not that it is unchanged. Matching on the subject
+// alone would hide that drift; promoting it to a source would bury the genuinely new behavior under
+// the whole carried stack. Identical content stays silent, changed content is reported separately.
 export const differenceRows = (
   current: ReadonlyArray<ForkCommit>,
   previous: ReadonlyArray<ForkCommit>,
   patchId: (sha: string) => string | null,
   paths: (sha: string) => ReadonlyArray<string>,
-): ReadonlyArray<DifferenceRow> => {
+): {
+  readonly rows: ReadonlyArray<DifferenceRow>;
+  readonly carried: ReadonlyArray<DifferenceRow>;
+} => {
   const previousSubjects = new Set(previous.map((commit) => commit.subject));
   const previousPatchIds = new Set(
     previous.flatMap((commit) => {
@@ -126,12 +134,16 @@ export const differenceRows = (
       return value === null ? [] : [value];
     }),
   );
-  return current.flatMap((commit) => {
-    if (previousSubjects.has(commit.subject)) return [];
+  const rows: Array<DifferenceRow> = [];
+  const carried: Array<DifferenceRow> = [];
+  for (const commit of current) {
     const candidatePatchId = patchId(commit.sha);
-    if (candidatePatchId !== null && previousPatchIds.has(candidatePatchId)) return [];
-    return [{ ...commit, patchId: candidatePatchId, paths: paths(commit.sha) }];
-  });
+    if (candidatePatchId !== null && previousPatchIds.has(candidatePatchId)) continue;
+    const row = { ...commit, patchId: candidatePatchId, paths: paths(commit.sha) };
+    if (previousSubjects.has(commit.subject)) carried.push(row);
+    else rows.push(row);
+  }
+  return { rows, carried };
 };
 
 const EXCLUDED_CONVENTIONAL_TYPES = new Set(["build", "chore", "ci", "docs", "refactor", "test"]);
@@ -331,6 +343,7 @@ export const renderUatBody = (input: UatBodyInput): string => {
   const sources = input.sources.map(
     (row) => `- \`${row.short}\` ${row.subject}${row.prBody === null ? "" : ` — ${row.prBody}`}`,
   );
+  const carried = input.carried.map((row) => `- \`${row.short}\` ${row.subject}`);
   const excluded = input.excluded.map(
     (row) => `- \`${row.short}\` ${row.subject} — ${exclusionLabel(row.reason)}`,
   );
@@ -376,6 +389,15 @@ export const renderUatBody = (input: UatBodyInput): string => {
     `<summary>Included product commits (${sources.length})</summary>`,
     "",
     ...sources,
+    "",
+    "</details>",
+    "",
+    "## Carried with changes",
+    "",
+    "<details>",
+    `<summary>Product commits accepted in ${input.previousStable} whose content changed since (${carried.length})</summary>`,
+    "",
+    ...(carried.length === 0 ? ["None."] : carried),
     "",
     "</details>",
     "",
