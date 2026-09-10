@@ -469,6 +469,19 @@ interface AppliedFix {
   readonly paths: ReadonlyArray<string>;
 }
 
+/**
+ * A refusal carries the reason it fired. A mechanical fix declines for several different causes
+ * and the operator resolves each one differently, so a bare refusal leaves them reading the source
+ * to learn which shape they hit.
+ */
+interface Declined {
+  readonly declined: string;
+}
+
+const declined = (reason: string): Declined => ({ declined: reason });
+
+const isDeclined = (result: AppliedFix | Declined): result is Declined => "declined" in result;
+
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const balancedBraces = (text: string): boolean => text.split("{").length === text.split("}").length;
@@ -478,24 +491,28 @@ const dropReaddedLines = (
   worktree: string,
   target: string,
   finding: AdditiveFinding,
-): AppliedFix | undefined => {
+): AppliedFix | Declined => {
   const drops = new Set(finding.lines ?? []);
-  if (drops.size === 0) return undefined;
+  if (drops.size === 0) return declined("the finding names no re-added lines to drop");
   const diff = gitOut(runner, worktree, ["diff", target, "HEAD", "--", finding.path]);
-  if (diff === null) return undefined;
+  if (diff === null) return declined(`git diff ${target}..HEAD failed for ${finding.path}`);
   // Only a run the replay added wholly out of the detected hunk goes. A larger run around it is a
   // fork edit the walk cannot separate from the re-add, so it stays a maintainer's call.
   const blocks = diffBlocks(diff, "+").filter(
     (block) => block.length >= READDED_BLOCK_LINES && block.every((line) => drops.has(line)),
   );
-  if (blocks.length === 0) return undefined;
+  if (blocks.length === 0)
+    return declined(
+      `no run of ${READDED_BLOCK_LINES}+ re-added lines sits wholly inside a replay hunk; fork edits surround the re-add`,
+    );
   // A removal that dangles a block — unbalanced braces by simple count — is a maintainer's call.
-  if (!balancedBraces(blocks.flat().join("\n"))) return undefined;
+  if (!balancedBraces(blocks.flat().join("\n")))
+    return declined("dropping the re-added hunk(s) would leave unbalanced braces");
   let text: string;
   try {
     text = NodeFS.readFileSync(NodePath.join(worktree, finding.path), "utf8");
   } catch {
-    return undefined;
+    return declined(`${finding.path} could not be read in the rehearsal lane`);
   }
   const lines = text.split("\n");
   const trimmed = lines.map((line) => line.trim());
@@ -515,7 +532,10 @@ const dropReaddedLines = (
       break;
     }
     // A hunk the walk cannot find intact in the file is one it must not cut around.
-    if (!placed) return undefined;
+    if (!placed)
+      return declined(
+        `a re-added hunk of ${block.length} line(s) is not locatable intact in ${finding.path}`,
+      );
   }
   NodeFS.writeFileSync(
     NodePath.join(worktree, finding.path),
@@ -541,15 +561,17 @@ const renumberForkMigration = (
   runner: CommandRunner,
   worktree: string,
   finding: AdditiveFinding,
-): AppliedFix | undefined => {
+): AppliedFix | Declined => {
   const match = MIGRATION_NAME.exec(NodePath.basename(finding.path));
-  if (match === null) return undefined;
+  if (match === null)
+    return declined(`${NodePath.basename(finding.path)} is not a numbered migration filename`);
   const stem = `${match[1] ?? ""}${match[2] ?? ""}`;
   const migrationName = (match[2] ?? "").slice(1).replace(/\.ts$/, "");
   const head = treeMigrations(runner, worktree, "HEAD");
-  if (head.length === 0) return undefined;
+  if (head.length === 0) return declined("the replayed tree lists no migrations to renumber past");
   const highest = Math.max(...head.map(({ number }) => Number(number)));
-  if (!Number.isSafeInteger(highest)) return undefined;
+  if (!Number.isSafeInteger(highest))
+    return declined("the highest migration number in the tree is not a safe integer");
   const nextNumber = String(highest + 1).padStart(3, "0");
   const nextStem = `${nextNumber}${match[2] ?? ""}`;
   // 1. Rename the migration and any sibling that shares its stem.
@@ -563,12 +585,12 @@ const renumberForkMigration = (
       ),
     }));
   const own = siblings.find((rename) => rename.from === finding.path);
-  if (own === undefined) return undefined;
+  if (own === undefined) return declined(`${finding.path} is not listed in the replayed tree`);
   try {
     for (const rename of siblings)
       NodeFS.renameSync(NodePath.join(worktree, rename.from), NodePath.join(worktree, rename.to));
   } catch {
-    return undefined;
+    return declined(`renaming ${stem}* to ${nextStem}* failed in the rehearsal lane`);
   }
   // 2. Update every reference the grep can reach. A longer name that merely starts with the stem
   // cannot be rewritten safely, so that shape is a refusal instead of a corrupt reference.
@@ -581,7 +603,7 @@ const renumberForkMigration = (
     COMMENT_ENV,
   );
   if (grepStem.error !== undefined || (grepStem.status !== 0 && grepStem.status !== 1))
-    return undefined;
+    return declined(`git grep for ${stem} failed in the rehearsal lane`);
   const stemAmbiguous = new RegExp(`${escapeRegExp(stem)}[A-Za-z0-9_$]`);
   for (const file of grepStem.stdout.split("\n")) {
     const relative = file.trim();
@@ -590,9 +612,12 @@ const renumberForkMigration = (
     try {
       text = NodeFS.readFileSync(NodePath.join(worktree, relative), "utf8");
     } catch {
-      return undefined;
+      return declined(`${relative} references ${stem} but could not be read`);
     }
-    if (stemAmbiguous.test(text)) return undefined;
+    if (stemAmbiguous.test(text))
+      return declined(
+        `${relative} carries a longer name starting with ${stem}; rewriting it is unsafe`,
+      );
     NodeFS.writeFileSync(
       NodePath.join(worktree, relative),
       text.replace(new RegExp(`${escapeRegExp(stem)}(?![A-Za-z0-9_$])`, "g"), nextStem),
@@ -601,7 +626,10 @@ const renumberForkMigration = (
   }
   // A migration whose import nobody rewrote is a dangling reference: the registry is outside
   // grep's reach, which is the stop the brief names, not a fix to half-apply.
-  if (updated.size === 0) return undefined;
+  if (updated.size === 0)
+    return declined(
+      `nothing under the checked scopes references ${stem}; the registry is out of grep's reach`,
+    );
   // 3. The registry: an ordered list moves the renumbered entry after the last one, renumbering
   // its id and the import binding beside it. The binding is renamed only on the rewritten import
   // line, because in the collision case upstream's own lines still carry the same identifier and
@@ -615,17 +643,22 @@ const renumberForkMigration = (
       return false;
     }
   });
-  if (registryPath === undefined) return undefined;
+  if (registryPath === undefined)
+    return declined("no file referencing the migration carries a migrationEntries registry");
   const text = NodeFS.readFileSync(NodePath.join(worktree, registryPath), "utf8");
   const lines = text.split("\n");
   const entryIndex = lines.findIndex((line) =>
     new RegExp(`^\\s*\\[\\s*\\d+\\s*,\\s*"${escapeRegExp(migrationName)}"\\s*,`).test(line),
   );
   const closingIndex = lines.findLastIndex((line) => /^\];\s*$/.test(line));
-  if (entryIndex === -1 || closingIndex === -1 || entryIndex > closingIndex) return undefined;
+  if (entryIndex === -1 || closingIndex === -1 || entryIndex > closingIndex)
+    return declined(
+      `the ${migrationName} entry or the registry's closing bracket is not where the move expects it`,
+    );
   const entry = lines[entryIndex] ?? "";
   const binding = /\[\s*\d+\s*,\s*"[^"]*"\s*,\s*([A-Za-z_$][\w$]*)\s*\]/.exec(entry)?.[1];
-  if (binding === undefined) return undefined;
+  if (binding === undefined)
+    return declined(`the ${migrationName} registry entry names no import binding to renumber`);
   const renumbered = entry
     .replace(/^([\s*]*)\[\s*\d+/, `$1[${Number(nextNumber)}`)
     .replace(binding, `Migration${Number(nextNumber).toString().padStart(4, "0")}`);
@@ -649,8 +682,8 @@ const applyAdditiveFix = (
   worktree: string,
   target: string,
   finding: AdditiveFinding,
-): AppliedFix | undefined => {
-  const restore = (): AppliedFix | undefined => {
+): AppliedFix | Declined => {
+  const restore = (): AppliedFix | Declined => {
     const result = runner.run(
       "git",
       [...COMMENT_ARGS, "checkout", target, "--", finding.path],
@@ -658,7 +691,8 @@ const applyAdditiveFix = (
       undefined,
       COMMENT_ENV,
     );
-    if (result.status !== 0 || result.error !== undefined) return undefined;
+    if (result.status !== 0 || result.error !== undefined)
+      return declined(`git checkout ${target} -- ${finding.path} failed in the rehearsal lane`);
     return { finding, paths: [finding.path] };
   };
   if (finding.check === "files") return restore();
@@ -667,13 +701,21 @@ const applyAdditiveFix = (
       ? restore()
       : renumberForkMigration(runner, worktree, finding);
   // A shrunk upstream test is a human decision; only a wholly missing file restores.
-  if (finding.check === "tests") return finding.head === 0 ? restore() : undefined;
+  if (finding.check === "tests") {
+    if (finding.head === 0) return restore();
+    return declined(
+      finding.upstream === undefined || finding.head === undefined
+        ? "upstream test lines are gone from a file the replay kept; which line comes back is a maintainer's call"
+        : `the upstream test file shrank from ${finding.upstream} to ${finding.head} declaration(s) rather than vanishing; only a wholly missing file restores`,
+    );
+  }
   return dropReaddedLines(runner, worktree, target, finding);
 };
 
 /**
  * Apply every mechanical fix the findings admit. The refusals come back as `remaining`: a shrunk
- * upstream test and a brace-dangling removal are a maintainer's decision, not the walk's.
+ * upstream test and a brace-dangling removal are a maintainer's decision, not the walk's. Each
+ * refusal carries the reason it fired in its `detail`, so the stop names the shape it hit.
  */
 export const applyAdditiveFixes = (
   runner: CommandRunner,
@@ -686,8 +728,8 @@ export const applyAdditiveFixes = (
   const paths = new Set<string>();
   for (const finding of findings) {
     const fix = applyAdditiveFix(runner, worktree, target, finding);
-    if (fix === undefined) {
-      remaining.push(finding);
+    if (isDeclined(fix)) {
+      remaining.push({ ...finding, detail: `${finding.detail} — no fix: ${fix.declined}` });
       continue;
     }
     fixed.push(fix.finding);

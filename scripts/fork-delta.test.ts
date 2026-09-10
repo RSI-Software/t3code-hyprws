@@ -14,10 +14,15 @@ import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import { FORK_DOMAINS } from "./lib/fork-trailers.ts";
 import {
   budgetFindings,
+  budgetRaiseClauseFindings,
   budgetRaises,
   forkBudgetFindingMessage,
   forkBudgetRefusalMessage,
+  parseBudgetRaiseClauses,
   parseForkBudget,
+  FORK_BUDGET_PROOF_FROM,
+  isForkBudgetProofRequired,
+  raiseForkBudget,
   renderForkBudget,
 } from "./lib/fork-budget.ts";
 import {
@@ -27,7 +32,9 @@ import {
   collectWireShapeFindings,
   collectWireShapeFindingsBetween,
   collectFindings,
+  dropTransientFixups,
   forkLogArguments,
+  legacyWalkRepairFindings,
   parseCommitNumstat,
   parseForkLog,
   parseSquashBody,
@@ -160,7 +167,42 @@ it("reports missing and unknown trailers", () => {
   );
 });
 
-it("accepts a walk repair commit the sync appended after the replayed series", () => {
+it("ignores trailer-free walk fixups entirely: the autosquash folds them after the check", () => {
+  const withFixup = parseForkLog(
+    record("bbbbbbbbb", "fixup! fix(web): scope markdown actions", "") +
+      record(
+        "aaaaaaaaa",
+        "fix(web): scope markdown actions",
+        "Fork-Domain: project-windows\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
+      ),
+  );
+  const folded = dropTransientFixups(withFixup);
+  assert.deepStrictEqual(
+    folded.map((commit) => commit.short),
+    ["aaaaaaaaa"],
+  );
+  assert.deepStrictEqual(collectFindings(folded), []);
+  assert.deepStrictEqual(legacyWalkRepairFindings(folded, new Set()), []);
+});
+
+it("refuses an ungrandfathered legacy walk repair but ignores absent grandfather entries", () => {
+  const legacy = parseForkLog(
+    record(
+      "hhhhhhhhh",
+      "chore(fork-sync): repair fmt after v1.2.3",
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: v1.2.3\n",
+    ),
+  );
+  assert.deepStrictEqual(
+    legacyWalkRepairFindings(legacy, new Set()).map((finding) => finding.problem),
+    ["legacy walk repair must be folded"],
+  );
+  assert.deepStrictEqual(legacyWalkRepairFindings(legacy, new Set([legacy[0]!.sha])), []);
+  // A grandfather entry with no reachable commit is deliberately a no-op.
+  assert.deepStrictEqual(legacyWalkRepairFindings([], new Set(["f".repeat(40)])), []);
+});
+
+it("accepts a grandfathered walk repair commit the sync appended after the replayed series", () => {
   const commits = parseForkLog(
     record(
       "hhhhhhhhh",
@@ -645,6 +687,9 @@ it("passes the live base ref and exact pull-request head to squash-body validati
     workflow,
     'fork:delta --check --base "$BASE_REF" --head "$HEAD_SHA" --squash-body',
   );
+  // The projection measures the stack below the pull request against upstream,
+  // which the fork checkout does not carry.
+  assert.include(workflow, "git fetch --no-tags upstream main");
 });
 
 it("fails a pull-request body whose last paragraph is prose, not trailers", () => {
@@ -901,6 +946,57 @@ it("fails a stack over a gated ceiling, naming the domain and both numbers", () 
   );
 });
 
+it("raises only the exceeded ceilings, to the measured numbers, and leaves the rest alone", () => {
+  const before = renderForkBudget({
+    rows: [
+      { domain: "fork-meta", commits: 2, added: 10, deleted: 4, overlaps: 1 },
+      { domain: "custom-agents", commits: 5, added: 100, deleted: 20, overlaps: 3 },
+    ],
+  });
+  const measured = [
+    { domain: "fork-meta", commits: 2, added: 8, deleted: 4, overlaps: 1 },
+    { domain: "custom-agents", commits: 6, added: 130, deleted: 20, overlaps: 4 },
+    { domain: "zmux-estate", commits: 1, added: 5, deleted: 2, overlaps: 0 },
+  ];
+  const findings = budgetFindings(measured, parseForkBudget(before));
+  const after = raiseForkBudget(before, findings, measured);
+  const rows = parseForkBudget(after).rows;
+  // Only what was over moves, and only up to what was measured. `fork-meta` came in under its
+  // ceiling, so its headroom survives the raise instead of being ratcheted down to today's stack.
+  assert.deepStrictEqual(rows.get("fork-meta"), {
+    domain: "fork-meta",
+    commits: 2,
+    added: 10,
+    deleted: 4,
+    shared: 1,
+  });
+  assert.deepStrictEqual(rows.get("custom-agents"), {
+    domain: "custom-agents",
+    commits: 5,
+    added: 130,
+    deleted: 20,
+    shared: 3,
+  });
+  // A domain with no row is a ceiling of zero, not an absent domain: the raise appends its row,
+  // seeded from the live numbers for the cells the check only records.
+  assert.deepStrictEqual(rows.get("zmux-estate"), {
+    domain: "zmux-estate",
+    commits: 1,
+    added: 5,
+    deleted: 2,
+    shared: 0,
+  });
+  assert.ok(after.startsWith("# Fork budget\n"));
+  assert.deepStrictEqual(budgetFindings(measured, parseForkBudget(after)), []);
+  // What the walk wrote is exactly what the gate will read back as a raise, so its repair commit
+  // owes `Fork-Budget: raise <reason>` for these and nothing else.
+  assert.deepStrictEqual(budgetRaises(before, after), [
+    { domain: "custom-agents", measure: "added", from: 100, to: 130 },
+    { domain: "zmux-estate", measure: "added", from: 0, to: 5 },
+    { domain: "zmux-estate", measure: "deleted", from: 0, to: 2 },
+  ]);
+});
+
 it("records commit counts and shared attributions without gating on them", () => {
   const budget = parseForkBudget(
     renderForkBudget({
@@ -967,6 +1063,95 @@ it("validates the Fork-Budget raise trailer shape", () => {
   assert.deepStrictEqual(
     findings.map((finding) => finding.problem),
     ['Fork-Budget must be "raise <reason>"', 'Fork-Budget must be "raise <reason>"'],
+  );
+});
+
+it("parses the movement clauses a raise trailer names, inheriting an elided domain", () => {
+  // The recorded raise shape: one domain named once, two measures after it.
+  assert.deepStrictEqual(
+    parseBudgetRaiseClauses("raise fork-meta added 71862 -> 71870, deleted 5788 -> 5789"),
+    [
+      { domain: "fork-meta", measure: "added", from: 71862, to: 71870 },
+      { domain: "fork-meta", measure: "deleted", from: 5788, to: 5789 },
+    ],
+  );
+  // Prose between clauses is ignored; a numbers-free reason parses to nothing.
+  assert.deepStrictEqual(
+    parseBudgetRaiseClauses(
+      "raise the frozen churn mirror refresh through v0.0.41-nightly.20260913.1625",
+    ),
+    [],
+  );
+});
+
+it("accepts a raise trailer whose clauses match the movement, in any order", () => {
+  const raises = [
+    { domain: "fork-meta", measure: "added" as const, from: 71862, to: 71870 },
+    { domain: "fork-meta", measure: "deleted" as const, from: 5788, to: 5789 },
+  ];
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings("raise fork-meta added 71862 -> 71870, deleted 5788 -> 5789", raises),
+    [],
+  );
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings("raise fork-meta deleted 5788 -> 5789, added 71862 -> 71870", raises),
+    [],
+  );
+});
+
+it("fails a numbers-free prose raise", () => {
+  // The exact text that slipped through the old shape-only gate.
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings(
+      "raise the frozen churn mirror refresh through v0.0.41-nightly.20260913.1625",
+      [
+        { domain: "fork-meta", measure: "added", from: 71862, to: 71870 },
+        { domain: "fork-meta", measure: "deleted", from: 5788, to: 5789 },
+      ],
+    ),
+    [
+      'Fork-Budget trailer does not name the fork-meta added movement 71862 -> 71870 — write Fork-Budget: raise with the clause "fork-meta added 71862 -> 71870" (one comma-separated clause per moved ceiling)',
+      'Fork-Budget trailer does not name the fork-meta deleted movement 5788 -> 5789 — write Fork-Budget: raise with the clause "fork-meta deleted 5788 -> 5789" (one comma-separated clause per moved ceiling)',
+    ],
+  );
+});
+
+it("fails a raise whose claimed old number disagrees with the file", () => {
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings("raise fork-meta added 71860 -> 71870, deleted 5788 -> 5789", [
+      { domain: "fork-meta", measure: "added", from: 71862, to: 71870 },
+      { domain: "fork-meta", measure: "deleted", from: 5788, to: 5789 },
+    ]),
+    [
+      'Fork-Budget trailer claims fork-meta added 71860 -> 71870 but the commit moves it 71862 -> 71870 — write the clause as "fork-meta added 71862 -> 71870"',
+    ],
+  );
+});
+
+it("fails a raise that omits one of two moved ceilings", () => {
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings("raise fork-meta added 71862 -> 71870", [
+      { domain: "fork-meta", measure: "added", from: 71862, to: 71870 },
+      { domain: "fork-meta", measure: "deleted", from: 5788, to: 5789 },
+    ]),
+    [
+      'Fork-Budget trailer does not name the fork-meta deleted movement 5788 -> 5789 — write Fork-Budget: raise with the clause "fork-meta deleted 5788 -> 5789" (one comma-separated clause per moved ceiling)',
+    ],
+  );
+});
+
+it("fails a clause naming a ceiling the commit did not move", () => {
+  assert.deepStrictEqual(
+    budgetRaiseClauseFindings(
+      "raise fork-meta added 71862 -> 71870, deleted 5788 -> 5789, custom-agents added 1 -> 2",
+      [
+        { domain: "fork-meta", measure: "added", from: 71862, to: 71870 },
+        { domain: "fork-meta", measure: "deleted", from: 5788, to: 5789 },
+      ],
+    ),
+    [
+      "Fork-Budget trailer names custom-agents added 1 -> 2 but the commit does not move that ceiling — remove the clause or name only the ceiling the commit actually moves",
+    ],
   );
 });
 
@@ -1081,6 +1266,98 @@ it("skips the budget while the stack never seeded a baseline", () => {
     const result = runForkDelta(root, checkArgs(base, head, upstream));
     assert.strictEqual(result.status, 0, result.stderr);
     assert.include(result.stdout, "ok: 2 fork commits tagged");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("compares author dates against the proof cutoff, failing closed", () => {
+  // The newest grandfathered raise is 2026-09-13T16:50:02+12:00; everything
+  // from tonight onward owes proof.
+  assert.strictEqual(isForkBudgetProofRequired("2026-09-13T16:50:02+12:00"), false);
+  assert.strictEqual(isForkBudgetProofRequired("2026-09-13T18:00:00+12:00"), true);
+  // A rebase preserves author date and discards the sha, so the date is the
+  // only stable key.
+  assert.strictEqual(isForkBudgetProofRequired("2026-09-10T00:00:00Z"), false);
+  // Fail closed: no date, or an unparseable one, is treated as new.
+  assert.strictEqual(isForkBudgetProofRequired(undefined), true);
+  assert.strictEqual(isForkBudgetProofRequired("not a date"), true);
+  assert.ok(FORK_BUDGET_PROOF_FROM.length > 0);
+});
+
+const amendAuthorDate = (root: string, date: string): void => {
+  git(root, ["commit", "--amend", "--no-edit", "--date", date]);
+};
+
+it("exempts a pre-cutoff raise from the trailer-proof and over-measured checks", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    // Numbers-free prose, the shape the proof check exists to refuse.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(4, 1, 1));
+    git(root, ["add", "."]);
+    commitAll(
+      root,
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the frozen churn mirror refresh through v0.0.41-nightly.20260913.1625\n",
+    );
+    amendAuthorDate(root, "2026-09-10T12:00:00+12:00");
+    const proseOld = runForkDelta(root, checkArgs(base, "HEAD", upstream));
+    assert.strictEqual(proseOld.status, 0, proseOld.stderr);
+    assert.notInclude(proseOld.stderr, "does not name");
+    // A padded ceiling would exceed the measured value, but the cutoff also
+    // skips the over-measured check for pre-cutoff raises.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 2, 1));
+    git(root, ["add", "."]);
+    commitAll(
+      root,
+      "feat: pad the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 4 -> 6, deleted 1 -> 2\n",
+    );
+    amendAuthorDate(root, "2026-09-10T12:00:00+12:00");
+    const paddedOld = runForkDelta(root, checkArgs(base, "HEAD", upstream));
+    assert.strictEqual(paddedOld.status, 0, paddedOld.stderr);
+    assert.notInclude(paddedOld.stderr, "exceeds the measured");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("binds a post-cutoff padded raise to the over-measured check", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    // The clause matches the movement, so only the over-measured check can
+    // catch it — and it does, because the commit is authored after the cutoff.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    commitAll(
+      root,
+      "feat: pad the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 3 -> 6\n",
+    );
+    amendAuthorDate(root, "2026-09-13T18:00:00+12:00");
+    const paddedNew = runForkDelta(root, checkArgs(base, "HEAD", upstream));
+    assert.strictEqual(paddedNew.status, 1);
+    assert.include(paddedNew.stderr, "exceeds the measured added 4");
+    assert.notInclude(paddedNew.stderr, "does not name");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("exempts the same padded raise when authored before the cutoff", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    commitAll(
+      root,
+      "feat: pad the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 3 -> 6\n",
+    );
+    amendAuthorDate(root, "2026-09-10T12:00:00+12:00");
+    const paddedOld = runForkDelta(root, checkArgs(base, "HEAD", upstream));
+    assert.strictEqual(paddedOld.status, 0, paddedOld.stderr);
+    assert.notInclude(paddedOld.stderr, "exceeds the measured");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -1201,21 +1478,113 @@ it("fails a raising commit that carries no Fork-Budget raise trailer", () => {
   }
 });
 
-it("keeps a raised ceiling when the raising commit carries the trailer, and the raise is visible", () => {
-  const { root, base, upstream, head } = createBudgetFixture(budgetFile(3, 1, 1));
+it("keeps a raised ceiling when the trailer names the movement, and the raise is visible", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
   try {
-    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    // The raise stops at what the stack measures after the commit lands: the
+    // row's own line counts as one added and one deleted fork-meta line.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(4, 1, 1));
     git(root, ["add", "."]);
     const raising = commitAll(
       root,
-      "feat: raise the added ceiling",
-      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the shared-file module grew\n",
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 3 -> 4\n",
     );
     const withTrailer = runForkDelta(root, checkArgs(base, raising, upstream));
     assert.strictEqual(withTrailer.status, 0, withTrailer.stderr);
     // The raise is never silent: the gate echoes it with the numbers and the reason.
-    assert.include(withTrailer.stdout, "budget raise: fork-meta added 3 -> 6");
-    assert.include(withTrailer.stdout, "raise the shared-file module grew");
+    assert.include(withTrailer.stdout, "budget raise: fork-meta added 3 -> 4");
+    assert.include(withTrailer.stdout, "raise fork-meta added 3 -> 4");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a numbers-free prose raise (the shape that slipped through the old gate)", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(4, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise the frozen churn mirror refresh through v0.0.41-nightly.20260913.1625\n",
+    );
+    const prose = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(prose.status, 1);
+    assert.include(
+      prose.stderr,
+      'does not name the fork-meta added movement 3 -> 4 — write Fork-Budget: raise with the clause "fork-meta added 3 -> 4"',
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a raise whose claimed old number disagrees with the file", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(4, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 2 -> 4\n",
+    );
+    const mismatch = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(mismatch.status, 1);
+    assert.include(
+      mismatch.stderr,
+      'claims fork-meta added 2 -> 4 but the commit moves it 3 -> 4 — write the clause as "fork-meta added 3 -> 4"',
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a raise that omits the moved ceiling and names an unmoved one", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(4, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta deleted 1 -> 2\n",
+    );
+    const partial = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(partial.status, 1);
+    assert.include(
+      partial.stderr,
+      'does not name the fork-meta added movement 3 -> 4 — write Fork-Budget: raise with the clause "fork-meta added 3 -> 4"',
+    );
+    assert.include(
+      partial.stderr,
+      "names fork-meta deleted 1 -> 2 but the commit does not move that ceiling",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("fails a raise whose new ceiling exceeds the measured value", () => {
+  const { root, base, upstream } = createBudgetFixture(budgetFile(3, 1, 1));
+  try {
+    // The clause matches the movement, but the stack measures fork-meta added 4
+    // after the commit lands; a ceiling of 6 pays for padding, not for lines.
+    NodeFS.writeFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), budgetFile(6, 1, 1));
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "feat: raise the ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise fork-meta added 3 -> 6\n",
+    );
+    const padded = runForkDelta(root, checkArgs(base, raising, upstream));
+    assert.strictEqual(padded.status, 1);
+    assert.include(
+      padded.stderr,
+      "exceeds the measured added 4 — edit docs/internals/fork-budget.md to set the fork-meta added ceiling to the measured added 4, not higher",
+    );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -1434,6 +1803,150 @@ it("fails a squash body that raises a ceiling without the Fork-Budget trailer", 
       result.stderr,
       "pull-request body: raises fork-meta added 3 -> 6 without Fork-Budget: raise <reason>",
     );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A branch whose commits carry two domains, so the squash's single Fork-Domain
+// has to absorb both. This is the shape three trunks went red on: every
+// per-domain reading of the branch is under its ceiling, and the one commit that
+// lands is not (RSI-Software/t3code-hyprws#765).
+const createSplitDomainFixture = (budget: string) => {
+  const { root } = createGitFixture();
+  const docs = NodePath.join(root, "docs/internals");
+  NodeFS.mkdirSync(docs, { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-delta.md"), RETIREMENT_SECTIONS);
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-wire-baseline.md"), "");
+  NodeFS.writeFileSync(NodePath.join(docs, "fork-budget.md"), budget);
+  git(root, ["add", "."]);
+  const base = commitAll(root, "fixture: seed the budget");
+  git(root, ["switch", "-c", "upstream"]);
+  NodeFS.writeFileSync(NodePath.join(root, "untouched.ts"), "upstream grew\n");
+  const upstream = commitAll(root, "upstream: change a file the fork never touches");
+  git(root, ["switch", "fixture"]);
+  NodeFS.writeFileSync(NodePath.join(root, "meta.ts"), "one\ntwo\nthree\n");
+  commitAll(root, "feat: the fork-meta half", "Fork-Domain: fork-meta\nFork-Tier: qol\n");
+  NodeFS.writeFileSync(NodePath.join(root, "windows.ts"), "one\ntwo\nthree\nfour\n");
+  commitAll(
+    root,
+    "feat: the project-windows half",
+    "Fork-Domain: project-windows\nFork-Tier: qol\n",
+  );
+  const head = git(root, ["rev-parse", "HEAD"]);
+  return { root, base, upstream, head };
+};
+
+const splitDomainBudget = (metaAdded: number, windowsAdded: number): string =>
+  renderForkBudget({
+    rows: [
+      { domain: "fork-meta", commits: 1, added: metaAdded, deleted: 0, overlaps: 0 },
+      { domain: "project-windows", commits: 1, added: windowsAdded, deleted: 0, overlaps: 0 },
+    ],
+  });
+
+const squashBodyArgs = (
+  root: string,
+  base: string,
+  head: string,
+  upstream: string,
+  body: string,
+) => {
+  const bodyPath = NodePath.join(root, "pr-body.md");
+  NodeFS.writeFileSync(bodyPath, body);
+  return [
+    "--check",
+    "--base",
+    base,
+    "--head",
+    head,
+    "--upstream",
+    upstream,
+    "--squash-body",
+    bodyPath,
+  ];
+};
+
+it("refuses a squash whose single domain absorbs another domain's lines past its ceiling", () => {
+  // Every branch commit sits inside its own ceiling; the squash charges all
+  // seven lines to the body's fork-meta and blows a ceiling nobody raised.
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(3, 4));
+  try {
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        head,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+      ),
+    );
+    assert.strictEqual(result.status, 1);
+    assert.include(
+      result.stderr,
+      "pull-request body: the prospective squash measures fork-meta added 7 > 3 ceiling",
+    );
+    assert.include(result.stderr, "(over by 4)");
+    assert.include(
+      result.stderr,
+      "edit docs/internals/fork-budget.md on the branch to set the fork-meta added ceiling to at least 7",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a squash whose ceiling covers everything its single domain absorbs", () => {
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(7, 4));
+  try {
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        head,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+      ),
+    );
+    assert.strictEqual(result.status, 0, result.stderr);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a raise measured below what the prospective squash lands, trailer and all", () => {
+  // The RSI-Software/t3code-hyprws#759 shape: the trailer is present and the
+  // number beside it was measured before the squash collapsed the branch.
+  const { root, base, upstream, head } = createSplitDomainFixture(splitDomainBudget(1, 4));
+  try {
+    NodeFS.writeFileSync(
+      NodePath.join(root, "docs/internals/fork-budget.md"),
+      splitDomainBudget(3, 4),
+    );
+    git(root, ["add", "."]);
+    const raising = commitAll(
+      root,
+      "chore: raise the fork-meta ceiling",
+      "Fork-Domain: fork-meta\nFork-Tier: qol\n",
+    );
+    const result = runForkDelta(
+      root,
+      squashBodyArgs(
+        root,
+        base,
+        raising,
+        upstream,
+        "feat: the fork stack\n\nFork-Domain: fork-meta\nFork-Tier: qol\nFork-Budget: raise measured before the squash\n",
+      ),
+    );
+    assert.strictEqual(result.status, 1);
+    // The trailer satisfies the raise check, so only the projection catches it.
+    assert.notInclude(result.stderr, "without Fork-Budget: raise");
+    assert.include(result.stderr, "the prospective squash measures fork-meta added");
+    assert.include(result.stderr, "> 3 ceiling");
+    void head;
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
