@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
   type ClientSettings,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -40,6 +41,10 @@ const clientSettings: ClientSettings = {
   diffIgnoreWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
+  environmentAccentColors: {
+    [EnvironmentId.make("environment-1")]: "#2563eb",
+  },
+  environmentDisplayNames: {},
   favorites: [],
   fontFamilyCode: "",
   fontFamilyComposer: "",
