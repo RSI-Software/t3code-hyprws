@@ -1,3 +1,6 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore";
+import * as Persistence from "effect/unstable/persistence/Persistence";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -9,13 +12,16 @@ import type {
   SourceControlProviderKind,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
 import { PullRequestProviderError, type PullRequestProviderApi } from "./PullRequestProvider.ts";
 import { PullRequestProviderRegistry, fromProviders } from "./PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./PullRequestService.ts";
+import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 import { PullRequestAttachmentStore } from "./PullRequestAttachmentStore.ts";
+import { PullRequestFilesViewedRepository } from "../persistence/PullRequestFilesViewed.ts";
 function project(input: {
   readonly id: string;
   readonly title: string;
@@ -131,15 +137,27 @@ function makeService(input: {
           resolveHandle:
             input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
         }),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-          getProjectShells: (projectIds) =>
+        Layer.mock(ProjectService.ProjectService)({
+          listShells: (options) =>
             Effect.succeed(
-              input.projects.filter((project) => projectIds?.includes(project.id) ?? true),
+              input.projects.filter((project) => options?.projectIds?.includes(project.id) ?? true),
             ),
-          getProjectShellById: (projectId) =>
+          getShell: (projectId) =>
             Effect.succeed(Option.fromNullishOr(input.projects.find((p) => p.id === projectId))),
         }),
+        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+          resolve: () => Effect.succeed(null),
+        }),
+        Layer.mock(PullRequestFilesViewedRepository)({
+          list: () => Effect.die("unused"),
+          set: () => Effect.die("unused"),
+        }),
         SourceControlRateLimit.layer,
+        Layer.effect(PullRequestReadCache.PullRequestReadCache, PullRequestReadCache.make).pipe(
+          Layer.provide(Persistence.layerKvs),
+          Layer.provide(KeyValueStore.layerMemory),
+          Layer.provide(NodeServices.layer),
+        ),
       ),
     ),
   );
