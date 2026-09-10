@@ -844,9 +844,15 @@ Upstream's workflows also target Blacksmith runners the fork does not have.
 
 Both workflows run on GitHub-hosted runners, which are free for a public repository.
 
-The updater needs no code.
 `scripts/build-desktop-artifact.ts` derives the update feed from `GITHUB_REPOSITORY`.
 Fork builds therefore update from fork releases.
+
+electron-updater matches a GitHub release to the updater channel by the release tag's first
+semver prerelease identifier and derives the update-file name from that identifier, so the
+fork's `vX.Y.Z-hyprws-nightly.*` tags need the user-facing `nightly` channel to reach the
+updater as `hyprws-nightly`, with electron-builder publishing a matching
+`hyprws-nightly-linux.yml` asset. `apps/desktop/src/updates/updateChannels.fork.ts` owns that
+mapping (`RSI-Software/t3code-hyprws#762`).
 
 Upstream workflows stay in the tree untouched and disabled.
 Editing or deleting them is a standing rebase conflict.
@@ -858,17 +864,21 @@ Retired with the fork, or when upstream publishes builds the fork can ship uncha
 
 ### Rebase scan
 
-| Path                                          | Why it matters                                                                                                   |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                    | Copy new checks or setup steps into `hyprws-ci.yml`.                                                             |
-| `.github/workflows/release.yml`               | Copy job-shape and Linux build changes into `hyprws-release.yml`.                                                |
-| `scripts/resolve-nightly-release.ts`          | Shared next-patch helpers used by fork nightlies.                                                                |
-| `scripts/build-desktop-artifact.ts`           | Build inputs, icon tooling, and update-channel resolution.                                                       |
-| `scripts/build-desktop-artifact.test.ts`      | Covers desktop artifact and update-channel behavior.                                                             |
-| `scripts/update-release-package-versions.ts`  | Stable and nightly release version alignment.                                                                    |
-| `package.json` `engines` and `packageManager` | Runner toolchain expectations.                                                                                   |
-| `docs/internals/scripts.md`                   | Documents the fork's release and upstream-sync scripts.                                                          |
-| `README.md`                                   | Carries the fork's rewritten introduction, which is what tells a reader these are fork builds and fork releases. |
+| Path                                                   | Why it matters                                                                                                   |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                             | Copy new checks or setup steps into `hyprws-ci.yml`.                                                             |
+| `.github/workflows/release.yml`                        | Copy job-shape and Linux build changes into `hyprws-release.yml`.                                                |
+| `scripts/resolve-nightly-release.ts`                   | Shared next-patch helpers used by fork nightlies.                                                                |
+| `scripts/build-desktop-artifact.ts`                    | Build inputs, icon tooling, and update-channel resolution.                                                       |
+| `scripts/build-desktop-artifact.test.ts`               | Covers desktop artifact and update-channel behavior.                                                             |
+| `scripts/update-release-package-versions.ts`           | Stable and nightly release version alignment.                                                                    |
+| `apps/desktop/src/updates/updateChannels.fork.ts`      | Fork-only updater channel mapping; keeps the tag identifier in one place.                                        |
+| `apps/desktop/src/updates/DesktopUpdates.fork.test.ts` | Fork-owned proof for that mapping.                                                                               |
+| `apps/desktop/src/updates/DesktopUpdates.ts`           | One-line call site for the channel mapping; upstream owns the file and edits it often.                           |
+| `apps/desktop/src/updates/updatesTestHarness.ts`       | Test-only channel recording for the fork mapping test.                                                           |
+| `package.json` `engines` and `packageManager`          | Runner toolchain expectations.                                                                                   |
+| `docs/internals/scripts.md`                            | Documents the fork's release and upstream-sync scripts.                                                          |
+| `README.md`                                            | Carries the fork's rewritten introduction, which is what tells a reader these are fork builds and fork releases. |
 
 ## backend-attach
 
