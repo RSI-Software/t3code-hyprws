@@ -16,6 +16,7 @@ import type { ScopedProjectRef } from "./environment.ts"; // fork-hook: multi-wi
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
+import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
   DesktopAppActivationRequest,
@@ -80,6 +81,8 @@ export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
 export type DesktopUpdateChannel = "latest" | "nightly";
 export type DesktopAppStageLabel = "Alpha" | "Beta" | "Dev" | "Nightly";
+export type DesktopBackendMode = "managed" | "client-only";
+export type DesktopBackendModeSource = "settings" | "cli" | "existing-server";
 
 export const DesktopUpdateStatusSchema = Schema.Literals([
   "disabled",
@@ -95,6 +98,26 @@ export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Beta", "Dev", "Nightly"]);
+export const DesktopBackendModeSchema = Schema.Literals(["managed", "client-only"]);
+export const DesktopBackendModeSourceSchema = Schema.Literals([
+  "settings",
+  "cli",
+  "existing-server",
+]);
+
+export interface DesktopBackendModeState {
+  effectiveMode: DesktopBackendMode;
+  configuredMode: DesktopBackendMode;
+  cliOverride: DesktopBackendMode | null;
+  source: DesktopBackendModeSource;
+}
+
+export const DesktopBackendModeStateSchema = Schema.Struct({
+  effectiveMode: DesktopBackendModeSchema,
+  configuredMode: DesktopBackendModeSchema,
+  cliOverride: Schema.NullOr(DesktopBackendModeSchema),
+  source: DesktopBackendModeSourceSchema,
+});
 
 export interface DesktopAppBranding {
   baseName: string;
@@ -1032,10 +1055,14 @@ export interface DesktopBridge {
    * regardless of OS settings.
    */
   getSystemLocale: () => string | null;
+  getBackendModeState: () => DesktopBackendModeState;
+  setBackendMode: (mode: DesktopBackendMode) => Promise<DesktopBackendModeState>;
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentEnabled: () => boolean;
   setLocalEnvironmentEnabled: (enabled: boolean) => Promise<void>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
+  discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
+  pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog: () => Promise<string | null>;
