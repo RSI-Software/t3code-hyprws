@@ -59,6 +59,7 @@ export interface UatBodyInput {
     readonly subject: string;
     readonly prBody: string | null;
   }>;
+  readonly carried: ReadonlyArray<Pick<DifferenceRow, "short" | "subject">>;
   readonly excluded: ReadonlyArray<Pick<ExcludedRow, "short" | "subject" | "reason">>;
 }
 
@@ -113,12 +114,19 @@ export const selectPreviousStable = (
   return candidates.at(-1)?.tag ?? null;
 };
 
+// A rebase preserves subjects and rewrites content, so a subject shared with the previous stable
+// means the work was already accepted there, not that it is unchanged. Matching on the subject
+// alone would hide that drift; promoting it to a source would bury the genuinely new behavior under
+// the whole carried stack. Identical content stays silent, changed content is reported separately.
 export const differenceRows = (
   current: ReadonlyArray<ForkCommit>,
   previous: ReadonlyArray<ForkCommit>,
   patchId: (sha: string) => string | null,
   paths: (sha: string) => ReadonlyArray<string>,
-): ReadonlyArray<DifferenceRow> => {
+): {
+  readonly rows: ReadonlyArray<DifferenceRow>;
+  readonly carried: ReadonlyArray<DifferenceRow>;
+} => {
   const previousSubjects = new Set(previous.map((commit) => commit.subject));
   const previousPatchIds = new Set(
     previous.flatMap((commit) => {
@@ -126,12 +134,16 @@ export const differenceRows = (
       return value === null ? [] : [value];
     }),
   );
-  return current.flatMap((commit) => {
-    if (previousSubjects.has(commit.subject)) return [];
+  const rows: Array<DifferenceRow> = [];
+  const carried: Array<DifferenceRow> = [];
+  for (const commit of current) {
     const candidatePatchId = patchId(commit.sha);
-    if (candidatePatchId !== null && previousPatchIds.has(candidatePatchId)) return [];
-    return [{ ...commit, patchId: candidatePatchId, paths: paths(commit.sha) }];
-  });
+    if (candidatePatchId !== null && previousPatchIds.has(candidatePatchId)) continue;
+    const row = { ...commit, patchId: candidatePatchId, paths: paths(commit.sha) };
+    if (previousSubjects.has(commit.subject)) carried.push(row);
+    else rows.push(row);
+  }
+  return { rows, carried };
 };
 
 const EXCLUDED_CONVENTIONAL_TYPES = new Set(["build", "chore", "ci", "docs", "refactor", "test"]);
@@ -143,19 +155,38 @@ const conventionalIdentity = (
   return match === null ? null : { type: match[1] ?? "", scope: match[2] ?? null };
 };
 
-const isSupportingPath = (path: string): boolean =>
-  path.startsWith(".github/") ||
-  path.startsWith("scripts/") ||
-  path.startsWith("docs/") ||
-  path.startsWith(".agents/") ||
-  /(^|\/)[^/]+\.test\.[^/]+$/.test(path) ||
-  /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|yarn\.lock|[^/]+\.lock)$/.test(
-    path,
-  );
+// Most of `scripts/` is maintainer tooling, but a packaging or icon task turns its script into a
+// build input: what it emits is the artifact a user installs, so a change there is as user-visible
+// as one in `apps/`. Deriving the set from the reviewed tree's own tasks keeps it accurate when a
+// task is added or a script is renamed, rather than freezing a list that silently rots.
+const SHIPPED_ARTIFACT_TASK = /^(dist|icons):/;
+const SCRIPT_REFERENCE = /scripts\/[\w.-]+\.[cm]?[jt]s/g;
+
+export const shippedScriptPaths = (packageJson: string): ReadonlySet<string> => {
+  const tasks = (JSON.parse(packageJson) as { scripts?: Record<string, string> }).scripts ?? {};
+  const paths = new Set<string>();
+  for (const [task, command] of Object.entries(tasks)) {
+    if (!SHIPPED_ARTIFACT_TASK.test(task)) continue;
+    for (const reference of command.match(SCRIPT_REFERENCE) ?? []) paths.add(reference);
+  }
+  return paths;
+};
+
+const isSupportingPath = (path: string, shippedScripts: ReadonlySet<string>): boolean =>
+  !shippedScripts.has(path) &&
+  (path.startsWith(".github/") ||
+    path.startsWith("scripts/") ||
+    path.startsWith("docs/") ||
+    path.startsWith(".agents/") ||
+    /(^|\/)[^/]+\.test\.[^/]+$/.test(path) ||
+    /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|bun\.lockb?|yarn\.lock|[^/]+\.lock)$/.test(
+      path,
+    ));
 
 export const exclusionReason = (
   row: Pick<DifferenceRow, "domain" | "paths" | "subject">,
   isUpstream = false,
+  shippedScripts: ReadonlySet<string> = new Set(),
 ): ExclusionReason | null => {
   if (row.domain === "fork-meta") return "fork-meta";
   const conventional = conventionalIdentity(row.subject);
@@ -166,7 +197,8 @@ export const exclusionReason = (
   ) {
     return "conventional";
   }
-  if (row.paths.length > 0 && row.paths.every(isSupportingPath)) return "supporting-paths";
+  if (row.paths.length > 0 && row.paths.every((path) => isSupportingPath(path, shippedScripts)))
+    return "supporting-paths";
   if (isUpstream) return "upstream";
   return null;
 };
@@ -174,6 +206,7 @@ export const exclusionReason = (
 export const partitionUatRows = (
   rows: ReadonlyArray<DifferenceRow>,
   isUpstream: (row: DifferenceRow) => boolean = () => false,
+  shippedScripts: ReadonlySet<string> = new Set(),
 ): {
   readonly rows: ReadonlyArray<DifferenceRow>;
   readonly excluded: ReadonlyArray<ExcludedRow>;
@@ -181,7 +214,7 @@ export const partitionUatRows = (
   const included: Array<DifferenceRow> = [];
   const excluded: Array<ExcludedRow> = [];
   for (const row of rows) {
-    const reason = exclusionReason(row, isUpstream(row));
+    const reason = exclusionReason(row, isUpstream(row), shippedScripts);
     if (reason === null) included.push(row);
     else excluded.push({ ...row, reason });
   }
@@ -331,6 +364,7 @@ export const renderUatBody = (input: UatBodyInput): string => {
   const sources = input.sources.map(
     (row) => `- \`${row.short}\` ${row.subject}${row.prBody === null ? "" : ` — ${row.prBody}`}`,
   );
+  const carried = input.carried.map((row) => `- \`${row.short}\` ${row.subject}`);
   const excluded = input.excluded.map(
     (row) => `- \`${row.short}\` ${row.subject} — ${exclusionLabel(row.reason)}`,
   );
@@ -376,6 +410,15 @@ export const renderUatBody = (input: UatBodyInput): string => {
     `<summary>Included product commits (${sources.length})</summary>`,
     "",
     ...sources,
+    "",
+    "</details>",
+    "",
+    "## Carried with changes",
+    "",
+    "<details>",
+    `<summary>Product commits accepted in ${input.previousStable} whose content changed since (${carried.length})</summary>`,
+    "",
+    ...(carried.length === 0 ? ["None."] : carried),
     "",
     "</details>",
     "",
