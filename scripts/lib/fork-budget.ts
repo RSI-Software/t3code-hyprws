@@ -27,6 +27,15 @@ export interface ForkBudget {
   readonly unknownDomains: ReadonlyArray<string>;
 }
 
+/** One domain's live `--inventory` numbers, the side of the gate the ceilings face. */
+export interface ForkBudgetMeasured {
+  readonly domain: string;
+  readonly commits: number;
+  readonly added: number;
+  readonly deleted: number;
+  readonly overlaps: number;
+}
+
 /** One measured number over its ceiling, worded to name the domain and both values. */
 export interface ForkBudgetFinding {
   readonly domain: string;
@@ -50,6 +59,35 @@ export const forkBudgetFindingMessage = (finding: ForkBudgetFinding): string =>
 export const forkBudgetRefusalMessage = (finding: ForkBudgetFinding): string =>
   `${forkBudgetFindingMessage(finding)} (over by ${finding.actual - finding.ceiling}) — to raise it: edit ${FORK_BUDGET_PATH} to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and carry Fork-Budget: raise <reason> on that commit`;
 
+/**
+ * The same refusal for a ceiling the prospective squash will exceed once it
+ * lands. The route differs from the per-commit one: the number is written on the
+ * branch, while the trailer that authorises it rides in the pull-request body.
+ */
+export const squashBudgetRefusalMessage = (finding: ForkBudgetFinding): string =>
+  `the prospective squash measures ${finding.domain} ${finding.measure} ${finding.actual} > ${finding.ceiling} ceiling${
+    finding.baselined ? "" : " (domain has no budget row)"
+  } (over by ${finding.actual - finding.ceiling}) — edit ${FORK_BUDGET_PATH} on the branch to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and keep Fork-Budget: raise <reason> in the body`;
+
+/**
+ * Commits authored before this carry raise trailers written against a budget
+ * table a later rebase has since rewritten, or no numbers at all. Their proof
+ * is unrecoverable from the current tree, so the checks below skip them.
+ * Author date, never sha: a rebase preserves the date and discards the sha.
+ * Retire this by repairing the 29 trailers at the next full-stack rebase and
+ * deleting the constant; see the fork-delta rebase scan.
+ */
+export const FORK_BUDGET_PROOF_FROM = "2026-09-13T17:00:00+12:00";
+
+/**
+ * Whether a raise commit owes trailer proof. Fails closed: a commit whose
+ * author date is missing or unparseable is treated as new.
+ */
+export const isForkBudgetProofRequired = (authorDate: string | undefined): boolean =>
+  authorDate === undefined ||
+  Number.isNaN(Date.parse(authorDate)) ||
+  Date.parse(authorDate) >= Date.parse(FORK_BUDGET_PROOF_FROM);
+
 /** One ceiling number a commit pushed up; the raising commit owes its trailer. */
 export interface ForkBudgetRaise {
   readonly domain: string;
@@ -57,6 +95,80 @@ export interface ForkBudgetRaise {
   readonly from: number;
   readonly to: number;
 }
+
+/** One `<domain> <added|deleted> <old> -> <new>` clause inside a raise trailer. */
+export interface ForkBudgetRaiseClause {
+  readonly domain: string;
+  readonly measure: ForkBudgetMeasure;
+  readonly from: number;
+  readonly to: number;
+}
+
+const RAISE_CLAUSE_PATTERN = new RegExp(
+  `(?:(${FORK_DOMAINS.join("|")})\\s+)?(added|deleted)\\s+(\\d+)\\s*->\\s*(\\d+)`,
+  "gi",
+);
+
+/**
+ * The movement clauses a raise trailer names. Order-free and comma-separated;
+ * prose around or between clauses is ignored, so a numbers-free reason parses
+ * to zero clauses and fails the matching check on every ceiling it moved. A
+ * clause after the first may omit the domain and inherit the previous clause's
+ * — `fork-meta added 3 -> 4, deleted 1 -> 2` names one domain twice. A word
+ * before a measure that is not a fork domain ("and", "for") is prose, not a
+ * domain, so such a clause still inherits.
+ */
+export const parseBudgetRaiseClauses = (reason: string): ReadonlyArray<ForkBudgetRaiseClause> => {
+  let domain: string | undefined;
+  const text = reason.replace(/^raise\s+/i, "");
+  return Array.from(text.matchAll(RAISE_CLAUSE_PATTERN), (match): ForkBudgetRaiseClause => {
+    if (match[1] !== undefined) domain = match[1];
+    return {
+      domain: domain ?? "",
+      measure: (match[2] === "deleted" ? "deleted" : "added") as ForkBudgetMeasure,
+      from: Number(match[3]),
+      to: Number(match[4]),
+    };
+  });
+};
+
+/**
+ * A raise trailer is proof, not prose: it must name every ceiling the commit
+ * moved with the exact numbers it moved it by, and name nothing else. These
+ * findings turn a trailer into the audit trail the raise echo claims it is.
+ */
+export const budgetRaiseClauseFindings = (
+  reason: string,
+  raises: ReadonlyArray<ForkBudgetRaise>,
+): ReadonlyArray<string> => {
+  const clauses = parseBudgetRaiseClauses(reason);
+  const byDomainMeasure = new Map(
+    clauses.map((clause) => [`${clause.domain} ${clause.measure}`, clause]),
+  );
+  const problems: Array<string> = [];
+  for (const raise of raises) {
+    const clause = byDomainMeasure.get(`${raise.domain} ${raise.measure}`);
+    if (clause === undefined) {
+      problems.push(
+        `Fork-Budget trailer does not name the ${raise.domain} ${raise.measure} movement ${raise.from} -> ${raise.to} — write Fork-Budget: raise with the clause "${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}" (one comma-separated clause per moved ceiling)`,
+      );
+    } else if (clause.from !== raise.from || clause.to !== raise.to) {
+      problems.push(
+        `Fork-Budget trailer claims ${raise.domain} ${raise.measure} ${clause.from} -> ${clause.to} but the commit moves it ${raise.from} -> ${raise.to} — write the clause as "${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}"`,
+      );
+    }
+  }
+  for (const clause of clauses) {
+    if (
+      !raises.some((raise) => raise.domain === clause.domain && raise.measure === clause.measure)
+    ) {
+      problems.push(
+        `Fork-Budget trailer names ${clause.domain} ${clause.measure} ${clause.from} -> ${clause.to} but the commit does not move that ceiling — remove the clause or name only the ceiling the commit actually moves`,
+      );
+    }
+  }
+  return problems;
+};
 
 const splitTableRow = (line: string): ReadonlyArray<string> => {
   const cells: Array<string> = [];
@@ -146,13 +258,7 @@ const gatedMeasures = (
  * ceiling zero on every measure it scores above.
  */
 export const budgetFindings = (
-  domains: ReadonlyArray<{
-    readonly domain: string;
-    readonly commits: number;
-    readonly added: number;
-    readonly deleted: number;
-    readonly overlaps: number;
-  }>,
+  domains: ReadonlyArray<ForkBudgetMeasured>,
   budget: ForkBudget,
 ): ReadonlyArray<ForkBudgetFinding> =>
   domains.flatMap((row) => {
@@ -173,6 +279,47 @@ export const budgetFindings = (
         baselined: ceiling !== undefined,
       }));
   });
+
+/**
+ * The per-domain numbers a prospective squash will measure once it lands: the
+ * stack it sits on, plus one commit carrying the whole pull request, attributed
+ * to the body's own `Fork-Domain`.
+ *
+ * A squash is one commit with one domain; the branch it collapses is many
+ * commits with many. Every line the branch attributed elsewhere lands on the
+ * body's domain instead, so that domain scores higher after the squash than any
+ * reading of the branch — which is why a ceiling measured before the merge is
+ * already wrong when it is pushed (RSI-Software/t3code-hyprws#765).
+ */
+export const projectSquashDomains = (
+  stack: ReadonlyArray<ForkBudgetMeasured>,
+  squash: { readonly domain: string; readonly added: number; readonly deleted: number },
+): ReadonlyArray<ForkBudgetMeasured> => {
+  const landed = stack.map((row) =>
+    row.domain === squash.domain
+      ? {
+          ...row,
+          commits: row.commits + 1,
+          added: row.added + squash.added,
+          deleted: row.deleted + squash.deleted,
+        }
+      : row,
+  );
+  // A squash into a domain the stack has never carried is that domain's first
+  // commit; a missing row is a ceiling of zero, so it still has to be measured.
+  return landed.some((row) => row.domain === squash.domain)
+    ? landed
+    : [
+        ...landed,
+        {
+          domain: squash.domain,
+          commits: 1,
+          added: squash.added,
+          deleted: squash.deleted,
+          overlaps: 0,
+        },
+      ];
+};
 
 /**
  * The ceiling numbers one commit pushed up, comparing the file it wrote against
@@ -207,13 +354,7 @@ const escapeCell = (value: string): string => value.replaceAll("|", "\\|").repla
  * anything stamped into this table; the initial seed carries no trailer.
  */
 export const renderForkBudget = (input: {
-  readonly rows: ReadonlyArray<{
-    readonly domain: string;
-    readonly commits: number;
-    readonly added: number;
-    readonly deleted: number;
-    readonly overlaps: number;
-  }>;
+  readonly rows: ReadonlyArray<ForkBudgetMeasured>;
 }): string =>
   [
     "# Fork budget",
@@ -235,3 +376,55 @@ export const renderForkBudget = (input: {
     ),
     "",
   ].join("\n");
+
+const ADDED_CELL = 2;
+const DELETED_CELL = 3;
+
+/**
+ * Raises exactly the ceilings the given findings name, to the numbers those findings measured, and
+ * leaves every other cell and every line outside the table untouched. A raise is never a
+ * re-render: rendering the whole file from the live inventory would also ratchet untouched domains
+ * down to today's numbers, spending headroom the fork still owns without anyone deciding to. A
+ * finding for a domain with no row appends one — a missing row is a ceiling of zero, not an absent
+ * domain — seeded from the live numbers for the recorded-only cells.
+ */
+export const raiseForkBudget = (
+  markdown: string,
+  findings: ReadonlyArray<ForkBudgetFinding>,
+  measured: ReadonlyArray<ForkBudgetMeasured>,
+): string => {
+  parseForkBudget(markdown);
+  const wanted = new Map<string, Map<ForkBudgetMeasure, number>>();
+  for (const finding of findings) {
+    const byMeasure = wanted.get(finding.domain) ?? new Map<ForkBudgetMeasure, number>();
+    byMeasure.set(finding.measure, finding.actual);
+    wanted.set(finding.domain, byMeasure);
+  }
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const headerIndex = lines.findIndex((line) => line.trim().startsWith("|"));
+  const raised = new Set<string>();
+  let lastRow = headerIndex + 1;
+  for (let index = headerIndex + 2; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim().startsWith("|")) continue;
+    lastRow = index;
+    const cells = [...splitTableRow(line)];
+    const domain = cells[0] ?? "";
+    const byMeasure = wanted.get(domain);
+    if (byMeasure === undefined) continue;
+    const added = byMeasure.get("added");
+    const deleted = byMeasure.get("deleted");
+    if (added !== undefined) cells[ADDED_CELL] = String(added);
+    if (deleted !== undefined) cells[DELETED_CELL] = String(deleted);
+    lines[index] = `| ${cells.map(escapeCell).join(" | ")} |`;
+    raised.add(domain);
+  }
+  const appended = [...wanted.keys()]
+    .filter((domain) => !raised.has(domain))
+    .map((domain) => {
+      const row = measured.find((candidate) => candidate.domain === domain);
+      const byMeasure = wanted.get(domain);
+      return `| ${escapeCell(domain)} | ${row?.commits ?? 0} | ${byMeasure?.get("added") ?? row?.added ?? 0} | ${byMeasure?.get("deleted") ?? row?.deleted ?? 0} | ${row?.overlaps ?? 0} |`;
+    });
+  return [...lines.slice(0, lastRow + 1), ...appended, ...lines.slice(lastRow + 1)].join("\n");
+};
