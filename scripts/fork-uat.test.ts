@@ -14,6 +14,7 @@ import {
   legacyUatTasks,
   parseArgs,
   partitionUatRows,
+  shippedScriptPaths,
   relationshipArguments,
   renderUatBody,
   readPreviousUat,
@@ -189,6 +190,47 @@ it("keeps only the product commit after applying each exclusion rule in order", 
   assert.deepStrictEqual(
     result.excluded.map((entry) => entry.reason),
     ["fork-meta", "conventional", "supporting-paths"],
+  );
+});
+
+it("treats a packaging or icon script as product and every other script as supporting", () => {
+  const packageJson = JSON.stringify({
+    scripts: {
+      "dist:desktop:linux": "node scripts/build-desktop-artifact.ts --platform linux",
+      "icons:export": "node scripts/export-brand-icons.ts",
+      "fork:uat": "node scripts/fork-uat.ts",
+      dev: "node scripts/dev-runner.ts",
+    },
+  });
+  const shipped = shippedScriptPaths(packageJson);
+
+  assert.deepStrictEqual([...shipped].toSorted(), [
+    "scripts/build-desktop-artifact.ts",
+    "scripts/export-brand-icons.ts",
+  ]);
+
+  const row = (sha: string, paths: ReadonlyArray<string>) => ({
+    ...commit(sha, `fix(desktop): ${sha}`, "distribution"),
+    paths,
+    patchId: `patch-${sha}`,
+  });
+  const result = partitionUatRows(
+    [
+      row("artifact", ["scripts/build-desktop-artifact.ts", "docs/user/install.md"]),
+      row("tooling", ["scripts/fork-uat.ts"]),
+      row("artifact-test", ["scripts/build-desktop-artifact.test.ts"]),
+    ],
+    () => false,
+    shipped,
+  );
+
+  assert.deepStrictEqual(
+    result.rows.map((entry) => entry.sha),
+    ["artifact"],
+  );
+  assert.deepStrictEqual(
+    result.excluded.map((entry) => entry.sha),
+    ["tooling", "artifact-test"],
   );
 });
 
@@ -583,6 +625,11 @@ it("renders against an immutable previous stable without judging its history", (
     stdout: "v1.4.0-nightly.20260830.1217\n",
   });
   runner.set("git tag --list v*-hyprws.*", { stdout: `${previousStable}\n` });
+  runner.set(`git show ${sha}:package.json`, {
+    stdout: JSON.stringify({
+      scripts: { "dist:desktop": "node scripts/build-desktop-artifact.ts" },
+    }),
+  });
   // A published tag can never be rewritten, so a trailer finding or a merge in its history is not
   // a reason to refuse today's render. Both are seeded here and both must be ignored.
   runner.set(previousMerges, { stdout: "d".repeat(40) });
