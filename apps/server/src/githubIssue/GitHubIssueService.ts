@@ -15,12 +15,12 @@ import {
   GitHubIssueOperationError as GitHubIssueOperationErrorClass,
   pullRequestHostOf,
 } from "@t3tools/contracts";
+import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { repositoryIdentityOf } from "../pullRequest/PullRequestService.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import { decodeGitHubIssueDetail, decodeGitHubIssueList } from "./gitHubIssueJson.ts";
 
@@ -111,7 +111,7 @@ export const make = Effect.gen(function* () {
       // duplicate earlier in the snapshot can hide the project the caller explicitly selected.
       if (projectId !== undefined && project.id !== projectId) continue;
       if (project.repositoryIdentity?.provider !== "github") continue;
-      const repository = repositoryIdentityOf(project);
+      const repository = sourceControlRepositorySelector(project.repositoryIdentity);
       if (repository === null) continue;
       const host = pullRequestHostOf(project.repositoryIdentity, "github");
       const key = `${host}/${repository}`.toLowerCase();
