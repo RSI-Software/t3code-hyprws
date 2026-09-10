@@ -296,6 +296,32 @@ jobs:
             --build-version "${{ needs.preflight.outputs.version }}" \
             --verbose
 
+      # The fork publishes no npm package, so a launcher-managed `t3 service
+      # update` cannot resolve `t3@<fork version>` from the registry. Ship the
+      # same `npm pack`-shaped tarball as a release asset and let the pinned
+      # runtime install from its URL (apps/server/src/cloud/forkRuntimeRelease.ts).
+      - name: Pack the server runtime tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.preflight.outputs.version }}"
+
+          # The launcher names each pinned runtime directory after the version it
+          # asked for, and the client reports the version baked into the bundle.
+          # If the tarball carried a differently stamped bundle, every boot would
+          # see a version mismatch and try the same update again forever. The
+          # alignment step above runs before the build precisely so these agree.
+          built="$(node apps/server/dist/bin.mjs --version)"
+          if [ "$built" != "t3 v${version}" ]; then
+            echo "::error::Built server reports '${built}', expected 't3 v${version}'." >&2
+            exit 1
+          fi
+
+          node apps/server/scripts/cli.ts pack \
+            --app-version "$version" \
+            --destination release \
+            --verbose
+
       - name: Collect release assets
         id: assets
         shell: bash
@@ -304,7 +330,7 @@ jobs:
           mkdir -p release-publish
           assets=()
           shopt -s nullglob
-          for file in release/*.AppImage release/*.yml; do
+          for file in release/*.AppImage release/*.yml release/*.tgz; do
             cp "$file" release-publish/
             assets+=("$(basename "$file")")
           done
@@ -350,6 +376,7 @@ jobs:
           files: |
             release-assets/*.AppImage
             release-assets/*.yml
+            release-assets/*.tgz
           fail_on_unmatched_files: true
           token: ${{ github.token }}
 
