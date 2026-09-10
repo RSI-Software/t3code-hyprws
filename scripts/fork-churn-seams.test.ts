@@ -693,12 +693,14 @@ it("records evidence idempotently and preserves it through walk and legacy reade
       walks,
       seamRecords: records,
       outcomes,
+      forecasts: [],
     });
     assert.deepStrictEqual(parseChurnState(JSON.stringify(walks)), {
       version: 3,
       walks,
       seamRecords: [],
       outcomes: [],
+      forecasts: [],
     });
     const good = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
     NodeFS.writeFileSync(
@@ -748,7 +750,7 @@ it("preserves records while seeding v2 and migrating legacy subjects", () => {
     // Force a genuinely subjectless legacy row to exercise the later migration writer.
     writeChurnState(
       root,
-      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes },
+      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes, forecasts: [] },
       "legacy subjects",
     );
     assert.strictEqual(run(["migrate-subjects"], root), 0);
@@ -846,6 +848,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       records: ReadonlyArray<SeamRecord>;
       status: string;
       exit: number;
+      policy: "succeeded" | "failed";
     }> = [
       {
         snapshots: [snapshot(A)],
@@ -853,13 +856,18 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "not-observed",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A), snapshot(B, [])],
         current: snapshot(C),
         records: [],
         status: "returned-unresolved",
-        exit: 1,
+        // A blocking-seam verdict stays recorded as a policy failure but no
+        // longer fails the job; the carried walk owns seam resolution
+        // (RSI-Software/t3code-hyprws#869).
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [snapshot(A)],
@@ -867,20 +875,23 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records,
         status: "verified-repaired",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A), snapshot(B, [])],
         current: snapshot(C),
         records,
         status: "regressed",
-        exit: 1,
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [snapshot(A)],
         current: changedTarget,
         records: [before, changed, repair, failed],
         status: "repair-unverified",
-        exit: 1,
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [legacy],
@@ -888,6 +899,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "unknown",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [legacy, snapshot(B, [])],
@@ -895,6 +907,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "| observed |",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A)],
@@ -902,6 +915,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records,
         status: "pre-repair",
         exit: 0,
+        policy: "succeeded",
       },
     ];
     for (const item of cases) {
@@ -914,6 +928,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
           ),
           seamRecords: item.records,
           outcomes: [],
+          forecasts: [],
         },
         "case",
       );
@@ -925,8 +940,9 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       );
       assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
         publication: "succeeded",
-        policy: item.exit === 0 ? "succeeded" : "failed",
+        policy: item.policy,
         url: "https://example.test/comment",
+        ...(item.policy === "failed" ? { reason: "blocking-seams" } : {}),
       });
       const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
       assert.include(posted, item.status);
@@ -941,6 +957,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         walks: [walk(clear.tag, snapshot(B, []))],
         seamRecords: records,
         outcomes: [],
+        forecasts: [],
       },
       "anchored mixed chronology",
     );
@@ -956,7 +973,10 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       policy: "succeeded",
       url: "https://example.test/comment",
     });
-    // The verified frozen repair cannot order an unanchored completed walk.
+    // The verified frozen repair cannot order an unanchored completed walk:
+    // identical tags carry no recorded time to compare, so the lesson stays
+    // unavailable — but the run itself stays green (#860); only the receipt's
+    // policy verdict records the failure with its reason.
     writeChurnState(
       root,
       {
@@ -964,12 +984,13 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         walks: [walk("v1.0.0", snapshot(C))],
         seamRecords: records,
         outcomes: [],
+        forecasts: [],
       },
       "ambiguous mixed chronology",
     );
     process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
     const ambiguousReceipt = NodePath.join(root, "ambiguous-receipt.json");
-    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 1);
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 0);
     assert.include(
       NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
       "chronology is ambiguous",
@@ -977,7 +998,28 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
     assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(ambiguousReceipt, "utf8")), {
       publication: "succeeded",
       policy: "failed",
+      reason: "lesson-unavailable",
       url: "https://example.test/comment",
+    });
+    // A publication failure still exits nonzero so the notification itself is
+    // not silently lost; the receipt records the failed publication.
+    const failBin = NodePath.join(root, "fail-bin");
+    NodeFS.mkdirSync(failBin);
+    NodeFS.writeFileSync(
+      NodePath.join(failBin, "gh"),
+      `#!/usr/bin/env node
+if (process.argv.includes('view')) { process.stdout.write(JSON.stringify({body: process.env.SEAM_FIXTURE_BODY, comments: []})); process.exit(0); }
+process.stderr.write('gh: publication refused\\n');
+process.exit(1);
+`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${failBin}:${oldPath ?? ""}`;
+    const failedReceipt = NodePath.join(root, "failed-receipt.json");
+    assert.notStrictEqual(run(["report", "--issue", "1", "--receipt", failedReceipt], root), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(failedReceipt, "utf8")), {
+      publication: "failed",
+      policy: "not-attempted",
     });
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
