@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { pinnedRuntimeInstallSpec } from "./forkRuntimeRelease.ts";
 
 /**
  * A pinned runtime is an exact `t3@<version>` npm-installed into
@@ -159,7 +160,8 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
       stagingDir,
       "--no-fund",
       "--no-audit",
-      `t3@${input.version}`,
+      // A fork version resolves to a release tarball URL, not a registry spec.
+      pinnedRuntimeInstallSpec(input.version),
     ];
     yield* runner
       .run({
