@@ -274,3 +274,30 @@ it("names the command that dirtied the worktree and writes it up as one attribut
     ].join("\n"),
   );
 });
+
+it("carries the raise trailer when the walk reconciles a ceiling its replay widened", () => {
+  // Nothing rewrote the worktree here: the replay's own resolutions grew a domain past a ceiling
+  // measured before them, so the message says that instead, and the trailer is what
+  // `fork:delta --check` reads to accept the raise (RSI-Software/t3code-hyprws#745).
+  assert.deepStrictEqual(
+    repairCommitMessage({
+      kind: "budget",
+      tag: "v1.2.3",
+      domain: "fork-meta",
+      command: "vp run --no-cache fork:delta --inventory",
+      budgetRaise: "the v1.2.3 replay widened custom-agents added 100 -> 130",
+    }),
+    [
+      "chore(fork-sync): repair budget after v1.2.3",
+      "",
+      "Replaying onto v1.2.3 widened the stack past its own ceilings; `vp run --no-cache fork:delta --inventory` measured the new numbers.",
+      "",
+      "Fork-Domain: fork-meta",
+      "Fork-Tier: bugfix",
+      "Fork-Upstreamable: no",
+      "Fork-Repair: v1.2.3",
+      "Fork-Budget: raise the v1.2.3 replay widened custom-agents added 100 -> 130",
+      "",
+    ].join("\n"),
+  );
+});

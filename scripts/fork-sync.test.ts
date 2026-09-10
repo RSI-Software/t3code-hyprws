@@ -38,6 +38,7 @@ import {
   parseSilentSeam,
   preserveRecordDecisions,
   reconcileAfterApply,
+  budgetRaiseReason,
   repairDomain,
   resumeRererePublication,
   rehearsalConflictRows,
@@ -3762,6 +3763,18 @@ const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "core.commentChar=auto",
   ...args,
 ];
+
+it("names the walk and every ceiling it moved in the budget raise trailer", () => {
+  // The trailer is the whole audit of a raise — nothing is stamped into the table — so it has to
+  // read as a reason on its own: which walk widened the stack, and by how much on which measure.
+  assert.strictEqual(
+    budgetRaiseReason("v0.0.41-nightly.20260910.1473", [
+      { domain: "custom-agents", measure: "added", actual: 130, ceiling: 100, baselined: true },
+      { domain: "zmux-estate", measure: "deleted", actual: 2, ceiling: 0, baselined: false },
+    ]),
+    "the v0.0.41-nightly.20260910.1473 replay widened custom-agents added 100 -> 130, zmux-estate deleted 0 -> 2",
+  );
+});
 
 it("attributes a repair to the domain that owns the files it rewrote", () => {
   const runner = new FakeRunner();

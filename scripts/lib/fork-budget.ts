@@ -235,3 +235,64 @@ export const renderForkBudget = (input: {
     ),
     "",
   ].join("\n");
+
+/** The live per-domain numbers a raise seeds a brand-new row from. */
+export interface ForkBudgetMeasured {
+  readonly domain: string;
+  readonly commits: number;
+  readonly added: number;
+  readonly deleted: number;
+  readonly overlaps: number;
+}
+
+const ADDED_CELL = 2;
+const DELETED_CELL = 3;
+
+/**
+ * Raises exactly the ceilings the given findings name, to the numbers those findings measured, and
+ * leaves every other cell and every line outside the table untouched. A raise is never a
+ * re-render: rendering the whole file from the live inventory would also ratchet untouched domains
+ * down to today's numbers, spending headroom the fork still owns without anyone deciding to. A
+ * finding for a domain with no row appends one — a missing row is a ceiling of zero, not an absent
+ * domain — seeded from the live numbers for the recorded-only cells.
+ */
+export const raiseForkBudget = (
+  markdown: string,
+  findings: ReadonlyArray<ForkBudgetFinding>,
+  measured: ReadonlyArray<ForkBudgetMeasured>,
+): string => {
+  parseForkBudget(markdown);
+  const wanted = new Map<string, Map<ForkBudgetMeasure, number>>();
+  for (const finding of findings) {
+    const byMeasure = wanted.get(finding.domain) ?? new Map<ForkBudgetMeasure, number>();
+    byMeasure.set(finding.measure, finding.actual);
+    wanted.set(finding.domain, byMeasure);
+  }
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const headerIndex = lines.findIndex((line) => line.trim().startsWith("|"));
+  const raised = new Set<string>();
+  let lastRow = headerIndex + 1;
+  for (let index = headerIndex + 2; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim().startsWith("|")) continue;
+    lastRow = index;
+    const cells = [...splitTableRow(line)];
+    const domain = cells[0] ?? "";
+    const byMeasure = wanted.get(domain);
+    if (byMeasure === undefined) continue;
+    const added = byMeasure.get("added");
+    const deleted = byMeasure.get("deleted");
+    if (added !== undefined) cells[ADDED_CELL] = String(added);
+    if (deleted !== undefined) cells[DELETED_CELL] = String(deleted);
+    lines[index] = `| ${cells.map(escapeCell).join(" | ")} |`;
+    raised.add(domain);
+  }
+  const appended = [...wanted.keys()]
+    .filter((domain) => !raised.has(domain))
+    .map((domain) => {
+      const row = measured.find((candidate) => candidate.domain === domain);
+      const byMeasure = wanted.get(domain);
+      return `| ${escapeCell(domain)} | ${row?.commits ?? 0} | ${byMeasure?.get("added") ?? row?.added ?? 0} | ${byMeasure?.get("deleted") ?? row?.deleted ?? 0} | ${row?.overlaps ?? 0} |`;
+    });
+  return [...lines.slice(0, lastRow + 1), ...appended, ...lines.slice(lastRow + 1)].join("\n");
+};
