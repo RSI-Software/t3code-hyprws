@@ -41,6 +41,7 @@ we may close it without merging it, or never review it.
      git only reads trailers from the final paragraph.
 
      Valid Fork-Domain values (copy one exactly; never invent a value):
+       backend-attach
        browser-bookmarks
        custom-agents
        distribution
