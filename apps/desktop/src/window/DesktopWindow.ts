@@ -128,6 +128,9 @@ export class DesktopWindow extends Context.Service<
     // mode), before the WSL backend that acts as the primary is ready. It is
     // dismissed automatically once the real main window reveals.
     readonly showConnectingSplash: Effect.Effect<void>;
+    // Marks the packaged/Vite renderer as loadable independently of whether
+    // this desktop process owns a backend.
+    readonly handleRendererReady: Effect.Effect<void, DesktopWindowError>;
     // Marks the primary backend as ready so `createMainIfBackendReady` and the
     // macOS "activate without windows" path may open the real main window. The
     // renderer now always loads the local client URL (getDesktopUrl) and connects
@@ -994,6 +997,8 @@ export const make = Effect.gen(function* () {
       if (!window.isDestroyed()) {
         window.webContents.setBackgroundThrottling(true);
       }
+      // Reveal the real window, then close the connecting splash (if any) so the
+      // two don't overlap and there's no blank gap between them.
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
@@ -1206,6 +1211,11 @@ export const make = Effect.gen(function* () {
     yield* dispatch;
   });
 
+  const handleRendererReady = Ref.set(backendReadyRef, true).pipe(
+    Effect.andThen(createMainIfBackendReady),
+    Effect.withSpan("desktop.window.handleRendererReady"),
+  );
+
   return DesktopWindow.of({
     createMain,
     ensureMain,
@@ -1265,9 +1275,10 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.activate")),
     createMainIfBackendReady,
     showConnectingSplash,
+    handleRendererReady,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
-      yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
+      yield* Ref.set(backendReadyRef, true);
       const restored = yield* drainPendingRestore;
       const pendingIdentity = yield* Ref.getAndSet(pendingInitialIdentityRef, Option.none());
       if (Option.isSome(pendingIdentity)) {
@@ -1317,6 +1328,9 @@ export const make = Effect.gen(function* () {
         : previewManager;
       yield* windowPreviewManager.preserveGuestZooms(() => {
         // Same step size as the Electron zoomIn/zoomOut menu roles.
+        // Chromium pushes the new level down to embedded guests, which would zoom
+        // the previewed page along with the app UI. The preview browser keeps its
+        // own zoom, so put each guest back where the preview left it.
         webContents.setZoomLevel(
           direction === "reset"
             ? 0
