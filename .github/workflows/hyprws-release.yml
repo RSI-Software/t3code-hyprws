@@ -443,12 +443,18 @@ jobs:
       FORK_RELEASE_NEEDS: ${{ toJSON(needs) }}
       FORK_RELEASE_OUTCOME_FILE: fork-release-outcome-receipts.json
     steps:
+      # The push credential belongs on the checkout, not on the step that pushes.
+      # Only this job set persist-credentials: false, which moves the action's
+      # "Removing auth" block out of its post-step and into the main step. That
+      # block runs `git submodule foreach --recursive`, and the tree carries
+      # gitlinks .gitmodules does not declare, so it exited 128 and the job never
+      # reached the receipt writer.
       - name: Checkout receipt collector
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.ref || github.sha }}
           fetch-depth: 0
-          persist-credentials: false
+          token: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -459,17 +465,12 @@ jobs:
         env:
           FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
           GH_TOKEN: ${{ github.token }}
-          HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
         run: |
           printf '%s\n' "$FORK_RELEASE_NEEDS" > "$RUNNER_TEMP/fork-release-needs.json"
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --tags upstream main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HYPRWS_PUSH_TOKEN" | base64 -w0)"
-          export GIT_CONFIG_VALUE_0
           node scripts/fork-churn.ts outcome --release --push
 
       - name: Verify retained release outcome
