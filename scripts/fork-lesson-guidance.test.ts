@@ -353,6 +353,7 @@ it("validates the complete known envelope before projecting lesson fields", () =
     assert.deepStrictEqual(readLessonEvidence(encodeSync(envelope)), {
       walks: [],
       seamRecords: [],
+      outcomes: [],
     });
     assert.throws(
       () => readLessonEvidence(encodeSync({ ...envelope, unknown: true })),
@@ -599,7 +600,7 @@ it("retains original and unmapped lessons across legacy, v2 and v3 projections",
     lessonInventory(readLessonEvidence("[]")).length,
     ORIGINAL_LESSON_PATHS.length,
   );
-  assert.deepStrictEqual(readLessonEvidence(empty), { walks: [], seamRecords: [] });
+  assert.deepStrictEqual(readLessonEvidence(empty), { walks: [], seamRecords: [], outcomes: [] });
   const output = renderLessonGuidance(
     { ref: CHURN_REF, sha: A, remoteSha: null, freshness: "offline", detail: "fixture", raw },
     readLessonEvidence(raw),
