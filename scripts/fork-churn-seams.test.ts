@@ -693,12 +693,14 @@ it("records evidence idempotently and preserves it through walk and legacy reade
       walks,
       seamRecords: records,
       outcomes,
+      forecasts: [],
     });
     assert.deepStrictEqual(parseChurnState(JSON.stringify(walks)), {
       version: 3,
       walks,
       seamRecords: [],
       outcomes: [],
+      forecasts: [],
     });
     const good = readBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE);
     NodeFS.writeFileSync(
@@ -748,7 +750,7 @@ it("preserves records while seeding v2 and migrating legacy subjects", () => {
     // Force a genuinely subjectless legacy row to exercise the later migration writer.
     writeChurnState(
       root,
-      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes },
+      { version: 3, walks: [legacyWalk], seamRecords: records, outcomes, forecasts: [] },
       "legacy subjects",
     );
     assert.strictEqual(run(["migrate-subjects"], root), 0);
@@ -926,6 +928,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
           ),
           seamRecords: item.records,
           outcomes: [],
+          forecasts: [],
         },
         "case",
       );
@@ -954,6 +957,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         walks: [walk(clear.tag, snapshot(B, []))],
         seamRecords: records,
         outcomes: [],
+        forecasts: [],
       },
       "anchored mixed chronology",
     );
@@ -980,6 +984,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         walks: [walk("v1.0.0", snapshot(C))],
         seamRecords: records,
         outcomes: [],
+        forecasts: [],
       },
       "ambiguous mixed chronology",
     );
