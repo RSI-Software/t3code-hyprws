@@ -87,6 +87,10 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Forecast the upstream main tip
         env:
           GH_TOKEN: ${{ github.token }}
