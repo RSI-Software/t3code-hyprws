@@ -11,6 +11,7 @@ import {
 } from "./lib/fork-churn-seams.ts";
 import { CHURN_LEDGER_FILE, requireBotRef } from "./lib/fork-bot-refs.ts";
 import { runCommand, type CommandResult } from "./lib/fork-command.ts";
+import type { OutcomeReceipt } from "./lib/fork-sync-outcomes.ts";
 
 /** Preserve the complete original per-file inventory, including the five original hot seams. */
 export const ORIGINAL_LESSON_PATHS = [
@@ -42,13 +43,14 @@ export const ORIGINAL_LESSON_PATHS = [
 export interface LessonEvidence {
   readonly walks: ReadonlyArray<ChurnEntry>;
   readonly seamRecords: ReadonlyArray<SeamRecord>;
+  readonly outcomes?: ReadonlyArray<OutcomeReceipt>;
   readonly notices?: ReadonlyArray<string>;
 }
 
 /** Validate known envelopes before projecting; future schemas remain explicitly partial. */
 export const readLessonEvidence = (raw: string): LessonEvidence => {
   const parsed: unknown = JSON.parse(raw);
-  if (Array.isArray(parsed)) return { walks: parseLedger(raw), seamRecords: [] };
+  if (Array.isArray(parsed)) return { walks: parseLedger(raw), seamRecords: [], outcomes: [] };
   if (typeof parsed !== "object" || parsed === null) throw new Error("invalid lesson ledger");
   const value = parsed as Record<string, unknown>;
   if (
@@ -77,10 +79,10 @@ export const readLessonEvidence = (raw: string): LessonEvidence => {
         "Seam fields are incompatible; repair assessment is unavailable, never verified by omission.",
       );
     }
-    return { walks, seamRecords, notices };
+    return { walks, seamRecords, outcomes: [], notices };
   }
   const state = parseChurnState(raw);
-  return { walks: state.walks, seamRecords: state.seamRecords };
+  return { walks: state.walks, seamRecords: state.seamRecords, outcomes: state.outcomes };
 };
 
 export interface LessonSource {
