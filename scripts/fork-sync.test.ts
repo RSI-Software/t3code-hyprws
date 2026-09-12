@@ -44,6 +44,7 @@ import {
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
+  retiredSubjectsForTest,
   renderRecord,
   resolveAutoTarget,
   resolveUnblockTarget,
@@ -93,7 +94,7 @@ import {
   readChurnState,
 } from "./fork-churn-ledger.ts";
 import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
-import { SYNC_HELP, uniqueSilentSeams } from "./fork-sync-state.ts";
+import { SYNC_HELP, REPOSITORY, uniqueSilentSeams } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -6530,6 +6531,137 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
     )
       NodeFS.rmSync(root, { recursive: true, force: true });
   }
+});
+
+/**
+ * The stop-1 shape of RSI-Software/t3code-hyprws#876: a conflict-stop report whose declined row is
+ * still all TODO. `record-decisions` must upgrade the row from the hand resolution, write the
+ * pending ledger row, and — on a rerun of the same report — reuse the persisted record URL instead
+ * of posting a second comment.
+ */
+it("record-decisions resolves the declined row and never comments twice (#876)", () => {
+  const root = fixtureRoot();
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "-b", "rehearse/v0.0.42"], {
+    cwd: lane,
+  });
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: lane });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: lane,
+  });
+  const declinedPath = "apps/web/seam.ts";
+  NodeFS.mkdirSync(NodePath.join(lane, "apps/web"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(lane, declinedPath), "resolved by hand\n");
+  NodeChildProcess.execFileSync("git", ["add", declinedPath], { cwd: lane });
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v0.0.42", worktree: lane },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  const fixture = ledgerFixture(root, stopped.recordPath);
+  const runner = new FakeRunner();
+  runner.set(
+    "gh",
+    ["issue", "comment", "352", "-R", REPOSITORY, "--body-file", stopped.recordPath],
+    { stdout: "https://example.test/record#issuecomment-1\n" },
+  );
+  try {
+    const recorded = execute(
+      ["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"],
+      root,
+      runner,
+    );
+    // The declined row reads resolved, not TODO, everywhere the record shows it.
+    const row = recorded.conflicts.find((entry) => entry.path === declinedPath);
+    assert.strictEqual(row?.class, "human");
+    assert.strictEqual(row?.resolution, "resolved by hand in the lane");
+    assert.strictEqual(row?.agentSafe, "no");
+    assert.strictEqual(row?.decidedBy, "human");
+    const recordRow = parseConflictRows(NodeFS.readFileSync(stopped.recordPath, "utf8")).find(
+      (entry) => entry.path === declinedPath,
+    );
+    assert.strictEqual(recordRow?.class, "human");
+    assert.strictEqual(recordRow?.resolution, "resolved by hand in the lane");
+    assert.strictEqual(recordRow?.agentSafe, "no");
+    assert.strictEqual(recordRow?.decidedBy, "human");
+    // The pending append reached refs/fork/churn as a pending row for the stopped tag.
+    const ledger = parseLedger(readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(
+      ledger.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+    assert.strictEqual(ledger[0]?.pending, true);
+    assert.lengthOf(ledger[0]?.conflicts.filter((entry) => entry.path === declinedPath) ?? [], 1);
+    assert.lengthOf(
+      runner.calls.filter((call) => call.command === "gh"),
+      1,
+    );
+    // A rerun reuses the persisted record URL: no second comment, and the row stays singular.
+    runner.calls.length = 0;
+    execute(["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"], root, runner);
+    assert.lengthOf(
+      runner.calls.filter((call) => call.command === "gh"),
+      0,
+    );
+    const ledgerAfter = parseLedger(
+      readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
+    );
+    assert.deepStrictEqual(
+      ledgerAfter.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+  } finally {
+    fixture.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(lane, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
+  }
+});
+
+/**
+ * The walk reads the prior tag's record for retire decisions after rerere replays a recorded
+ * human resolution (RSI-Software/t3code-hyprws#876). A stop's record carries fork-commit rows
+ * whose Action cell is still TODO; the retire-only reader must tolerate them, not hard-fail.
+ */
+it("retire decisions tolerate the TODO Action cells a stop's record carries", () => {
+  const root = fixtureRoot();
+  const declinedSubject = "fix(desktop): project windows keep Settings, PRs, and Usage in-window";
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    conflicts: [
+      {
+        commit: A,
+        subject: declinedSubject,
+        domain: "project-windows",
+        path: "apps/web/src/routes/settings.tsx",
+        class: "human",
+        resolution: "resolved by hand in the lane",
+        agentSafe: "no",
+        decidedBy: "human",
+      },
+    ],
+  });
+  NodeFS.mkdirSync(NodePath.dirname(stopped.recordPath), { recursive: true });
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  const record = NodeFS.readFileSync(stopped.recordPath, "utf8");
+  // The record really does carry the undecidable row the walk used to choke on.
+  assert.include(record, `\`${declinedSubject}\``);
+  assert.include(record, "| TODO |");
+  // The retire-only read tolerates it and names nothing retired from it.
+  assert.deepStrictEqual([...retiredSubjectsForTest(stopped)], []);
 });
 
 describe("resumed conflict-stop lane cleanliness (#694)", () => {
