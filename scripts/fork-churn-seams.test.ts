@@ -846,6 +846,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       records: ReadonlyArray<SeamRecord>;
       status: string;
       exit: number;
+      policy: "succeeded" | "failed";
     }> = [
       {
         snapshots: [snapshot(A)],
@@ -853,13 +854,18 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "not-observed",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A), snapshot(B, [])],
         current: snapshot(C),
         records: [],
         status: "returned-unresolved",
-        exit: 1,
+        // A blocking-seam verdict stays recorded as a policy failure but no
+        // longer fails the job; the carried walk owns seam resolution
+        // (RSI-Software/t3code-hyprws#869).
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [snapshot(A)],
@@ -867,20 +873,23 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records,
         status: "verified-repaired",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A), snapshot(B, [])],
         current: snapshot(C),
         records,
         status: "regressed",
-        exit: 1,
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [snapshot(A)],
         current: changedTarget,
         records: [before, changed, repair, failed],
         status: "repair-unverified",
-        exit: 1,
+        exit: 0,
+        policy: "failed",
       },
       {
         snapshots: [legacy],
@@ -888,6 +897,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "unknown",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [legacy, snapshot(B, [])],
@@ -895,6 +905,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records: [],
         status: "| observed |",
         exit: 0,
+        policy: "succeeded",
       },
       {
         snapshots: [snapshot(A)],
@@ -902,6 +913,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         records,
         status: "pre-repair",
         exit: 0,
+        policy: "succeeded",
       },
     ];
     for (const item of cases) {
@@ -925,9 +937,9 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       );
       assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(receiptPath, "utf8")), {
         publication: "succeeded",
-        policy: item.exit === 0 ? "succeeded" : "failed",
+        policy: item.policy,
         url: "https://example.test/comment",
-        ...(item.exit === 0 ? {} : { reason: "blocking-seams" }),
+        ...(item.policy === "failed" ? { reason: "blocking-seams" } : {}),
       });
       const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
       assert.include(posted, item.status);
@@ -983,6 +995,26 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       policy: "failed",
       reason: "lesson-unavailable",
       url: "https://example.test/comment",
+    });
+    // A publication failure still exits nonzero so the notification itself is
+    // not silently lost; the receipt records the failed publication.
+    const failBin = NodePath.join(root, "fail-bin");
+    NodeFS.mkdirSync(failBin);
+    NodeFS.writeFileSync(
+      NodePath.join(failBin, "gh"),
+      `#!/usr/bin/env node
+if (process.argv.includes('view')) { process.stdout.write(JSON.stringify({body: process.env.SEAM_FIXTURE_BODY, comments: []})); process.exit(0); }
+process.stderr.write('gh: publication refused\\n');
+process.exit(1);
+`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${failBin}:${oldPath ?? ""}`;
+    const failedReceipt = NodePath.join(root, "failed-receipt.json");
+    assert.notStrictEqual(run(["report", "--issue", "1", "--receipt", failedReceipt], root), 0);
+    assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(failedReceipt, "utf8")), {
+      publication: "failed",
+      policy: "not-attempted",
     });
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
