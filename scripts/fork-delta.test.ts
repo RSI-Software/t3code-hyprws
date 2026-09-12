@@ -29,6 +29,7 @@ import {
   collectWireShapeFindingsBetween,
   collectFindings,
   forkLogArguments,
+  legacyWalkRepairFindings,
   parseCommitNumstat,
   parseForkLog,
   parseSquashBody,
@@ -161,7 +162,24 @@ it("reports missing and unknown trailers", () => {
   );
 });
 
-it("accepts a walk repair commit the sync appended after the replayed series", () => {
+it("refuses an ungrandfathered legacy walk repair but ignores absent grandfather entries", () => {
+  const legacy = parseForkLog(
+    record(
+      "hhhhhhhhh",
+      "chore(fork-sync): repair fmt after v1.2.3",
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\nFork-Repair: v1.2.3\n",
+    ),
+  );
+  assert.deepStrictEqual(
+    legacyWalkRepairFindings(legacy, new Set()).map((finding) => finding.problem),
+    ["legacy walk repair must be folded"],
+  );
+  assert.deepStrictEqual(legacyWalkRepairFindings(legacy, new Set([legacy[0]!.sha])), []);
+  // A grandfather entry with no reachable commit is deliberately a no-op.
+  assert.deepStrictEqual(legacyWalkRepairFindings([], new Set(["f".repeat(40)])), []);
+});
+
+it("accepts a grandfathered walk repair commit the sync appended after the replayed series", () => {
   const commits = parseForkLog(
     record(
       "hhhhhhhhh",
