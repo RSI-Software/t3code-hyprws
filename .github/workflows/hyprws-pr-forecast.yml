@@ -1,0 +1,56 @@
+name: hyprws PR forecast
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches:
+      - hyprws
+
+concurrency:
+  group: hyprws-pr-forecast-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  checks: write
+
+jobs:
+  forecast:
+    name: Forecast
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # pull_request_target keeps the write token on trusted hyprws code. The
+      # pull-request head is fetched only as Git data for the census; it is not
+      # checked out or executed, so fork pull requests get the same report.
+      - uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Fetch pull request head
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pull-request/head"
+          test "$(git rev-parse refs/remotes/pull-request/head)" = "$HEAD_SHA"
+
+      - name: Forecast pull request commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! node scripts/fork-pr-forecast.ts "$PR_NUMBER" "$HEAD_SHA"; then
+            echo "::error::Fork conflict forecast could not run; see this step's log."
+            exit 1
+          fi

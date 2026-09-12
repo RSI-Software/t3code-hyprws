@@ -6,7 +6,13 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import { appendForecast, forecast, renderForecast } from "./fork-forecast.ts";
+import {
+  appendForecast,
+  forecast,
+  forecastPullRequest,
+  renderForecast,
+  renderPullRequestForecast,
+} from "./fork-forecast.ts";
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -55,6 +61,49 @@ it("reports a clean main tip and records dedupe by main SHA", () => {
     assert.strictEqual(appendForecast(appended.forecasts, result).deduped, true);
   } finally {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+it("forecasts only the pull request range and renders the exact clean string", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-pr-forecast-test-"));
+  try {
+    git(root, ["init", "-b", "main"]);
+    git(root, ["config", "user.name", "test"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(root, "docs/internals/fork-budget.md"),
+      "# Fork budget\n\n| Domain | Commits | Added | Deleted | Shared |\n| --- | --- | --- | --- | --- |\n| fork-meta | 2 | 10 | 10 | 0 |\n",
+    );
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "base\n");
+    commit(root, "base");
+    git(root, ["remote", "add", "origin", root]);
+    git(root, ["branch", "hyprws"]);
+    git(root, ["switch", "hyprws"]);
+    NodeFS.writeFileSync(NodePath.join(root, "trunk.txt"), "trunk\n");
+    commit(root, "feat: trunk\n\nFork-Domain: fork-meta\nFork-Tier: qol");
+    git(root, ["switch", "-c", "feature"]);
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "feature\n");
+    const feature = commit(root, "feat: feature\n\nFork-Domain: fork-meta\nFork-Tier: qol");
+    git(root, ["switch", "main"]);
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "upstream\n");
+    const main = commit(root, "upstream seam");
+    git(root, ["update-ref", "refs/remotes/origin/main", main]);
+    git(root, ["update-ref", "refs/heads/main", main]);
+    git(root, ["switch", "feature"]);
+
+    const result = forecastPullRequest(root, feature, () => new Set());
+    assert.deepStrictEqual(
+      result.conflicts.map((row) => row.commit),
+      [feature],
+    );
+    assert.deepStrictEqual(result.conflicts[0]?.files, ["seam.txt"]);
+    assert.include(
+      renderPullRequestForecast({ ...result, conflicts: [], overBudgetDomains: new Set() }),
+      `clean at ${main}`,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
 
