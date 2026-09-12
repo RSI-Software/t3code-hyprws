@@ -343,6 +343,8 @@ tree-neutral. The general never-squash rule otherwise stands. See
   that needs the dependency.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
+When a walk repair belongs unambiguously to one replayed fork commit, write it as a trailer-free `fixup!` and autosquash it before the leased push; split repairs across owners, and leave tooling, documentation, budget, or otherwise unattributable work as a standalone commit rather than guessing.
+
 ### Ledger guards run in the scan
 
 An action the churn ledger records ships its guard in the same change, and the sub-issue carrying
