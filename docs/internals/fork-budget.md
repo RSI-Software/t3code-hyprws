@@ -11,7 +11,7 @@ so a new domain fails the check until a commit adds its row.
 
 | Domain            | Commits | Added | Deleted | Shared |
 | ----------------- | ------- | ----- | ------- | ------ |
-| backend-attach    | 1       | 2781  | 313     | 3      |
+| backend-attach    | 1       | 2808  | 316     | 3      |
 | browser-bookmarks | 1       | 816   | 29      | 0      |
 | custom-agents     | 10      | 8745  | 739     | 0      |
 | distribution      | 17      | 1525  | 158     | 0      |
