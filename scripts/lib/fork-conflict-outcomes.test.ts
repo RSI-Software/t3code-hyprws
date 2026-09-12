@@ -183,6 +183,76 @@ it("declines a resolution that would drop an upstream addition", () => {
   }
 });
 
+it("mechanically applies a fork deletion when upstream only moved its context", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/routes/settings.tsx";
+  try {
+    // Seam 2: upstream wraps the original Escape effect in settings scope, while the fork deletes
+    // that byte-identical block and uses its scoped leave hook instead.
+    stageConflict(root, path, {
+      base: [
+        "navigateBackWithinApp();",
+        "useEffect(() => onEscape(navigateBackWithinApp));",
+        "",
+      ].join("\n"),
+      ours: [
+        "useSettingsScope();",
+        "navigateBackWithinApp();",
+        "useEffect(() => onEscape(navigateBackWithinApp));",
+        "",
+      ].join("\n"),
+      theirs: "useLeaveFullPage($&);\n",
+    });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "theirs",
+      conflictClass: "mechanical",
+      source: "fork-only",
+      resolution:
+        "outcome executor: moved-deletion (fork deletion over byte-identical upstream base)",
+    });
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "useSettingsScope();");
+    assert.include(resolved, "useLeaveFullPage($&);");
+    assert.notInclude(resolved, "navigateBackWithinApp");
+    assert.notInclude(resolved, "onEscape");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("mechanically applies an upstream deletion when the fork left its base bytes untouched", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/routes/settings.tsx";
+  try {
+    stageConflict(root, path, {
+      base: "navigateBackWithinApp();\n",
+      ours: "useSettingsScope();\n",
+      theirs: "navigateBackWithinApp();\nuseLeaveFullPage();\n",
+    });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "ours",
+      conflictClass: "mechanical",
+      source: "upstream-only",
+      resolution:
+        "outcome executor: moved-deletion (upstream deletion over byte-identical fork base)",
+    });
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "useSettingsScope();");
+    assert.include(resolved, "useLeaveFullPage();");
+    assert.notInclude(resolved, "navigateBackWithinApp");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
   assert.isTrue(
     everyConflictIsCoInsertion(
@@ -211,7 +281,10 @@ it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
     const rewritten = executeConflictOutcome(runner, root, path);
     assert.isTrue(isUnresolved(rewritten));
     if (!isUnresolved(rewritten)) return;
-    assert.include(rewritten.reason, "rewrote the same lines");
+    assert.strictEqual(
+      rewritten.reason,
+      "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam",
+    );
     // A decline writes nothing, so the conflicted path is left for the maintainer as it was.
     assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
   } finally {
