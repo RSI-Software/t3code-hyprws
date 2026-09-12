@@ -286,7 +286,11 @@ export const make = Effect.gen(function* () {
         });
       }
       for (const instance of instances) {
-        const environment = mergeProviderInstanceEnvironment(instance.environment, hostEnvironment);
+        const environment = mergeProviderInstanceEnvironment(
+          instance.environment,
+          undefined,
+          hostEnvironment,
+        );
         const provider = driver === "claudeAgent" ? "claude" : driver;
         let home: string;
         if (driver === "codex") {
