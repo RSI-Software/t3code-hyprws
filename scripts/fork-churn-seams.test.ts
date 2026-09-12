@@ -927,6 +927,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
         publication: "succeeded",
         policy: item.exit === 0 ? "succeeded" : "failed",
         url: "https://example.test/comment",
+        ...(item.exit === 0 ? {} : { reason: "blocking-seams" }),
       });
       const posted = NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8");
       assert.include(posted, item.status);
@@ -956,7 +957,10 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
       policy: "succeeded",
       url: "https://example.test/comment",
     });
-    // The verified frozen repair cannot order an unanchored completed walk.
+    // The verified frozen repair cannot order an unanchored completed walk:
+    // identical tags carry no recorded time to compare, so the lesson stays
+    // unavailable — but the run itself stays green (#860); only the receipt's
+    // policy verdict records the failure with its reason.
     writeChurnState(
       root,
       {
@@ -969,7 +973,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
     );
     process.env.SEAM_FIXTURE_BODY = `## Sequential rebase census\n<!-- sequential-census-v1:${JSON.stringify(snapshot(B, []).censusEvidence)} -->`;
     const ambiguousReceipt = NodePath.join(root, "ambiguous-receipt.json");
-    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 1);
+    assert.strictEqual(run(["report", "--issue", "1", "--receipt", ambiguousReceipt], root), 0);
     assert.include(
       NodeFS.readFileSync(process.env.SEAM_FIXTURE_OUTPUT, "utf8"),
       "chronology is ambiguous",
@@ -977,6 +981,7 @@ else { const i=process.argv.indexOf('--body-file'); fs.copyFileSync(process.argv
     assert.deepStrictEqual(JSON.parse(NodeFS.readFileSync(ambiguousReceipt, "utf8")), {
       publication: "succeeded",
       policy: "failed",
+      reason: "lesson-unavailable",
       url: "https://example.test/comment",
     });
   } finally {
