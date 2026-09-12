@@ -5,6 +5,7 @@
 import type { CensusChurn, CensusSnapshot, ChurnEntry, ChurnHotSeam } from "./fork-churn-ledger.ts";
 import { censusChurn, CONFLICT_CLASSES, hotSeams } from "./fork-churn-ledger.ts";
 import type { SeamRecord } from "./lib/fork-churn-seams.ts";
+import { outcomeStreak, type OutcomeReceipt } from "./lib/fork-sync-outcomes.ts";
 
 export const CHURN_MARKER = "<!-- hyprws-fork-churn -->";
 const STATE_MARKER = /<!-- hyprws-fork-churn-state:(.*) -->/;
@@ -170,6 +171,54 @@ const silentSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> 
   );
 };
 
+export interface ChurnDelta {
+  readonly commits: number;
+  readonly overBudget: ReadonlyArray<string>;
+}
+
+export const renderChurnKpiTable = (
+  entries: ReadonlyArray<ChurnEntry>,
+  records: ReadonlyArray<SeamRecord>,
+  outcomes: ReadonlyArray<OutcomeReceipt>,
+  delta: ChurnDelta | null,
+): ReadonlyArray<string> => {
+  const walk = entries.at(-1);
+  if (walk === undefined) return ["unrecorded"];
+  const decided = [...walk.conflicts, ...walk.decisions];
+  const human = decided.filter((row) => row.decidedBy === "human").length;
+  const agent = decided.filter((row) => row.decidedBy === "agent").length;
+  const files = (entry: ChurnEntry) => new Set(entry.conflicts.map((row) => row.path)).size;
+  const previous = entries.at(-2);
+  const notificationsByCommit = new Map<string, Set<string>>();
+  for (const record of records) {
+    if (record.kind !== "observation") continue;
+    for (const row of record.files) {
+      const notifications = notificationsByCommit.get(row.commit) ?? new Set<string>();
+      notifications.add(record.tag);
+      notificationsByCommit.set(row.commit, notifications);
+    }
+  }
+  const repeatOffenders = [...notificationsByCommit]
+    .filter(([, notifications]) => notifications.size >= 3)
+    .map(([commit]) => code(commit))
+    .toSorted();
+  const elapsed =
+    walk.elapsedMs === undefined ? "unrecorded" : `${Math.round(walk.elapsedMs / 1000)}s`;
+  const effort =
+    walk.effort === undefined ? "unrecorded" : `${walk.effort.model} (${walk.effort.effort})`;
+  return [
+    "<!-- prettier-ignore -->",
+    "| KPI | Value |",
+    "| --- | --- |",
+    `| decisions human : agent | ${human} : ${agent} |`,
+    `| conflict files, this walk vs last | ${files(walk)} vs ${previous === undefined ? "first walk" : files(previous)} |`,
+    `| delta commits, and any domain over budget | ${delta === null ? "unrecorded" : `${delta.commits}; ${delta.overBudget.length === 0 ? "none" : delta.overBudget.join(", ")}`} |`,
+    `| repeat offenders (commits conflicting in 3+ notifications) | ${repeatOffenders.length === 0 ? "none" : repeatOffenders.join(", ")} |`,
+    `| noAgentCarry streak / 5 | ${outcomeStreak(outcomes).noAgentCarry} / 5 |`,
+    `| elapsed and effort | ${elapsed}; ${effort} |`,
+  ];
+};
+
 const hotSeamTable = (
   entries: ReadonlyArray<ChurnEntry>,
   previous: ChurnSectionState | null,
@@ -205,6 +254,8 @@ export const renderChurnSection = (
   previousBody: string | null = null,
   currentCensus: CensusSnapshot | null = null,
   records: ReadonlyArray<SeamRecord> = [],
+  outcomes: ReadonlyArray<OutcomeReceipt> = [],
+  delta: ChurnDelta | null = null,
 ): string => {
   const previous = previousBody === null ? null : parseChurnSectionState(previousBody);
   const census = censusChurn(entries, currentCensus, records);
@@ -217,6 +268,10 @@ export const renderChurnSection = (
     "## Churn",
     "",
     `Ledger: ${code("refs/fork/churn")} (${code("fork-churn.json")}), ${range}. No fork commit carries it.`,
+    "",
+    "### KPIs",
+    "",
+    ...renderChurnKpiTable(entries, records, outcomes, delta),
     "",
     "### Conflict class mix",
     "",
