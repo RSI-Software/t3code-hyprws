@@ -253,6 +253,98 @@ it("mechanically applies an upstream deletion when the fork left its base bytes 
   }
 });
 
+it("mechanically resolves the ChatView dependency-array seams without stale entries", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/components/ChatView.tsx";
+  const hook = (body: string, dependencies: string) =>
+    [
+      "const callback = useCallback(",
+      "  () => {",
+      body,
+      "  },",
+      "  [",
+      dependencies,
+      "  ],",
+      ");",
+      "",
+    ].join("\n");
+  try {
+    // `.1576` hunk A: the body reads both settings and routeFamily.
+    stageConflict(root, path, {
+      base: hook("    consume(settings);\n    consume(routeFamily);", "    legacy,"),
+      ours: hook("    consume(settings);\n    consume(routeFamily);", "    settings,"),
+      theirs: hook("    consume(settings);\n    consume(routeFamily);", "    routeFamily,"),
+    });
+    const first = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(first));
+    if (isUnresolved(first)) return;
+    assert.deepInclude(first, { take: "union", conflictClass: "mechanical", source: "keep-both" });
+    assert.include(
+      NodeFS.readFileSync(NodePath.join(root, path), "utf8"),
+      "    settings,\n    routeFamily,",
+    );
+
+    // `.1576` hunk B: runtimeMode is stale; the callback reads defaultRuntimeMode and routeFamily.
+    const stale = "apps/web/src/components/ChatView-stale.tsx";
+    stageConflict(root, stale, {
+      base: hook("    consume(defaultRuntimeMode);\n    consume(routeFamily);", "    legacy,"),
+      ours: hook(
+        "    consume(defaultRuntimeMode);\n    consume(routeFamily);",
+        "    defaultRuntimeMode,",
+      ),
+      theirs: hook(
+        "    consume(defaultRuntimeMode);\n    consume(routeFamily);",
+        "    routeFamily,\n    runtimeMode,",
+      ),
+    });
+    const second = executeConflictOutcome(runner, root, stale);
+    assert.isFalse(isUnresolved(second));
+    if (isUnresolved(second)) return;
+    const resolved = NodeFS.readFileSync(NodePath.join(root, stale), "utf8");
+    assert.include(resolved, "    defaultRuntimeMode,\n    routeFamily,");
+    assert.notInclude(resolved, "runtimeMode,");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("declines unreferenced dependency entries and non-dependency rewrites", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const hook = (body: string, dependencies: string) =>
+    ["useEffect(", "  () => {", body, "  },", "  [", dependencies, "  ],", ");", ""].join("\n");
+  try {
+    const unused = "apps/web/src/components/unused.tsx";
+    stageConflict(root, unused, {
+      base: hook("    report();", "    legacy,"),
+      ours: hook("    report();", "    settings,"),
+      theirs: hook("    report();", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, unused)));
+
+    // `settings` is read in the ternary alternative. Its trailing colon is ambiguous enough that
+    // the local scanner must decline rather than incorrectly pruning a live dependency.
+    const ternary = "apps/web/src/components/ternary.tsx";
+    stageConflict(root, ternary, {
+      base: hook("    return routeFamily ? settings : fallback;", "    legacy,"),
+      ours: hook("    return routeFamily ? settings : fallback;", "    settings,"),
+      theirs: hook("    return routeFamily ? settings : fallback;", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, ternary)));
+
+    const notDependencies = "apps/web/src/components/not-dependencies.tsx";
+    stageConflict(root, notDependencies, {
+      base: "const setting = legacy;\n",
+      ours: "const setting = settings;\n",
+      theirs: "const setting = routeFamily;\n",
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, notDependencies)));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
   assert.isTrue(
     everyConflictIsCoInsertion(
