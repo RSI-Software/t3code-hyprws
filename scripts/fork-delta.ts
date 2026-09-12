@@ -367,6 +367,36 @@ export type ForkInventory = typeof ForkInventory.Type;
 
 const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
 
+// Pre-#861 backlog. Remove this list when the host's leased flatten lands; no new entry is ever added.
+export const GRANDFATHERED_WALK_REPAIR_SHAS = new Set([
+  "4fe3e3221b950530886cdd5e2fc01a2611ee701d",
+  "0db88e071f53caa3ccb949fed41ac291eae06fff",
+  "ff6e9dd0b048e864104b750544c75f749b801785",
+  "8760b709e74155a77273dcce2aed32c864f90b6b",
+  "e2d79578bc991803b18b85fdc2e1cded4beedf32",
+  "95480475362e3100df229e8eaa46f7c5f22deefb",
+  "99a0b076fa56a9c86499a3236a472467a9bbe703",
+  "eeaf4124ec42bb801adf11af3d2ef34dcdbe237f",
+  "b0c31d66026132640b99fcec52e5e5818618cab6",
+  "775bd0eb06971bb2998abada854cc568b19b2869",
+]);
+
+export const legacyWalkRepairFindings = (
+  commits: ReadonlyArray<ForkCommit>,
+  grandfathered = GRANDFATHERED_WALK_REPAIR_SHAS,
+): ReadonlyArray<ForkFinding> =>
+  commits.flatMap((commit) =>
+    /^chore\(fork-sync\): repair\b/.test(commit.subject) && !grandfathered.has(commit.sha)
+      ? [
+          {
+            short: commit.short,
+            subject: commit.subject,
+            problem: "legacy walk repair must be folded",
+          },
+        ]
+      : [],
+  );
+
 // Per-domain and per-commit views of the same stack. A commit's overlap count
 // uses its own files against both net diffs; a domain aggregates its commits'
 // lines and files, so a file two of its commits touch is counted once.
@@ -1097,7 +1127,11 @@ const command = Command.make(
         // findings, naming the commit, the domain, and the numbers it pushed up.
         const { findings: raiseFindings, raises: budgetRaisesMade } =
           yield* collectBudgetRaiseFindings(ledger.commits, resolvedBase, resolvedHead);
-        const findings = [...ledger.findings, ...raiseFindings];
+        const findings = [
+          ...ledger.findings,
+          ...raiseFindings,
+          ...legacyWalkRepairFindings(commits),
+        ];
         for (const finding of findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
         }
