@@ -1394,12 +1394,39 @@ export const repairDomain = (
   return isForkDomain(only) ? only : "fork-meta";
 };
 
+/** The replayed fork commit that last owned each changed path. */
+const repairOwners = (
+  runner: CommandRunner,
+  worktree: string,
+  base: string,
+): ReadonlyMap<string, { readonly sha: string; readonly subject: string }> => {
+  const owners = new Map<string, { readonly sha: string; readonly subject: string }>();
+  const raw = gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${base}..HEAD`],
+    true,
+  );
+  for (const record of raw.split("\x1e").slice(1)) {
+    const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
+    const trailers = parseForkTrailers(body);
+    // Only a declared fork commit can own a repair. A prior fixup has no trailers,
+    // and a standalone walk repair is bookkeeping rather than an ownership claim.
+    if (
+      trailers.domain === undefined ||
+      trailers.tier === undefined ||
+      trailers.repair !== undefined
+    )
+      continue;
+    for (const file of lines(files)) if (!owners.has(file)) owners.set(file, { sha, subject });
+  }
+  return owners;
+};
+
 /**
- * Commit whatever a repair pass rewrote, as the walk's own commit. Nothing is amended and nothing
- * is squashed into a replayed fork commit: the SHAs the rehearsal proved stay exactly as they are,
- * and the repair arrives with an author, a subject and the trailers that say which walk made it
- * (RSI-Software/t3code-hyprws#663). A conflict resolution is not a repair — rebase semantics put
- * it inside the commit being replayed, and `autoResolveConflicts` leaves it there.
+ * Commit a repair as one trailer-free fixup per unambiguous fork owner. Paths with no declared
+ * owner stay together in the walk's standalone bookkeeping commit; guessing would fold a repair
+ * into the wrong fork decision.
  */
 const commitWalkRepairs = (
   report: SyncReport,
@@ -1433,21 +1460,45 @@ const commitWalkRepairs = (
   }
   const command =
     outcome.dirtiedBy ?? outcome.ran[outcome.ran.length - 1]?.command ?? "the repair pass";
-  const message = repairCommitMessage({
-    kind: overrides?.kind ?? repairKind(command),
-    tag,
-    domain: repairDomain(runner, worktree, base, paths),
-    command,
-    ...(overrides?.budgetRaise === undefined ? {} : { budgetRaise: overrides.budgetRaise }),
-  });
-  botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
-  const [sha = "", subject = ""] = git(
-    runner,
-    worktree,
-    ["show", "-s", "--format=%H%x1f%s", "HEAD"],
-    true,
-  ).split("\x1f");
-  return [{ sha, subject }];
+  const owners = repairOwners(runner, worktree, base);
+  const owned = new Map<string, Array<string>>();
+  const standalone: Array<string> = [];
+  for (const path of paths) {
+    const owner = owners.get(path);
+    if (owner === undefined) standalone.push(path);
+    else owned.set(owner.sha, [...(owned.get(owner.sha) ?? []), path]);
+  }
+  // Split the staged repair by owning commit. `reset` only changes the index; each
+  // commit below adds exactly its own paths back, so autosquash has one target.
+  botGit(runner, worktree, ["reset"]);
+  const committed: Array<{ readonly sha: string; readonly subject: string }> = [];
+  const commit = (message: string, files: ReadonlyArray<string>): void => {
+    botGit(runner, worktree, ["add", "--", ...files]);
+    botGit(runner, worktree, ["commit", "--no-verify", "-m", message]);
+    const [sha = "", subject = ""] = git(
+      runner,
+      worktree,
+      ["show", "-s", "--format=%H%x1f%s", "HEAD"],
+      true,
+    ).split("\x1f");
+    committed.push({ sha, subject });
+  };
+  for (const [sha, files] of owned) {
+    const owner = [...owners.values()].find((candidate) => candidate.sha === sha);
+    if (owner === undefined) throw new Error(`repair owner disappeared: ${sha}`);
+    commit(`fixup! ${owner.subject}`, files);
+  }
+  if (standalone.length > 0) {
+    const message = repairCommitMessage({
+      kind: overrides?.kind ?? repairKind(command),
+      tag,
+      domain: repairDomain(runner, worktree, base, standalone),
+      command,
+      ...(overrides?.budgetRaise === undefined ? {} : { budgetRaise: overrides.budgetRaise }),
+    });
+    commit(message, standalone);
+  }
+  return committed;
 };
 
 /** `vp run` prints its own command banner above the script's stdout; the JSON starts at its first line. */
@@ -1787,21 +1838,36 @@ const unblockCheck = (
     report.kind === "rewrite"
       ? []
       : commitWalkRepairs(report, runner, worktree, verificationEnv, repairs);
-  const repairCommits = [
+  let repairCommits = [
     ...(report.walk?.repairCommits ?? []).filter(
       (previous) => !repaired.some(({ sha }) => sha === previous.sha),
     ),
     ...repaired,
   ];
   if (repaired.length > 0) {
-    // Prove the appended trailers in the lane rather than leaving them to trunk CI.
+    // Prove the repair in the lane before folding it into its declared owner.
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
-  // A repair commit is the lane head by construction, so the head the walk publishes needs no
-  // second read of `HEAD`.
-  const checkedHead = repaired[repaired.length - 1]?.sha ?? installedHead;
+  const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
+  if (hasFixups) {
+    // Interactive autosquash moves only fixups beside their targets and preserves every other
+    // replayed or standalone commit. Run before the leased apply so trunk never grows repair tips.
+    requireSuccess(
+      runner,
+      "git",
+      rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", report.target!.sha]),
+      worktree,
+      undefined,
+      { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+    );
+  }
+  // Fixups no longer exist after autosquash; only standalone bookkeeping remains reportable.
+  repairCommits = repairCommits.filter(({ subject }) => !subject.startsWith("fixup! "));
+  const checkedHead = hasFixups
+    ? git(runner, worktree, ["rev-parse", "HEAD"], true)
+    : (repaired[repaired.length - 1]?.sha ?? installedHead);
   // The series rewrite is a human-driven proposal with no machine path: it rewrites the whole fork
   // stack at once, so its reviewer still signs a CI verdict on a pushed lane. The unblock walk does
   // not; its lane repair above is the verification, and trunk CI confirms after the apply.
