@@ -270,16 +270,39 @@ jobs:
       # checkout's credential teardown walks submodules via `git submodule
       # foreach --recursive` and hard-fails on the vendor gitlinks that
       # .gitmodules does not list (RSI-Software/t3code-hyprws#871), so
-      # persist-credentials stays at its default and the leftover extraheader
-      # is scrubbed here instead. This must run before Setup Vite+: its
-      # run-install executes rebased code that must never see the token. Exit
-      # 5 from --unset-all just means checkout never wrote the header.
+      # persist-credentials stays at its default and the leftover token is
+      # scrubbed here instead. With actions/checkout@v6 the token is not in
+      # .git/config: checkout writes it to $RUNNER_TEMP/git-credentials-<uuid>.config
+      # and wires that file in with four `includeIf.gitdir:<path>.path` entries
+      # (host path, host worktrees glob, /github/workspace path, its worktrees
+      # glob). The scrub removes every such includeIf entry plus the credentials
+      # file, and the legacy --local extraheader for pre-v6 layouts. This must
+      # run before Setup Vite+: its run-install executes rebased code that must
+      # never see the token. Exit 5 from --unset-all just means no pre-v6 header.
       - name: Scrub persisted credentials
         id: scrub_credentials
         run: |
           git config --local --unset-all http.https://github.com/.extraheader || true
-          if git config --local --get-all http.https://github.com/.extraheader | grep -q .; then
+          while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            value="$(git config --local --get "$key")"
+            case "$value" in
+              *git-credentials-*.config)
+                git config --local --unset-all "$key"
+                ;;
+            esac
+          done < <(git config --local --name-only --get-regexp '^includeIf\.gitdir:')
+          rm -f "$RUNNER_TEMP"/git-credentials-*.config
+          if git config --get-all http.https://github.com/.extraheader | grep -q .; then
             echo "::error::http.https://github.com/.extraheader still present after scrub"
+            exit 1
+          fi
+          if git config --local --get-regexp '^includeIf\.' | grep -q .; then
+            echo "::error::includeIf config entries still present after scrub"
+            exit 1
+          fi
+          if ls "$RUNNER_TEMP"/git-credentials-*.config >/dev/null 2>&1; then
+            echo "::error::git-credentials file still present after scrub"
             exit 1
           fi
 
