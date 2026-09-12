@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import {
   ORIGINAL_LESSON_PATHS,
+  forkTagOrderKey,
   lessonInventory,
   readLessonEvidence,
   resolveLessonSource,
@@ -122,6 +123,28 @@ it("deduplicates frozen copies of legacy censuses without creating single-occurr
   );
 });
 
+it("orders stable tags after the nightlies they release, by recorded sequence", () => {
+  const seq = (tag: string) => forkTagOrderKey(tag)!;
+  const lexLt = (a: readonly number[], b: readonly number[]) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i]! < b[i]!) return true;
+      if (a[i]! > b[i]!) return false;
+    }
+    return false;
+  };
+  // v0.0.38-nightly.…1250 is a pre-release of v0.0.38, which precedes
+  // v0.0.39-nightly.…1252: recorded tag chronology, not lexical order.
+  assert.ok(
+    lexLt(seq("v0.0.38-nightly.20260901.1250"), seq("v0.0.38")),
+    "v0.0.38-nightly.20260901.1250 < v0.0.38",
+  );
+  assert.ok(
+    lexLt(seq("v0.0.38"), seq("v0.0.39-nightly.20260902.1252")),
+    "v0.0.38 < v0.0.39-nightly.20260902.1252",
+  );
+  assert.strictEqual(forkTagOrderKey("legacy"), null);
+});
+
 it("renders assessed repair states instead of presenting a guard name as verification", () => {
   const file = {
     path: "apps/web/src/state/shell.ts",
@@ -130,10 +153,11 @@ it("renders assessed repair states instead of presenting a guard name as verific
     domain: "project-windows",
     hunks: null,
   };
-  const observation = (sourceSha: string, present: boolean) =>
+  const observation = (sourceSha: string, present: boolean, seq = 1) =>
     seamRecord(
       freezeObservation({
-        tag: `v1-${sourceSha[0]}`,
+        // Real fork tag shape so the recorded nightly sequence can order histories.
+        tag: `v1.0.0-nightly.20260101.${seq}`,
         fixedAt: null,
         files: present ? [file] : [],
         censusEvidence: {
@@ -142,7 +166,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
           sourceSha,
           baseSha: "d".repeat(40),
           targetSha: C,
-          targetTag: `v1-${sourceSha[0]}`,
+          targetTag: `v1.0.0-nightly.20260101.${seq}`,
           complete: true,
           rows: present
             ? [
@@ -159,9 +183,9 @@ it("renders assessed repair states instead of presenting a guard name as verific
         },
       }),
     );
-  const before = observation(A, true),
-    clear = observation(B, false),
-    returned = observation(C, true);
+  const before = observation(A, true, 1),
+    clear = observation(B, false, 2),
+    returned = observation(C, true, 3);
   const attestation = { actor: "maintainer", evidenceUrl: "https://example.test/review" };
   const repair = seamRecord({
     kind: "repair",
@@ -226,8 +250,10 @@ it("renders assessed repair states instead of presenting a guard name as verific
       );
     }
   }
-  // An unfrozen walk can be older OR newer than the frozen history. Without a
-  // shared anchor neither ordering may certify the old successful verification.
+  // An unfrozen walk can be older OR newer than the frozen history. Since
+  // RSI-Software/t3code-hyprws#860 the recorded nightly sequence orders co-ready
+  // roots deterministically, so both shapes resolve; the sourceSha-derived tags
+  // here (`v1-<first hex char>`) give distinct ordering keys.
   for (const walks of [[returned], [returned, before]]) {
     const evidence = readLessonEvidence(
       encodeSync({
@@ -246,23 +272,40 @@ it("renders assessed repair states instead of presenting a guard name as verific
         })),
       }),
     );
-    if (walks.length === 1) {
-      assert.include(lessonAssessmentUnavailable(evidence)!, "chronology is ambiguous");
-      const row = lessonInventory(evidence).find((row) => row.path === file.path)!;
-      assert.deepStrictEqual(row.assessments, []);
-      assert.include(row.assessmentUnavailable!, "chronology is ambiguous");
-    } else {
-      assert.isNull(lessonAssessmentUnavailable(evidence));
-      assert.deepStrictEqual(
-        [...lessonObservations(evidence).keys()],
-        [returned.id, before.id, clear.id],
-      );
-      assert.strictEqual(
-        lessonInventory(evidence).find((row) => row.path === file.path)?.assessments[0]?.status,
-        "verified-repaired",
-      );
-    }
+    assert.isNull(lessonAssessmentUnavailable(evidence));
+    assert.deepStrictEqual(
+      [...lessonObservations(evidence).keys()].toSorted(),
+      [before.id, clear.id, returned.id].toSorted(),
+    );
+    assert.strictEqual(
+      lessonInventory(evidence).find((row) => row.path === file.path)?.assessments[0]?.status,
+      // [returned] resolves to before→clear→returned (nightly 1→2→3): regressed.
+      // [returned, before] keeps the completed-walk edge returned→before, ending at clear.
+      walks.length === 1 ? "regressed" : "verified-repaired",
+    );
   }
+  // Two co-ready observations with no recorded time to compare — the same tag on
+  // both histories — still refuse to invent an order.
+  const unanchored = readLessonEvidence(
+    encodeSync({
+      version: 3,
+      seamRecords: [before, clear, repair, verified],
+      outcomes: [],
+      walks: [
+        {
+          tag: before.tag,
+          before: A,
+          after: returned.evidence!.sourceSha,
+          recordUrl: "https://example.test/completed-walk",
+          conflicts: [],
+          decisions: [],
+          censusFiles: returned.files,
+          censusEvidence: returned.evidence,
+        },
+      ],
+    }),
+  );
+  assert.include(lessonAssessmentUnavailable(unanchored)!, "chronology is ambiguous");
   const contradictory = {
     walks: [clear, before].map((walk) => ({
       tag: walk.tag,
@@ -765,13 +808,15 @@ else if (args[0] === "issue" && args[1] === "comment") {
         ]) {
           git(consumer, ["remote", "set-url", "origin", url!]);
           const retainedReport = publishReport();
-          assert.strictEqual(retainedReport.status, 1, retainedReport.stderr);
+          // A missing lesson is a warning on the notification, not a job failure (#860).
+          assert.strictEqual(retainedReport.status, 0, retainedReport.stderr);
           const retainedBody = yield* fs.readFileString(reportBodyPath);
           assert.include(retainedBody, `at ${first}; freshness=${freshness}`);
           assert.include(retainedBody, `lesson source freshness is ${freshness}`);
           assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
             publication: "succeeded",
             policy: "failed",
+            reason: "lesson-unavailable",
             url: "https://example.test/issues/1#issuecomment-1",
           });
           assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
@@ -786,14 +831,15 @@ else if (args[0] === "issue" && args[1] === "comment") {
         );
         git(publisher, ["push", "origin", `${CHURN_REF}:${CHURN_REF}`]);
         const futureReport = publishReport();
-        assert.strictEqual(futureReport.status, 1);
+        assert.strictEqual(futureReport.status, 0);
         const unavailable = yield* fs.readFileString(reportBodyPath);
         assert.include(unavailable, `at ${future}; freshness=current`);
         assert.include(unavailable, "Lesson assessment unavailable");
-        assert.include(futureReport.stderr, "does not establish a policy pass");
+        assert.include(futureReport.stdout, "does not establish a policy pass");
         assert.deepStrictEqual(decode(yield* fs.readFileString(reportReceiptPath)), {
           publication: "succeeded",
           policy: "failed",
+          reason: "lesson-unavailable",
           url: "https://example.test/issues/1#issuecomment-1",
         });
         assert.strictEqual(git(consumer, ["rev-parse", CHURN_REF]), first);
