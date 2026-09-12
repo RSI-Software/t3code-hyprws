@@ -461,9 +461,9 @@ const dependencyEntries = (
 const hookForDependencyRegion = (
   text: string,
   regionStart: number,
-): { readonly body: string } | null => {
+): { readonly body: string; readonly dependenciesStart: number } | null => {
   const hooks = /\b(?:useCallback|useMemo|useEffect)\s*\(/g;
-  const candidates: Array<{ body: string }> = [];
+  const candidates: Array<{ body: string; dependenciesStart: number }> = [];
   for (let match = hooks.exec(text); match !== null; match = hooks.exec(text)) {
     const callEnd = matchingDelimiter(text, match.index + match[0].length - 1, "(", ")");
     if (callEnd === null) continue;
@@ -480,9 +480,71 @@ const hookForDependencyRegion = (
     const dependenciesEnd = matchingDelimiter(text, dependenciesStart, "[", "]");
     if (dependenciesEnd === null) continue;
     if (dependenciesStart < regionStart && regionStart < dependenciesEnd)
-      candidates.push({ body: text.slice(bodyStart + 1, bodyEnd) });
+      candidates.push({ body: text.slice(bodyStart + 1, bodyEnd), dependenciesStart });
   }
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
+};
+
+const bindingNamesBefore = (
+  text: string,
+  position: number,
+  entries: ReadonlySet<string>,
+): ReadonlySet<string> => {
+  const bindings = new Map<string, number>();
+  let depth = 0;
+  let quote: '"' | "'" | "`" | null = null;
+  let comment: "line" | "block" | null = null;
+  for (let index = 0; index < position; index += 1) {
+    const character = text[index];
+    if (comment === "line") {
+      if (character === "\n") comment = null;
+      continue;
+    }
+    if (comment === "block") {
+      if (character === "*" && text[index + 1] === "/") {
+        comment = null;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "/") {
+      comment = "line";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      comment = "block";
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+      continue;
+    }
+    if (character === "}") {
+      depth -= 1;
+      for (const [name, bindingDepth] of bindings) if (bindingDepth > depth) bindings.delete(name);
+      continue;
+    }
+    const declaration = /\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/.exec(
+      text.slice(index),
+    );
+    if (declaration?.index === 0) {
+      const name = declaration[1];
+      if (name !== undefined && entries.has(name)) bindings.set(name, depth);
+      index += declaration[0].length - 1;
+    }
+  }
+  return new Set(bindings.keys());
 };
 
 const referencedDependencyNames = (
@@ -509,7 +571,10 @@ const referencedDependencyNames = (
     const before = source.slice(0, match.index).trimEnd();
     const after = source.slice((match.index ?? 0) + name.length).trimStart();
     if (before.endsWith(".")) continue;
-    if (after.startsWith(":")) return null;
+    // A colon usually follows an object-property key, which is not a dependency read. This local
+    // scan also misreads ternary arms, type annotations, and labels as keys; that can only omit a
+    // read, never invent one. An unbound candidate still declines below rather than hiding a rename.
+    if (after.startsWith(":")) continue;
     referenced.add(name);
   }
   return referenced;
@@ -526,6 +591,7 @@ const dependencyArray = (
   if (regions === null || regions.length === 0) return null;
   let position = 0;
   let resolved = "";
+  const dropped = new Set<string>();
   for (const region of regions) {
     const start = merged.text.indexOf("<<<<<<<", position);
     const end = merged.text.indexOf(">>>>>>>", start);
@@ -536,8 +602,11 @@ const dependencyArray = (
     if (hook === null || ours === null || theirs === null) return null;
     const entries = [...ours, ...theirs];
     const names = new Set(entries.map(({ name }) => name));
+    const bindings = bindingNamesBefore(merged.text, hook.dependenciesStart, names);
+    if (bindings.size !== names.size) return null;
     const referenced = referencedDependencyNames(hook.body, names);
     if (referenced === null) return null;
+    for (const name of names) if (!referenced.has(name)) dropped.add(name);
     const replacement = entries
       .filter(
         ({ name }, index) =>
@@ -557,7 +626,11 @@ const dependencyArray = (
       take: "union",
       conflictClass: "mechanical",
       source: "keep-both",
-      resolution: "outcome executor: dependency-array union kept referenced hook dependencies",
+      resolution:
+        "outcome executor: dependency-array union kept referenced hook dependencies" +
+        (dropped.size === 0
+          ? ""
+          : `; dropped ${[...dropped].join(", ")} because the hook body does not read it`),
     },
   };
 };
