@@ -865,7 +865,10 @@ const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
     for (const row of filledDecisionCells(text)) {
       if (row.action === "retire") subjects.add(row.subject);
     }
-    for (const row of parseDecisionRows(text)) {
+    // A record a stop left partly undecided carries fork-commit rows whose Action cell is still
+    // TODO (#876). This reader only looks for retire rows, so it tolerates the undecided cells
+    // instead of rejecting a record the pending ledger row legally carries.
+    for (const row of parseDecisionRows(text, { allowIncomplete: true })) {
       if (row.verdict === "retire" && row.decidedBy !== "TODO") subjects.add(row.subject);
     }
   }
@@ -2424,7 +2427,9 @@ export const recordDecisions = (
   if (report.lane === undefined) throw new UsageError("the stopped report has no lane");
   const worktree = report.lane.worktree;
   const declined = pendingAutoConflictRows(report);
-  if (declined.length === 0)
+  // A rerun of an already-recorded report has no TODO rows left; the persisted record URL is what
+  // distinguishes it from a report that never named a declined row (#876).
+  if (declined.length === 0 && report.recordCommentUrl === undefined)
     throw new UsageError("the stopped report names no rows a human has to resolve");
   void cwd;
   // Stage the recorded resolutions: the human resolved the worktree and staged it; this makes
@@ -2463,30 +2468,55 @@ export const recordDecisions = (
       ...stamp,
     });
   }
-  const recorded: SyncReport = { ...report, decisions };
-  writeReport(recorded);
-  writeRecord(recorded);
+  const recorded: SyncReport = {
+    ...report,
+    decisions,
+    // The human resolution replaces the stop's TODO cells on each declined row (#876): the record
+    // shows the seam as resolved, and the pending ledger row reads the same resolved values.
+    conflicts: report.conflicts.map((row) =>
+      declined.includes(row)
+        ? {
+            ...row,
+            class: "human",
+            resolution: "resolved by hand in the lane",
+            agentSafe: "no",
+            decidedBy: "human",
+          }
+        : row,
+    ),
+  };
   // The record must be on the issue before the ledger row names it: recordUrl is the pointer a
-  // maintainer follows from the ledger to the human's own words.
-  const recordUrl = requireSuccess(
-    runner,
-    "gh",
-    [
-      "issue",
-      "comment",
-      String(recorded.issue.number),
-      "-R",
-      REPOSITORY,
-      "--body-file",
-      recorded.recordPath,
-    ],
-    worktree,
-  ).trim();
-  process.stdout.write(`record: ${recordUrl}\n`);
-  publishPendingDecisionRow(recorded, tag);
+  // maintainer follows from the ledger to the human's own words. The record body does not depend
+  // on the URL, so it is written to disk before the post; a rerun reuses the URL the first run
+  // persisted on the report instead of posting a second comment (#876).
+  writeRecord(recorded);
+  const recordUrl =
+    report.recordCommentUrl ??
+    requireSuccess(
+      runner,
+      "gh",
+      [
+        "issue",
+        "comment",
+        String(report.issue.number),
+        "-R",
+        REPOSITORY,
+        "--body-file",
+        report.recordPath,
+      ],
+      worktree,
+    ).trim();
+  const published: SyncReport = { ...recorded, recordCommentUrl: recordUrl };
+  writeReport(published);
+  process.stdout.write(
+    report.recordCommentUrl === undefined
+      ? `record: ${recordUrl}\n`
+      : `record: ${recordUrl} (already posted)\n`,
+  );
+  publishPendingDecisionRow(published, tag);
   for (const row of declined)
     process.stdout.write(`recorded: ${row.path} (${row.seamKey ?? "no seam key"}) by hand\n`);
-  return recorded;
+  return published;
 };
 
 const unblockApply = (
