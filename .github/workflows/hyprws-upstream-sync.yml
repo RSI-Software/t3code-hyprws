@@ -69,6 +69,33 @@ jobs:
           git push origin upstream/main:refs/heads/main
           git push origin --tags
 
+  forecast:
+    name: Forecast
+    needs: mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Forecast the upstream main tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: vp run fork:forecast
+
   generate:
     name: Report
     runs-on: ubuntu-latest
@@ -266,7 +293,45 @@ jobs:
         with:
           ref: hyprws
           fetch-depth: 0
-          persist-credentials: false
+
+      # checkout's credential teardown walks submodules via `git submodule
+      # foreach --recursive` and hard-fails on the vendor gitlinks that
+      # .gitmodules does not list (RSI-Software/t3code-hyprws#871), so
+      # persist-credentials stays at its default and the leftover token is
+      # scrubbed here instead. With actions/checkout@v6 the token is not in
+      # .git/config: checkout writes it to $RUNNER_TEMP/git-credentials-<uuid>.config
+      # and wires that file in with four `includeIf.gitdir:<path>.path` entries
+      # (host path, host worktrees glob, /github/workspace path, its worktrees
+      # glob). The scrub removes every such includeIf entry plus the credentials
+      # file, and the legacy --local extraheader for pre-v6 layouts. This must
+      # run before Setup Vite+: its run-install executes rebased code that must
+      # never see the token. Exit 5 from --unset-all just means no pre-v6 header.
+      - name: Scrub persisted credentials
+        id: scrub_credentials
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            value="$(git config --local --get "$key")"
+            case "$value" in
+              *git-credentials-*.config)
+                git config --local --unset-all "$key"
+                ;;
+            esac
+          done < <(git config --local --name-only --get-regexp '^includeIf\.gitdir:')
+          rm -f "$RUNNER_TEMP"/git-credentials-*.config
+          if git config --get-all http.https://github.com/.extraheader | grep -q .; then
+            echo "::error::http.https://github.com/.extraheader still present after scrub"
+            exit 1
+          fi
+          if git config --local --get-regexp '^includeIf\.' | grep -q .; then
+            echo "::error::includeIf config entries still present after scrub"
+            exit 1
+          fi
+          if ls "$RUNNER_TEMP"/git-credentials-*.config >/dev/null 2>&1; then
+            echo "::error::git-credentials file still present after scrub"
+            exit 1
+          fi
 
       - name: Install browser secret helper build libraries
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
@@ -293,9 +358,10 @@ jobs:
       - name: Restore rerere cache
         run: node scripts/fork-carry.ts rerere-restore
 
-      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step so
-      # it never lands in a workflow env block; fork-sync scrubs those keys from every
-      # lane command, which is rebased code.
+      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step
+      # so it never lands in a workflow env block or .git/config: fork-sync scrubs
+      # those keys from every lane command, which is rebased code, and checkout
+      # persist-credentials stays off the path entirely via the scrub step above.
       - name: Carry the unblock walk
         id: carry
         env:
@@ -337,11 +403,22 @@ jobs:
           export GIT_CONFIG_VALUE_0
           node scripts/fork-carry.ts rerere-save --push
 
+      # A carry whose checkout or install died retains nothing; warn instead.
+      - name: Report a walk that never ran
+        if: ${{ always() && steps.carry.outcome == 'skipped' }}
+        run: |
+          if [ "${{ steps.scrub_credentials.outcome }}" != "success" ]; then
+            failed="Checkout fork trunk or Scrub persisted credentials"
+          else
+            failed="an earlier step (the carry step itself was skipped)"
+          fi
+          echo "::warning::Carry unblock walk ended at '${failed}'; the carry step was skipped, so no outcome was retained"
+
       # An applied walk published its own row and outcomes before it reported `applied`
       # (RSI-Software/t3code-hyprws#664), so this step only covers the runs that never got
       # that far: a stop, or a carry that died before it retained a report.
       - name: Retain the outcomes of a walk that did not apply
-        if: ${{ always() && steps.carry.outputs.outcome != 'applied' }}
+        if: ${{ always() && steps.carry.outputs.outcome != 'applied' && steps.carry.outcome != 'skipped' }}
         env:
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
           FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
