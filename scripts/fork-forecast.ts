@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 
 import { rehearseStopCensus } from "./fork-auto-rebase.ts";
 import { readChurnState, writeChurnState, type ForecastEntry } from "./fork-churn-ledger.ts";
+import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
 import { runCommandText } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
@@ -16,6 +17,11 @@ export const FORECAST_STATE = /<!-- hyprws-fork-forecast-state:([0-9a-f]{40,64})
 // #443 is the longest-lived mission issue in this chain, so its standing forecast
 // survives transient block and feature issues closing.
 export const FORECAST_PARENT_ISSUE = 443;
+export const PULL_REQUEST_FORECAST_MARKER = "<!-- hyprws-pull-request-forecast -->";
+
+export interface PullRequestForecast extends ForecastEntry {
+  readonly overBudgetDomains: ReadonlySet<string>;
+}
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   runCommandText("git", args, { cwd: root }).trim();
@@ -41,16 +47,20 @@ const forkCommits = (root: string, base: string, head: string) =>
       };
     });
 
-export const forecast = (root: string): ForecastEntry => {
-  const head = git(root, ["rev-parse", "hyprws^{commit}"]);
-  git(root, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
-  const main = git(root, ["rev-parse", "origin/main^{commit}"]);
-  const base = git(root, ["merge-base", head, main]);
+export const forecastRange = (
+  root: string,
+  head: string,
+  base: string,
+  main: string,
+): ForecastEntry => {
+  const resolvedHead = git(root, ["rev-parse", `${head}^{commit}`]);
+  const resolvedBase = git(root, ["rev-parse", `${base}^{commit}`]);
+  const resolvedMain = git(root, ["rev-parse", `${main}^{commit}`]);
   const census = rehearseStopCensus(
     root,
-    head,
-    base,
-    { tag: "origin/main", sha: main, position: 0, stable: false },
+    resolvedHead,
+    resolvedBase,
+    { tag: "origin/main", sha: resolvedMain, position: 0, stable: false },
     undefined,
     true,
   );
@@ -61,17 +71,73 @@ export const forecast = (root: string): ForecastEntry => {
     byCommit.set(row.commit, paths);
   }
   return {
-    main,
-    base,
-    conflicts: forkCommits(root, base, head).map((commit) => {
+    main: resolvedMain,
+    base: resolvedBase,
+    conflicts: forkCommits(root, resolvedBase, resolvedHead).map((commit) => {
       const files = [...new Set(byCommit.get(commit.commit) ?? [])].toSorted();
       const seam =
         files.length === 0
           ? null
-          : git(root, ["log", "-1", "--format=%H", `${base}..${main}`, "--", ...files]) || null;
+          : git(root, [
+              "log",
+              "-1",
+              "--format=%H",
+              `${resolvedBase}..${resolvedMain}`,
+              "--",
+              ...files,
+            ]) || null;
       return { ...commit, conflicts: files.length > 0, files, seam };
     }),
   };
+};
+
+export const forecast = (root: string): ForecastEntry => {
+  const head = git(root, ["rev-parse", "hyprws^{commit}"]);
+  git(root, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+  const main = git(root, ["rev-parse", "origin/main^{commit}"]);
+  const base = git(root, ["merge-base", head, main]);
+  return forecastRange(root, head, base, main);
+};
+
+type BudgetStatusReader = (root: string, head: string) => ReadonlySet<string>;
+
+const readOverBudgetDomains: BudgetStatusReader = (root, head) => {
+  const inventory = JSON.parse(
+    runCommandText(
+      process.execPath,
+      [
+        "scripts/fork-delta.ts",
+        "--inventory",
+        "--json",
+        "--head",
+        head,
+        "--upstream",
+        "origin/main",
+      ],
+      { cwd: root },
+    ),
+  ) as {
+    readonly domains: ReadonlyArray<{
+      readonly domain: string;
+      readonly commits: number;
+      readonly added: number;
+      readonly deleted: number;
+      readonly overlaps: number;
+    }>;
+  };
+  const budget = parseForkBudget(git(root, ["show", `${head}:docs/internals/fork-budget.md`]));
+  return new Set(budgetFindings(inventory.domains, budget).map((finding) => finding.domain));
+};
+
+export const forecastPullRequest = (
+  root: string,
+  head: string,
+  readBudget: BudgetStatusReader = readOverBudgetDomains,
+): PullRequestForecast => {
+  const base = git(root, ["merge-base", "hyprws", head]);
+  git(root, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+  const main = git(root, ["rev-parse", "origin/main^{commit}"]);
+  return { ...forecastRange(root, head, base, main), overBudgetDomains: readBudget(root, head) };
 };
 
 export const renderForecast = (row: ForecastEntry, deduped: boolean): string => {
@@ -94,6 +160,27 @@ export const renderForecast = (row: ForecastEntry, deduped: boolean): string => 
     ),
     "",
     `<!-- hyprws-fork-forecast-state:${row.main} -->`,
+  ].join("\n");
+};
+
+export const renderPullRequestForecast = (row: PullRequestForecast): string => {
+  const conflicts = row.conflicts.filter((commit) => commit.conflicts);
+  return [
+    PULL_REQUEST_FORECAST_MARKER,
+    "## Fork conflict forecast",
+    "",
+    conflicts.length === 0 ? `clean at ${row.main}` : `Forecast against origin/main ${row.main}.`,
+    ...(conflicts.length === 0
+      ? []
+      : [
+          "",
+          "| Fork commit | Fork-Domain | Over ceiling | Conflicting files |",
+          "| --- | --- | --- | --- |",
+          ...conflicts.map(
+            (commit) =>
+              `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | \`${commit.domain}\` | ${row.overBudgetDomains.has(commit.domain) ? "yes" : "no"} | ${commit.files.map((path) => `\`${path}\``).join(", ")} |`,
+          ),
+        ]),
   ].join("\n");
 };
 

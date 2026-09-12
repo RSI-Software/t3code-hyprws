@@ -18,6 +18,8 @@ vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain and c
 
 It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
 
+The pull-request conflict forecast comment is the pre-merge evidence: it reports each proposed fork commit that conflicts with the current `origin/main` tip, its domain, files, and whether that domain is already over its fork budget ceiling.
+
 Each domain's **Rebase scan** table is checked the same way.
 
 ```bash
