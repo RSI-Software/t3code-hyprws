@@ -211,6 +211,7 @@ export const rehearseStopCensus = (
   baseSha: string,
   target: PositionedTag,
   limits: StopCensusLimits = defaultStopCensusLimits(),
+  rerereEnabled = false,
 ): RebaseStopCensus => {
   const startedAt = limits.now();
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-census-"));
@@ -241,7 +242,7 @@ export const rehearseStopCensus = (
     "-c",
     "core.hooksPath=/dev/null",
     "-c",
-    "rerere.enabled=false",
+    `rerere.enabled=${rerereEnabled ? "true" : "false"}`,
     "-c",
     "rerere.autoupdate=false",
     "rebase",
