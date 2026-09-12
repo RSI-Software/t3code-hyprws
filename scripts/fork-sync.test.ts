@@ -44,6 +44,7 @@ import {
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
+  retiredSubjectsForTest,
   renderRecord,
   resolveAutoTarget,
   resolveUnblockTarget,
@@ -93,7 +94,7 @@ import {
   readChurnState,
 } from "./fork-churn-ledger.ts";
 import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
-import { SYNC_HELP, uniqueSilentSeams } from "./fork-sync-state.ts";
+import { SYNC_HELP, REPOSITORY, uniqueSilentSeams } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -1290,14 +1291,17 @@ it("stops on a lane it cannot replay rather than re-listing forever", () => {
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
     installedHead: B,
-    // The trunk stands exactly where the report leased it; the mirror is what is behind.
-    orientation: `mirror:       origin/main 1e740e48a5f9, upstream/main ${A.slice(0, 12)}\n`,
+    orientation: coherentOrientation,
   });
   NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
   NodeFS.writeFileSync(state.recordPath, renderRecord(state));
   const runner = new FakeRunner();
   setBotResponses(runner, "candidate");
   setOrientationResponses(runner);
+  // The only moved ref is the shared base: the walk leased it at A, and the live
+  // merge-base now answers D, so the coherence gate has a real reason to stop.
+  const movedBase = "d".repeat(40);
+  runner.set("git", ["merge-base", C, B], { stdout: `${movedBase}\n` });
   try {
     let code = 0;
     const { output } = captureStdout(() => {
@@ -2700,6 +2704,62 @@ it("stops the walk on environment when the trunk moved and the ledger write cann
   }
 });
 
+it("walks past a stale mirror line when every leased ref still coheres", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    // Upstream pushed behind the carried mirror after orient rendered it; the
+    // preflight declares mirror currency advisory for a tag-pinned walk, so
+    // this stale line must not stop it.
+    orientation: `mirror:       origin/main aaaaaaaaaaaa, upstream/main bbbbbbbbbbbb\n`,
+    reconciliation: { state: "dispatched", baselineRunId: 1, runUrl: "https://example.test/run" },
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  runner.set(
+    "gh",
+    [
+      "issue",
+      "comment",
+      "352",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+      "--body-file",
+      checked.recordPath,
+    ],
+    { stdout: "https://example.test/comment\n" },
+  );
+  const ledger = ledgerFixture(root, checked.recordPath);
+  try {
+    const { output, result: code } = captureStdout(() =>
+      run(["unblock-auto", "--report", checked.reportPath], root, runner),
+    );
+    assert.strictEqual(code, 0);
+    assert.notInclude(output, "Stop (environment).");
+    assert.notInclude(output, "does not mirror upstream/main");
+    assert.include(output, "applied: v1.2.3");
+  } finally {
+    ledger.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("appends the trunk's own missing row before it walks the next target", () => {
   const root = fixtureRoot();
   const applied = report(root, {
@@ -3757,7 +3817,7 @@ it("stops the walk exactly twice: the lane cannot test, or the replay does not h
 });
 
 const REPAIRED = "e".repeat(40);
-const REPAIR_SUBJECT = "chore(fork-sync): repair typecheck after v1.2.3";
+const REPAIR_SUBJECT = "chore(fork-sync): typecheck after v1.2.3";
 const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-c",
   "core.commentChar=auto",
@@ -3814,16 +3874,19 @@ const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
   });
   state.runner.set(
     "git",
-    rehearsal(["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
-    { stdout: `\x1e${C}\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\nscripts/fork-sync.ts\n` },
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout: `\x1e${C}\x1ffeat(fork): owner\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\nscripts/fork-sync.ts\n`,
+    },
   );
   state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
-    stdout: `${REPAIRED}\x1f${REPAIR_SUBJECT}\n`,
+    stdout: `${REPAIRED}\x1ffixup! feat(fork): owner\n`,
   });
   // The installed-tree read still sees the replayed head; the guard after the repair sees the
   // commit the walk just appended.
   state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
     { stdout: `${A}\n` },
+    { stdout: `${REPAIRED}\n` },
     { stdout: `${REPAIRED}\n` },
   ]);
   // The replay proof counts the fork series; the stack size the record binds counts the head.
@@ -3866,33 +3929,22 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
       "41898282+github-actions[bot]@users.noreply.github.com",
     );
     const message = commit?.args[5] ?? "";
-    assert.include(message, REPAIR_SUBJECT);
-    assert.include(message, "Fork-Domain: fork-meta");
-    assert.include(message, "Fork-Tier: bugfix");
-    assert.include(message, "Fork-Repair: v1.2.3");
-    // A replayed fork commit is never rewritten to carry a repair.
-    assert.isFalse(
-      state.runner.calls.some(({ args }) =>
-        args.some((arg) => arg === "--amend" || arg === "--autosquash" || arg.startsWith("fixup!")),
-      ),
-    );
+    assert.strictEqual(message, "fixup! feat(fork): owner");
+    assert.notInclude(message, "Fork-");
+    assert.isTrue(state.runner.calls.some(({ args }) => args.includes("--autosquash")));
     // The ledger check runs again over the appended commit, in the lane, before the report closes.
     const deltaChecks = state.runner.calls.filter(
       ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
     );
     assert.strictEqual(deltaChecks.length, 2);
 
-    assert.deepStrictEqual(checked.walk?.repairCommits, [
-      { sha: REPAIRED, subject: REPAIR_SUBJECT },
-    ]);
+    assert.isUndefined(checked.walk?.repairCommits);
     // What the apply publishes is the repaired head, and the record binds it.
     assert.strictEqual(checked.installedHead, REPAIRED);
     assert.strictEqual(checked.rebasedHead, REPAIRED);
     assert.strictEqual(checked.stackSize, 2);
     const record = NodeFS.readFileSync(checked.recordPath, "utf8");
-    assert.deepStrictEqual(parseRepairCommits(record), [
-      { sha: REPAIRED, subject: REPAIR_SUBJECT },
-    ]);
+    assert.deepStrictEqual(parseRepairCommits(record), []);
 
     // The apply gate accepts the appended commit and still refuses a fork commit that changed.
     const binding = {
@@ -3932,8 +3984,8 @@ it("formats what the repair rewrote before it commits", () => {
       "scripts/fork-sync.ts",
     ]);
     // What it rewrote is re-staged and committed, not left behind for trunk's `vp check` to find.
-    assert.isTrue(order[formatted + 1]?.args.includes("add"));
-    assert.isTrue(order[formatted + 2]?.args.includes("commit"));
+    assert.isTrue(order.slice(formatted + 1).some(({ args }) => args.includes("add")));
+    assert.isTrue(order.slice(formatted + 1).some(({ args }) => args.includes("commit")));
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -4221,7 +4273,7 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       [{ check: "readded", path: "apps/web/src/thing.ts" }],
     );
     const repair = report.walk?.repairCommits?.[0];
-    assert.include(repair?.subject ?? "", "chore(fork-sync): repair additive after");
+    assert.include(repair?.subject ?? "", "chore(fork-sync): additive after");
     assert.strictEqual(additive?.commit, repair?.sha);
     assert.isUndefined(report.walk?.stop);
     // The fix removed the re-add, and the commit carries the repair trailers.
@@ -6471,6 +6523,137 @@ it("never asks twice: a hand-resolved seam resolves from the record on the next 
     )
       NodeFS.rmSync(root, { recursive: true, force: true });
   }
+});
+
+/**
+ * The stop-1 shape of RSI-Software/t3code-hyprws#876: a conflict-stop report whose declined row is
+ * still all TODO. `record-decisions` must upgrade the row from the hand resolution, write the
+ * pending ledger row, and — on a rerun of the same report — reuse the persisted record URL instead
+ * of posting a second comment.
+ */
+it("record-decisions resolves the declined row and never comments twice (#876)", () => {
+  const root = fixtureRoot();
+  const lane = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-lane-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet", "-b", "rehearse/v0.0.42"], {
+    cwd: lane,
+  });
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: lane });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: lane,
+  });
+  const declinedPath = "apps/web/seam.ts";
+  NodeFS.mkdirSync(NodePath.join(lane, "apps/web"), { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(lane, declinedPath), "resolved by hand\n");
+  NodeChildProcess.execFileSync("git", ["add", declinedPath], { cwd: lane });
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: "rehearse/v0.0.42", worktree: lane },
+    orientation: "mirror: origin/main matches upstream/main at a1b2c3d",
+    conflicts: rehearsalConflictRows(
+      { sha: A, subject: "feat(fork): move the seam", domain: "web" },
+      [declinedPath],
+      [],
+    ),
+    walk: {
+      startedAt: "2026-09-12T00:00:00.000Z",
+      stop: { reason: "conflict", detail: "The outcome executor cannot produce a result." },
+    },
+  });
+  NodeFS.writeFileSync(stopped.reportPath, JSON.stringify(stopped));
+  const fixture = ledgerFixture(root, stopped.recordPath);
+  const runner = new FakeRunner();
+  runner.set(
+    "gh",
+    ["issue", "comment", "352", "-R", REPOSITORY, "--body-file", stopped.recordPath],
+    { stdout: "https://example.test/record#issuecomment-1\n" },
+  );
+  try {
+    const recorded = execute(
+      ["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"],
+      root,
+      runner,
+    );
+    // The declined row reads resolved, not TODO, everywhere the record shows it.
+    const row = recorded.conflicts.find((entry) => entry.path === declinedPath);
+    assert.strictEqual(row?.class, "human");
+    assert.strictEqual(row?.resolution, "resolved by hand in the lane");
+    assert.strictEqual(row?.agentSafe, "no");
+    assert.strictEqual(row?.decidedBy, "human");
+    const recordRow = parseConflictRows(NodeFS.readFileSync(stopped.recordPath, "utf8")).find(
+      (entry) => entry.path === declinedPath,
+    );
+    assert.strictEqual(recordRow?.class, "human");
+    assert.strictEqual(recordRow?.resolution, "resolved by hand in the lane");
+    assert.strictEqual(recordRow?.agentSafe, "no");
+    assert.strictEqual(recordRow?.decidedBy, "human");
+    // The pending append reached refs/fork/churn as a pending row for the stopped tag.
+    const ledger = parseLedger(readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
+    assert.deepStrictEqual(
+      ledger.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+    assert.strictEqual(ledger[0]?.pending, true);
+    assert.lengthOf(ledger[0]?.conflicts.filter((entry) => entry.path === declinedPath) ?? [], 1);
+    assert.lengthOf(
+      runner.calls.filter((call) => call.command === "gh"),
+      1,
+    );
+    // A rerun reuses the persisted record URL: no second comment, and the row stays singular.
+    runner.calls.length = 0;
+    execute(["record-decisions", "--report", stopped.reportPath, "--tag", "v0.0.42"], root, runner);
+    assert.lengthOf(
+      runner.calls.filter((call) => call.command === "gh"),
+      0,
+    );
+    const ledgerAfter = parseLedger(
+      readBotRefFile(fixture.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
+    );
+    assert.deepStrictEqual(
+      ledgerAfter.map((entry) => entry.tag),
+      ["v0.0.42"],
+    );
+  } finally {
+    fixture.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(lane, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.reportPath), { recursive: true, force: true });
+  }
+});
+
+/**
+ * The walk reads the prior tag's record for retire decisions after rerere replays a recorded
+ * human resolution (RSI-Software/t3code-hyprws#876). A stop's record carries fork-commit rows
+ * whose Action cell is still TODO; the retire-only reader must tolerate them, not hard-fail.
+ */
+it("retire decisions tolerate the TODO Action cells a stop's record carries", () => {
+  const root = fixtureRoot();
+  const declinedSubject = "fix(desktop): project windows keep Settings, PRs, and Usage in-window";
+  const stopped = report(root, {
+    stage: "conflicts",
+    target: { tag: "v0.0.42", sha: B },
+    conflicts: [
+      {
+        commit: A,
+        subject: declinedSubject,
+        domain: "project-windows",
+        path: "apps/web/src/routes/settings.tsx",
+        class: "human",
+        resolution: "resolved by hand in the lane",
+        agentSafe: "no",
+        decidedBy: "human",
+      },
+    ],
+  });
+  NodeFS.mkdirSync(NodePath.dirname(stopped.recordPath), { recursive: true });
+  NodeFS.writeFileSync(stopped.recordPath, renderRecord(stopped));
+  const record = NodeFS.readFileSync(stopped.recordPath, "utf8");
+  // The record really does carry the undecidable row the walk used to choke on.
+  assert.include(record, `\`${declinedSubject}\``);
+  assert.include(record, "| TODO |");
+  // The retire-only read tolerates it and names nothing retired from it.
+  assert.deepStrictEqual([...retiredSubjectsForTest(stopped)], []);
 });
 
 describe("resumed conflict-stop lane cleanliness (#694)", () => {
