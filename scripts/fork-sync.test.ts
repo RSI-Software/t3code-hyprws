@@ -1290,14 +1290,17 @@ it("stops on a lane it cannot replay rather than re-listing forever", () => {
     source: { sha: C, expectedOld: C, sharedBase: A },
     lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
     installedHead: B,
-    // The trunk stands exactly where the report leased it; the mirror is what is behind.
-    orientation: `mirror:       origin/main 1e740e48a5f9, upstream/main ${A.slice(0, 12)}\n`,
+    orientation: coherentOrientation,
   });
   NodeFS.writeFileSync(state.reportPath, JSON.stringify(state));
   NodeFS.writeFileSync(state.recordPath, renderRecord(state));
   const runner = new FakeRunner();
   setBotResponses(runner, "candidate");
   setOrientationResponses(runner);
+  // The only moved ref is the shared base: the walk leased it at A, and the live
+  // merge-base now answers D, so the coherence gate has a real reason to stop.
+  const movedBase = "d".repeat(40);
+  runner.set("git", ["merge-base", C, B], { stdout: `${movedBase}\n` });
   try {
     let code = 0;
     const { output } = captureStdout(() => {
@@ -2694,6 +2697,62 @@ it("stops the walk on environment when the trunk moved and the ledger write cann
     assert.strictEqual(stderr.split("retrying the").length - 1, 1);
   } finally {
     process.stderr.write = originalError;
+    ledger.restore();
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("walks past a stale mirror line when every leased ref still coheres", () => {
+  const root = fixtureRoot();
+  const branch = `rehearse/v1.2.3-from-${C.slice(0, 12)}`;
+  const checked = report(root, {
+    stage: "checked",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch, worktree: root },
+    installedHead: B,
+    ciHead: B,
+    // Upstream pushed behind the carried mirror after orient rendered it; the
+    // preflight declares mirror currency advisory for a tag-pinned walk, so
+    // this stale line must not stop it.
+    orientation: `mirror:       origin/main aaaaaaaaaaaa, upstream/main bbbbbbbbbbbb\n`,
+    reconciliation: { state: "dispatched", baselineRunId: 1, runUrl: "https://example.test/run" },
+  });
+  NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+  NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+  const runner = new FakeRunner();
+  setBotResponses(runner, "candidate");
+  setOrientationResponses(runner);
+  runner.set("git", ["-c", "core.commentChar=auto", "rev-parse", "HEAD"], { stdout: `${B}\n` });
+  runner.set(
+    "git",
+    ["-c", "core.commentChar=auto", "ls-remote", "--heads", "origin", `refs/heads/${branch}`],
+    { stdout: `${B}\trefs/heads/${branch}\n` },
+  );
+  runner.set(
+    "gh",
+    [
+      "issue",
+      "comment",
+      "352",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+      "--body-file",
+      checked.recordPath,
+    ],
+    { stdout: "https://example.test/comment\n" },
+  );
+  const ledger = ledgerFixture(root, checked.recordPath);
+  try {
+    const { output, result: code } = captureStdout(() =>
+      run(["unblock-auto", "--report", checked.reportPath], root, runner),
+    );
+    assert.strictEqual(code, 0);
+    assert.notInclude(output, "Stop (environment).");
+    assert.notInclude(output, "does not mirror upstream/main");
+    assert.include(output, "applied: v1.2.3");
+  } finally {
     ledger.restore();
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
