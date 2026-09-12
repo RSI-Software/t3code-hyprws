@@ -266,7 +266,22 @@ jobs:
         with:
           ref: hyprws
           fetch-depth: 0
-          persist-credentials: false
+
+      # checkout's credential teardown walks submodules via `git submodule
+      # foreach --recursive` and hard-fails on the vendor gitlinks that
+      # .gitmodules does not list (RSI-Software/t3code-hyprws#871), so
+      # persist-credentials stays at its default and the leftover extraheader
+      # is scrubbed here instead. This must run before Setup Vite+: its
+      # run-install executes rebased code that must never see the token. Exit
+      # 5 from --unset-all just means checkout never wrote the header.
+      - name: Scrub persisted credentials
+        id: scrub_credentials
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          if git config --local --get-all http.https://github.com/.extraheader | grep -q .; then
+            echo "::error::http.https://github.com/.extraheader still present after scrub"
+            exit 1
+          fi
 
       - name: Install browser secret helper build libraries
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
@@ -293,9 +308,10 @@ jobs:
       - name: Restore rerere cache
         run: node scripts/fork-carry.ts rerere-restore
 
-      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step so
-      # it never lands in a workflow env block; fork-sync scrubs those keys from every
-      # lane command, which is rebased code.
+      # The mirror PAT reaches Git only through GIT_CONFIG_*, built inside the step
+      # so it never lands in a workflow env block or .git/config: fork-sync scrubs
+      # those keys from every lane command, which is rebased code, and checkout
+      # persist-credentials stays off the path entirely via the scrub step above.
       - name: Carry the unblock walk
         id: carry
         env:
@@ -337,11 +353,22 @@ jobs:
           export GIT_CONFIG_VALUE_0
           node scripts/fork-carry.ts rerere-save --push
 
+      # A carry whose checkout or install died retains nothing; warn instead.
+      - name: Report a walk that never ran
+        if: ${{ always() && steps.carry.outcome == 'skipped' }}
+        run: |
+          if [ "${{ steps.scrub_credentials.outcome }}" != "success" ]; then
+            failed="Checkout fork trunk or Scrub persisted credentials"
+          else
+            failed="an earlier step (the carry step itself was skipped)"
+          fi
+          echo "::warning::Carry unblock walk ended at '${failed}'; the carry step was skipped, so no outcome was retained"
+
       # An applied walk published its own row and outcomes before it reported `applied`
       # (RSI-Software/t3code-hyprws#664), so this step only covers the runs that never got
       # that far: a stop, or a carry that died before it retained a report.
       - name: Retain the outcomes of a walk that did not apply
-        if: ${{ always() && steps.carry.outputs.outcome != 'applied' }}
+        if: ${{ always() && steps.carry.outputs.outcome != 'applied' && steps.carry.outcome != 'skipped' }}
         env:
           HYPRWS_PUSH_TOKEN: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
           FORK_OUTCOME_TARGET: ${{ needs.rebase.outputs.blocked_tag }}
