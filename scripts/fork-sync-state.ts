@@ -1161,7 +1161,10 @@ export const DECISION_ACTIONS = [
 const invalidDecisionCell = (column: string, detail: string): Error =>
   new Error(`invalid fork commit ${column} cell: ${detail}`);
 
-export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDecisionRow> => {
+export const parseDecisionRows = (
+  record: string,
+  { allowIncomplete = false }: { allowIncomplete?: boolean } = {},
+): ReadonlyArray<OrientationDecisionRow> => {
   const section = recordSection(record, "## Fork commits");
   const rows: Array<OrientationDecisionRow> = [];
   for (const line of section.split("\n")) {
@@ -1181,7 +1184,10 @@ export const parseDecisionRows = (record: string): ReadonlyArray<OrientationDeci
     const action = cells[3] ?? "";
     const qualified = DECISION_ACTIONS.includes(action as DecisionAction);
     const verdict = qualified ? "keep" : action;
-    if (!["keep", "retire", "partial"].includes(verdict)) {
+    // A stopped walk's fork-commit rows keep their Action cells as TODO until decided; only the
+    // pending ledger row that carries the stop may read such a record (#662, #876).
+    const incomplete = verdict === "TODO" && allowIncomplete;
+    if (!incomplete && !["keep", "retire", "partial"].includes(verdict)) {
       throw invalidDecisionCell(
         "Action",
         `expected keep, ${DECISION_ACTIONS.join(", ")}, retire, or partial; found ${action}`,
@@ -1399,7 +1405,7 @@ export const parseRecord = (
   const additive = parseAdditiveSummary(record);
   return {
     conflicts,
-    decisions: parseDecisionRows(record),
+    decisions: parseDecisionRows(record, { allowIncomplete }),
     ...(nightlyReview === undefined ? {} : { nightlyReview }),
     ...(additive === undefined ? {} : { additive }),
   };
