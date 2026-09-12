@@ -88,6 +88,46 @@ it("round-trips the Conflicts and Fork commits tables rendered by renderRecord",
   assert.deepStrictEqual(parsed.decisions, reportFixture().orientationDecisions);
 });
 
+/**
+ * A stopped walk's record keeps TODO cells even after `record-decisions` upgrades the declined
+ * conflict rows: the fork-commit Action cells stay TODO (RSI-Software/t3code-hyprws#876). Only the
+ * pending ledger row's parse may read such a record.
+ */
+it("accepts TODO fork-commit Action cells only when allowIncomplete", () => {
+  // A declined seam whose subject has no orientation row: record-decisions upgrades the conflict
+  // row to human, but its fork-commit Action cell stays TODO.
+  const declinedSubject = "fix(web): a seam the executor declined";
+  const humanResolved = renderRecord({
+    ...reportFixture(),
+    stage: "conflicts",
+    conflicts: [{ ...reportFixture().conflicts[0]!, subject: declinedSubject }],
+  });
+  assert.throws(() => parseRecord(humanResolved), /Action/);
+  const parsed = parseRecord(humanResolved, { allowIncomplete: true });
+  assert.strictEqual(
+    parsed.decisions.find((row) => row.subject === declinedSubject)?.verdict,
+    "TODO",
+  );
+  const stillStopped = renderRecord({
+    ...reportFixture(),
+    stage: "conflicts",
+    conflicts: [
+      {
+        ...reportFixture().conflicts[0]!,
+        class: "TODO",
+        resolution: "TODO",
+        agentSafe: "TODO",
+        decidedBy: "TODO",
+      },
+    ],
+  });
+  assert.throws(() => parseRecord(stillStopped), /remains incomplete/);
+  assert.strictEqual(
+    parseRecord(stillStopped, { allowIncomplete: true }).conflicts[0]?.class,
+    "TODO",
+  );
+});
+
 it("keeps nightly proposer and reviewer separate in the record and ledger", () => {
   const proposer = {
     iface: "pi",

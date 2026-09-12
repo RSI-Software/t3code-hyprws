@@ -587,7 +587,12 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     after,
     recordUrl,
     conflicts,
-    decisions: parsed.decisions,
+    // A pending record legitimately carries fork-commit rows whose Action cell is still TODO
+    // (#876). Such a row is not a decision: the applied row's real verdicts and the walkDecisions
+    // carry the substance, so the TODO rows are dropped instead of widening the ledger schema.
+    decisions: pending
+      ? parsed.decisions.filter((row) => (row.verdict as string) !== "TODO")
+      : parsed.decisions,
     censusFiles: parseCensusFiles(issueView.body),
     ...(censusEvidence === null ? {} : { censusEvidence }),
     ...(silentSeams.length === 0 ? {} : { silentSeams }),
