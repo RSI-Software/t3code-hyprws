@@ -368,7 +368,38 @@ const walkSnapshot = (walk: ChurnEntry): CensusSnapshot => ({
   ...(walk.censusEvidence === undefined ? {} : { censusEvidence: walk.censusEvidence }),
 });
 
-/** Shared content identities anchor two ordered histories; neither history outranks the other. */
+/**
+ * Fork tag scheme ordering key: `(major, minor, patch, seq)` where a stable tag
+ * `vX.Y.Z` gets `seq = Number.MAX_SAFE_INTEGER` — a nightly `vX.Y.Z-nightly.*`
+ * is a pre-release of `vX.Y.Z`, so the stable tag comes after every nightly of
+ * its own version line (v0.0.37 → v0.0.38-nightly.20260901.1242…1250 →
+ * v0.0.38 → v0.0.39-nightly.20260902.1252…) — and a nightly gets
+ * `date * 100000 + NNNN`. Nightly sequence numbers are recorded chronology, not
+ * lexical tag order. Returns null for tags outside the scheme, which leaves the
+ * pair with no recorded time to compare.
+ */
+export const forkTagOrderKey = (tag: string): [number, number, number, number] | null => {
+  const stable = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+  if (stable)
+    return [Number(stable[1]), Number(stable[2]), Number(stable[3]), Number.MAX_SAFE_INTEGER];
+  const nightly = /^v(\d+)\.(\d+)\.(\d+)-nightly\.(\d{8})\.(\d+)$/.exec(tag);
+  if (nightly)
+    return [
+      Number(nightly[1]),
+      Number(nightly[2]),
+      Number(nightly[3]),
+      Number(nightly[4]) * 100000 + Number(nightly[5]),
+    ];
+  return null;
+};
+
+/**
+ * Shared content identities anchor two ordered histories. Where the chains
+ * diverge (frozen observations whose walks are absent from the walks ledger,
+ * RSI-Software/t3code-hyprws#860), co-ready observations are ordered by their
+ * recorded fork tag chronology (`forkTagOrderKey`); only a pair with no
+ * recorded time to compare (equal or unparseable keys) stays unavailable.
+ */
 const orderedLessonObservations = (evidence: LessonEvidence) => {
   const observations = new Map<string, CensusSnapshot>();
   const frozen: string[] = [];
@@ -404,7 +435,23 @@ const orderedLessonObservations = (evidence: LessonEvidence) => {
   const ready = [...predecessors].filter(([, count]) => count === 0).map(([id]) => id);
   let ambiguous = false;
   while (ready.length > 0) {
-    if (ready.length > 1) ambiguous = true;
+    if (ready.length > 1) {
+      const keys = ready.map((id) => [id, forkTagOrderKey(observations.get(id)!.tag)] as const);
+      const comparable = keys.every(([, key]) => key !== null);
+      const distinct =
+        comparable && new Set(keys.map(([, key]) => JSON.stringify(key))).size === keys.length;
+      // Distinct recorded times order the co-ready roots; otherwise no anchor exists.
+      if (!comparable || !distinct) ambiguous = true;
+      keys.sort((a, b) => {
+        const ka = a[1],
+          kb = b[1];
+        if (ka === null || kb === null) return 0;
+        for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
+        return 0;
+      });
+      ready.length = 0;
+      ready.push(...keys.map(([id]) => id));
+    }
     const id = ready.shift()!;
     ordered.set(id, observations.get(id)!);
     for (const next of successors.get(id)!) {

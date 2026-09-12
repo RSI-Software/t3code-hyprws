@@ -671,13 +671,23 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     if (option !== "--issue" && option !== "--receipt")
       throw new UsageError(`unknown option: ${option}`);
   const receiptPath = options.get("--receipt");
-  const receipt = (publication: string, policy: string, url?: string) => {
+  const receipt = (
+    publication: string,
+    policy: string,
+    url?: string,
+    reason?: "lesson-unavailable" | "blocking-seams",
+  ) => {
     if (receiptPath === undefined) return;
     const path = NodePath.resolve(root, receiptPath);
     NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
     NodeFS.writeFileSync(
       path,
-      `${JSON.stringify({ publication, policy, ...(url ? { url } : {}) })}\n`,
+      `${JSON.stringify({
+        publication,
+        policy,
+        ...(url ? { url } : {}),
+        ...(reason ? { reason } : {}),
+      })}\n`,
     );
   };
   receipt("not-attempted", "not-attempted");
@@ -751,14 +761,22 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   }
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
   if (churn === null) {
-    receipt("succeeded", "failed", url);
-    process.stderr.write(
+    // A missing lesson is a warning on the notification, not a job failure: the
+    // run already selected a target and the outcome step still records it
+    // (RSI-Software/t3code-hyprws#860). Blocking seams keep their own exit 1.
+    receipt("succeeded", "failed", url, "lesson-unavailable");
+    process.stdout.write(
       `Lesson assessment unavailable: ${unavailable}; the published report does not establish a policy pass.\n`,
     );
-    return 1;
+    return 0;
   }
   const failures = blockingSeamLines(churn);
-  receipt("succeeded", failures.length === 0 ? "succeeded" : "failed", url);
+  receipt(
+    "succeeded",
+    failures.length === 0 ? "succeeded" : "failed",
+    url,
+    failures.length === 0 ? undefined : "blocking-seams",
+  );
   if (failures.length === 0) return 0;
   process.stderr.write(
     `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
