@@ -33388,6 +33388,103 @@
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34691049994"
     },
     {
+      "kind": "attempt",
+      "targetSha": "3836890e4484406813997259efc69065b25ce698",
+      "attemptId": "34689862601/1/outcome",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "unknown",
+      "sourceSha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34689862601"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3836890e4484406813997259efc69065b25ce698",
+      "attemptId": "34689862601/1/outcome",
+      "stage": "release-verification",
+      "status": "succeeded",
+      "detail": "release preflight result for the exact checkout",
+      "sha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34689862601"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3836890e4484406813997259efc69065b25ce698",
+      "attemptId": "34689862601/1/outcome",
+      "stage": "release-build",
+      "status": "succeeded",
+      "detail": "release build result for the exact preflight checkout",
+      "sha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34689862601"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "3836890e4484406813997259efc69065b25ce698",
+      "attemptId": "34689862601/1/outcome",
+      "stage": "distribution",
+      "status": "succeeded",
+      "detail": "tag commit and every expected asset verified against GitHub publication",
+      "sha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34689862601",
+      "distribution": {
+        "appliedSha": "1203fbebe2bffd97c297998fa9dc0b414f5ca233",
+        "releasedSha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+        "version": "0.0.41-hyprws-nightly.20260912.431",
+        "tag": "v0.0.41-hyprws-nightly.20260912.431",
+        "tagSha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+        "expectedAssets": [
+          "T3-Code-x86_64.AppImage",
+          "builder-debug.yml",
+          "hyprws-nightly-linux.yml",
+          "t3-0.0.41-hyprws-nightly.20260912.431.tgz"
+        ],
+        "publishedAssets": [
+          {
+            "name": "builder-debug.yml",
+            "size": 1963,
+            "digest": "sha256:e189e0f8d95ee986b06f8ccc980652bb9f373096082863cd70cfba27ec00f3dc"
+          },
+          {
+            "name": "hyprws-nightly-linux.yml",
+            "size": 397,
+            "digest": "sha256:827225a0425b8241db11b3d560ab9610e5a1ab147c7c3736829c895493d75789"
+          },
+          {
+            "name": "t3-0.0.41-hyprws-nightly.20260912.431.tgz",
+            "size": 24994766,
+            "digest": "sha256:7601982520931a2e15539b56781ac88d06870f48f3c5d5909b7f4bf3ac622a62"
+          },
+          {
+            "name": "T3-Code-x86_64.AppImage",
+            "size": 187539382,
+            "digest": "sha256:bdfae982f231caafc17350a36d3b157b0efcffca0be9af3e328b370153251c53"
+          }
+        ],
+        "interveningCommits": [
+          "9ae53d847452104e119afbea4722d4673bb8eb83",
+          "e67982b029c76fe248cf37a7290601bb7c2bb3fd",
+          "e9c46a81c5c0edd6a4438392fcf92bf4266ce36f",
+          "e127c98c1a6593ca104c6d9b0ce0e460450caf88",
+          "33bb4081e4adfd750bc93f9b8a726b09b2284250",
+          "0778498352bf88163f623a05bc92012d5fad1a88",
+          "e42974ac423b63b0cf010f69edc3b9eed13cc346",
+          "cdfb79da1f2fce5d3f3de3e2eec7eec8de2f5618",
+          "a8aa98606ed2ab51d291f95c96bc4cf2e0d8963f",
+          "877f0114110b34a1e33bfea11186113f5b9f77e8",
+          "5bcf2462915a4da441acc892f1094e5ba9d6554f",
+          "205a60277102b55ba74a74753190c7369c6ef6ef",
+          "2884599c05f4482e5812b7b983303015cd8fc390",
+          "68dbd45096b79669f067b8113862e248ed24f5e2",
+          "7b3926e72e44caf895c2245b4c03826e349e6de5",
+          "97bdbbc8ac00e9ae0c790d3afde5b4094fe33110",
+          "d0c2801759dbd8f90608a06abf866092789ff446",
+          "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8"
+        ],
+        "verifiedSha": "c8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+        "verificationUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34689862601"
+      }
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260911.1520",
