@@ -183,6 +183,204 @@ it("declines a resolution that would drop an upstream addition", () => {
   }
 });
 
+it("mechanically applies a fork deletion when upstream only moved its context", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/routes/settings.tsx";
+  try {
+    // Seam 2: upstream wraps the original Escape effect in settings scope, while the fork deletes
+    // that byte-identical block and uses its scoped leave hook instead.
+    stageConflict(root, path, {
+      base: [
+        "navigateBackWithinApp();",
+        "useEffect(() => onEscape(navigateBackWithinApp));",
+        "",
+      ].join("\n"),
+      ours: [
+        "useSettingsScope();",
+        "navigateBackWithinApp();",
+        "useEffect(() => onEscape(navigateBackWithinApp));",
+        "",
+      ].join("\n"),
+      theirs: "useLeaveFullPage($&);\n",
+    });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "theirs",
+      conflictClass: "mechanical",
+      source: "fork-only",
+      resolution:
+        "outcome executor: moved-deletion (fork deletion over byte-identical upstream base)",
+    });
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "useSettingsScope();");
+    assert.include(resolved, "useLeaveFullPage($&);");
+    assert.notInclude(resolved, "navigateBackWithinApp");
+    assert.notInclude(resolved, "onEscape");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("mechanically applies an upstream deletion when the fork left its base bytes untouched", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/routes/settings.tsx";
+  try {
+    stageConflict(root, path, {
+      base: "navigateBackWithinApp();\n",
+      ours: "useSettingsScope();\n",
+      theirs: "navigateBackWithinApp();\nuseLeaveFullPage();\n",
+    });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "ours",
+      conflictClass: "mechanical",
+      source: "upstream-only",
+      resolution:
+        "outcome executor: moved-deletion (upstream deletion over byte-identical fork base)",
+    });
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "useSettingsScope();");
+    assert.include(resolved, "useLeaveFullPage();");
+    assert.notInclude(resolved, "navigateBackWithinApp");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("resolves the real ChatView dependency-array conflict from 347da0d7ad", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/web/src/components/ChatView.tsx";
+  const chatView = (firstDependencies: string, secondDependencies: string) =>
+    [
+      "const settings = {};",
+      "const routeFamily = { draft: (id: string) => id };",
+      'const runtimeMode = "legacy";',
+      'const defaultRuntimeMode = "default";',
+      "const openOrReuseProjectDraftThread = useCallback(",
+      "  async () => {",
+      "    await navigate(routeFamily.draft(nextDraftId));",
+      "    resolveProjectSettings(settings, activeProject.id, activeProject);",
+      "  },",
+      "  [",
+      firstDependencies,
+      "  ],",
+      ");",
+      "",
+      "const submit = useCallback(",
+      "  () => {",
+      "    startThreadTurn({ runtimeMode: defaultRuntimeMode });",
+      "    navigate(routeFamily.draft(nextDraftId));",
+      "  },",
+      "  [",
+      secondDependencies,
+      "  ],",
+      ");",
+      "",
+    ].join("\n");
+  try {
+    // These are the two regions git left in ChatView.tsx when 347da0d7ad replayed onto `.1576`.
+    stageConflict(root, path, {
+      base: chatView("", "    runtimeMode,"),
+      ours: chatView("      settings,", "    defaultRuntimeMode,"),
+      theirs: chatView("      routeFamily,", "    routeFamily,\n    runtimeMode,"),
+    });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "union",
+      conflictClass: "mechanical",
+      source: "keep-both",
+    });
+    assert.include(
+      outcome.resolution,
+      "dropped runtimeMode because the hook body does not read it",
+    );
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "      settings,\n      routeFamily,");
+    assert.include(resolved, "    defaultRuntimeMode,\n    routeFamily,");
+    assert.notInclude(resolved, "    runtimeMode,");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("declines unreferenced dependency entries and non-dependency rewrites", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const hook = (body: string, dependencies: string) =>
+    ["useEffect(", "  () => {", body, "  },", "  [", dependencies, "  ],", ");", ""].join("\n");
+  try {
+    const unused = "apps/web/src/components/unused.tsx";
+    stageConflict(root, unused, {
+      base: hook("    report();", "    legacy,"),
+      ours: hook("    report();", "    settings,"),
+      theirs: hook("    report();", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, unused)));
+
+    // `settings` is read in the ternary alternative. Its trailing colon is ambiguous enough that
+    // the local scanner must decline rather than incorrectly pruning a live dependency.
+    const ternary = "apps/web/src/components/ternary.tsx";
+    stageConflict(root, ternary, {
+      base: hook("    return routeFamily ? settings : fallback;", "    legacy,"),
+      ours: hook("    return routeFamily ? settings : fallback;", "    settings,"),
+      theirs: hook("    return routeFamily ? settings : fallback;", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, ternary)));
+
+    // A property key alone does not prove that runtimeMode is read, so it cannot authorize
+    // removing that dependency just because routeFamily is unambiguous.
+    const propertyKeyOnly = "apps/web/src/components/property-key-only.tsx";
+    stageConflict(root, propertyKeyOnly, {
+      base: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    legacy,",
+      ),
+      ours: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    runtimeMode,",
+      ),
+      theirs: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    routeFamily,",
+      ),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, propertyKeyOnly)));
+
+    // Template interpolation can read an entry, but the local scanner cannot prove that safely.
+    const template = "apps/web/src/components/template.tsx";
+    const templateSource = [
+      "const settings = {};",
+      "const routeFamily = {};",
+      hook("    return `${settings}`;", "    legacy,"),
+    ].join("\n");
+    stageConflict(root, template, {
+      base: templateSource,
+      ours: templateSource.replace("    legacy,", "    settings,"),
+      theirs: templateSource.replace("    legacy,", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, template)));
+
+    const notDependencies = "apps/web/src/components/not-dependencies.tsx";
+    stageConflict(root, notDependencies, {
+      base: "const setting = legacy;\n",
+      ours: "const setting = settings;\n",
+      theirs: "const setting = routeFamily;\n",
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, notDependencies)));
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
   assert.isTrue(
     everyConflictIsCoInsertion(
@@ -211,7 +409,10 @@ it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
     const rewritten = executeConflictOutcome(runner, root, path);
     assert.isTrue(isUnresolved(rewritten));
     if (!isUnresolved(rewritten)) return;
-    assert.include(rewritten.reason, "rewrote the same lines");
+    assert.strictEqual(
+      rewritten.reason,
+      "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam",
+    );
     // A decline writes nothing, so the conflicted path is left for the maintainer as it was.
     assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
   } finally {
