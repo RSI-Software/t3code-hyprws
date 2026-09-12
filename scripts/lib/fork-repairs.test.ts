@@ -230,7 +230,7 @@ it("runs a scoped step in its own directory and records where it ran", () => {
   assert.strictEqual(repairKind("apps/web: vp test run src/window.test.ts"), "tests");
 });
 
-it("names the command that dirtied the worktree and writes it up as one attributable commit", () => {
+it("names the command that dirtied the worktree in a standalone non-legacy repair commit", () => {
   const plan = [
     { command: "vp", args: ["fmt", "apps/web/src/window.ts"] },
     { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
@@ -262,7 +262,7 @@ it("names the command that dirtied the worktree and writes it up as one attribut
       command: "vp fmt apps/web/src/window.ts",
     }),
     [
-      "chore(fork-sync): repair fmt after v1.2.3",
+      "chore(fork-sync): fmt after v1.2.3",
       "",
       "`vp fmt apps/web/src/window.ts` rewrote the worktree while replaying onto v1.2.3.",
       "",
@@ -288,7 +288,7 @@ it("carries the raise trailer when the walk reconciles a ceiling its replay wide
       budgetRaise: "the v1.2.3 replay widened custom-agents added 100 -> 130",
     }),
     [
-      "chore(fork-sync): repair budget after v1.2.3",
+      "chore(fork-sync): budget after v1.2.3",
       "",
       "Replaying onto v1.2.3 widened the stack past its own ceilings; `vp run --no-cache fork:delta --inventory` measured the new numbers.",
       "",
