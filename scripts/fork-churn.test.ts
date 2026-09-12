@@ -14,6 +14,7 @@ import {
   parseCensusFiles,
   parseCensusTag,
   parseLedger,
+  renderMarkdown,
   run,
   trunkRepairCommits,
   walkElapsedMs,
@@ -28,6 +29,7 @@ import {
 import { runCommandText } from "./lib/fork-command.ts";
 import { parseSilentSeams, readChurnState } from "./fork-churn-ledger.ts";
 import { isToolingRepair } from "./lib/fork-repairs.ts";
+import { freezeObservation, seamRecord } from "./lib/fork-churn-seams.ts";
 import { parseHostHandoff } from "./lib/fork-host-handoff.ts";
 import { CHURN_MARKER, regressedSeamLines, renderChurnSection } from "./fork-churn-section.ts";
 import {
@@ -976,6 +978,47 @@ it("measures hot-seam deltas against the previous churn section", () => {
 
   const third = renderChurnSection([entry("v3", [conflict("fresh", "human")])], second);
   assert.include(third, "Dropped since the last report: `seam`.");
+});
+
+it("renders the notification KPIs from walk, seam, outcome, and delta inputs", () => {
+  const repeat = conflict("repeat.ts", "human");
+  const entries = [
+    { ...entry("v1", [repeat]), elapsedMs: 10_000, effort: { model: "model-a", effort: "low" } },
+    {
+      ...entry("v2", [repeat, { ...conflict("agent.ts", "generated"), decidedBy: "agent" }]),
+      elapsedMs: 20_000,
+    },
+  ];
+  const records = ["v0", "v1", "v2"].map((tag) =>
+    seamRecord(
+      freezeObservation({
+        tag,
+        fixedAt: null,
+        files: [censusFile("repeat.ts", "abcdef1", "feat: repeat")],
+      }),
+    ),
+  );
+  const section = renderChurnSection(entries, null, null, records, [], {
+    commits: 12,
+    overBudget: ["fork-meta"],
+  });
+  assert.include(section, "| decisions human : agent | 1 : 1 |");
+  assert.include(section, "| conflict files, this walk vs last | 2 vs 1 |");
+  assert.include(section, "| delta commits, and any domain over budget | 12; fork-meta |");
+  assert.include(
+    section,
+    "| repeat offenders (commits conflicting in 3+ notifications) | `abcdef1` |",
+  );
+  assert.include(section, "| noAgentCarry streak / 5 | 0 / 5 |");
+  assert.include(section, "| elapsed and effort | 20s; unrecorded |");
+});
+
+it("renders KPI fallbacks for a first walk", () => {
+  const section = renderChurnSection([entry("v1", [])]);
+  assert.include(section, "| conflict files, this walk vs last | 0 vs first walk |");
+  assert.include(section, "| delta commits, and any domain over budget | unrecorded |");
+  assert.include(section, "| elapsed and effort | unrecorded; unrecorded |");
+  assert.include(renderMarkdown([entry("v1", [])], ""), "## KPIs");
 });
 
 it("counts the conflict class mix and decided-by split across walks", () => {
