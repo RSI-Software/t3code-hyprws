@@ -395,6 +395,173 @@ const movedDeletion = (
       };
 };
 
+/** Match delimiters locally; uncertain syntax is a declined conflict, not a guessed resolution. */
+const matchingDelimiter = (
+  text: string,
+  start: number,
+  open: string,
+  close: string,
+): number | null => {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  let comment: "line" | "block" | null = null;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (comment === "line") {
+      if (character === "\n") comment = null;
+      continue;
+    }
+    if (comment === "block") {
+      if (character === "*" && text[index + 1] === "/") {
+        comment = null;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "/") {
+      comment = "line";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && text[index + 1] === "*") {
+      comment = "block";
+      index += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "`") return null;
+    if (character === open) depth += 1;
+    if (character === close && --depth === 0) return index;
+  }
+  return null;
+};
+
+const dependencyEntries = (
+  text: string,
+): ReadonlyArray<{ readonly name: string; readonly line: string }> | null => {
+  const lines = text.split(/(?<=\n)/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) return null;
+  const entries = lines.map((line) => {
+    const match = /^(\s*)([A-Za-z_$][\w$]*),?\s*(?:\r?\n)?$/.exec(line);
+    return match === null ? null : { name: match[2], line };
+  });
+  return entries.some((entry) => entry === null)
+    ? null
+    : (entries as ReadonlyArray<{ name: string; line: string }>);
+};
+
+const hookForDependencyRegion = (
+  text: string,
+  regionStart: number,
+): { readonly body: string } | null => {
+  const hooks = /\b(?:useCallback|useMemo|useEffect)\s*\(/g;
+  const candidates: Array<{ body: string }> = [];
+  for (let match = hooks.exec(text); match !== null; match = hooks.exec(text)) {
+    const callEnd = matchingDelimiter(text, match.index + match[0].length - 1, "(", ")");
+    if (callEnd === null) continue;
+    const arrow = text.indexOf("=>", match.index + match[0].length);
+    if (arrow === -1 || arrow > callEnd) continue;
+    const bodyStart = text.indexOf("{", arrow + 2);
+    if (bodyStart === -1 || bodyStart > callEnd) continue;
+    const bodyEnd = matchingDelimiter(text, bodyStart, "{", "}");
+    if (bodyEnd === null) continue;
+    const comma = text.slice(bodyEnd + 1).match(/^\s*,\s*/);
+    if (comma === null) continue;
+    const dependenciesStart = bodyEnd + 1 + comma[0].length;
+    if (text[dependenciesStart] !== "[") continue;
+    const dependenciesEnd = matchingDelimiter(text, dependenciesStart, "[", "]");
+    if (dependenciesEnd === null) continue;
+    if (dependenciesStart < regionStart && regionStart < dependenciesEnd)
+      candidates.push({ body: text.slice(bodyStart + 1, bodyEnd) });
+  }
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
+};
+
+const referencedDependencyNames = (
+  body: string,
+  entries: ReadonlySet<string>,
+): ReadonlySet<string> | null => {
+  // Templates can interpolate an identifier; unlike quoted strings and comments they cannot be
+  // removed without parsing, so this local scan declines them.
+  if (body.includes("`")) return null;
+  const source = body
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, " ");
+  const bound = new Set(
+    [...source.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)].map(
+      (match) => match[1],
+    ),
+  );
+  if ([...entries].some((name) => bound.has(name))) return null;
+  const referenced = new Set<string>();
+  for (const match of source.matchAll(/[A-Za-z_$][\w$]*/g)) {
+    const name = match[0];
+    if (!entries.has(name)) continue;
+    const before = source.slice(0, match.index).trimEnd();
+    const after = source.slice((match.index ?? 0) + name.length).trimStart();
+    if (before.endsWith(".")) continue;
+    if (after.startsWith(":")) return null;
+    referenced.add(name);
+  }
+  return referenced;
+};
+
+const dependencyArray = (
+  runner: CommandRunner,
+  worktree: string,
+  stages: ConflictStages,
+): { readonly text: string; readonly outcome: ConflictOutcome } | null => {
+  const merged = mergeFile(runner, worktree, stages, "--diff3");
+  if (merged === null || merged.conflicts === 0) return null;
+  const regions = diff3ConflictRegions(merged.text);
+  if (regions === null || regions.length === 0) return null;
+  let position = 0;
+  let resolved = "";
+  for (const region of regions) {
+    const start = merged.text.indexOf("<<<<<<<", position);
+    const end = merged.text.indexOf(">>>>>>>", start);
+    if (start === -1 || end === -1) return null;
+    const hook = hookForDependencyRegion(merged.text, start);
+    const ours = dependencyEntries(region.upstream);
+    const theirs = dependencyEntries(region.fork);
+    if (hook === null || ours === null || theirs === null) return null;
+    const entries = [...ours, ...theirs];
+    const names = new Set(entries.map(({ name }) => name));
+    const referenced = referencedDependencyNames(hook.body, names);
+    if (referenced === null) return null;
+    const replacement = entries
+      .filter(
+        ({ name }, index) =>
+          referenced.has(name) && entries.findIndex((entry) => entry.name === name) === index,
+      )
+      .map(({ line }) => line)
+      .join("");
+    if (replacement === "") return null;
+    const lineEnd = merged.text.indexOf("\n", end);
+    resolved += merged.text.slice(position, start) + replacement;
+    position = lineEnd === -1 ? merged.text.length : lineEnd + 1;
+  }
+  resolved += merged.text.slice(position);
+  return {
+    text: resolved,
+    outcome: {
+      take: "union",
+      conflictClass: "mechanical",
+      source: "keep-both",
+      resolution: "outcome executor: dependency-array union kept referenced hook dependencies",
+    },
+  };
+};
+
 const keepBoth = (
   runner: CommandRunner,
   worktree: string,
@@ -470,10 +637,16 @@ export const executeConflictOutcome = (
       resolved = deletion.text;
       outcome = deletion.outcome;
     } else {
-      const kept = keepBoth(runner, worktree, path, stages);
-      if ("reason" in kept) return kept;
-      resolved = kept.text;
-      outcome = kept.outcome;
+      const dependencies = dependencyArray(runner, worktree, stages);
+      if (dependencies !== null) {
+        resolved = dependencies.text;
+        outcome = dependencies.outcome;
+      } else {
+        const kept = keepBoth(runner, worktree, path, stages);
+        if ("reason" in kept) return kept;
+        resolved = kept.text;
+        outcome = kept.outcome;
+      }
     }
   }
   if (CONFLICT_MARKER.test(resolved))
