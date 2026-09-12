@@ -145,6 +145,12 @@ interface ConflictRegion {
   readonly text: ReadonlyArray<string>;
 }
 
+interface Diff3ConflictRegion {
+  readonly upstream: string;
+  readonly base: string;
+  readonly fork: string;
+}
+
 /**
  * Split the `<<<<<<<`..`>>>>>>>` hunk regions out of a diff3 merge, without the marker lines.
  * Labels in the merged text separate the stages; when they are absent the region is kept without
@@ -166,6 +172,47 @@ const conflictRegions = (diff3: string): ReadonlyArray<ConflictRegion> => {
     if (current !== null) current.text.push(line);
   }
   return regions;
+};
+
+/** Read diff3 hunks without normalising their contents: the unchanged-side proof is byte-exact. */
+const diff3ConflictRegions = (diff3: string): ReadonlyArray<Diff3ConflictRegion> | null => {
+  const regions: Array<Diff3ConflictRegion> = [];
+  let current: {
+    upstream: Array<string>;
+    base: Array<string>;
+    fork: Array<string>;
+    part: "upstream" | "base" | "fork";
+  } | null = null;
+  for (const line of diff3.split(/(?<=\n)/)) {
+    if (line.startsWith("<<<<<<<")) {
+      if (current !== null) return null;
+      current = { upstream: [], base: [], fork: [], part: "upstream" };
+      continue;
+    }
+    if (current === null) continue;
+    if (line.startsWith("|||||||")) {
+      if (current.part !== "upstream") return null;
+      current.part = "base";
+      continue;
+    }
+    if (line.startsWith("=======")) {
+      if (current.part !== "base") return null;
+      current.part = "fork";
+      continue;
+    }
+    if (line.startsWith(">>>>>>>")) {
+      if (current.part !== "fork") return null;
+      regions.push({
+        upstream: current.upstream.join(""),
+        base: current.base.join(""),
+        fork: current.fork.join(""),
+      });
+      current = null;
+      continue;
+    }
+    current[current.part].push(line);
+  }
+  return current === null ? regions : null;
 };
 
 /** CRLF and per-line trailing whitespace do not move a seam; they should not move its key. */
@@ -277,6 +324,77 @@ const mergeFile = (
  * three-way merge is taken as it stands. A conflicted one is kept only when every hunk is a pure
  * co-insertion, and only on a path the lane can verify afterwards.
  */
+/**
+ * A moved neighbour can make Git put an otherwise untouched deletion into a rewrite conflict.
+ * Select the deleting side only when every base hunk it removes occurs exactly once, byte-for-byte,
+ * in the other side. Replacing that occurrence retains the other side's moved neighbours and any
+ * additions around it; duplicate occurrences are deliberately a judgement rather than a guess.
+ */
+/** Replace the one byte-exact base hunk without interpreting `$` sequences in the replacement. */
+const replaceBaseHunk = (text: string, base: string, replacement: string): string => {
+  const index = text.indexOf(base);
+  return text.slice(0, index) + replacement + text.slice(index + base.length);
+};
+
+const movedDeletion = (
+  runner: CommandRunner,
+  worktree: string,
+  stages: ConflictStages,
+): { readonly text: string; readonly outcome: ConflictOutcome } | null => {
+  const merged = mergeFile(runner, worktree, stages, "--diff3");
+  if (merged === null || merged.conflicts === 0) return null;
+  const regions = diff3ConflictRegions(merged.text);
+  if (regions === null || regions.length === 0) return null;
+  const directions = regions.map(({ base, upstream, fork }) => {
+    if (base.length === 0) return null;
+    const upstreamOccurrences = upstream.split(base).length - 1;
+    const forkOccurrences = fork.split(base).length - 1;
+    // The deleting side must remove at least one byte of this exact base hunk. An insertion that
+    // leaves the whole base hunk present belongs to the ordinary keep-both rule instead.
+    if (forkOccurrences === 0 && upstreamOccurrences === 1) return "fork" as const;
+    if (upstreamOccurrences === 0 && forkOccurrences === 1) return "upstream" as const;
+    return null;
+  });
+  const direction = directions[0];
+  if (direction === null || directions.some((value) => value !== direction)) return null;
+  let position = 0;
+  let resolved = "";
+  for (const region of regions) {
+    const start = merged.text.indexOf("<<<<<<<", position);
+    const end = merged.text.indexOf(">>>>>>>", start);
+    if (start === -1 || end === -1) return null;
+    const lineEnd = merged.text.indexOf("\n", end);
+    const replacement =
+      direction === "fork"
+        ? replaceBaseHunk(region.upstream, region.base, region.fork)
+        : replaceBaseHunk(region.fork, region.base, region.upstream);
+    resolved += merged.text.slice(position, start) + replacement;
+    position = lineEnd === -1 ? merged.text.length : lineEnd + 1;
+  }
+  resolved += merged.text.slice(position);
+  return direction === "fork"
+    ? {
+        text: resolved,
+        outcome: {
+          take: "theirs",
+          conflictClass: "mechanical",
+          source: "fork-only",
+          resolution:
+            "outcome executor: moved-deletion (fork deletion over byte-identical upstream base)",
+        },
+      }
+    : {
+        text: resolved,
+        outcome: {
+          take: "ours",
+          conflictClass: "mechanical",
+          source: "upstream-only",
+          resolution:
+            "outcome executor: moved-deletion (upstream deletion over byte-identical fork base)",
+        },
+      };
+};
+
 const keepBoth = (
   runner: CommandRunner,
   worktree: string,
@@ -347,10 +465,16 @@ export const executeConflictOutcome = (
   if (classified.take === "ours") resolved = ours;
   else if (classified.take === "theirs") resolved = theirs;
   else {
-    const kept = keepBoth(runner, worktree, path, stages);
-    if ("reason" in kept) return kept;
-    resolved = kept.text;
-    outcome = kept.outcome;
+    const deletion = movedDeletion(runner, worktree, stages);
+    if (deletion !== null) {
+      resolved = deletion.text;
+      outcome = deletion.outcome;
+    } else {
+      const kept = keepBoth(runner, worktree, path, stages);
+      if ("reason" in kept) return kept;
+      resolved = kept.text;
+      outcome = kept.outcome;
+    }
   }
   if (CONFLICT_MARKER.test(resolved))
     return { path, reason: "resolution still carries conflict markers" };
