@@ -41273,6 +41273,1743 @@
           "seam": null
         }
       ]
+    },
+    {
+      "main": "c1ff6ab3d6531e733fb1bca5d4b94f0ff97f7af4",
+      "base": "3836890e4484406813997259efc69065b25ce698",
+      "conflicts": [
+        {
+          "commit": "347da0d7ad9e4152bb2754d7d297efccc63a4a8a",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "conflicts": true,
+          "files": [
+            "apps/web/src/components/ChatView.tsx",
+            "apps/web/src/hooks/useHandleNewThread.ts"
+          ],
+          "seam": "4fed6cfb3517ef9af9b2a361142152c079504530"
+        },
+        {
+          "commit": "\n54efdad7e9271aea37bcf404ec7627e423843400",
+          "subject": "refactor(web): add physical project sidebar scope",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ncd5dbceb97ba732721c8e4294ece63e1f83bdf77",
+          "subject": "feat(web): add project route subtree",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n499269a0496c6a57649258c86b66047c2684b76d",
+          "subject": "feat(web): preserve project thread routes",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd929a068a63d450adcba3aa4f6fec0ca0b865fe8",
+          "subject": "feat(web): render scoped project shell",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3a0554f42169ac249225bbc5adddf70959c32638",
+          "subject": "fix(web): wait for scoped project hydration",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7d5b58b787ee401cf95c70e129a825d89ea84d05",
+          "subject": "feat(desktop): register windows by identity",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n60964523760782ff354b67a15be1b17fd66f78bb",
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n848f4179a15385226b7f5382bcd6dcbe499a10ef",
+          "subject": "fix(desktop): isolate project preview and drafts",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf819b72a9091bd33305484296cc8fd6e77d0d4c7",
+          "subject": "refactor(web): share project pathname parsing",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4481baa9f0939e416abc3182cb195d0577aae873",
+          "subject": "fix(desktop): open forwarded project intents",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na67cf9c0d694c42c4ec39a1be4a0422b4eba8ad5",
+          "subject": "fix(desktop): load project scope from hash routes",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb53d8e938e14adb4b56bed567c27db645784fae5",
+          "subject": "feat(desktop): namespace previews by window",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nce50d7c380932f3c94cc7a881ed95d6be7830e53",
+          "subject": "fix(desktop): authorize and route preview IPC by window",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6dc3fe76d79846be9f72c0bbcd52a63b42d2d406",
+          "subject": "feat(desktop): enable previews in project windows",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n763497e2618607cc4a69233a12aab7926da62b85",
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4f7719b984d29568c517f5ffe62b4a89f1df9881",
+          "subject": "feat(web): detect desktop project window support",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nefee79b8be877f56b675370855bda4ca4e671baf",
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na768798f3187292275b0bca748d4515acfc34307",
+          "subject": "fix(web): mount scoped chrome while environment reconnects",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1930cab25a0f88593d78b66e1243fed21ae921d3",
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nea92d3d14ee70b1dd819de83080182bbbe447cd4",
+          "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n087720283a5b844433b1bb369218897ff318e37a",
+          "subject": "test(web): keep route tests out of the router generator",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4369fde720338bf587508198b5d857c91397c601",
+          "subject": "fix(web): stop new threads waiting on an unreachable project file",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n59e38ff4bd95376787aad4119bf8d0cf3d90a2a2",
+          "subject": "ci: add fork CI and release workflows",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n245eaf2cfc5a342b245620ab45d641f64457e8c1",
+          "subject": "ci: name the upstream base on fork releases",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n888f43b7caf944d0c870cfc7d145f2c3ea1d81d0",
+          "subject": "ci: name the newest upstream tag on a shared base commit",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n356bb6129c5263c58354fcf3299fb5c396a20b47",
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1faf023586a48e22fe7f463f5447b469a305611f",
+          "subject": "feat(server): hand every provider process its project and thread id",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nfee50a90f47d85c90c9e6580d2f13284ed6d94a7",
+          "subject": "fix(web): scale titlebar padding with interface zoom",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n492462cebf558600200e8720b6e7d28af4316f9f",
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2a875853a1f7dd68271a1f5a793e44023d1c9a65",
+          "subject": "Thread terminals and agents stop inheriting the launcher's tmux pane",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6d4342eca7588f73ee3c19eebe8b8b202c6e6925",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n845c1e7f91c72fd008ae45f2194497adb0973961",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n28ac8de4ae0d63fbeaf0ab48f3d9cbe9a913f410",
+          "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd52d56fa33373fe5121285e26e0c3e9823e96459",
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n506c6eda2326d0222160dc0209a1ca0078d265e7",
+          "subject": "One setting drives terminal attach and worktree binding for zmux",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n537907d8222fe293d7ee2e270978d6a1bff594a0",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3e25f77eabbaff64f8c68dd7886287b4a0f46812",
+          "subject": "fix: rebind the zmux session after a branch rename",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1c619e25a54e23f33f4f93932f9675d869fd1f30",
+          "subject": "fix: thread terminals attach only worktree-matched zmux sessions",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5cad382d1af89857a851835505d96bb42541cabd",
+          "subject": "fix: setup script terminals print a completion or failure marker",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1b36a9a40fff515f00fdb30ba07286627e17f864",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nae3715773caedd930c65949c9263d9aea5229119",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na3be9e313cd06e39b23ee62f8e166e65593758c4",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6af72ca91269a148d5cd424b48349645fb39a012",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n26946ca4d0cbd9d7d9f11a0f07a143d1c6508009",
+          "subject": "fix(web): keep the files explorer tab when a file opens (#84)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n974e1b97dd5e9282b62e97dc178fd21b051787a6",
+          "subject": "fix(server): provider spawns drop another harness identity (#108)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9465281a2c9fcf0593621348cb165d0cc4a6010f",
+          "subject": "feat(web): make issue handoff prompt configurable (#118)",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne547334a7a69c6f479357b460b74775702cc0fec",
+          "subject": "fix(web): thread jump keys switch threads while the terminal has focus",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1bf9d5a37a4093d06302f28202686f1f3db392cd",
+          "subject": "feat(web): show which pane owns keyboard focus",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4c89fcd1e23d5ef7e6da2ff1f3b98edc79ee4a4d",
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n81fb65f20141934a8f05f8a4e298861ef539cb38",
+          "subject": "feat(web): expose Worktrunk hook settings",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n281cf61e6a851b2414c9bda87d54bba927aed279",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n96d488a2aacddf997b58ed112ac7ee70c661cbaf",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7119549cd0022651af02a8fc32e3d1d5282719ec",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n251cfcbbca517ffe9baa625e9d7fda6956581512",
+          "subject": "feat(web): Issues panel shows GitHub's type, colour, and sub-issues, with ordering and filters (#142)",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3f0a1d3324943bfcfa70d7bebd1f53f5270a5cd2",
+          "subject": "fix(desktop): use themed app context menus",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6c664ef8747ef202cb42a6fa6d2849aac7263cd4",
+          "subject": "fix(web): confirm batch worktree deletion once (#156)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6e41a2dc96ccc1ecae31efffc9f5e27d16ce788a",
+          "subject": "fix(desktop): honor embedded browser wheel zoom (#169)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n568021621904cdea0d56a26bad34423b59098ccf",
+          "subject": "fix(desktop): prevent embedded browser zoom flash (#174)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n75826fbeb9753c2371b76c4cebab12975f195916",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2885892d03ce0703286b9b514788154133a70d89",
+          "subject": "fix(provider): resolve repo skills per workspace (#188)",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9b12c81c2818fb5dde006096b78cf95a2df3249b",
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5c18c834755d96adede9bee4ac71f88eb5d2fe02",
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4c67aa82a10f573bb1e54e8ec6703c26ebac4175",
+          "subject": "feat(server): serve paginated child work (#195)",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n58b2fc72e80b52246e56b354d293617b4c157476",
+          "subject": "fix(web): open sub-issues in sidebar tabs (#183)",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n200ad54ec6ef692bca3b6cb270e8fbd4030f0523",
+          "subject": "fix(server): bound child-work detail responses",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n97d203930169b720f1d141f277281b02d4b7a699",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n22cd1d1c9e7d0bb11cb2b498b4f772803dfbd3bf",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf58ca0d4027a2a9aa4e95f7d87d56d503747be6e",
+          "subject": "feat(server): preserve child result and diff detail",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nc4f526d961f5b739aed6975ca77a072b77f60ec0",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd3069205763f0108d74e5f3214ebaced2cbbc20a",
+          "subject": "ci(fork): add nightly channel to hyprws releases",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2c4f538f09d5037ffe88e1ef72bcb4fd1dab77c6",
+          "subject": "ci(fork): publish a nightly on every hyprws landing",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd5a4577bb838ec7424cf4ab844eb38fba676ec54",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2b8f39d518c6fc9e75419236d653b2e395c4a86e",
+          "subject": "ci(fork): keep the newest seven nightlies",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n79c359d48359a99f231fad042af2b08a500a0d24",
+          "subject": "feat(web): bookmark project and global browser pages (#219)",
+          "domain": "browser-bookmarks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na12094c5f63d9b901144d2366eadd768b3468a61",
+          "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3853d839a836244378d142229caf614ab259f2cb",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ncc87702ac2ff07731160b9d6ce0a602c54c34317",
+          "subject": "fix(server): GitManager hook tests pin the fixture hook path",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd3dfeb6ba3a01ce4dd95f929cdbe7815ee4e7a11",
+          "subject": "fix(web): align sidebar group controls",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb43f4da86ab4223b75acefd4ae1a3eefe9590947",
+          "subject": "feat(web): add sidebar group membership actions",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1e08628bd9ec1bd1ad8c221bf8bafc7017d58f5c",
+          "subject": "fix(web): keep sidebar group drag layout stable",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0dfba1e0eb73b3bc4dd3601bcee9ee0c8efd4032",
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1efeeebc0ceb0123ac91b6c4874813034f961cad",
+          "subject": "fix(web): soften sidebar group count badge",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5197d53648b5054b53e73883c4e4a1ec183ea0dc",
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n8036bf0e3af99262e37ef0fd3de65204b9b11627",
+          "subject": "ci(fork): keep body edits off the full matrix",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb5268461df6c86eb48876547c402b1739e7e82ef",
+          "subject": "ci(fork): run the matrix on merge_group, not on ready",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6adb13591704df6d17ad47d3df0b5d874bf30103",
+          "subject": "docs(fork): read the blocked issue body at gate 1",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nac676b339f7d3671fe2dbcd3e9caaeca5fb5334d",
+          "subject": "fix(fork): name the real nightly condition in orientation",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n61f78928c5df7f9b4d0dcdc5be2ac8568d56aa6d",
+          "subject": "docs(fork): name the rehearsal lane after the head it replays",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4a191e308b4e81bd5a2828501d5e791327b56cd0",
+          "subject": "docs(fork): restore the lockfile before the rehearsed rebase",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nae714ed2987852ded1dae9bb00bd1ca92e774102",
+          "subject": "docs(fork): assign the target tag inside the gate 1 block",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb76edfdff9f67c2b3feff7386c8fdfb6e162d24f",
+          "subject": "docs(fork): install before the gate 3 scan",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5754fff05fc1ecec87c991eadd3f57d968a88ba3",
+          "subject": "docs(fork): tell registry drift from manifest drift after the replay",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf8736537b43fd6e1c9fdabd64cd91b6f9ce457f8",
+          "subject": "fix(fork): print the repair each scan gap class needs",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na7028f45f6f9102e2c91a02767ded257dfa60ec1",
+          "subject": "Suspend hidden managed zmux terminal attachments",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nfdff2abad1a0d10ff0fba5d50876bb9e0f14ce09",
+          "subject": "fix(web): keep the sidebar brand inside a project window (#395)",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n954129c58896885d2f169c0950cd5e74ad6ecc4f",
+          "subject": "docs(fork): keep fork tests in fork-owned files",
+          "domain": "thread-ordering",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n92c9262255603f52bb0bc4dfef1072e5f2128bd8",
+          "subject": "test(fork): move fork test blocks into fork-owned siblings",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n30ff8ab6d85c59f5b09a0ff7d396e3595e1815ed",
+          "subject": "refactor(web): centralize thread window route scoping behind one fork hook",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nbe90793d326ad3beeecbc6dd2e351aa80b3eec5f",
+          "subject": "fix(desktop): recover stale Hyprland instance selection",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0a2295f97dd31e3fcdb9f459a07bbe866509e10c",
+          "subject": "fix(server): keep terminals in managed zmux sessions",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0f58756f65e532704c524e7499ae8e101b53a1a1",
+          "subject": "fix(desktop): isolate nested dev runner environment",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9e16e841f6d9bf7e1c15abf1906a41fb8734f395",
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0bd046ab9875bda3afdc281eebbbb059b78724ff",
+          "subject": "refactor(desktop): centralize preview window policy",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb44d98946cd0407338748a12a20c2bf731f39688",
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n96569a2574313f2aad9e4df5f79ef1f846cb0f3f",
+          "subject": "fix(desktop): preserve upstream preview bridge assembly",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n77aca34b7db714c0bf5e104bf25f6bf38c91f86f",
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne08bfb6d0fa69299c1c05c9c506b7fd834d76af7",
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4a9f9b802b699991fa5372e30284895ed699aa7a",
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9752216918ed52380243eeb31258abf12cbabc5a",
+          "subject": "refactor(web): isolate issue handoff settings search",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4046e085b888b0aa0432be5773bef660428b6714",
+          "subject": "refactor(web): isolate child-work navigation",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf40f8ea1317a550d9d6e3175acef26242f70ce0d",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n65e2154df3f89a0c779b8c6e42068ee6df297c90",
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na1937e1b037ec94b42e8c8e910370b3d03f80f69",
+          "subject": "fix(worktree): make setup independent of shell environment",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4ef6c7e286f32823e8bc17bca90e1e994019a985",
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nfb62eb087b824fde8fff59dc86af2d0d563fba6c",
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n8ec6cf537cfe17c5923437f32820bf0420c5a1e5",
+          "subject": "feat(dev): open isolated test apps alongside stable",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\naa58d52918e4c0320b64f4b28411c9b3d631a41e",
+          "subject": "refactor(terminal): isolate retained attachment state from metadata",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9590bbb6986e94738b102a310b53f9dc71ff01a4",
+          "subject": "refactor(provider): isolate fork agent option extensions",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5485dedf955a8bac895a73ea17e63050807c5c75",
+          "subject": "fix(server): preserve sessions when worktree removal fails",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n04426357343ffc59763859d0e0707e60a79d026d",
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nfed226c309efd77a2b463847de07ced62221773c",
+          "subject": "fix(fork): guard the thread navigation boundary",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n06d551ce383680407f8e97147d2af4fb9c535771",
+          "subject": "refactor(web): isolate scoped bootstrap and guard pull request scope",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ncecaf527a64ad7fad4214fbffc0f13c5e581260c",
+          "subject": "fix(server): ensure managed sessions on first terminal open",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb82d5e1f28d466130a1ba34fa12a1d76cd14b7d9",
+          "subject": "fix(fork): enforce selected-target test ownership",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3249aa40bfc8342319bf361affc027b2cd9ea7ba",
+          "subject": "fix(server): preserve terminals on failed managed retarget",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7104dedf30725568e75a9af5305b5e500507f3e9",
+          "subject": "test(desktop): prove preview profile and window ownership integration",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf2b750002e71be23afa4097e0c51c603b2e2e706",
+          "subject": "fix(fork): guard the settings search extension",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nc469c3d1e975436e36fb6501ea94e094d284db4e",
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n8f2b15a4d7b2ed667fc5b979a58e8950ac42a23e",
+          "subject": "fix(fork): guard ignored-file policy in the mobile route",
+          "domain": "workspace-files",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n46c5a56afe6076afd750564650e1c4287cd320e0",
+          "subject": "fix(fork): guard child-work navigation boundaries",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n606036e8fff0b7cc576780135ae212bfa5ae2555",
+          "subject": "fix(dev): retain cold-start previews and scope pairing recovery",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n98b84f21d08f7a8c04a7dd557e3cd66db61a50c7",
+          "subject": "fix(fork): guard rich Markdown preview boundaries",
+          "domain": "markdown-editing",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2d59a7371a7489a9ab3aae6155ccade274b5081a",
+          "subject": "feat(terminal): isolate terminal viewer attachments",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n652b2a1f3add4207fa3dffd381fb55c8f0342a2a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nef4a28fc1248e5b0bba13a7b76f36be5b90d6920",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n172840eb275b0c626f162e735e756d6e4cd391e1",
+          "subject": "feat(mobile): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n26b5d0bf3dd5b258f36709665d07a7bbdba8d110",
+          "subject": "fix(mobile): finish bounded diff tokenization",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n794951bd6e4c256f24d0eb89a04c16220582b49f",
+          "subject": "fix(web): expose checkout mode in terminal sidebar",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf7a8522d7d2457a1121744d375fee525296a2839",
+          "subject": "fix(server): preserve zmux compatibility errors",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7ba041c19565fb29393e21fc9516101e2e04d4cf",
+          "subject": "fix(server): retain large zmux redraws during retarget",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n905ac7faf8e37a97881daec680b37d880a0be58c",
+          "subject": "fix(server): preserve busy unmanaged terminals on checkout moves",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1507a7f2fe3de9221e19ac6721b56696ffcb4a22",
+          "subject": "fix(terminal): make checkout retry guidance exact",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2414f3b7a4b4e63594cd670186ed29916b170c8b",
+          "subject": "refactor(web): keep the attached terminal summary match behind a fork boundary",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf75c233e80093cd2089549e57e1dcde21ec4499c",
+          "subject": "fix(fork): cover the inspector surface in the ignored-file listing guard",
+          "domain": "workspace-files",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\neb4fb9d158e3595252759bb06cf3567799e0c6f0",
+          "subject": "refactor(web): route thread deletion through the navigation boundary",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3a31ab0f1cf23eb6868aefb738e7379aeaa6a1d0",
+          "subject": "fix(web): follow upstream pull-request listing behind the project scope seam",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n45494e52edc0f798095e838b37bafbc8a07107b0",
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ndfe4aaddbabb98085bc2d76ece55458168a3a57f",
+          "subject": "refactor(web): read physical sidebar scope from an ambient provider",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4c20423fd040267c6a99fa7c0f1e4f57ef84138f",
+          "subject": "refactor(provider): narrow the fork's agent seam in CodexDriver and ClaudeAdapter",
+          "domain": "custom-agents",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0dee7c2fbab6e3471d19604c46b0eb62fee66424",
+          "subject": "test(fork): move remaining pure fork titles behind the sibling boundary",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3be91a10225047282b371b6b33b15e165e7c0282",
+          "subject": "fix(desktop): keep preview window policy behind one fork boundary",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nade4470b581ddd6f39963b021b32c83661651a30",
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ndb8667c5465a4c7e8164872b7802cd387db3f01e",
+          "subject": "chore(agents): consolidate fork agent skills for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n70229565c1d9f1fca80891cfbd46da26eb8af7e6",
+          "subject": "ci(fork): consolidate fork workflows for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n680a464b876a996d429899f8eac21f34c854225c",
+          "subject": "chore(fork-sync): consolidate fork sync tooling for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd78c95091c6a0f554a75904885a67fa9d72a4d70",
+          "subject": "chore(fork): consolidate fork tooling for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n69d684ecf0f8d66c096f541ea7bc67c5d7159d96",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ndff9c8978df564ea52df787c33a181b912faa85c",
+          "subject": "docs(fork): scope the never-squash exception to the #671 domain flatten",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nc4b8937e03fec1e4bec3c2ec5253db2e437472e5",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n85e764bf6b9f3183b60f6964c0884848380eff6b",
+          "subject": "feat(fork): enforce a per-domain stack budget and record every walk's size",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6754f37b6d55bae7baa7dd7e4d3a9a18b44a4cbd",
+          "subject": "chore(fork): seed the per-domain stack budget baseline",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3696b82e88c7997ba0b2dec53896c9448bc839d8",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7f64336e9b4f03a4fe444672aafa97abfa865ea4",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6f8deb029bab392f93bc28cb1eabda183224306f",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n20e963c575ca09335a6df9cadbf9d4f4055ffcd4",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n064133c12807f8fc86fab849d359363df6497d38",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n64292e141dccadab7d114e1247c3c6f524deb05e",
+          "subject": "chore(fork-sync): repair tests after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2437ca67ae2288e8b8ef5216f4fc99ceedaed4a4",
+          "subject": "chore(fork-sync): run each focused suite from its own workspace",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2cf94078e25d543bdcc2b88ebbc750a870db5940",
+          "subject": "chore(fork-sync): rebind the stack size when the rehearsal head is refreshed",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne6da7dafbd76cbe85818ccf724fd185c723936f4",
+          "subject": "chore(fork-sync): repair budget after v0.0.41-nightly.20260909.1426",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n22353a5931aac04eed1760631ea6500abe2f78b2",
+          "subject": "fix(fork): make the required statuses green on clean trunk",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3176234767017b33d99382a77e45f8e7cca604aa",
+          "subject": "feat(fork): make the budget raise route actionable in the fork:delta gate",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n8811c0b51803a80f5a10f3f2a16269cf50b23585",
+          "subject": "fix(fork-sync): resume unblock-auto from the conflict stop it wrote",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5413e539aa2fa98b4ecedb213665b22ae1bed144",
+          "subject": "docs(fork): report every upstream test file the fork edits in place",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nb701c79ae4c6982efbb9461ee93e2776d346403b",
+          "subject": "docs(fork): document the route for a test that must diverge from upstream",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n8900b45e7950bb8dabed2505331ae1587037b608",
+          "subject": "fix(fork): record reachable repairs, tooling repairs, and walk cost on the churn ledger",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne85b243447486e37df4930559c3382d1b4f79c23",
+          "subject": "fix(fork): stop two unblock walks halting on their own bookkeeping",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2a10aa85ce06c37d11c473ef4ccbec324cd86b59",
+          "subject": "fix(fork): keep a filled decision cell across an unblock refresh",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na763f3f261986151b47fdd7ea86d3519c2a64d72",
+          "subject": "fix(fork): scope the retire-candidate probe to product source",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na4261e4da59161f716c967f6bf1db8f4acc6d308",
+          "subject": "fix(fork): refuse a fork commit that rewrites an upstream test assertion",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n66cb8dd5d0ab39cbc33a192ac27bd416234aaea7",
+          "subject": "feat(fork): keep the pull-request template's domain list equal to FORK_DOMAINS",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5720ad0fcb23aebc7dc9534078921d3ad7d62e35",
+          "subject": "docs(fork): correct two rebase-scan rows the append-only rule contradicts",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n848cc029d52e4abd09c9d3e8d3e82c9c7f7c8a3b",
+          "subject": "fix(desktop): trust every project window with snapshot IPC (#719)",
+          "domain": "project-windows",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3d91a7249b33c8e6e8d7ea1e64ab72c0ff7162d3",
+          "subject": "fix(fork): report an auto-rebase hard failure as a notification issue",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0aaa32c26a59d01454903847948d3b1d64ec2e2a",
+          "subject": "fix(fork): size the hard-failure notifier's budget raise inside its own domain",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4f67741e5d09ac7460776c920ba5daa31d51c21f",
+          "subject": "fix(fork): pick the hard-failure error line by content, not position",
+          "domain": "github-issues",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4dcdfc51d619d88aeaabf71d7c3acd918e379e68",
+          "subject": "fix(fork): run replay verification through the replay worktree's own vp launcher",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n6c0a289dba9c0bd5956b9251e1d9d09859d114d7",
+          "subject": "ci(fork): install libsecret build libs in the upstream sync walk jobs",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd30863bd4dbeedbf61f91dab043fa4071afc1998",
+          "subject": "chore(fork-sync): repair fork budget after v0.0.41-nightly.20260910.1473",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n3f687abad266f71619e8b26093cdce01e844bb8a",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260910.1473",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2cac25e3174433c1868d11f6fcf0463cc3563190",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n827846fc35e14cc2b23ee1e92964f90c7e472a07",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n1203fbebe2bffd97c297998fa9dc0b414f5ca233",
+          "subject": "chore(fork): size the backend-attach ceiling to the landed squash",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n9ae53d847452104e119afbea4722d4673bb8eb83",
+          "subject": "fix(fork): let fork:uat render against an immutable previous stable",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne67982b029c76fe248cf37a7290601bb7c2bb3fd",
+          "subject": "fix(fork): make the unblock walk stop instead of crash, and name what it declined (#753)",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne9c46a81c5c0edd6a4438392fcf92bf4266ce36f",
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne127c98c1a6593ca104c6d9b0ce0e460450caf88",
+          "subject": "fix(fork): measure the squash a body will land, not just its raise trailer",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n33bb4081e4adfd750bc93f9b8a726b09b2284250",
+          "subject": "fix(fork): treat packaging scripts as product in fork:uat",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n0778498352bf88163f623a05bc92012d5fad1a88",
+          "subject": "Nightly update channel never finds hyprws-nightly release tags",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ne42974ac423b63b0cf010f69edc3b9eed13cc346",
+          "subject": "put the release receipt push credential on its checkout",
+          "domain": "distribution",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\ncdfb79da1f2fce5d3f3de3e2eec7eec8de2f5618",
+          "subject": "fix(fork): keep the sync run green when no lesson can be assessed",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na8aa98606ed2ab51d291f95c96bc4cf2e0d8963f",
+          "subject": "fix(fork): let a blocking-seams churn verdict keep the carry walk running",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n877f0114110b34a1e33bfea11186113f5b9f77e8",
+          "subject": "fix(sync): let the carry job get past checkout on upstream's untracked gitlinks",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n5bcf2462915a4da441acc892f1094e5ba9d6554f",
+          "subject": "fix(sync): scrub the checkout includeIf credentials layout in the carry job",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n205a60277102b55ba74a74753190c7369c6ef6ef",
+          "subject": "fix(sync): stop the carried-walk coherence gate from reading the mirror line",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n2884599c05f4482e5812b7b983303015cd8fc390",
+          "subject": "fix(fork): let record-decisions write the pending row it promises",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n68dbd45096b79669f067b8113862e248ed24f5e2",
+          "subject": "fix(fork): decide a deletion whose upstream context only moved",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n7b3926e72e44caf895c2245b4c03826e349e6de5",
+          "subject": "feat(fork): render churn KPIs on the notification",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n97bdbbc8ac00e9ae0c790d3afde5b4094fe33110",
+          "subject": "fix(fork): fold walk repairs into the commit they repair",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd0c2801759dbd8f90608a06abf866092789ff446",
+          "subject": "fix(mobile): review highlighting no longer truncates on a cold pass",
+          "domain": "upstream-fixes",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nc8dbb8d9ca503e0244175975d2934d8a6a2d3ca8",
+          "subject": "feat(fork): forecast rebases against upstream main",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nf8539bd1974d52a343fe8aba5144ce045645f0a6",
+          "subject": "fix(fork): decide hook dependency array conflicts without a maintainer",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\na3335e5a5ae408d6097fa8ec381d790d55212777",
+          "subject": "fix(fork): configure forecast committer identity",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\n4c3a144df52491adfb3fd75bca40a23fa402c00e",
+          "subject": "fix(fork): drop unread dependency entries",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        },
+        {
+          "commit": "\nd4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
+          "subject": "feat(fork): forecast pull request rebase conflicts",
+          "domain": "fork-meta",
+          "conflicts": false,
+          "files": [],
+          "seam": null
+        }
+      ]
     }
   ]
 }
