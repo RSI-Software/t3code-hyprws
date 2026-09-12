@@ -561,6 +561,8 @@ async function highlightLines(
     const tokenLines = highlighter.codeToTokensBase(shortLineBatch.join("\n"), {
       lang: language,
       theme,
+      // A partial first pass differs from the warm result when Shiki reaches its 500 ms default.
+      tokenizeTimeLimit: 0,
     });
     highlightedLines.push(...normalizeHighlightedLines(tokenLines));
     shortLineBatch.length = 0;
