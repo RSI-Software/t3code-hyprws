@@ -130,6 +130,8 @@ export const autoOutcomeReceipts = (
     readonly publication: OutcomeStatus;
     readonly policy: OutcomeStatus;
     readonly url?: string;
+    /** Distinguishes "no lesson assessed" from "blocking seams" without a new ledger status. */
+    readonly reason?: "lesson-unavailable" | "blocking-seams";
   },
 ): ReadonlyArray<OutcomeReceipt> => {
   const receipts = [...declarations];
@@ -226,7 +228,11 @@ export const autoOutcomeReceipts = (
           attempt,
           "report-policy",
           reporting.policy,
-          "churn policy verdict is independent of publication",
+          reporting.reason === "lesson-unavailable"
+            ? "no lesson assessed on this walk (lesson-unavailable); policy verdict is independent of publication"
+            : reporting.reason === "blocking-seams"
+              ? "unresolved blocking seams refused the policy pass; verdict is independent of publication"
+              : "churn policy verdict is independent of publication",
         ),
       );
     }
