@@ -14,6 +14,7 @@ import {
   resolveBotRef,
 } from "./lib/fork-bot-refs.ts";
 import { runCommand, runCommandText } from "./lib/fork-command.ts";
+import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import {
   censusChurn,
   CONFLICT_CLASSES,
@@ -35,7 +36,13 @@ import {
   type ChurnEntry,
   type RepairCommit,
 } from "./fork-churn-ledger.ts";
-import { CHURN_MARKER, blockingSeamLines, renderChurnSection } from "./fork-churn-section.ts";
+import {
+  CHURN_MARKER,
+  blockingSeamLines,
+  renderChurnSection,
+  renderChurnKpiTable,
+  type ChurnDelta,
+} from "./fork-churn-section.ts";
 import { composeSeamBundle } from "./lib/fork-churn-compose.ts";
 import { bridgedLegacy, requireSeamRecords } from "./lib/fork-churn-seams.ts";
 import { UsageError } from "./lib/fork-cli.ts";
@@ -186,6 +193,45 @@ const readDurableLedger = (
   return entries;
 };
 
+/** Collect rendering inputs outside the pure section renderer; missing local tooling is visible. */
+const churnDelta = (root: string): ChurnDelta | null => {
+  const result = runCommand(process.execPath, ["scripts/fork-delta.ts", "--inventory", "--json"], {
+    cwd: root,
+  });
+  if (result.status !== 0) return null;
+  try {
+    const inventory = JSON.parse(result.stdout) as {
+      domains?: Array<{ domain?: unknown; commits?: unknown; added?: unknown; deleted?: unknown }>;
+    };
+    if (!Array.isArray(inventory.domains)) return null;
+    const domains = inventory.domains.map((row) => {
+      const { domain, commits, added, deleted } = row;
+      if (
+        typeof domain !== "string" ||
+        typeof commits !== "number" ||
+        typeof added !== "number" ||
+        typeof deleted !== "number" ||
+        !Number.isSafeInteger(commits) ||
+        !Number.isSafeInteger(added) ||
+        !Number.isSafeInteger(deleted)
+      )
+        throw new Error("invalid fork:delta inventory");
+      return { domain, commits, added, deleted, overlaps: 0 };
+    });
+    const budget = parseForkBudget(
+      NodeFS.readFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), "utf8"),
+    );
+    return {
+      commits: domains.reduce((total, row) => total + row.commits, 0),
+      overBudget: [
+        ...new Set(budgetFindings(domains, budget).map((finding) => finding.domain)),
+      ].toSorted(),
+    };
+  } catch {
+    return null;
+  }
+};
+
 interface IssueView {
   readonly body: string;
   readonly url: string;
@@ -247,6 +293,9 @@ const percentage = (part: number, total: number): string => `${((part / total) *
 export const renderMarkdown = (
   rawEntries: ReadonlyArray<ChurnEntry>,
   forkDelta: string,
+  records: ReadonlyArray<import("./lib/fork-churn-seams.ts").SeamRecord> = [],
+  outcomes: ReadonlyArray<import("./lib/fork-sync-outcomes.ts").OutcomeReceipt> = [],
+  delta: ChurnDelta | null = null,
 ): string => {
   // A pending row is a stopped walk's in-progress record; the published document shows walks.
   const entries = rawEntries.filter((entry) => entry.pending !== true);
@@ -415,6 +464,8 @@ export const renderMarkdown = (
     lines.push("");
   }
 
+  lines.push("## KPIs", "", ...renderChurnKpiTable(entries, records, outcomes, delta), "");
+
   lines.push("## Walks", "");
   if (entries.length === 0) {
     lines.push("None.", "");
@@ -456,8 +507,16 @@ export const renderMarkdown = (
   return `${lines.join("\n").trimEnd()}\n`;
 };
 
-const renderForRoot = (root: string, entries: ReadonlyArray<ChurnEntry>): string =>
-  renderMarkdown(entries, NodeFS.readFileSync(NodePath.join(root, DELTA_PATH), "utf8"));
+const renderForRoot = (root: string, entries: ReadonlyArray<ChurnEntry>): string => {
+  const state = readChurnState(root);
+  return renderMarkdown(
+    entries,
+    NodeFS.readFileSync(NodePath.join(root, DELTA_PATH), "utf8"),
+    state.seamRecords,
+    state.outcomes,
+    churnDelta(root),
+  );
+};
 
 const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<string, string> => {
   const options = new Map<string, string>();
@@ -587,7 +646,12 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     after,
     recordUrl,
     conflicts,
-    decisions: parsed.decisions,
+    // A pending record legitimately carries fork-commit rows whose Action cell is still TODO
+    // (#876). Such a row is not a decision: the applied row's real verdicts and the walkDecisions
+    // carry the substance, so the TODO rows are dropped instead of widening the ledger schema.
+    decisions: pending
+      ? parsed.decisions.filter((row) => (row.verdict as string) !== "TODO")
+      : parsed.decisions,
     censusFiles: parseCensusFiles(issueView.body),
     ...(censusEvidence === null ? {} : { censusEvidence }),
     ...(silentSeams.length === 0 ? {} : { silentSeams }),
@@ -671,13 +735,23 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     if (option !== "--issue" && option !== "--receipt")
       throw new UsageError(`unknown option: ${option}`);
   const receiptPath = options.get("--receipt");
-  const receipt = (publication: string, policy: string, url?: string) => {
+  const receipt = (
+    publication: string,
+    policy: string,
+    url?: string,
+    reason?: "lesson-unavailable" | "blocking-seams",
+  ) => {
     if (receiptPath === undefined) return;
     const path = NodePath.resolve(root, receiptPath);
     NodeFS.mkdirSync(NodePath.dirname(path), { recursive: true });
     NodeFS.writeFileSync(
       path,
-      `${JSON.stringify({ publication, policy, ...(url ? { url } : {}) })}\n`,
+      `${JSON.stringify({
+        publication,
+        policy,
+        ...(url ? { url } : {}),
+        ...(reason ? { reason } : {}),
+      })}\n`,
     );
   };
   receipt("not-attempted", "not-attempted");
@@ -720,7 +794,14 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   const section =
     churn === null
       ? `${CHURN_MARKER}\n## Churn\n\nLesson assessment unavailable: ${unavailable}. No repair or policy pass is inferred.\n`
-      : renderChurnSection(entries, existing?.body ?? null, currentCensus, records);
+      : renderChurnSection(
+          entries,
+          existing?.body ?? null,
+          currentCensus,
+          records,
+          lessons.outcomes ?? [],
+          churnDelta(root),
+        );
   const body = `${section}\n\n\`\`\`text\n${renderLessonSource(source, lessons)}\n\`\`\`\n`;
   const bodyPath = NodePath.join(
     NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-churn-report-")),
@@ -751,19 +832,36 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
   }
   process.stdout.write(`churn section on #${issue}: ${url}\n`);
   if (churn === null) {
-    receipt("succeeded", "failed", url);
-    process.stderr.write(
+    // A missing lesson is a warning on the notification, not a job failure: the
+    // run already selected a target and the outcome step still records it
+    // (RSI-Software/t3code-hyprws#860). Blocking seams keep their own exit 1.
+    receipt("succeeded", "failed", url, "lesson-unavailable");
+    process.stdout.write(
       `Lesson assessment unavailable: ${unavailable}; the published report does not establish a policy pass.\n`,
     );
-    return 1;
+    return 0;
   }
   const failures = blockingSeamLines(churn);
-  receipt("succeeded", failures.length === 0 ? "succeeded" : "failed", url);
-  if (failures.length === 0) return 0;
-  process.stderr.write(
-    `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
+  receipt(
+    "succeeded",
+    failures.length === 0 ? "succeeded" : "failed",
+    url,
+    failures.length === 0 ? undefined : "blocking-seams",
   );
-  return 1;
+  if (failures.length === 0) return 0;
+  // The verdict stays recorded but no longer fails the job: the carried unblock
+  // walk owns seam resolution and the outcome ledger keeps `report-policy:
+  // failed` visible (RSI-Software/t3code-hyprws#869). Publication failures still
+  // throw and exit nonzero above.
+  if (process.env.GITHUB_ACTIONS === "true")
+    process.stdout.write(
+      `::warning::${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n`,
+    );
+  else
+    process.stderr.write(
+      `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
+    );
+  return 0;
 };
 
 /**
