@@ -190,8 +190,11 @@ against that exact advertised commit. An absent, unreachable, moving or diverged
 refuses with the local, remote and expected SHAs and overwrites neither ref. A write without
 `--push` performs no remote query and keeps its local-ref behavior.
 Only a verified current source can establish a report policy pass. A report published from
-stale, offline or unavailable retained evidence records publication success separately from
-policy failure and exits nonzero; its limitation remains visible in the published section.
+stale, offline or unavailable retained evidence, or with unresolved blocking seams, records
+publication success separately from a policy failure in the outcome ledger
+(`report-policy: failed`) while the run stays green and the carried unblock walk proceeds; the
+limitation remains visible in the published section, as a `::warning::` on Actions and plain
+stderr elsewhere.
 SHA and ordinary branch arguments are refused before Git runs; inspect an immutable snapshot
 directly with `git show <full-sha>:fork-churn.json` instead.
 
