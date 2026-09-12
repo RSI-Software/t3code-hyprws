@@ -253,57 +253,60 @@ it("mechanically applies an upstream deletion when the fork left its base bytes 
   }
 });
 
-it("mechanically resolves the ChatView dependency-array seams without stale entries", () => {
+it("resolves the real ChatView dependency-array conflict from 347da0d7ad", () => {
   const root = fixture();
   const runner = new SystemCommandRunner();
   const path = "apps/web/src/components/ChatView.tsx";
-  const hook = (body: string, dependencies: string) =>
+  const chatView = (firstDependencies: string, secondDependencies: string) =>
     [
-      "const callback = useCallback(",
-      "  () => {",
-      body,
+      "const settings = {};",
+      "const routeFamily = { draft: (id: string) => id };",
+      'const runtimeMode = "legacy";',
+      'const defaultRuntimeMode = "default";',
+      "const openOrReuseProjectDraftThread = useCallback(",
+      "  async () => {",
+      "    await navigate(routeFamily.draft(nextDraftId));",
+      "    resolveProjectSettings(settings, activeProject.id, activeProject);",
       "  },",
       "  [",
-      dependencies,
+      firstDependencies,
+      "  ],",
+      ");",
+      "",
+      "const submit = useCallback(",
+      "  () => {",
+      "    startThreadTurn({ runtimeMode: defaultRuntimeMode });",
+      "    navigate(routeFamily.draft(nextDraftId));",
+      "  },",
+      "  [",
+      secondDependencies,
       "  ],",
       ");",
       "",
     ].join("\n");
   try {
-    // `.1576` hunk A: the body reads both settings and routeFamily.
+    // These are the two regions git left in ChatView.tsx when 347da0d7ad replayed onto `.1576`.
     stageConflict(root, path, {
-      base: hook("    consume(settings);\n    consume(routeFamily);", "    legacy,"),
-      ours: hook("    consume(settings);\n    consume(routeFamily);", "    settings,"),
-      theirs: hook("    consume(settings);\n    consume(routeFamily);", "    routeFamily,"),
+      base: chatView("", "    runtimeMode,"),
+      ours: chatView("      settings,", "    defaultRuntimeMode,"),
+      theirs: chatView("      routeFamily,", "    routeFamily,\n    runtimeMode,"),
     });
-    const first = executeConflictOutcome(runner, root, path);
-    assert.isFalse(isUnresolved(first));
-    if (isUnresolved(first)) return;
-    assert.deepInclude(first, { take: "union", conflictClass: "mechanical", source: "keep-both" });
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.deepInclude(outcome, {
+      take: "union",
+      conflictClass: "mechanical",
+      source: "keep-both",
+    });
     assert.include(
-      NodeFS.readFileSync(NodePath.join(root, path), "utf8"),
-      "    settings,\n    routeFamily,",
+      outcome.resolution,
+      "dropped runtimeMode because the hook body does not read it",
     );
-
-    // `.1576` hunk B: runtimeMode is stale; the callback reads defaultRuntimeMode and routeFamily.
-    const stale = "apps/web/src/components/ChatView-stale.tsx";
-    stageConflict(root, stale, {
-      base: hook("    consume(defaultRuntimeMode);\n    consume(routeFamily);", "    legacy,"),
-      ours: hook(
-        "    consume(defaultRuntimeMode);\n    consume(routeFamily);",
-        "    defaultRuntimeMode,",
-      ),
-      theirs: hook(
-        "    consume(defaultRuntimeMode);\n    consume(routeFamily);",
-        "    routeFamily,\n    runtimeMode,",
-      ),
-    });
-    const second = executeConflictOutcome(runner, root, stale);
-    assert.isFalse(isUnresolved(second));
-    if (isUnresolved(second)) return;
-    const resolved = NodeFS.readFileSync(NodePath.join(root, stale), "utf8");
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "      settings,\n      routeFamily,");
     assert.include(resolved, "    defaultRuntimeMode,\n    routeFamily,");
-    assert.notInclude(resolved, "runtimeMode,");
+    assert.notInclude(resolved, "    runtimeMode,");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -332,6 +335,39 @@ it("declines unreferenced dependency entries and non-dependency rewrites", () =>
       theirs: hook("    return routeFamily ? settings : fallback;", "    routeFamily,"),
     });
     assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, ternary)));
+
+    // A property key alone does not prove that runtimeMode is read, so it cannot authorize
+    // removing that dependency just because routeFamily is unambiguous.
+    const propertyKeyOnly = "apps/web/src/components/property-key-only.tsx";
+    stageConflict(root, propertyKeyOnly, {
+      base: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    legacy,",
+      ),
+      ours: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    runtimeMode,",
+      ),
+      theirs: hook(
+        "    report({ runtimeMode: defaultRuntimeMode });\n    consume(routeFamily);",
+        "    routeFamily,",
+      ),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, propertyKeyOnly)));
+
+    // Template interpolation can read an entry, but the local scanner cannot prove that safely.
+    const template = "apps/web/src/components/template.tsx";
+    const templateSource = [
+      "const settings = {};",
+      "const routeFamily = {};",
+      hook("    return `${settings}`;", "    legacy,"),
+    ].join("\n");
+    stageConflict(root, template, {
+      base: templateSource,
+      ours: templateSource.replace("    legacy,", "    settings,"),
+      theirs: templateSource.replace("    legacy,", "    routeFamily,"),
+    });
+    assert.isTrue(isUnresolved(executeConflictOutcome(runner, root, template)));
 
     const notDependencies = "apps/web/src/components/not-dependencies.tsx";
     stageConflict(root, notDependencies, {
