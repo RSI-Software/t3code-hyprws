@@ -778,10 +778,19 @@ const report = (args: ReadonlyArray<string>, root: string): number => {
     failures.length === 0 ? undefined : "blocking-seams",
   );
   if (failures.length === 0) return 0;
-  process.stderr.write(
-    `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
-  );
-  return 1;
+  // The verdict stays recorded but no longer fails the job: the carried unblock
+  // walk owns seam resolution and the outcome ledger keeps `report-policy:
+  // failed` visible (RSI-Software/t3code-hyprws#869). Publication failures still
+  // throw and exit nonzero above.
+  if (process.env.GITHUB_ACTIONS === "true")
+    process.stdout.write(
+      `::warning::${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n`,
+    );
+  else
+    process.stderr.write(
+      `${failures.length} unresolved blocking seam(s); full evidence is in the issue report.\n${failures.slice(0, 10).join("\n")}\n`,
+    );
+  return 0;
 };
 
 /**
