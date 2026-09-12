@@ -3817,7 +3817,7 @@ it("stops the walk exactly twice: the lane cannot test, or the replay does not h
 });
 
 const REPAIRED = "e".repeat(40);
-const REPAIR_SUBJECT = "chore(fork-sync): repair typecheck after v1.2.3";
+const REPAIR_SUBJECT = "chore(fork-sync): typecheck after v1.2.3";
 const rehearsal = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   "-c",
   "core.commentChar=auto",
@@ -3874,16 +3874,19 @@ const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
   });
   state.runner.set(
     "git",
-    rehearsal(["log", "--format=%x1e%H%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
-    { stdout: `\x1e${C}\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\nscripts/fork-sync.ts\n` },
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout: `\x1e${C}\x1ffeat(fork): owner\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\nscripts/fork-sync.ts\n`,
+    },
   );
   state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
-    stdout: `${REPAIRED}\x1f${REPAIR_SUBJECT}\n`,
+    stdout: `${REPAIRED}\x1ffixup! feat(fork): owner\n`,
   });
   // The installed-tree read still sees the replayed head; the guard after the repair sees the
   // commit the walk just appended.
   state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
     { stdout: `${A}\n` },
+    { stdout: `${REPAIRED}\n` },
     { stdout: `${REPAIRED}\n` },
   ]);
   // The replay proof counts the fork series; the stack size the record binds counts the head.
@@ -3926,33 +3929,22 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
       "41898282+github-actions[bot]@users.noreply.github.com",
     );
     const message = commit?.args[5] ?? "";
-    assert.include(message, REPAIR_SUBJECT);
-    assert.include(message, "Fork-Domain: fork-meta");
-    assert.include(message, "Fork-Tier: bugfix");
-    assert.include(message, "Fork-Repair: v1.2.3");
-    // A replayed fork commit is never rewritten to carry a repair.
-    assert.isFalse(
-      state.runner.calls.some(({ args }) =>
-        args.some((arg) => arg === "--amend" || arg === "--autosquash" || arg.startsWith("fixup!")),
-      ),
-    );
+    assert.strictEqual(message, "fixup! feat(fork): owner");
+    assert.notInclude(message, "Fork-");
+    assert.isTrue(state.runner.calls.some(({ args }) => args.includes("--autosquash")));
     // The ledger check runs again over the appended commit, in the lane, before the report closes.
     const deltaChecks = state.runner.calls.filter(
       ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
     );
     assert.strictEqual(deltaChecks.length, 2);
 
-    assert.deepStrictEqual(checked.walk?.repairCommits, [
-      { sha: REPAIRED, subject: REPAIR_SUBJECT },
-    ]);
+    assert.isUndefined(checked.walk?.repairCommits);
     // What the apply publishes is the repaired head, and the record binds it.
     assert.strictEqual(checked.installedHead, REPAIRED);
     assert.strictEqual(checked.rebasedHead, REPAIRED);
     assert.strictEqual(checked.stackSize, 2);
     const record = NodeFS.readFileSync(checked.recordPath, "utf8");
-    assert.deepStrictEqual(parseRepairCommits(record), [
-      { sha: REPAIRED, subject: REPAIR_SUBJECT },
-    ]);
+    assert.deepStrictEqual(parseRepairCommits(record), []);
 
     // The apply gate accepts the appended commit and still refuses a fork commit that changed.
     const binding = {
@@ -3992,8 +3984,8 @@ it("formats what the repair rewrote before it commits", () => {
       "scripts/fork-sync.ts",
     ]);
     // What it rewrote is re-staged and committed, not left behind for trunk's `vp check` to find.
-    assert.isTrue(order[formatted + 1]?.args.includes("add"));
-    assert.isTrue(order[formatted + 2]?.args.includes("commit"));
+    assert.isTrue(order.slice(formatted + 1).some(({ args }) => args.includes("add")));
+    assert.isTrue(order.slice(formatted + 1).some(({ args }) => args.includes("commit")));
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -4281,7 +4273,7 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       [{ check: "readded", path: "apps/web/src/thing.ts" }],
     );
     const repair = report.walk?.repairCommits?.[0];
-    assert.include(repair?.subject ?? "", "chore(fork-sync): repair additive after");
+    assert.include(repair?.subject ?? "", "chore(fork-sync): additive after");
     assert.strictEqual(additive?.commit, repair?.sha);
     assert.isUndefined(report.walk?.stop);
     // The fix removed the re-add, and the commit carries the repair trailers.
