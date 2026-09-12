@@ -175,10 +175,9 @@ export interface RepairCommitInput {
 }
 
 /**
- * A repair is the walk's own commit, never an amend of the fork commit it follows: the replayed
- * SHAs stay exactly what the rehearsal proved. `Fork-Upstreamable: no` is structural — a repair
- * exists only to keep this fork's replay green, so it is never a candidate to send anywhere — and
- * `Fork-Repair` is what the replay proofs read to keep it out of the fork series.
+ * An unattributable repair remains the walk's standalone bookkeeping commit. Its subject avoids
+ * the legacy `chore(fork-sync): repair` form, which the delta check reserves for the pre-fold
+ * backlog; `Fork-Repair` keeps it out of replay accounting.
  */
 export const repairCommitMessage = ({
   kind,
@@ -188,7 +187,7 @@ export const repairCommitMessage = ({
   budgetRaise,
 }: RepairCommitInput): string =>
   [
-    `chore(fork-sync): repair ${kind} after ${tag}`,
+    `chore(fork-sync): ${kind} after ${tag}`,
     "",
     budgetRaise === undefined
       ? `\`${command}\` rewrote the worktree while replaying onto ${tag}.`
