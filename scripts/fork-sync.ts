@@ -3101,10 +3101,10 @@ const orientationIncoherence = (report: SyncReport, runner: CommandRunner): stri
     reasons.push(`origin/hyprws is at ${source}, leased at ${report.source.expectedOld}`);
   if (report.source.sharedBase !== sharedBase)
     reasons.push(`the shared base is ${sharedBase}, oriented at ${report.source.sharedBase}`);
-  if (
-    !/^mirror:\s+origin\/main matches upstream\/main at [0-9a-f]{7,64}$/m.test(report.orientation)
-  )
-    reasons.push("origin/main does not mirror upstream/main");
+  // The `mirror:` line is deliberately not part of coherence: a tag-pinned walk
+  // reports mirror currency as advisory (fork-preflight --tag-pinned), and
+  // upstream can advance behind the carried mirror mid-walk without any ref the
+  // walk leases having moved.
   return reasons.length === 0 ? null : reasons.join("; ");
 };
 
