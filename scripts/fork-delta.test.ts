@@ -28,6 +28,7 @@ import {
   collectWireShapeFindings,
   collectWireShapeFindingsBetween,
   collectFindings,
+  dropTransientFixups,
   forkLogArguments,
   legacyWalkRepairFindings,
   parseCommitNumstat,
@@ -160,6 +161,24 @@ it("reports missing and unknown trailers", () => {
       'eeeeeeeee: unknown Fork-Tier "polish" (expected core, qol, bugfix)',
     ],
   );
+});
+
+it("ignores trailer-free walk fixups entirely: the autosquash folds them after the check", () => {
+  const withFixup = parseForkLog(
+    record("bbbbbbbbb", "fixup! fix(web): scope markdown actions", "") +
+      record(
+        "aaaaaaaaa",
+        "fix(web): scope markdown actions",
+        "Fork-Domain: project-windows\nFork-Tier: bugfix\nFork-Upstreamable: yes\n",
+      ),
+  );
+  const folded = dropTransientFixups(withFixup);
+  assert.deepStrictEqual(
+    folded.map((commit) => commit.short),
+    ["aaaaaaaaa"],
+  );
+  assert.deepStrictEqual(collectFindings(folded), []);
+  assert.deepStrictEqual(legacyWalkRepairFindings(folded, new Set()), []);
 });
 
 it("refuses an ungrandfathered legacy walk repair but ignores absent grandfather entries", () => {
