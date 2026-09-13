@@ -28,7 +28,9 @@ jobs:
         with:
           ref: hyprws
           fetch-depth: 0
-          persist-credentials: false
+          # Upstream's undeclared gitlinks make checkout's credential-teardown foreach exit 128 (RSI-Software/t3code-hyprws#896).
+          # Same decision as hyprws-release.yml and hyprws-upstream-sync.yml; token is job-scoped,
+          # and the pull-request head is fetched as data only.
 
       - uses: voidzero-dev/setup-vp@v1
         with:
