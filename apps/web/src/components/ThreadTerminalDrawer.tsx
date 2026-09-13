@@ -31,7 +31,11 @@ import {
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadId,
 } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import {
+  disambiguateTerminalLabels,
+  getTerminalLabel,
+  splitTerminalLabelSuffix,
+} from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -1532,6 +1536,7 @@ function TerminalSidebarGroup({
         {terminalGroup.terminalIds.map((terminalId) => {
           const isActive = terminalId === activeTerminalId;
           const terminalLabel = terminalLabelById.get(terminalId) ?? "Terminal";
+          const { base: labelBase, suffix: labelSuffix } = splitTerminalLabelSuffix(terminalLabel);
           const closeTerminalLabel = `Close ${terminalLabel}${
             isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""
           }`;
@@ -1561,7 +1566,8 @@ function TerminalSidebarGroup({
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
                 onClick={() => onActiveTerminalChange(terminalId)}
               >
-                <span className="truncate">{terminalLabel}</span>
+                <span className="truncate">{labelBase}</span>
+                {labelSuffix ? <span className="shrink-0">{labelSuffix}</span> : null}
               </button>
             </div>
           );
@@ -1761,7 +1767,9 @@ export default function ThreadTerminalDrawer({
     for (const terminalId of normalizedTerminalIds) {
       next.set(terminalId, terminalLabelsById?.get(terminalId) ?? getTerminalLabel(terminalId));
     }
-    return next;
+    // Terminals sharing a zmux session all carry the session target as their
+    // label; suffix duplicates so the strip stays readable.
+    return disambiguateTerminalLabels(next);
   })();
 
   const resolvedActiveTerminalId =
