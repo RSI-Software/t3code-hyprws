@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650190083",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650239226",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9509,6 +9509,33 @@
           "commit": "4c20423fd040",
           "subject": "refactor(provider): narrow the fork's agent seam in CodexDriver and ClaudeAdapter",
           "domain": "custom-agents",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/threads/new-task-flow-provider.tsx",
+          "commit": "c4b8937e03fe",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/ProjectSettingsPanel.tsx",
+          "commit": "c4b8937e03fe",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/hooks/useHandleNewThread.ts",
+          "commit": "c4b8937e03fe",
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
