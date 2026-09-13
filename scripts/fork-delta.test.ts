@@ -10,7 +10,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import { FORK_PR_TEMPLATE_PATH } from "./lib/fork-pr-template.ts";
-import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
+import { parseForkRetirementLedger, retirementDecision } from "./lib/fork-retirement-ledger.ts";
 import { FORK_DOMAINS } from "./lib/fork-trailers.ts";
 import {
   budgetFindings,
@@ -287,6 +287,43 @@ it("skips retired subjects from listings and makes --check fail while one is pre
     problem: "retired but present",
   });
   assert.isAbove(ledger.findings.length, 0);
+});
+
+it("fails kept but absent: a Kept row whose commit left the stack without a Retired row", () => {
+  const retirementLedger = parseForkRetirementLedger(
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n| feat(web): add manual sidebar thread ordering | thread-ordering | kept for fork users | v1.0.0 |\n",
+  );
+  const ledger = buildLedger("upstream/main", "HEAD", parseForkLog(fixture), retirementLedger);
+  assert.deepInclude(ledger.findings, {
+    short: "ledger",
+    subject: "feat(web): add manual sidebar thread ordering",
+    problem: "kept but absent",
+  });
+});
+
+it("resolves a subject written as a code span to its bare commit subject", () => {
+  const backticked = parseForkRetirementLedger(
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n| `fix(web): scope markdown actions` | project-windows | `canonical/project#123` | v1.0.0 |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
+  );
+  // The exact subject the commit carries, and the backticked spelling, are the
+  // same key: a code span in the table must not silently resolve to none.
+  assert.strictEqual(
+    retirementDecision(backticked, "fix(web): scope markdown actions").decision,
+    "retire",
+  );
+  assert.strictEqual(
+    retirementDecision(backticked, "`fix(web): scope markdown actions`").decision,
+    "retire",
+  );
+  // Inner or unpaired backticks are part of the subject, not its wrapping.
+  const bare = parseForkRetirementLedger(
+    "## Retired\n\n| Fork commit | Domain | Upstream replacement | Retired at |\n| --- | --- | --- | --- |\n| fix(web): scope `markdown` actions | project-windows | `canonical/project#123` | v1.0.0 |\n\n## Kept\n\n| Fork commit | Domain | Reason | Reviewed at |\n| --- | --- | --- | --- |\n",
+  );
+  assert.strictEqual(
+    retirementDecision(bare, "fix(web): scope `markdown` actions").decision,
+    "retire",
+  );
+  assert.strictEqual(retirementDecision(bare, "fix(web): scope markdown actions").decision, "none");
 });
 
 it("keeps a partial subject active when its retired and kept portions are both recorded", () => {
