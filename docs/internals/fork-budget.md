@@ -13,12 +13,12 @@ so a new domain fails the check until a commit adds its row.
 | ----------------- | ------- | ----- | ------- | ------ |
 | backend-attach    | 1       | 2820  | 325     | 3      |
 | browser-bookmarks | 1       | 816   | 29      | 0      |
-| custom-agents     | 10      | 8748  | 739     | 0      |
+| custom-agents     | 10      | 8751  | 740     | 0      |
 | distribution      | 17      | 1525  | 158     | 0      |
-| fork-meta         | 45      | 71860 | 5788    | 11     |
+| fork-meta         | 45      | 71862 | 5788    | 11     |
 | github-issues     | 11      | 7822  | 1033    | 0      |
 | markdown-editing  | 4       | 3909  | 1299    | 0      |
-| project-windows   | 47      | 14344 | 2899    | 0      |
+| project-windows   | 47      | 14344 | 2900    | 0      |
 | thread-ordering   | 8       | 2338  | 229     | 0      |
 | upstream-fixes    | 26      | 4552  | 453     | 6      |
 | workspace-files   | 4       | 403   | 48      | 0      |
