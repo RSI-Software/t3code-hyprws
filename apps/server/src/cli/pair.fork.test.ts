@@ -4,47 +4,32 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
-import { LocalServerPairCommandOutput } from "@t3tools/contracts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as TestConsole from "effect/testing/TestConsole";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
-import { cli } from "../bin.ts";
+import { cli } from "../binCli.ts";
+import { deriveServerPaths } from "../config.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
 
-const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
-
-const decodePairJsonOutput = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(LocalServerPairCommandOutput),
-);
+const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer);
 
 const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);
 
 const provideCliTestLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provide(effect, Layer.mergeAll(CliRuntimeLayer, TestConsole.layer));
-
-// Console output accumulates across CLI runs within a test, and each
-// Console.log call is one entry — so the latest command's output is the last
-// entry, even when it spans many lines.
-const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  provideCliTestLayers(
-    Effect.gen(function* () {
-      yield* effect;
-      return (
-        (yield* TestConsole.logLines).findLast(
-          (line): line is string => typeof line === "string",
-        ) ?? ""
-      );
-    }),
-  );
 
 const testDescriptor = {
   environmentId: "pair-test-environment",
@@ -79,43 +64,39 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
     (server) => Effect.sync(() => server.close()),
   );
 
-describe("t3 pair --json", () => {
-  it.effect("prints one machine-readable object with --json", () =>
+describe("t3 pair", () => {
+  it.effect("leaves the running server's schema alone", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
-        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-json-test-"));
-        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-test-"));
         yield* persistServerRuntimeState({
-          path: statePath,
+          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
           state: yield* makePersistedServerRuntimeState({
             config: { host: "127.0.0.1", devUrl: undefined },
             port: Number(new URL(origin).port),
           }),
         });
+        // The running server is one migration behind this install.
+        const { dbPath } = yield* deriveServerPaths(baseDir, undefined);
+        const migrations = Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ readonly id: number }>`
+            SELECT migration_id AS id FROM effect_sql_migrations ORDER BY migration_id`;
+        });
+        const behind = yield* Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`DELETE FROM effect_sql_migrations
+            WHERE migration_id = (SELECT MAX(migration_id) FROM effect_sql_migrations)`;
+          return yield* migrations;
+        }).pipe(Effect.provide(SqlitePersistence.layerFromPath(dbPath)));
 
-        const output = yield* captureStdout(
-          runCli(["pair", "--base-dir", baseDir, "--label", "Desktop", "--json"]),
-        );
-        const decoded = yield* decodePairJsonOutput(output);
+        yield* provideCliTestLayers(runCli(["pair", "--base-dir", baseDir, "--label", "Desktop"]));
 
-        assert.deepEqual(Object.keys(decoded), [
-          "pairingUrl",
-          "token",
-          "expiresAt",
-          "origin",
-          "environmentId",
-          "label",
-        ]);
-        assert.equal(decoded.origin, origin);
-        assert.equal(decoded.environmentId, testDescriptor.environmentId);
-        assert.equal(decoded.label, testDescriptor.label);
-        assert.match(String(decoded.pairingUrl), new RegExp(`^${origin}/pair#token=`));
-        assert.equal(
-          new URL(String(decoded.pairingUrl)).hash.slice("#token=".length),
-          decoded.token,
+        const after = yield* migrations.pipe(
+          Effect.provide(NodeSqliteClient.layer({ filename: dbPath })),
         );
-        assert.isFalse(/Pairing with|Note:|[█▀▄]/.test(output));
+        assert.deepEqual(after, behind);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });

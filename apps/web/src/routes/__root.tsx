@@ -23,7 +23,6 @@ import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDial
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { DevReplayHost } from "../components/DevReplayHost";
-import { DesktopLocalAutoPair } from "../connection/DesktopLocalAutoPair";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -51,11 +50,7 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { useUiStateStore } from "../uiStateStore";
 import { configureClientTracing } from "../observability/clientTracing";
-import {
-  isDesktopClientOnlyMode,
-  readOptionalPrimaryEnvironmentTarget, // fork-hook: backend-attach/route-import
-  resolveInitialServerAuthGateState,
-} from "../environments/primary";
+import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { GUEST_PAGE_PATH } from "../guestPage";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
@@ -88,11 +83,7 @@ export const Route = createRootRoute({
       };
     }
 
-    if (
-      isLocalEnvironmentDisabled() ||
-      isHostedStaticApp(new URL(window.location.href)) ||
-      (isDesktopClientOnlyMode() && !readOptionalPrimaryEnvironmentTarget()) // fork-hook: backend-attach/route-gate
-    ) {
+    if (isLocalEnvironmentDisabled() || isHostedStaticApp(new URL(window.location.href))) {
       return {
         authGateState: {
           status: "hosted-static",
@@ -210,7 +201,6 @@ function RootRouteBranch() {
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />
       {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}
-      <DesktopLocalAutoPair />
     </>
   );
   const appShell = (

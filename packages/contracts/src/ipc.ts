@@ -2,11 +2,6 @@ import * as Schema from "effect/Schema";
 import type { PreviewCaptureFailureEncoded } from "./previewCapture.ts";
 
 import { SnapShotSource } from "./chatAttachment.ts";
-import {
-  type AttachedPrimaryLifecycle,
-  AttachedPrimaryLifecycleSchema,
-  type AttachedPrimaryRejectReason,
-} from "./attachedPrimary.fork.ts"; // fork-hook: backend-attach/contracts-import
 import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import type {
@@ -23,7 +18,6 @@ import type { EditorId } from "./editor.ts";
 import { KeybindingShortcut, type PreviewForwardedShortcut } from "./keybindings.ts";
 import type { DesktopWindowProjects } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/window-projects-import
 import type { DesktopWindowRequest } from "./desktopWindow.fork.ts"; // fork-hook: multi-window/request-window-import
-import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
   DesktopAppActivationRequest,
@@ -91,8 +85,6 @@ export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
 export type DesktopUpdateChannel = "latest" | "nightly";
 export type DesktopAppStageLabel = "Alpha" | "Beta" | "Dev" | "Nightly";
-export type DesktopBackendMode = "managed" | "client-only";
-export type DesktopBackendModeSource = "settings" | "cli" | "existing-server";
 
 export const DesktopUpdateStatusSchema = Schema.Literals([
   "disabled",
@@ -108,26 +100,6 @@ export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Beta", "Dev", "Nightly"]);
-export const DesktopBackendModeSchema = Schema.Literals(["managed", "client-only"]);
-export const DesktopBackendModeSourceSchema = Schema.Literals([
-  "settings",
-  "cli",
-  "existing-server",
-]);
-
-export interface DesktopBackendModeState {
-  effectiveMode: DesktopBackendMode;
-  configuredMode: DesktopBackendMode;
-  cliOverride: DesktopBackendMode | null;
-  source: DesktopBackendModeSource;
-}
-
-export const DesktopBackendModeStateSchema = Schema.Struct({
-  effectiveMode: DesktopBackendModeSchema,
-  configuredMode: DesktopBackendModeSchema,
-  cliOverride: Schema.NullOr(DesktopBackendModeSchema),
-  source: DesktopBackendModeSourceSchema,
-});
 
 export interface DesktopAppBranding {
   baseName: string;
@@ -403,8 +375,6 @@ export interface DesktopEnvironmentBootstrap {
   // Stable backend identity used to reopen routed projects.
   id: string;
   label: string;
-  lifecycle?: AttachedPrimaryLifecycle; // fork-hook: backend-attach/lifecycle-field
-  environmentId?: string; // fork-hook: backend-attach/environment-id-field
   // Actual distro for this run; id stays wsl:default when tracking the default.
   runningDistro?: string | null;
   httpBaseUrl: string | null;
@@ -415,8 +385,6 @@ export interface DesktopEnvironmentBootstrap {
 export const DesktopEnvironmentBootstrapSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  lifecycle: Schema.optionalKey(AttachedPrimaryLifecycleSchema), // fork-hook: backend-attach/lifecycle-schema
-  environmentId: Schema.optionalKey(Schema.String), // fork-hook: backend-attach/environment-id-schema
   runningDistro: Schema.optionalKey(Schema.NullOr(Schema.String)),
   httpBaseUrl: Schema.NullOr(Schema.String),
   wsBaseUrl: Schema.NullOr(Schema.String),
@@ -1108,22 +1076,12 @@ export interface DesktopBridge {
   getPreferredSystemLanguages: () => readonly string[];
   /** False when the OS turned off middle-click PRIMARY paste (`gtk-enable-primary-paste`). */
   getPrimaryPasteEnabled?: () => boolean;
-  getBackendModeState: () => DesktopBackendModeState;
-  setBackendMode: (mode: DesktopBackendMode) => Promise<DesktopBackendModeState>;
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentEnabled: () => boolean;
   setLocalEnvironmentEnabled: (enabled: boolean) => Promise<void>;
   /** The environment ID recorded in this app's T3 home, such as its own machine's background service. */
   getHostEnvironmentId?: () => Promise<string | null>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
-  discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
-  pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;
-  getAttachedPrimaryBootstrap?: () => DesktopEnvironmentBootstrap | null; // fork-hook: backend-attach/bridge-get
-  refreshAttachedPrimaryBootstrap?: () => Promise<DesktopEnvironmentBootstrap | null>; // fork-hook: backend-attach/bridge-refresh
-  rejectAttachedPrimary?: (
-    bearerToken: string,
-    reason: AttachedPrimaryRejectReason,
-  ) => Promise<void>; // fork-hook: backend-attach/bridge-reject
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog: () => Promise<string | null>;

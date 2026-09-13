@@ -16,8 +16,6 @@ export {
   PrimaryEnvironmentProtocolUnsupportedError,
   PrimaryEnvironmentUrlInvalidError,
   readPrimaryEnvironmentTarget,
-  readOptionalPrimaryEnvironmentTarget,
-  isDesktopClientOnlyMode,
   resolvePrimaryEnvironmentHttpUrl,
   isLoopbackHostname,
   type PrimaryEnvironmentTarget,

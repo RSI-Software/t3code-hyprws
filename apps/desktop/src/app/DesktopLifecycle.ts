@@ -54,7 +54,7 @@ export class DesktopLifecycle extends Context.Service<
   {
     readonly relaunch: (
       reason: string,
-    ) => Effect.Effect<void, DesktopLifecycleRelaunchError, DesktopLifecycleRuntimeServices>;
+    ) => Effect.Effect<void, never, DesktopLifecycleRuntimeServices>;
     readonly register: Effect.Effect<
       void,
       never,
@@ -222,18 +222,6 @@ export const make = DesktopLifecycle.of({
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const state = yield* DesktopState.DesktopState;
     yield* logLifecycleInfo("desktop relaunch requested", { reason });
-    if (!environment.isDevelopment) {
-      yield* electronApp
-        .relaunch({
-          execPath: process.execPath,
-          args: process.argv.slice(1),
-        })
-        .pipe(
-          Effect.catchCause((cause) =>
-            Effect.fail(new DesktopLifecycleRelaunchError({ reason, cause })),
-          ),
-        );
-    }
     yield* Effect.gen(function* () {
       yield* Effect.yieldNow;
       yield* Ref.set(state.quitting, true);
@@ -253,9 +241,10 @@ export const make = DesktopLifecycle.of({
     }).pipe(
       Effect.catchCause((cause) => {
         const error = new DesktopLifecycleRelaunchError({ reason, cause });
-        return Effect.fail(error);
+        return logLifecycleError(error.message, { error });
       }),
-      Effect.tapError((error) => logLifecycleError(error.message, { error })),
+      Effect.forkDetach,
+      Effect.asVoid,
     );
   }),
   register: Effect.gen(function* () {

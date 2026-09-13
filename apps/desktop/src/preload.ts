@@ -14,7 +14,6 @@ import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import * as IpcChannels from "./ipc/channels.ts";
 import { makeVoiceDuckingBridgeFork } from "./voice-input/preload.fork.ts"; // fork-hook: voice-input/ducking-preload-import
 import { mergeLegacyLocalStorage } from "./legacyLocalStorageMerge.ts";
-import { makeAttachedPrimaryBridge } from "./attachedPrimaryPreload.fork.ts"; // fork-hook: backend-attach/preload-import
 import { exposePreviewCapability } from "./preview/WindowPolicy.preload.ts";
 
 const SNAP_SHOT_EVENT_TYPES = new Set([
@@ -148,22 +147,6 @@ const desktopBridge = {
     );
     return Array.isArray(result) ? result.filter((tag) => typeof tag === "string") : [];
   },
-  getBackendModeState: () => {
-    const result = ipcRenderer.sendSync(IpcChannels.GET_BACKEND_MODE_STATE_CHANNEL);
-    if (typeof result !== "object" || result === null) {
-      // An unavailable mode handler means the renderer cannot safely assume
-      // that this process owns a backend. Fail closed into the connection-only
-      // routing path instead of trying to resolve t3code:// as an HTTP backend.
-      return {
-        effectiveMode: "client-only",
-        configuredMode: "client-only",
-        cliOverride: null,
-        source: "settings",
-      };
-    }
-    return result as ReturnType<DesktopBridge["getBackendModeState"]>;
-  },
-  setBackendMode: (mode) => ipcRenderer.invoke(IpcChannels.SET_BACKEND_MODE_CHANNEL, mode),
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     if (!Array.isArray(result)) {
@@ -178,10 +161,6 @@ const desktopBridge = {
   setLocalEnvironmentEnabled: (enabled) =>
     ipcRenderer.invoke(IpcChannels.SET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL, enabled),
   getHostEnvironmentId: () => ipcRenderer.invoke(IpcChannels.GET_HOST_ENVIRONMENT_ID_CHANNEL),
-  discoverLocalServers: () => ipcRenderer.invoke(IpcChannels.DISCOVER_LOCAL_SERVERS_CHANNEL),
-  pairLocalServer: (environmentId) =>
-    ipcRenderer.invoke(IpcChannels.PAIR_LOCAL_SERVER_CHANNEL, environmentId),
-  ...makeAttachedPrimaryBridge(ipcRenderer), // fork-hook: backend-attach/preload-bridge
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),

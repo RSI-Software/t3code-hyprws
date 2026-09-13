@@ -16,8 +16,6 @@ export function readDesktopPrimaryBearerToken(): Promise<string | null> {
   return desktopBearerTokenPromise;
 }
 
-export const resetDesktopPrimaryBearerTokenCache = () => void (desktopBearerTokenPromise = null); // fork-hook: backend-attach/auth-reset
-
 export function __resetDesktopPrimaryAuthForTests(): void {
   desktopBearerTokenPromise = null;
 }
