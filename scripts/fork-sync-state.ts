@@ -11,11 +11,33 @@ import {
 } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY, isNightlyUpstreamTag } from "./lib/fork-policy.ts";
 import { decisionLine, parseDecisionRecords, type WalkDecision } from "./lib/fork-decisions.ts";
+import type { StableCandidate } from "./lib/fork-rebase-issues.ts";
 import {
   rewriteArchiveRef,
   validateRewriteArchiveBinding,
   type RewriteArchiveBinding,
 } from "./lib/fork-rewrite-archive.ts";
+import {
+  renderFoldHeader,
+  renderFoldSection,
+  requireFoldSegment,
+  type ActiveFold,
+  type FoldPublication,
+  type FoldSegment,
+} from "./lib/fork-sync-fold-types.ts";
+
+export {
+  foldMessagesDigest,
+  parseFoldRecordHeader,
+  parseFoldSection,
+  renderFoldHeader,
+  renderFoldSection,
+  requireFoldSegment,
+  restoreFoldSegments,
+  type ActiveFold,
+  type FoldPublication,
+  type FoldSegment,
+} from "./lib/fork-sync-fold-types.ts";
 
 export const REPOSITORY = FORK_REPOSITORY;
 export const BLOCK_LABEL = "rebase-blocked";
@@ -43,7 +65,14 @@ export const BOT_COMMIT_CONFIG = {
   GIT_COMMITTER_EMAIL: FORK_BOT_IDENTITY.email,
 } as const;
 
-export type SyncStage = "listed" | "oriented" | "conflicts" | "replayed" | "checked" | "applied";
+export type SyncStage =
+  | "listed"
+  | "oriented"
+  | "conflicts"
+  | "replayed"
+  | "checked"
+  | "folding"
+  | "applied";
 export type SyncKind = "unblock" | "rewrite";
 
 export interface RewriteProof {
@@ -346,10 +375,31 @@ export interface SyncReport {
   readonly botCarried?: boolean;
   readonly target?: { readonly tag: string; readonly sha: string };
   readonly source?: {
+    /** Immutable original orientation (T): the trunk tip this walk first oriented at. */
     readonly sha: string;
+    /** Immutable merge base of T and the target tag; never advances during folds. */
     readonly sharedBase: string;
+    /**
+     * Incorporated trunk frontier (B): the latest trunk tip already contained in the candidate.
+     * With no folds this equals `sha`; a fold advances only after the new segment is proved
+     * (RSI-Software/t3code-hyprws#920).
+     */
     readonly expectedOld: string;
   };
+  /** Ordered fold segments; empty or absent for a walk that has never folded. */
+  readonly folds?: ReadonlyArray<FoldSegment>;
+  /** The fold operation a stopped or resumed walk is mid-way through, set before Git mutation. */
+  readonly activeFold?: ActiveFold;
+  /** The verified candidate head the first fold replayed onto (H₀, after its own verification). */
+  readonly baseCheckedHead?: string;
+  /** A pending or resolved leased push of a folded candidate, for interrupted-push recovery. */
+  readonly publication?: FoldPublication;
+  /**
+   * The stable-tag snapshots this apply created before the trunk push, bound so the
+   * applied-resume announces exactly these — re-creating the list would drop branches that
+   * already exist on `origin` and silently skip the announcement (RSI-Software/t3code-hyprws#922).
+   */
+  readonly stableCandidates?: ReadonlyArray<StableCandidate>;
   readonly rewrite?: RewriteBinding;
   readonly lane?: { readonly branch: string; readonly worktree: string };
   readonly originalMessages?: string;
@@ -378,6 +428,8 @@ export interface SyncReport {
   readonly installedHead?: string;
   readonly ciHead?: string;
   readonly recordCommentUrl?: string;
+  /** The applied-walk announcement comment on the issue; set once, so a resume never reposts. */
+  readonly announcementUrl?: string;
   /** Trunk apply is durable even when its independently resumable cache push fails. */
   readonly rererePublication?: {
     readonly state: "pending" | "published";
@@ -489,6 +541,7 @@ Unblock verbs:
   unblock-orient --report <json> --target <release-tag>
   unblock-rehearse --report <json>
   unblock-check --report <json> [--silent-seam <path>=<summary>:behaviour|type ...]
+  unblock-fold --report <json>                            folds linear trunk movement into the candidate
   unblock-review --report <json> (--sign-off | --withhold <reason>)   (series rewrite only)
   unblock-refresh --report <json>
   unblock-apply --report <json> --record <markdown>
@@ -661,6 +714,41 @@ export const validateReport = (value: unknown): SyncReport => {
     if (archive.ref !== rewriteArchiveRef(rewrite.originSha))
       throw new Error("rewrite archive does not match rewrite origin");
   }
+  const folds = report.folds ?? [];
+  for (const fold of folds) requireFoldSegment(fold);
+  const activeFold = report.activeFold;
+  if (
+    activeFold !== undefined &&
+    ((activeFold.operation !== "replay" && activeFold.operation !== "check") ||
+      !Number.isSafeInteger(activeFold.index) ||
+      activeFold.index < 0 ||
+      activeFold.index >= folds.length)
+  )
+    throw new Error("report active fold is invalid");
+  // `folding` is only ever a transient persisted stage; without the active fold that names the
+  // in-progress operation, a resumed walk could not continue it (RSI-Software/t3code-hyprws#922).
+  if (report.stage === "folding" && activeFold === undefined)
+    throw new Error("report stage folding without an active fold is invalid");
+  const foldPublication = report.publication;
+  if (
+    foldPublication !== undefined &&
+    (!FULL_SHA.test(foldPublication.expectedOld) ||
+      !FULL_SHA.test(foldPublication.head) ||
+      !SHA256.test(foldPublication.recordDigest))
+  )
+    throw new Error("report fold publication is invalid");
+  const stableCandidates = report.stableCandidates;
+  if (
+    stableCandidates !== undefined &&
+    (!Array.isArray(stableCandidates) ||
+      stableCandidates.some(
+        (candidate) =>
+          typeof candidate.tag !== "string" ||
+          typeof candidate.branch !== "string" ||
+          !FULL_SHA.test(candidate.sha),
+      ))
+  )
+    throw new Error("report stable candidates are invalid");
   return report as SyncReport;
 };
 
@@ -904,18 +992,30 @@ export const renderRecord = (report: SyncReport): string => {
         : row.decidedBy;
     return `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${decidedCell} |`;
   });
+  const folds = report.folds ?? [];
   const leaseBoundary =
     source?.expectedOld === undefined
       ? "Lease: report has no expected_old — rerun unblock-list"
-      : `Lease: report leased at \`${source.expectedOld}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal; restart at \`vp run fork:sync unblock-list\``;
+      : `Lease: report leased at \`${source.expectedOld}\` (origin/hyprws) — a linear landing folds at \`vp run fork:sync unblock-fold\`; movement that cannot fold voids this rehearsal`;
   const leaseGate =
     report.stage === "checked" && source?.expectedOld !== undefined
-      ? "Stop. Lease boundary: any movement of `origin/hyprws` past the lease above voids this green rehearsal."
+      ? "Stop. Lease boundary: a linear landing folds at `unblock-fold`; movement that cannot fold past the lease above voids this green rehearsal."
       : undefined;
   return [
     "## Header",
     "",
-    `- Source: \`origin/hyprws@${source?.expectedOld ?? "absent"}\``,
+    ...(folds.length === 0
+      ? [`- Source: \`origin/hyprws@${source?.expectedOld ?? "absent"}\``]
+      : renderFoldHeader({
+          ...(source === undefined
+            ? {}
+            : { source: { sha: source.sha, expectedOld: source.expectedOld } }),
+          ...(report.baseCheckedHead === undefined
+            ? {}
+            : { baseCheckedHead: report.baseCheckedHead }),
+          ...(report.rebasedHead === undefined ? {} : { rebasedHead: report.rebasedHead }),
+          folds,
+        })),
     `- Target: \`${target?.tag ?? "absent"}@${target?.sha ?? "absent"}\``,
     `- \`expected_old\`: \`${source?.expectedOld ?? "absent"}\``,
     `- ${leaseBoundary}`,
@@ -924,6 +1024,7 @@ export const renderRecord = (report: SyncReport): string => {
     `- Rebased head: \`${head}\``,
     `- Stack size: \`${report.stackSize ?? report.originalCount ?? 0}\` fork commits`,
     "",
+    ...(folds.length === 0 ? [] : [renderFoldSection(folds)]),
     "## Conflicts",
     "",
     ...(rows.length === 0
