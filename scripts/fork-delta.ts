@@ -17,9 +17,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import {
   budgetFindings,
+  budgetRaiseClauseFindings,
   budgetRaises,
   forkBudgetRefusalMessage,
   FORK_BUDGET_PATH,
+  isForkBudgetProofRequired,
   parseForkBudget,
   projectSquashDomains,
   renderForkBudget,
@@ -169,6 +171,16 @@ export const isReviewedWireTrailer = (value: string | undefined): boolean =>
 
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
+
+/**
+ * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
+ * design, and the autosquash in `scripts/fork-sync.ts` folds them into their
+ * owners immediately after the delta check runs, so the ledger never sees them
+ * as permanent stack members and must not demand trailers from them.
+ */
+export const dropTransientFixups = (
+  commits: ReadonlyArray<ForkCommit>,
+): ReadonlyArray<ForkCommit> => commits.filter((commit) => !commit.subject.startsWith("fixup! "));
 
 export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArray<ForkFinding> =>
   commits.flatMap((commit) => {
@@ -369,16 +381,16 @@ const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory
 
 // Pre-#861 backlog. Remove this list when the host's leased flatten lands; no new entry is ever added.
 export const GRANDFATHERED_WALK_REPAIR_SHAS = new Set([
-  "4fe3e3221b950530886cdd5e2fc01a2611ee701d",
-  "0db88e071f53caa3ccb949fed41ac291eae06fff",
-  "ff6e9dd0b048e864104b750544c75f749b801785",
-  "8760b709e74155a77273dcce2aed32c864f90b6b",
-  "e2d79578bc991803b18b85fdc2e1cded4beedf32",
-  "95480475362e3100df229e8eaa46f7c5f22deefb",
-  "99a0b076fa56a9c86499a3236a472467a9bbe703",
-  "eeaf4124ec42bb801adf11af3d2ef34dcdbe237f",
-  "b0c31d66026132640b99fcec52e5e5818618cab6",
-  "775bd0eb06971bb2998abada854cc568b19b2869",
+  "a6f5968317bea1df22d9111d0fe749fbeb093510",
+  "cdf36f34e7e075ade1917f3048dbb8264f6b3eda",
+  "5388030d8599f0d542b634c687040256538117d8",
+  "9f2cdce4a1a5a95202ec521bb806e27f8cc170aa",
+  "eacdcc238cfc99c7b74a7de422b57371702a2d20",
+  "4dfe7908e443c85b328c632eb16fb1cf50b1d53f",
+  "70c9be4d0e2d768220969dec065f7c3551e93c1c",
+  "eb29187aa8e152b5a6f7ebee98845ac49d8ab892",
+  "3a2d7ca89eabcbde75440aa6539a67d2b7d9d33f",
+  "7454aab1398215f0f7e6440fa193ad752700b416",
 ]);
 
 export const legacyWalkRepairFindings = (
@@ -616,16 +628,22 @@ const readBudgetCommitShas = Effect.fn("readBudgetCommitShas")(function* (
   head: string,
 ) {
   const result = yield* runGit(
-    ["log", "--reverse", "--format=%H", `${base}..${head}`, "--", FORK_BUDGET_PATH],
+    ["log", "--reverse", "--format=%H%x1f%aI", `${base}..${head}`, "--", FORK_BUDGET_PATH],
     process.cwd(),
   );
   if (result.exitCode !== 0) {
     return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
   }
+  // Strict ISO-8601 author date rides beside each sha: the proof cutoff
+  // compares author dates, the one field a rebase preserves.
   return result.stdout
     .split("\n")
-    .map((sha) => sha.trim())
-    .filter((sha) => sha.length > 0);
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [sha = "", authorDate = ""] = line.split("\u001f");
+      return { sha, authorDate: authorDate.length > 0 ? authorDate : undefined };
+    });
 });
 
 // A plain comparison so the parse failure stays out of the Effect error channel.
@@ -672,7 +690,7 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
   const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
   const findings: Array<ForkFinding> = [];
   const raises: Array<ForkBudgetRaise & { readonly short: string; readonly reason: string }> = [];
-  for (const sha of shas) {
+  for (const { sha, authorDate } of shas) {
     const commit = bySha.get(sha);
     if (commit === undefined) continue;
     const [before, after] = yield* Effect.all(
@@ -709,8 +727,23 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
       });
       continue;
     }
+    // The trailer must prove the movement, not just gesture at it: every
+    // ceiling the commit moved has to be named with the exact numbers, and
+    // nothing may be named that the commit did not move. Commits authored
+    // before the cutoff predate the numbers requirement — their proof is
+    // unrecoverable from the current tree — so neither their trailer is
+    // graded nor their raise recorded (which also exempts them from the
+    // over-measured check downstream).
+    const proofRequired = isForkBudgetProofRequired(authorDate);
+    if (proofRequired) {
+      for (const problem of budgetRaiseClauseFindings(commit.budget ?? "", outcome.raises)) {
+        findings.push({ short: commit.short, subject: commit.subject, problem });
+      }
+    }
     // A raise is never silent: it is echoed into the gate output so the
-    // ceiling growth stays auditable at the point it was accepted.
+    // ceiling growth stays auditable at the point it was accepted. Pre-cutoff
+    // raises stay unrecorded — see the proof-required comment above.
+    if (!proofRequired) continue;
     for (const raise of outcome.raises) {
       raises.push({ ...raise, short: commit.short, reason: commit.budget ?? "" });
     }
@@ -1085,7 +1118,10 @@ const command = Command.make(
       );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");
-      const commits = yield* readForkLog(resolvedBase, resolvedHead);
+      const read = yield* readForkLog(resolvedBase, resolvedHead);
+      // Transient walk fixups stay out of the ledger entirely: trailer rules,
+      // budget, and the legacy-repair scan all check the folded stack only.
+      const commits = dropTransientFixups(read);
       const wireFindings = yield* collectWireShapeFindings(commits);
       const full = buildLedger(
         resolvedBase,
@@ -1208,14 +1244,34 @@ const command = Command.make(
           for (const finding of overBudget) {
             process.stderr.write(`over budget: ${forkBudgetRefusalMessage(finding)}\n`);
           }
+          // A ceiling pays for what the branch actually measures, never for
+          // padding: a raise whose new number exceeds the live measurement for
+          // that domain and measure is refused. The initial seed never reaches
+          // this loop — it carries no raise trailer by design. This compares a
+          // historical raise against a present-day measurement, so a future
+          // commit that shrinks a domain can red the gate on an older, honest
+          // raise; the author-date cutoff blunts that, it does not remove it.
+          const overMeasured = budgetRaisesMade.flatMap((raise) => {
+            const measured = stack.domains.find((row) => row.domain === raise.domain);
+            const actual =
+              raise.measure === "added" ? (measured?.added ?? 0) : (measured?.deleted ?? 0);
+            return raise.to <= actual
+              ? []
+              : [
+                  `${raise.short}: ${raise.domain} ${raise.measure} ceiling ${raise.to} exceeds the measured ${raise.measure} ${actual} — edit ${FORK_BUDGET_PATH} to set the ${raise.domain} ${raise.measure} ceiling to the measured ${raise.measure} ${actual}, not higher`,
+                ];
+          });
+          for (const problem of overMeasured) {
+            process.stderr.write(`over measured: ${problem}\n`);
+          }
           for (const raise of budgetRaisesMade) {
             process.stdout.write(
               `budget raise: ${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to} (${raise.short} ${raise.reason})\n`,
             );
           }
-          if (overBudget.length > 0) {
+          if (overBudget.length > 0 || overMeasured.length > 0) {
             process.stderr.write(
-              `failed: ${overBudget.length} fork budget ceiling(s) exceeded (${FORK_BUDGET_PATH})\n`,
+              `failed: ${overBudget.length + overMeasured.length} fork budget ceiling(s) exceeded (${FORK_BUDGET_PATH})\n`,
             );
             process.exitCode = 1;
             return;
