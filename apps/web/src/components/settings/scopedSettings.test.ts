@@ -231,6 +231,37 @@ describe("scoped settings writes", () => {
     });
   });
 
+  it("replaces the thread-mode pair wholesale at project scope", () => {
+    // A stale `...Fork` sibling must not survive a new exact mode.
+    const withStaleFork = environment("Server", {
+      settings: {
+        projectSettingsOverrides: {
+          [projectId]: {
+            defaultThreadEnvMode: "worktree",
+            defaultThreadEnvModeFork: "worktrunk",
+          },
+        },
+      },
+    });
+    const exact = planScopedSettingsPatch(project, [withStaleFork], {
+      defaultThreadEnvMode: "worktree",
+    });
+    expect(exact.unavailableReason).toBeNull();
+    expect(exact.serverWrites[0]!.patch!.projectSettingsOverrides![projectId]).toEqual({
+      defaultThreadEnvMode: "worktree",
+    });
+    // A fork write carries the sibling alongside the wire slot.
+    const forked = planScopedSettingsPatch(project, [withStaleFork], {
+      defaultThreadEnvMode: "worktree",
+      defaultThreadEnvModeFork: "worktrunk",
+    });
+    expect(forked.unavailableReason).toBeNull();
+    expect(forked.serverWrites[0]!.patch!.projectSettingsOverrides![projectId]).toEqual({
+      defaultThreadEnvMode: "worktree",
+      defaultThreadEnvModeFork: "worktrunk",
+    });
+  });
+
   it("refuses environment-wide keys and older servers at project scope", () => {
     expect(
       planScopedSettingsPatch(project, environments, { enableProviderUpdateChecks: false }),

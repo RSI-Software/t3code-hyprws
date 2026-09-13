@@ -5,6 +5,12 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
+import type { StoredThreadEnvMode } from "@t3tools/shared/threadEnvMode.fork";
+import {
+  fromWireThreadEnvModeFields,
+  isWorktreeEnvMode,
+  toWireThreadEnvModeOverrideFields,
+} from "@t3tools/shared/threadEnvMode.fork";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
@@ -27,6 +33,7 @@ import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
 import { searchableSetting } from "./settingsSearch";
+import type { ScopedSettingsPatch } from "./scopedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
   SETTINGS_PICKER_TRIGGER_CLASSNAME,
@@ -71,6 +78,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
+  // Fork: the exact stored mode, decoded from the wire slot plus its sibling.
+  const workspaceEnvMode = fromWireThreadEnvModeFields(settings);
   const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
@@ -299,30 +308,33 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               inheritedEnvModeLabel ? `Repository default: ${inheritedEnvModeLabel}` : undefined
             }
             resetAction={
-              settings.defaultThreadEnvMode !== DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode ? (
+              workspaceEnvMode !== DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode ? (
                 <SettingResetButton
                   label="default workspace"
                   onClick={() =>
-                    updateSettings({
-                      defaultThreadEnvMode: DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode,
-                    })
+                    updateSettings(
+                      toWireThreadEnvModeOverrideFields(
+                        DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode,
+                      ) as ScopedSettingsPatch,
+                    )
                   }
                 />
               ) : null
             }
             control={
               <Select
-                value={mixedWorkspace ? null : settings.defaultThreadEnvMode}
+                value={mixedWorkspace ? null : workspaceEnvMode}
                 onValueChange={(value) => {
-                  if (value === "local" || value === "worktree")
-                    updateSettings({ defaultThreadEnvMode: value });
+                  const mode = value as StoredThreadEnvMode;
+                  if (mode === "local" || isWorktreeEnvMode(mode))
+                    updateSettings(toWireThreadEnvModeOverrideFields(mode) as ScopedSettingsPatch);
                 }}
               >
                 <SelectTrigger size="sm" aria-label="Default workspace">
                   <SelectValue>
                     {(value: string | null) =>
-                      value === "local" || value === "worktree"
-                        ? resolveEnvModeLabel(value)
+                      value === "local" || isWorktreeEnvMode(value as StoredThreadEnvMode)
+                        ? resolveEnvModeLabel(value as StoredThreadEnvMode)
                         : unavailable
                           ? "Unavailable"
                           : "Mixed"
@@ -332,6 +344,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 <SelectPopup align="end" alignItemWithTrigger={false}>
                   <SelectItem value="local">{resolveEnvModeLabel("local")}</SelectItem>
                   <SelectItem value="worktree">{resolveEnvModeLabel("worktree")}</SelectItem>
+                  <SelectItem value="worktrunk">{resolveEnvModeLabel("worktrunk")}</SelectItem>
                 </SelectPopup>
               </Select>
             }
