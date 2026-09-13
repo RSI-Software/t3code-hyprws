@@ -94,6 +94,7 @@ it("watches only server and imported workspace source roots", () => {
     "effect-acp",
     "effect-codex-app-server",
     "@t3tools/shared",
+    "@t3tools/ssh",
     "@t3tools/tailscale",
   ]);
 });
