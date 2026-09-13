@@ -554,6 +554,13 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
       }
+    },
+    {
+      "name": "format",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright 2010 - 2014 Sami Samhuri <sami@samhuri.net>"]
+      }
     }
   ]
 }
