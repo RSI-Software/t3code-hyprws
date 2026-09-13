@@ -170,6 +170,16 @@ export const isReviewedWireTrailer = (value: string | undefined): boolean =>
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
 
+/**
+ * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
+ * design, and the autosquash in `scripts/fork-sync.ts` folds them into their
+ * owners immediately after the delta check runs, so the ledger never sees them
+ * as permanent stack members and must not demand trailers from them.
+ */
+export const dropTransientFixups = (
+  commits: ReadonlyArray<ForkCommit>,
+): ReadonlyArray<ForkCommit> => commits.filter((commit) => !commit.subject.startsWith("fixup! "));
+
 export const collectFindings = (commits: ReadonlyArray<ForkCommit>): ReadonlyArray<ForkFinding> =>
   commits.flatMap((commit) => {
     const problems: Array<string> = [];
@@ -369,16 +379,16 @@ const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory
 
 // Pre-#861 backlog. Remove this list when the host's leased flatten lands; no new entry is ever added.
 export const GRANDFATHERED_WALK_REPAIR_SHAS = new Set([
-  "4fe3e3221b950530886cdd5e2fc01a2611ee701d",
-  "0db88e071f53caa3ccb949fed41ac291eae06fff",
-  "ff6e9dd0b048e864104b750544c75f749b801785",
-  "8760b709e74155a77273dcce2aed32c864f90b6b",
-  "e2d79578bc991803b18b85fdc2e1cded4beedf32",
-  "95480475362e3100df229e8eaa46f7c5f22deefb",
-  "99a0b076fa56a9c86499a3236a472467a9bbe703",
-  "eeaf4124ec42bb801adf11af3d2ef34dcdbe237f",
-  "b0c31d66026132640b99fcec52e5e5818618cab6",
-  "775bd0eb06971bb2998abada854cc568b19b2869",
+  "a6f5968317bea1df22d9111d0fe749fbeb093510",
+  "cdf36f34e7e075ade1917f3048dbb8264f6b3eda",
+  "5388030d8599f0d542b634c687040256538117d8",
+  "9f2cdce4a1a5a95202ec521bb806e27f8cc170aa",
+  "eacdcc238cfc99c7b74a7de422b57371702a2d20",
+  "4dfe7908e443c85b328c632eb16fb1cf50b1d53f",
+  "70c9be4d0e2d768220969dec065f7c3551e93c1c",
+  "eb29187aa8e152b5a6f7ebee98845ac49d8ab892",
+  "3a2d7ca89eabcbde75440aa6539a67d2b7d9d33f",
+  "7454aab1398215f0f7e6440fa193ad752700b416",
 ]);
 
 export const legacyWalkRepairFindings = (
@@ -1085,7 +1095,10 @@ const command = Command.make(
       );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");
-      const commits = yield* readForkLog(resolvedBase, resolvedHead);
+      const read = yield* readForkLog(resolvedBase, resolvedHead);
+      // Transient walk fixups stay out of the ledger entirely: trailer rules,
+      // budget, and the legacy-repair scan all check the folded stack only.
+      const commits = dropTransientFixups(read);
       const wireFindings = yield* collectWireShapeFindings(commits);
       const full = buildLedger(
         resolvedBase,
