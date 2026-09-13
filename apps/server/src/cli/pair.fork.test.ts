@@ -19,6 +19,7 @@ import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "../serverRuntimeState.ts";
+import { resolveHeadlessConnectionString } from "../startupAccess.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -114,6 +115,61 @@ describe("t3 pair --json", () => {
           decoded.token,
         );
         assert.isFalse(/Pairing with|Note:|[█▀▄]/.test(output));
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("pairs through the recorded origin when the server has no host", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-json-test-"));
+        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+        const state = yield* makePersistedServerRuntimeState({
+          config: { host: undefined, devUrl: undefined },
+          port: Number(new URL(origin).port),
+        });
+        yield* persistServerRuntimeState({ path: statePath, state });
+        assert.equal(state.origin, origin);
+
+        const output = yield* captureStdout(
+          runCli(["pair", "--base-dir", baseDir, "--label", "Desktop", "--json"]),
+        );
+        const decoded = yield* decodePairJsonOutput(output);
+
+        // The desktop compares `pairingUrl.origin` to the `origin` field
+        // strictly, so the two must agree inside one JSON object.
+        assert.equal(new URL(String(decoded.pairingUrl)).origin, decoded.origin);
+        assert.equal(decoded.origin, origin);
+        assert.match(String(decoded.pairingUrl), new RegExp(`^${origin}/pair#token=`));
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps the upstream direct base for a wildcard host", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-json-test-"));
+        const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
+        const state = yield* makePersistedServerRuntimeState({
+          config: { host: "0.0.0.0", devUrl: undefined },
+          port: Number(new URL(origin).port),
+        });
+        yield* persistServerRuntimeState({ path: statePath, state });
+        assert.equal(state.origin, origin);
+
+        const output = yield* captureStdout(
+          runCli(["pair", "--base-dir", baseDir, "--label", "Desktop", "--json"]),
+        );
+        const decoded = yield* decodePairJsonOutput(output);
+
+        // Unchanged upstream behavior: a wildcard host still resolves the
+        // pairing URL through the interface fallback — the useful URL for a
+        // remote client — not the recorded loopback origin.
+        const upstreamOrigin = new URL(
+          resolveHeadlessConnectionString("0.0.0.0", Number(new URL(origin).port)),
+        ).origin;
+        assert.equal(new URL(String(decoded.pairingUrl)).origin, upstreamOrigin);
+        assert.notEqual(new URL(String(decoded.pairingUrl)).origin, decoded.origin);
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );
