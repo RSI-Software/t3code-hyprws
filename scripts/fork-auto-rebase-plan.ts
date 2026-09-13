@@ -20,7 +20,7 @@ import {
   type PositionedReleaseTag,
 } from "./lib/fork-policy.ts";
 import { linkInstalledModules } from "./lib/fork-rebase-worktree.ts";
-import { normalizeReplayMessages } from "./lib/fork-replay-messages.ts";
+import { normalizeCommitMessage, normalizeReplayMessages } from "./lib/fork-replay-messages.ts";
 
 export type PositionedTag = PositionedReleaseTag;
 
@@ -145,7 +145,40 @@ export const verifyReplayMetadata = (
     throw new Error(`replay commit count changed: ${originalCount} -> ${replayedCount}`);
   }
   if (normalizeReplayMessages(originalLog) !== normalizeReplayMessages(replayedLog))
-    throw new Error("replay commit messages changed");
+    throw new Error(
+      `replay commit messages changed: ${describeReplayMessageDiff(originalLog, replayedLog)}`,
+    );
+};
+
+// Both logs carry one `%B` record per commit, separated by the `%x1e` terminator `forkReplay`
+// already appends. Whole-series equality above stays the pass/fail contract; this only names the
+// first record that differs so an unattended failure does not require reading the whole stack.
+const describeReplayMessageDiff = (originalLog: string, replayedLog: string): string => {
+  const originalRecords = originalLog.split("\x1e");
+  const replayedRecords = replayedLog.split("\x1e");
+  const length = Math.max(originalRecords.length, replayedRecords.length);
+  for (let index = 0; index < length; index += 1) {
+    const original = originalRecords[index] ?? "";
+    const replayed = replayedRecords[index] ?? "";
+    if (normalizeCommitMessage(original) === normalizeCommitMessage(replayed)) continue;
+    const subject = (replayed || original).split("\n").find((line) => line.trim() !== "") ?? "";
+    const originalLines = normalizeCommitMessage(original).split("\n");
+    const replayedLines = normalizeCommitMessage(replayed).split("\n");
+    // Walk to the longer side: a message that *gains* a line leaves the original as a matching
+    // prefix, so scanning the original alone finds no index even though the records differ.
+    const lineLength = Math.max(originalLines.length, replayedLines.length);
+    let differingLineIndex = lineLength;
+    for (let position = 0; position < lineLength; position += 1) {
+      if ((originalLines[position] ?? "(absent)") !== (replayedLines[position] ?? "(absent)")) {
+        differingLineIndex = position;
+        break;
+      }
+    }
+    const originalLine = originalLines[differingLineIndex] ?? "(absent)";
+    const replayedLine = replayedLines[differingLineIndex] ?? "(absent)";
+    return `commit ${index}: ${subject}: ${JSON.stringify(originalLine)} -> ${JSON.stringify(replayedLine)}`;
+  }
+  return "no differing record found";
 };
 
 const verificationEnvironment = (): NodeJS.ProcessEnv => {
