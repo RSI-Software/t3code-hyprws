@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650490013",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650539494",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9562,6 +9562,15 @@
           "path": "apps/desktop/src/preview/Manager.ts",
           "commit": "064133c12807",
           "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "2cac25e31744",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473",
           "domain": "fork-meta",
           "class": "human",
           "resolution": "resolved by hand in the lane",
