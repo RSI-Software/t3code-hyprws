@@ -6,7 +6,6 @@ import {
   FORK_LOG_FIELD_SEPARATOR,
   FORK_LOG_RECORD_SEPARATOR,
   forkLogArguments,
-  GRANDFATHERED_DUPLICATE_TRAILER_SHAS,
   parseForkLog,
   parseForkTrailers,
 } from "./fork-trailers.ts";
@@ -67,7 +66,6 @@ for (const [key, first, second] of [
   ["Fork-Upstreamable", "no", "yes"],
   ["Fork-Wire", "reviewed #1", "reviewed #2"],
   ["Fork-Repair", "none", "replayed"],
-  ["Fork-Budget", "raise reasons", "raise other reasons"],
 ] as const) {
   it(`disagreement in ${key} throws naming both values`, () => {
     const body = `${trailerBlock}\n${key}: ${first}\n${key}: ${second}`;
@@ -100,26 +98,6 @@ it("an empty copy next to a valued copy throws, naming the empty copy legibly", 
 it("case-insensitive key matching still applies, including across duplicates", () => {
   const parsed = parseForkTrailers(`${trailerBlock}\nfork-domain: fork-meta`);
   NodeAssert.equal(parsed.domain, "fork-meta");
-});
-
-it("grandfathered sha parses without throwing and keeps the later (true) clause", () => {
-  const sha = "8778853f805664e3a1ccf6f6086753ca1695b446";
-  NodeAssert.ok(GRANDFATHERED_DUPLICATE_TRAILER_SHAS.has(sha));
-  const body = [
-    "subject line",
-    "",
-    "Fork-Domain: fork-meta",
-    "Fork-Budget: raise the four walk-friction fixes and their tests grow fork-meta added to 68792",
-    "",
-    "Fork-Domain: fork-meta",
-    "Fork-Budget: raise the five walk-friction fixes and their tests grow fork-meta added to 69149",
-  ].join("\n");
-  const record = [sha, "8778853f", "subject line", body].join(FORK_LOG_FIELD_SEPARATOR);
-  const [commit] = parseForkLog(`${record}${FORK_LOG_RECORD_SEPARATOR}`);
-  NodeAssert.equal(
-    commit?.budget,
-    "raise the five walk-friction fixes and their tests grow fork-meta added to 69149",
-  );
 });
 
 it("a disagreeing duplicate in parseForkLog names the commit", () => {
