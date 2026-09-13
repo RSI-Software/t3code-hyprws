@@ -13,7 +13,11 @@ import type {
   PullRequestState,
   ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import {
+  disambiguateTerminalLabels,
+  getTerminalLabel,
+  splitTerminalLabelSuffix,
+} from "@t3tools/shared/terminalLabels";
 import {
   closestCenter,
   DndContext,
@@ -930,6 +934,22 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     return () => document.removeEventListener("keydown", onNewSurfaceKeyDown, true);
   }, [props.open]);
 
+  // Terminals sharing a zmux session all carry the session target as their
+  // label; suffix duplicates so the strip stays readable (#909).
+  const terminalStripLabelsById = useMemo(() => {
+    const base = new Map<string, string>();
+    for (const surface of props.surfaces) {
+      if (surface.kind !== "terminal") continue;
+      const terminalId = surface.activeTerminalId;
+      if (base.has(terminalId)) continue;
+      base.set(
+        terminalId,
+        props.terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId),
+      );
+    }
+    return disambiguateTerminalLabels(base);
+  }, [props.surfaces, props.terminalLabelsById]);
+
   const updateTabScrollState = useCallback(() => {
     const viewport = tabScrollViewport(tabListRef.current);
     if (!viewport) return;
@@ -1165,8 +1185,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 const title = surfaceTitle(
                   surface,
                   props.previewSessions,
-                  props.terminalLabelsById,
+                  surface.kind === "terminal" ? terminalStripLabelsById : props.terminalLabelsById,
                 );
+                const { base: titleBase, suffix: titleSuffix } = splitTerminalLabelSuffix(title);
                 const previewTabId = previewTabIdOf(surface, props.previewSessions);
                 // Desktop state is keyed by the session id, but desktop actions
                 // must be addressed with the runtime id.
@@ -1274,7 +1295,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                               className="cursor-pointer flex min-w-0 items-center"
                               onClick={() => props.onActivate(surface)}
                             >
-                              <span className="truncate">{title}</span>
+                              <span className="truncate">{titleBase}</span>
+                              {titleSuffix ? <span className="shrink-0">{titleSuffix}</span> : null}
                             </button>
                           }
                         />
