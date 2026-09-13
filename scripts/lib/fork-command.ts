@@ -49,12 +49,19 @@ export const requireCommandSuccess = (
   args: ReadonlyArray<string>,
 ): string => {
   if (result.status === 0 && result.error === undefined) return result.stdout;
+  throw new Error(`${commandFailureMessage(result, command, args, "")}`);
+};
+
+const commandFailureMessage = (
+  result: CommandResult,
+  command: string,
+  args: ReadonlyArray<string>,
+  suffix: string,
+): string => {
   const detail = [result.stdout.trim(), result.stderr.trim(), result.error?.message]
     .filter((value): value is string => value !== undefined && value.length > 0)
     .join("\n");
-  throw new Error(
-    `${commandText(command, args)} failed${detail.length === 0 ? "" : `: ${detail}`}`,
-  );
+  return `${commandText(command, args)} failed${detail.length === 0 ? "" : `: ${detail}`}${suffix}`;
 };
 
 export const runCommandText = (
@@ -62,6 +69,64 @@ export const runCommandText = (
   args: ReadonlyArray<string>,
   options: CommandOptions = {},
 ): string => requireCommandSuccess(runCommand(command, args, options), command, args);
+
+const TRANSIENT_FAILURE_SIGNALS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/HTTP 50[234]/i, "HTTP 502/503/504"],
+  [/was submitted too quickly/i, "submitted too quickly"],
+  [/secondary rate limit/i, "secondary rate limit"],
+  [/connection reset/i, "connection reset"],
+  [/EAI_AGAIN/i, "DNS failure (EAI_AGAIN)"],
+  [/ETIMEDOUT/i, "ETIMEDOUT"],
+  [/TLS handshake timeout/i, "TLS handshake timeout"],
+];
+
+/** The matched transient signal's name, or undefined when the failure is not transient. */
+const transientFailureSignal = (result: CommandResult): string | undefined => {
+  const text = `${result.stdout}\n${result.stderr}`;
+  const streamMatch = TRANSIENT_FAILURE_SIGNALS.find(([pattern]) => pattern.test(text));
+  if (streamMatch !== undefined) return streamMatch[1];
+  // A spawn timeout surfaces only on result.error, not in the captured streams.
+  return /timed out|ETIMEDOUT/i.test(result.error?.message ?? "") ? "spawn timeout" : undefined;
+};
+
+export const isTransientCommandFailure = (result: CommandResult): boolean =>
+  transientFailureSignal(result) !== undefined;
+
+export interface RetryOptions {
+  readonly attempts?: number;
+  readonly baseDelayMs?: number;
+}
+
+const sleepSync = (ms: number): void => {
+  const buffer = new SharedArrayBuffer(4);
+  Atomics.wait(new Int32Array(buffer), 0, 0, ms);
+};
+
+export const runCommandTextWithRetry = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: CommandOptions = {},
+  retry: RetryOptions = {},
+): string => {
+  const attempts = Math.max(1, retry.attempts ?? 3);
+  const baseDelayMs = retry.baseDelayMs ?? 1000;
+  let last: CommandResult | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const result = runCommand(command, args, options);
+    if (result.status === 0 && result.error === undefined) return result.stdout;
+    last = result;
+    const signal = transientFailureSignal(result);
+    if (attempt === attempts || signal === undefined) break;
+    const delayMs = baseDelayMs * 2 ** (attempt - 1);
+    process.stderr.write(
+      `${commandText(command, args)} failed transiently (${signal}; attempt ${attempt}/${attempts}); retrying in ${delayMs}ms\n`,
+    );
+    sleepSync(delayMs);
+  }
+  if (last === undefined) throw new Error("unreachable: retry attempts is clamped to at least 1");
+  if (transientFailureSignal(last) === undefined) return requireCommandSuccess(last, command, args);
+  throw new Error(`${commandFailureMessage(last, command, args, ` (after ${attempts} attempts)`)}`);
+};
 
 export interface CommandRunner {
   run(
