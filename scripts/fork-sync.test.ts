@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Temporary report fixtures use Node helpers.
 
 import * as NodeChildProcess from "node:child_process";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -46,6 +47,7 @@ import {
   rehearsalRebaseArgs,
   retiredSubjectsForTest,
   renderRecord,
+  verifyReplay,
   resolveAutoTarget,
   resolveUnblockTarget,
   run,
@@ -64,6 +66,7 @@ import { inspectRecord } from "./fork-sync-gate.ts";
 import { waitForCiVerdict } from "./fork-sync-ci.ts";
 import { run as carryRun } from "./fork-carry.ts";
 import { commitNumstatArguments } from "./lib/fork-numstat.ts";
+import { leasedPushWithFoldRetry, type FoldVerbContext } from "./fork-sync-fold-verb.ts";
 import { forkLogArguments } from "./lib/fork-trailers.ts";
 import { renderMarkdown } from "./fork-churn.ts";
 import { censusChurn, hotSeams } from "./fork-churn-ledger.ts";
@@ -595,7 +598,7 @@ it("unblock-list prints the lease it takes and the walk freeze", () => {
       execute(["unblock-list", "--output", outputPath], root, runner),
     );
     assert.include(output, `Freeze: walk lease taken at \`${C}\` (origin/hyprws)`);
-    assert.include(output, "hyprws takes no landing until unblock-apply or an explicit void");
+    assert.include(output, "linear landings on hyprws fold at vp run fork:sync unblock-fold");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
     NodeFS.rmSync(NodePath.dirname(outputPath), { recursive: true, force: true });
@@ -611,7 +614,7 @@ it("unblock-check repeats the lease beside the candidate", () => {
     );
     assert.include(
       output,
-      `Freeze: walk lease \`${C}\` beside the candidate above — hyprws takes no landing until unblock-apply or an explicit void`,
+      `Lease: walk lease \`${C}\` beside the candidate above — linear landings fold at \`vp run fork:sync unblock-fold\``,
     );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -5387,7 +5390,7 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
       assert.match(message, /report leased at c+/);
       assert.match(message, /origin\/hyprws is now a+/);
       assert.match(message, /the walk re-lists from the moved trunk/);
-      assert.match(message, /walk freeze in docs\/operations\/fork-sync\.md/);
+      assert.match(message, /fold rule in docs\/operations\/fork-sync\.md/);
       assert.match(message, new RegExp(`trash ${worktree.replace(/[\\/]/g, (c) => `\\${c}`)}`));
       assert.match(message, /orphaned/);
       // Do NOT emit an rm command.
@@ -5477,12 +5480,12 @@ it("renders the lease boundary and what movement voids it in the checked stop", 
     const record = renderRecord(checked);
     assert.include(
       record,
-      `Lease: report leased at \`${C}\` (origin/hyprws) — any movement of \`origin/hyprws\` voids this rehearsal`,
+      `Lease: report leased at \`${C}\` (origin/hyprws) — a linear landing folds at \`vp run fork:sync unblock-fold\``,
     );
-    assert.include(record, "restart at `vp run fork:sync unblock-list`");
+    assert.include(record, "movement that cannot fold voids this rehearsal");
     assert.include(
       record,
-      "Stop. Lease boundary: any movement of `origin/hyprws` past the lease above voids this green rehearsal.",
+      "Stop. Lease boundary: a linear landing folds at `unblock-fold`; movement that cannot fold past the lease above voids this green rehearsal.",
     );
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
@@ -7031,5 +7034,1235 @@ describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
       "refactor(web): centralize thread route navigation",
     );
     assert.deepStrictEqual(parsed.decisions, []);
+  });
+});
+
+describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
+  const gitRun = (cwd: string, args: ReadonlyArray<string>): string =>
+    NodeChildProcess.execFileSync("git", args, { cwd, encoding: "utf8" }).toString().trim();
+
+  const identity = (cwd: string): void => {
+    gitRun(cwd, ["config", "user.name", "test"]);
+    gitRun(cwd, ["config", "user.email", "test@example.invalid"]);
+  };
+
+  const commitFile = (cwd: string, name: string, content: string, message: string): string => {
+    NodeFS.writeFileSync(NodePath.join(cwd, name), content);
+    gitRun(cwd, ["add", name]);
+    gitRun(cwd, ["commit", "-m", message]);
+    return gitRun(cwd, ["rev-parse", "HEAD"]);
+  };
+
+  /** The stop-recording half of the walk's own `stopWalk`, for verb-level fold contexts. */
+  const recordWalkStop = (report: SyncReport, detail: string): SyncReport => ({
+    ...report,
+    walk: {
+      ...(report.walk ?? {}),
+      stop: { reason: "conflict" as const, detail },
+    },
+  });
+
+  /**
+   * A real trunk clone (`repositoryRoot`, with `origin` a bare remote publishing `hyprws`), a lane
+   * clone holding the candidate stack on the target tag, and the walk bindings a `checked` report
+   * carries. Trunk tip is one landing past the shared base; tests push further landings to
+   * `refs/heads/hyprws` to move the frontier the fold folds.
+   */
+  const foldFixture = (options: { readonly seam?: boolean } = {}) => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-sync-fold-wiring-"));
+    const origin = NodePath.join(root, "origin.git");
+    const trunk = NodePath.join(root, "trunk");
+    const lane = NodePath.join(root, "lane");
+    gitRun(root, ["init", "--bare", "--initial-branch=main", origin]);
+    NodeChildProcess.execFileSync("git", ["clone", "--quiet", origin, trunk], { encoding: "utf8" });
+    identity(trunk);
+    // The bot snapshot reader parses the workflow file the way fixtureRoot provides it.
+    const workflowDirectory = NodePath.join(trunk, ".github", "workflows");
+    NodeFS.mkdirSync(workflowDirectory, { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(workflowDirectory, "hyprws-upstream-sync.yml"),
+      'on:\n  schedule:\n    - cron: "23 */4 * * *"\n',
+    );
+    commitFile(trunk, "seam.txt", "base\n", "base");
+    // `unblock-check` reads the lockfile from the lane head; give the fixture a stable one.
+    commitFile(trunk, "pnpm-lock.yaml", "lockfile: fixture\n", "chore: lockfile");
+    const sharedBase = gitRun(trunk, ["rev-parse", "HEAD"]);
+    gitRun(trunk, ["tag", "v1.2.3"]);
+    commitFile(trunk, "up0.txt", "0\n", "upstream landing 0");
+    // The trunk carries the fork's own work, as hyprws does; the shared base stays the tag.
+    const landed = commitFile(
+      trunk,
+      options.seam === true ? "seam.txt" : "fork.txt",
+      options.seam === true ? "fork\n" : "fork\n",
+      "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
+    );
+    gitRun(trunk, ["push", "--quiet", "origin", `HEAD:refs/heads/hyprws`, "v1.2.3"]);
+    NodeChildProcess.execFileSync("git", ["clone", "--quiet", origin, lane], { encoding: "utf8" });
+    identity(lane);
+    gitRun(lane, ["checkout", "--quiet", "--detach", "v1.2.3"]);
+    // The candidate stack is the replay of `sharedBase..T`, the original series proof target.
+    commitFile(lane, "up0.txt", "0\n", "upstream landing 0");
+    const forkHead = commitFile(
+      lane,
+      "fork.txt",
+      "fork\n",
+      "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
+    );
+    const expectedLaneBranch = `rehearse/v1.2.3-from-${landed.slice(0, 12)}`;
+    const checked = report(trunk, {
+      stage: "checked",
+      // A real SHA the wrapper runner's real Git can resolve for the orientation checks.
+      issue: { number: 352, blockingSha: sharedBase, title: "blocked" },
+      target: { tag: "v1.2.3", sha: sharedBase },
+      source: { sha: landed, expectedOld: landed, sharedBase },
+      lane: { branch: expectedLaneBranch, worktree: lane },
+      rebasedHead: forkHead,
+      installedHead: forkHead,
+      stackSize: 1,
+      originalCount: 2,
+      originalMessages:
+        "upstream landing 0\x1efeat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol\x1e",
+      orientation: "mirror: fixture",
+    });
+    NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+    NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+    return {
+      root,
+      origin,
+      trunk,
+      lane,
+      sharedBase,
+      landed,
+      forkHead,
+      report: checked,
+      land: (name: string, content: string, message: string): string => {
+        const sha = commitFile(trunk, name, content, message);
+        gitRun(trunk, ["push", "--quiet", "origin", `${sha}:refs/heads/hyprws`]);
+        return sha;
+      },
+      cleanup: (): void => {
+        NodeFS.rmSync(root, { recursive: true, force: true });
+        NodeFS.rmSync(NodePath.dirname(checked.reportPath), { recursive: true, force: true });
+      },
+    };
+  };
+
+  it("unblock-fold folds one clean trunk landing and regresses to replayed", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      assert.strictEqual(folded.stage, "replayed");
+      assert.strictEqual(folded.folds?.length, 1);
+      const segment = folded.folds![0]!;
+      assert.deepStrictEqual(
+        { from: segment.from, to: segment.to, onto: segment.onto, count: segment.originalCount },
+        { from: item.landed, to: landing, onto: item.forkHead, count: 1 },
+      );
+      assert.strictEqual(segment.replayedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
+      assert.strictEqual(folded.source?.expectedOld, landing);
+      assert.strictEqual(folded.activeFold, undefined);
+      assert.include(folded.touchedPaths ?? [], "up1.txt");
+      assert.include(NodeFS.readFileSync(folded.recordPath, "utf8"), "## Folds");
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  /** Real Git and everything else through `SystemRunner`; `vp` fakes success and `gh` answers
+   * from a FakeRunner, so the fold, the proof, and the push run for real. `options` let a test
+   * script the record comment and its remote body (the applied-publication resume path). */
+  const wrapperRunner = (
+    options: {
+      /** The body the record comment carries on the issue (read back through `gh api`). */
+      readonly recordBody?: () => string;
+      /** The result of a record-comment PATCH. */
+      readonly patchResult?: () => CommandResult;
+      /** The URL posting the record comment returns. */
+      readonly commentUrl?: string;
+      /** The result of posting the record comment (scripted per call). */
+      readonly commentResult?: () => CommandResult;
+    } = {},
+  ): CommandRunner & {
+    readonly calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }>;
+  } => {
+    const system = new SystemRunner();
+    const inner = new FakeRunner();
+    const calls: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
+    setBotResponses(inner, "candidate");
+    inner.set(
+      "gh",
+      [
+        "run",
+        "list",
+        "--workflow",
+        "hyprws-upstream-sync.yml",
+        "--event",
+        "workflow_dispatch",
+        "-L",
+        "10",
+        "--json",
+        "databaseId,url",
+        "--repo",
+        "RSI-Software/t3code-hyprws",
+      ],
+      { stdout: "[]" },
+    );
+    return {
+      calls,
+      run: (command, args, cwd, input, env) => {
+        calls.push({ command, args: [...args] });
+        if (command === "vp") return { status: 0, stdout: "", stderr: "" };
+        if (command === "gh") {
+          if (args[0] === "issue" && args[1] === "comment") {
+            if (options.commentResult !== undefined) return options.commentResult();
+            if (options.commentUrl !== undefined)
+              return { status: 0, stdout: `${options.commentUrl}\n`, stderr: "" };
+          } else if (args[0] === "api" && args.includes("--jq"))
+            return { status: 0, stdout: `${options.recordBody?.() ?? ""}`, stderr: "" };
+          if (args[0] === "api" && args.includes("-X") && options.patchResult !== undefined)
+            return options.patchResult();
+          return inner.run(command, args, cwd, input, env);
+        }
+        return system.run(command, args, cwd, input, env);
+      },
+    };
+  };
+
+  const sha256 = (value: string): string =>
+    NodeCrypto.createHash("sha256").update(value).digest("hex");
+
+  /**
+   * The ledger environment without ledgerFixture's remote swap: the walk's own `origin` must
+   * stay in place because the apply fetches and pushes the trunk through it. Seeds the churn
+   * ref on the real origin and puts a fake `gh` on PATH that answers the record lookup.
+   */
+  /**
+   * Like `ledgerEnv`, but the fake `gh` also serves `SystemGitHub`'s direct calls so the stable
+   * candidate reconciliation is observable: created candidate issues land in a state file, and
+   * a rerun's listing already carries the marker, so a second announcement finds the issue and
+   * creates nothing.
+   */
+  const stableGhEnv = (recordPath: string): { statePath: string; restore: () => void } => {
+    const home = NodePath.dirname(recordPath);
+    const statePath = NodePath.join(home, "stable-gh-state.json");
+    NodeFS.writeFileSync(statePath, JSON.stringify({ next: 101, issues: [] }));
+    const bin = NodePath.join(home, "bin");
+    NodeFS.mkdirSync(bin, { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(bin, "gh"),
+      [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        "const args = process.argv.slice(2);",
+        'const a = args.join(" ");',
+        "const statePath = process.env.STABLE_FAKE_STATE;",
+        'const state = JSON.parse(fs.readFileSync(statePath, "utf8"));',
+        "const save = () => fs.writeFileSync(statePath, JSON.stringify(state));",
+        'const print = (v) => process.stdout.write(typeof v === "string" ? v : JSON.stringify(v));',
+        'if (a.startsWith("api --method POST repos/")) {',
+        '  const input = JSON.parse(fs.readFileSync(0, "utf8"));',
+        '  const issue = { number: state.next++, node_id: `n${state.next}`, state: "open", title: input.title, body: input.body, type: { name: "Notification" } };',
+        "  state.issues.push(issue); save();",
+        "  print({ number: issue.number, node_id: issue.node_id, title: issue.title, body: issue.body });",
+        "  return;",
+        "}",
+        'if (a.includes("--paginate") && a.includes("issues?state=all")) { print([state.issues]); return; }',
+        'if (args[0] === "api" && args[1] === "graphql") {',
+        '  print({ data: { organization: { issueFields: { nodes: [] } }, repository: { issueTypes: { nodes: [{ id: "T1", name: "Notification", isEnabled: true }] } } } });',
+        "  return;",
+        "}",
+        'if (a.startsWith("api --method GET ")) { print("[]"); return; }',
+        'const record = fs.readFileSync(process.env.FAKE_RECORD_PATH, "utf8");',
+        'print(JSON.stringify({ body: process.env.FAKE_ISSUE_BODY, url: "https://example.test/issue", comments: [{ body: record, url: "https://example.test/record" }] }));',
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const previousPath = process.env.PATH;
+    const previousRecord = process.env.FAKE_RECORD_PATH;
+    const previousBody = process.env.FAKE_ISSUE_BODY;
+    const previousState = process.env.STABLE_FAKE_STATE;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    process.env.FAKE_RECORD_PATH = recordPath;
+    process.env.FAKE_ISSUE_BODY = [
+      "## Sequential rebase census",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/fork-sync.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+    ].join("\n");
+    process.env.STABLE_FAKE_STATE = statePath;
+    return {
+      statePath,
+      restore: () => {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        if (previousRecord === undefined) delete process.env.FAKE_RECORD_PATH;
+        else process.env.FAKE_RECORD_PATH = previousRecord;
+        if (previousBody === undefined) delete process.env.FAKE_ISSUE_BODY;
+        else process.env.FAKE_ISSUE_BODY = previousBody;
+        if (previousState === undefined) delete process.env.STABLE_FAKE_STATE;
+        else process.env.STABLE_FAKE_STATE = previousState;
+      },
+    };
+  };
+
+  const ledgerEnv = (root: string, recordPath: string): { restore: () => void } => {
+    gitRun(root, ["config", "user.name", "test"]);
+    gitRun(root, ["config", "user.email", "test@example.invalid"]);
+    writeBotRefFile(root, CHURN_REF, CHURN_LEDGER_FILE, "[]\n", "churn: fixture");
+    gitRun(root, ["push", "--quiet", "origin", `${CHURN_REF}:${CHURN_REF}`]);
+    const bin = NodePath.join(root, "bin");
+    NodeFS.mkdirSync(bin, { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(bin, "gh"),
+      [
+        "#!/usr/bin/env node",
+        'const record = require("node:fs").readFileSync(process.env.FAKE_RECORD_PATH, "utf8");',
+        "process.stdout.write(",
+        "  JSON.stringify({",
+        "    body: process.env.FAKE_ISSUE_BODY,",
+        '    url: "https://example.test/issue",',
+        '    comments: [{ body: record, url: "https://example.test/record" }],',
+        "  }),",
+        ");",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const previousPath = process.env.PATH;
+    const previousRecord = process.env.FAKE_RECORD_PATH;
+    const previousBody = process.env.FAKE_ISSUE_BODY;
+    process.env.PATH = `${bin}:${previousPath ?? ""}`;
+    process.env.FAKE_RECORD_PATH = recordPath;
+    process.env.FAKE_ISSUE_BODY = [
+      "## Sequential rebase census",
+      "",
+      "| File | Hunks | Fork commit | Domain |",
+      "| --- | ---: | --- | --- |",
+      "| `scripts/fork-sync.ts` | 1 | `1234567 feat(fork): walk identity` | fork-meta |",
+    ].join("\n");
+    return {
+      restore: () => {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        if (previousRecord === undefined) delete process.env.FAKE_RECORD_PATH;
+        else process.env.FAKE_RECORD_PATH = previousRecord;
+        if (previousBody === undefined) delete process.env.FAKE_ISSUE_BODY;
+        else process.env.FAKE_ISSUE_BODY = previousBody;
+      },
+    };
+  };
+
+  it("unblock-apply alone folds a landed trunk, passes the gate, and pushes the advanced lease", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const ledger = ledgerEnv(item.trunk, item.report.recordPath);
+      const runner = wrapperRunner();
+      try {
+        const applied = execute(
+          ["unblock-apply", "--report", item.report.reportPath, "--record", item.report.recordPath],
+          item.trunk,
+          runner,
+        );
+        // The fold ran inside the apply: the frontier advanced, the lane name stayed on T.
+        assert.strictEqual(applied.stage, "applied");
+        assert.strictEqual(applied.source?.expectedOld, landing);
+        assert.strictEqual(applied.folds?.length, 1);
+        assert.strictEqual(
+          applied.lane?.branch,
+          `rehearse/v1.2.3-from-${item.landed.slice(0, 12)}`,
+        );
+        assert.strictEqual(applied.publication?.outcome, "applied");
+        assert.strictEqual(applied.publication?.expectedOld, landing);
+        assert.strictEqual(applied.publication?.head, applied.installedHead);
+        // The pushed history contains the landing and the lease matched the advanced frontier.
+        assert.strictEqual(
+          gitRun(item.trunk, ["rev-parse", "refs/remotes/origin/hyprws"]),
+          applied.installedHead,
+        );
+        process.stdout.write(
+          `DEBUG origin/hyprws:\n${gitRun(item.trunk, ["log", "--oneline", "-5", "origin/hyprws"])}\nlanding=${landing} installed=${applied.installedHead}\n`,
+        );
+        // The pushed history carries the landing's changes: the fold replays it onto the
+        // candidate, so the applied tree contains the landed file (RSI-Software/t3code-hyprws#922).
+        assert.strictEqual(gitRun(item.trunk, ["show", "origin/hyprws:up1.txt"]).trim(), "1");
+        assert.include(NodeFS.readFileSync(applied.recordPath, "utf8"), "## Folds");
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("unblock-apply resumes an applied push from the publication receipt without a second push", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      const head = folded.folds![0]!.replayedHead!;
+      // The push landed (the trunk carries the applied head) but the outcome was never written.
+      gitRun(item.lane, ["push", "--quiet", "--force", "origin", `HEAD:refs/heads/hyprws`]);
+      const record = renderRecord({ ...folded, rebasedHead: head });
+      NodeFS.writeFileSync(item.report.recordPath, record);
+      const checked: SyncReport = {
+        ...folded,
+        stage: "checked",
+        installedHead: head,
+        rebasedHead: head,
+        publication: {
+          expectedOld: landing,
+          head,
+          recordDigest: sha256(record),
+        },
+      };
+      NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+      // Sanity: the trunk really advertises the applied head the receipt names.
+      gitRun(item.trunk, ["fetch", "--quiet", "origin", "refs/heads/hyprws"]);
+      assert.strictEqual(gitRun(item.trunk, ["rev-parse", "refs/remotes/origin/hyprws"]), head);
+      const ledger = ledgerEnv(item.trunk, checked.recordPath);
+      const runner = wrapperRunner();
+      try {
+        const applied = execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          item.trunk,
+          runner,
+        );
+        assert.strictEqual(applied.stage, "applied");
+        assert.strictEqual(applied.publication?.outcome, "applied");
+        const pushCalls = runner.calls.filter(
+          ({ args }) =>
+            args.includes("push") && args.some((a) => a.startsWith("--force-with-lease")),
+        );
+        assert.deepStrictEqual(pushCalls, []);
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("unblock-auto resumes a persisted folding walk and finishes the fold", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      // The crash window between the persisted `folding` report and the replay: folds and the
+      // active fold exist, the lane never advanced.
+      const folding: SyncReport = {
+        ...item.report,
+        stage: "folding",
+        activeFold: { index: 0, operation: "replay" },
+        folds: [
+          {
+            from: item.landed,
+            to: landing,
+            onto: item.forkHead,
+            originalCount: 1,
+            originalMessages: "upstream landing 1\x1e",
+          },
+        ],
+        baseCheckedHead: item.forkHead,
+      };
+      NodeFS.writeFileSync(folding.reportPath, JSON.stringify(folding));
+      NodeFS.writeFileSync(folding.recordPath, renderRecord(folding));
+      const ledger = ledgerEnv(item.trunk, folding.recordPath);
+      const runner = wrapperRunner();
+      try {
+        let finished: SyncReport;
+        try {
+          finished = execute(["unblock-auto", "--report", folding.reportPath], item.trunk, runner);
+        } catch (error) {
+          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the fold and
+          // the push already landed, so judge the persisted report.
+          void error;
+          finished = validateReport(
+            JSON.parse(NodeFS.readFileSync(folding.reportPath, "utf8")),
+          ) as SyncReport;
+        }
+        assert.strictEqual(finished.stage, "applied");
+        assert.strictEqual(finished.source?.expectedOld, landing);
+        assert.strictEqual(finished.folds?.length, 1);
+        assert.isDefined(finished.folds?.[0]?.replayedHead);
+        // Resumed in place, never re-listed: the report binding and lane survived.
+        assert.strictEqual(finished.reportPath, folding.reportPath);
+        assert.strictEqual(finished.lane?.worktree, item.lane);
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("an apply-retry fold conflict records the ordinary handoff rows before stopping", () => {
+    const item = foldFixture({ seam: true });
+    try {
+      const landing = item.land("seam.txt", "upstream\n", "upstream seam rewrite");
+      const system = new SystemRunner();
+      const runner: CommandRunner = {
+        run: (command, args, cwd, input, env) =>
+          command === "git" && args.includes("push")
+            ? {
+                status: 1,
+                stdout: "",
+                stderr: `To origin\n ! [rejected] refs/heads/hyprws -> refs/heads/hyprws (stale info)\n`,
+              }
+            : system.run(command, args, cwd, input, env),
+      };
+      const context: FoldVerbContext = {
+        rehearsalRebaseArgs,
+        preserveRecordDecisions,
+        rehearsalConflictStop,
+        recordWalkStop,
+        unblockCheck: () => {
+          throw new Error("recheck goes through the stub below");
+        },
+      };
+      assert.throws(
+        () =>
+          leasedPushWithFoldRetry({
+            report: item.report,
+            runner,
+            context,
+            worktree: item.lane,
+            head: item.forkHead,
+            lease: item.landed,
+            recordPath: item.report.recordPath,
+            recheck: (foldedReport) => {
+              const head = foldedReport.folds![0]!.replayedHead!;
+              return { ...foldedReport, stage: "checked", installedHead: head, rebasedHead: head };
+            },
+          }),
+        /lane is retained with the conflict rows recorded/,
+      );
+      const stopped = JSON.parse(NodeFS.readFileSync(item.report.reportPath, "utf8")) as SyncReport;
+      assert.strictEqual(stopped.stage, "conflicts");
+      // The fold conflict is an ordinary walk stop: the report carries the same `walk.stop` the
+      // rehearsal stop leaves behind (RSI-Software/t3code-hyprws#922).
+      assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+      assert.match(stopped.walk?.stop?.detail ?? "", /fold conflict at upstream seam rewrite/);
+      assert.deepStrictEqual(stopped.activeFold, { index: 0, operation: "replay" });
+      const row = stopped.conflicts[stopped.conflicts.length - 1]!;
+      assert.strictEqual(row.path, "seam.txt");
+      assert.include(row.subject, "(fold 1)");
+      assert.strictEqual(row.subject, "upstream seam rewrite (fold 1)");
+      assert.isTrue(NodeFS.existsSync(item.lane));
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("autosquash with folds runs from the newest fold onto so the proved prefix survives", () => {
+    const item = foldFixture();
+    try {
+      // The landing shares its subject with the proved fork commit, and, as a trunk landing on
+      // the fork, carries the trailers that let it own a repair.
+      const landing = item.land(
+        "landing.txt",
+        "landing\n",
+        "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
+      );
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      const replayedHead = folded.folds![0]!.replayedHead!;
+      // A repair for a path the newest-segment commit owns, left dirty for the repair pass.
+      NodeFS.writeFileSync(NodePath.join(item.lane, "landing.txt"), "repaired\n");
+      const runner = wrapperRunner();
+      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
+      assert.strictEqual(checked.stage, "checked");
+      // The proved prefix (the onto commit) is still an ancestor of the finished head.
+      gitRun(item.lane, ["merge-base", "--is-ancestor", item.forkHead, "HEAD"]);
+      // The fixup squashed into the newest-segment owner, not the shared-subject proved commit.
+      assert.notStrictEqual(checked.folds?.[0]?.replayedHead, checked.folds?.[0]?.checkedHead);
+      assert.strictEqual(
+        gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
+        "feat: fork work",
+      );
+      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:landing.txt"]), "repaired");
+      void landing;
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("a standalone fold repair passes verifyReplay and a same-subject landing still counts", () => {
+    const item = foldFixture();
+    try {
+      item.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      // An unowned dirty path becomes the walk's standalone repair commit.
+      NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
+      const runner = wrapperRunner();
+      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
+      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
+      assert.isDefined(repairSha);
+      // The SHA-filtered candidate keeps the stream terminator, so the proof passes.
+      verifyReplay(checked, runner);
+      // A landing sharing the repair's subject is a real landing: folding it keeps the proof.
+      const landing = item.land(
+        "up2.txt",
+        "2\n",
+        (checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "").split("\n")[0]!,
+      );
+      const refolded = execute(["unblock-fold", "--report", checked.reportPath], item.trunk);
+      assert.strictEqual(refolded.folds?.length, 2);
+      assert.strictEqual(refolded.folds?.[1]?.from, checked.source?.expectedOld);
+      assert.strictEqual(refolded.folds?.[1]?.to, landing);
+      verifyReplay(refolded, runner);
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("a fold conflict stops with attributed rows and resumes through unblock-rehearse", () => {
+    const item = foldFixture({ seam: true });
+    try {
+      const landing = item.land("seam.txt", "upstream\n", "upstream seam rewrite");
+      const stopped = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      assert.strictEqual(stopped.stage, "conflicts");
+      assert.deepStrictEqual(stopped.activeFold, { index: 0, operation: "replay" });
+      const row = stopped.conflicts[stopped.conflicts.length - 1]!;
+      assert.strictEqual(row.path, "seam.txt");
+      assert.include(row.subject, "(fold 1)");
+      // Resolve the seam, stage it, and fill the record's TODO cells like the human handoff does.
+      NodeFS.writeFileSync(NodePath.join(item.lane, "seam.txt"), "resolved\n");
+      gitRun(item.lane, ["add", "seam.txt"]);
+      const recordPath = stopped.recordPath;
+      const record = NodeFS.readFileSync(recordPath, "utf8");
+      const filledRecord = record.replace(
+        /\| TODO \| TODO \| TODO \| TODO \|/,
+        "| mechanical | resolved by hand in the lane | yes | human |",
+      );
+      assert.notStrictEqual(record, filledRecord);
+      NodeFS.writeFileSync(recordPath, filledRecord);
+      const resumed = execute(["unblock-rehearse", "--report", stopped.reportPath], item.trunk);
+      assert.strictEqual(resumed.stage, "replayed");
+      assert.strictEqual(resumed.activeFold, undefined);
+      assert.strictEqual(resumed.source?.expectedOld, landing);
+      assert.strictEqual(
+        resumed.folds?.[0]?.replayedHead,
+        gitRun(item.lane, ["rev-parse", "HEAD"]),
+      );
+      assert.strictEqual(
+        gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
+        "upstream seam rewrite",
+      );
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("non-linear trunk movement refuses and retains the lane", () => {
+    const item = foldFixture();
+    try {
+      const side = commitFile(item.trunk, "side.txt", "side\n", "side landing");
+      gitRun(item.trunk, ["reset", "--hard", item.landed]);
+      const merge = gitRun(item.trunk, [
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.invalid",
+        "merge",
+        "--no-ff",
+        "-m",
+        "merge the side landing",
+        side,
+      ]);
+      void merge;
+      const mergeHead = gitRun(item.trunk, ["rev-parse", "HEAD"]);
+      gitRun(item.trunk, ["push", "--quiet", "origin", `${mergeHead}:refs/heads/hyprws`]);
+      assert.throws(
+        () => execute(["unblock-fold", "--report", item.report.reportPath], item.trunk),
+        /refuses:/,
+      );
+      const unchanged = JSON.parse(
+        NodeFS.readFileSync(item.report.reportPath, "utf8"),
+      ) as SyncReport;
+      assert.strictEqual(unchanged.stage, "checked");
+      assert.strictEqual(unchanged.folds, undefined);
+      assert.isTrue(NodeFS.existsSync(item.lane));
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("the tag-pinned gate accepts a folded record when the freshly fetched trunk is B", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      const head = folded.folds![0]!.replayedHead!;
+      const record = renderRecord({ ...folded, rebasedHead: head, stackSize: 2 });
+      assert.deepStrictEqual(
+        inspectRecord(record, {
+          targetTag: "v1.2.3",
+          targetSha: item.sharedBase,
+          expectedOld: landing,
+          rebasedHead: head,
+          stackSize: "2",
+        }),
+        [],
+      );
+      assert.notDeepEqual(
+        inspectRecord(record, {
+          targetTag: "v1.2.3",
+          targetSha: item.sharedBase,
+          expectedOld: item.landed,
+          rebasedHead: head,
+          stackSize: "2",
+        }),
+        [],
+      );
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("unblock-apply retries a definite stale lease by folding, bounded to three attempts", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const system = new SystemRunner();
+      const pushes: Array<CommandResult> = [
+        {
+          status: 1,
+          stdout: "",
+          stderr: `To origin\n ! [rejected] refs/heads/hyprws -> refs/heads/hyprws (stale info)\nerror: failed to push some refs\n`,
+        },
+        { status: 0, stdout: "ok\n", stderr: "" },
+      ];
+      const runner: CommandRunner = {
+        run: (command, args, cwd, input, env) =>
+          command === "git" && args.includes("push")
+            ? (pushes.shift() ?? { status: 1, stdout: "", stderr: "out of scripted pushes" })
+            : system.run(command, args, cwd, input, env),
+      };
+      const foldedChecked: SyncReport = {
+        ...item.report,
+        stage: "checked",
+        installedHead: item.forkHead,
+        rebasedHead: item.forkHead,
+      };
+      NodeFS.writeFileSync(foldedChecked.reportPath, JSON.stringify(foldedChecked));
+      NodeFS.writeFileSync(foldedChecked.recordPath, renderRecord(foldedChecked));
+      const context: FoldVerbContext = {
+        rehearsalRebaseArgs,
+        preserveRecordDecisions,
+        rehearsalConflictStop,
+        recordWalkStop,
+        unblockCheck: () => {
+          throw new Error("recheck goes through the stub below");
+        },
+      };
+      const applied = leasedPushWithFoldRetry({
+        report: foldedChecked,
+        runner,
+        context,
+        worktree: item.lane,
+        head: item.forkHead,
+        lease: item.landed,
+        recordPath: foldedChecked.recordPath,
+        recheck: (foldedReport) => {
+          const head = foldedReport.folds![0]!.replayedHead!;
+          return {
+            ...foldedReport,
+            stage: "checked",
+            installedHead: head,
+            rebasedHead: head,
+          };
+        },
+      });
+      assert.deepStrictEqual(applied.publication, {
+        expectedOld: landing,
+        head: applied.installedHead!,
+        recordDigest: applied.publication?.recordDigest ?? "",
+        outcome: "applied",
+      });
+      assert.strictEqual(applied.source?.expectedOld, landing);
+      assert.strictEqual(applied.stage, "checked");
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  const forceWithLeasePushes = (
+    runner: ReturnType<typeof wrapperRunner>,
+  ): ReadonlyArray<{ readonly command: string; readonly args: ReadonlyArray<string> }> =>
+    runner.calls.filter(
+      ({ args }) =>
+        args.includes("push") && args.some((argument) => argument.startsWith("--force-with-lease")),
+    );
+
+  it("an apply failure after the push resumes publication with no second push, then is a no-op", () => {
+    const item = foldFixture();
+    try {
+      const recordPath = item.report.recordPath;
+      const commentUrl = "https://example.test/record#issuecomment-123";
+      const ledger = ledgerEnv(item.trunk, recordPath);
+      try {
+        // The record comment drifted from the local record, and the applied-record PATCH fails:
+        // the push itself already landed (a real push through the fixture's origin).
+        let patchCalls = 0;
+        const failing = wrapperRunner({
+          commentUrl,
+          recordBody: () => "",
+          patchResult: () =>
+            ++patchCalls === 1
+              ? { status: 1, stdout: "", stderr: "patch refused\n" }
+              : { status: 0, stdout: "", stderr: "" },
+        });
+        assert.throws(
+          () =>
+            execute(
+              ["unblock-apply", "--report", item.report.reportPath, "--record", recordPath],
+              item.trunk,
+              failing,
+            ),
+          /patch refused/,
+        );
+        // The applied stage and the applied receipt were persisted before the failing PATCH.
+        const onDisk = validateReport(
+          JSON.parse(NodeFS.readFileSync(item.report.reportPath, "utf8")),
+        ) as SyncReport;
+        assert.strictEqual(onDisk.stage, "applied");
+        assert.strictEqual(onDisk.publication?.outcome, "applied");
+        assert.strictEqual(patchCalls, 1);
+        gitRun(item.trunk, ["fetch", "--quiet", "origin", "refs/heads/hyprws"]);
+        assert.strictEqual(
+          gitRun(item.trunk, ["rev-parse", "refs/remotes/origin/hyprws"]),
+          onDisk.installedHead,
+        );
+        // The rerun publishes the rest (record republish, churn row, announcement, rerere,
+        // outcomes) from the persisted applied stage without a second push.
+        const resume = wrapperRunner({
+          commentUrl,
+          recordBody: () => NodeFS.readFileSync(recordPath, "utf8"),
+        });
+        const applied = execute(
+          ["unblock-apply", "--report", item.report.reportPath, "--record", recordPath],
+          item.trunk,
+          resume,
+        );
+        assert.strictEqual(applied.stage, "applied");
+        assert.deepStrictEqual(forceWithLeasePushes(resume), []);
+        assert.strictEqual(applied.announcementUrl, commentUrl);
+        assert.strictEqual(applied.rererePublication?.state, "published");
+        assert.strictEqual(applied.walk?.ledger?.state, "published");
+        // A second rerun is a no-op: no push, no reposted announcement.
+        const again = wrapperRunner({
+          commentUrl,
+          recordBody: () => NodeFS.readFileSync(recordPath, "utf8"),
+        });
+        execute(
+          ["unblock-apply", "--report", item.report.reportPath, "--record", recordPath],
+          item.trunk,
+          again,
+        );
+        assert.deepStrictEqual(forceWithLeasePushes(again), []);
+        assert.deepStrictEqual(
+          again.calls.filter(
+            ({ command, args }) => command === "gh" && args[0] === "issue" && args[1] === "comment",
+          ),
+          [],
+        );
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("unblock-auto finishes an applied push from a pending receipt without re-listing", () => {
+    const item = foldFixture();
+    try {
+      const landing = item.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      const head = folded.folds![0]!.replayedHead!;
+      // The push landed (the trunk carries the applied head) but the outcome was never written.
+      gitRun(item.lane, ["push", "--quiet", "--force", "origin", "HEAD:refs/heads/hyprws"]);
+      const record = renderRecord({ ...folded, rebasedHead: head });
+      NodeFS.writeFileSync(item.report.recordPath, record);
+      const checked: SyncReport = {
+        ...folded,
+        stage: "checked",
+        installedHead: head,
+        rebasedHead: head,
+        publication: { expectedOld: landing, head, recordDigest: sha256(record) },
+      };
+      NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+      const ledger = ledgerEnv(item.trunk, checked.recordPath);
+      const runner = wrapperRunner();
+      try {
+        let finished: SyncReport;
+        try {
+          finished = execute(["unblock-auto", "--report", checked.reportPath], item.trunk, runner);
+        } catch {
+          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the recovery
+          // and the push already landed, so judge the persisted report.
+          finished = validateReport(
+            JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")),
+          ) as SyncReport;
+        }
+        assert.strictEqual(finished.stage, "applied");
+        assert.strictEqual(finished.publication?.outcome, "applied");
+        // Resumed in place, never re-listed.
+        assert.strictEqual(finished.reportPath, checked.reportPath);
+        assert.strictEqual(finished.lane?.worktree, item.lane);
+        assert.deepStrictEqual(forceWithLeasePushes(runner), []);
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("a fold conflict stop feeds record-decisions and the dirty-lane auto resume", () => {
+    // record-decisions accepts the fold conflict stop as a conflict-stop report (a separate
+    // fixture: recording mutates the report in place).
+    const recordedItem = foldFixture({ seam: true });
+    try {
+      recordedItem.land("seam.txt", "upstream\n", "upstream seam rewrite");
+      const stopped = execute(
+        ["unblock-fold", "--report", recordedItem.report.reportPath],
+        recordedItem.trunk,
+      );
+      assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+      NodeFS.writeFileSync(NodePath.join(recordedItem.lane, "seam.txt"), "resolved\n");
+      gitRun(recordedItem.lane, ["add", "seam.txt"]);
+      const ledger = ledgerEnv(recordedItem.trunk, stopped.recordPath);
+      try {
+        const recorded = execute(
+          ["record-decisions", "--report", stopped.reportPath, "--tag", "v1.2.3"],
+          recordedItem.trunk,
+          wrapperRunner(),
+        );
+        assert.isDefined(recorded.recordCommentUrl);
+        assert.strictEqual(recorded.conflicts[recorded.conflicts.length - 1]?.decidedBy, "human");
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      recordedItem.cleanup();
+    }
+    // The stopped lane's staged resolutions are the human's answer, so unblock-auto resumes the
+    // dirty lane instead of refusing it (RSI-Software/t3code-hyprws#922).
+    const item = foldFixture({ seam: true });
+    try {
+      const landing = item.land("seam.txt", "upstream\n", "upstream seam rewrite");
+      const stopped = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      assert.strictEqual(stopped.stage, "conflicts");
+      assert.strictEqual(stopped.walk?.stop?.reason, "conflict");
+      NodeFS.writeFileSync(NodePath.join(item.lane, "seam.txt"), "resolved\n");
+      gitRun(item.lane, ["add", "seam.txt"]);
+      const record = NodeFS.readFileSync(stopped.recordPath, "utf8");
+      const filledRecord = record.replace(
+        /\| TODO \| TODO \| TODO \| TODO \|/,
+        "| mechanical | resolved by hand in the lane | yes | human |",
+      );
+      assert.notStrictEqual(record, filledRecord);
+      NodeFS.writeFileSync(stopped.recordPath, filledRecord);
+      const ledger = ledgerEnv(item.trunk, stopped.recordPath);
+      try {
+        const runner = wrapperRunner();
+        let finished: SyncReport;
+        try {
+          finished = execute(["unblock-auto", "--report", stopped.reportPath], item.trunk, runner);
+        } catch {
+          // The post-apply reconciliation poll can stay ambiguous with a fake gh; the fold and
+          // the push already landed, so judge the persisted report.
+          finished = validateReport(
+            JSON.parse(NodeFS.readFileSync(stopped.reportPath, "utf8")),
+          ) as SyncReport;
+        }
+        assert.strictEqual(finished.stage, "applied");
+        assert.strictEqual(finished.source?.expectedOld, landing);
+        assert.strictEqual(finished.reportPath, stopped.reportPath);
+        assert.strictEqual(finished.lane?.worktree, item.lane);
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("a landing sharing the repair's subject never steals the standalone repair's identity", () => {
+    // Learn the standalone repair's subject from a first, decoy-free run.
+    const probe = foldFixture();
+    let repairSubject: string;
+    try {
+      probe.land("up1.txt", "1\n", "upstream landing 1");
+      const folded = execute(["unblock-fold", "--report", probe.report.reportPath], probe.trunk);
+      NodeFS.writeFileSync(NodePath.join(probe.lane, "repair.txt"), "repair\n");
+      const checked = execute(
+        ["unblock-check", "--report", folded.reportPath],
+        probe.trunk,
+        wrapperRunner(),
+      );
+      repairSubject = checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "";
+      assert.match(repairSubject, /^chore\(fork-sync\): /);
+    } finally {
+      probe.cleanup();
+    }
+    const item = foldFixture();
+    try {
+      item.land("up1.txt", "1\n", "upstream landing 1");
+      // The decoy landing shares the repair's subject and sits before it in history: the fold
+      // replays it below the repair the walk appends afterwards.
+      item.land("decoy.txt", "decoy\n", repairSubject);
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
+      const runner = wrapperRunner();
+      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
+      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
+      assert.isDefined(repairSha);
+      // The recorded SHA is the repair commit itself, never the same-subject landing.
+      assert.match(
+        gitRun(item.lane, ["show", "-s", "--format=%B", repairSha]),
+        /Fork-Repair: v1\.2\.3/,
+      );
+      verifyReplay(checked, runner);
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("persists pre-push stable candidates and announces exactly once, never on a rerun", () => {
+    const item = foldFixture();
+    try {
+      // A stable tag the walk crosses on a sibling upstream line: merge-base(expectedOld, v1.3.0)
+      // is the shared base, and v1.3.0 sits strictly past it (RSI-Software/t3code-hyprws#922).
+      const walkBranch = gitRun(item.trunk, ["symbolic-ref", "--short", "HEAD"]);
+      gitRun(item.trunk, ["checkout", "--quiet", "--detach", item.sharedBase]);
+      const up9 = commitFile(item.trunk, "up9.txt", "9\n", "upstream landing 9");
+      gitRun(item.trunk, ["tag", "v1.3.0"]);
+      gitRun(item.trunk, ["push", "--quiet", "origin", "v1.3.0"]);
+      gitRun(item.trunk, ["checkout", "--quiet", walkBranch]);
+      gitRun(item.lane, ["fetch", "--quiet", "origin", "refs/tags/v1.3.0:refs/tags/v1.3.0"]);
+      const checked: SyncReport = {
+        ...item.report,
+        target: { tag: "v1.3.0", sha: up9 },
+        lane: {
+          branch: `rehearse/v1.3.0-from-${item.landed.slice(0, 12)}`,
+          worktree: item.lane,
+        },
+      };
+      NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+      NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+      const ledger = ledgerEnv(item.trunk, checked.recordPath);
+      const stable = stableGhEnv(checked.recordPath);
+      const runner = wrapperRunner();
+      try {
+        const applied = execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          item.trunk,
+          runner,
+        );
+        // The pre-push candidate bindings were persisted, not dropped and re-created.
+        assert.deepStrictEqual(
+          applied.stableCandidates?.map(({ tag, branch }) => ({ tag, branch })),
+          [{ tag: "v1.3.0", branch: "release/v1.3.0-hyprws" }],
+        );
+        assert.include(
+          applied.stableCandidates![0]!.body,
+          "hyprws-stable-candidate: v1.3.0-hyprws",
+        );
+        assert.notStrictEqual(
+          gitRun(item.trunk, ["ls-remote", "origin", "refs/heads/release/v1.3.0-hyprws"]),
+          "",
+        );
+        // Exactly one candidate issue announcement.
+        let state = JSON.parse(NodeFS.readFileSync(stable.statePath, "utf8")) as {
+          issues: Array<{ body: string }>;
+        };
+        assert.strictEqual(state.issues.length, 1);
+        assert.include(state.issues[0]!.body, "hyprws-stable-candidate: v1.3.0-hyprws");
+        // The rerun announces nothing new: the persisted bindings reconcile against the issue
+        // the first apply created.
+        const rerun = wrapperRunner();
+        const again = execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          item.trunk,
+          rerun,
+        );
+        assert.strictEqual(again.stage, "applied");
+        assert.deepStrictEqual(forceWithLeasePushes(rerun), []);
+        state = JSON.parse(NodeFS.readFileSync(stable.statePath, "utf8"));
+        assert.strictEqual(state.issues.length, 1);
+      } finally {
+        stable.restore();
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("persists the candidate bindings before the record comment so a retry never re-snapshots", () => {
+    const item = foldFixture();
+    try {
+      // The same sibling-upstream crossing as the persistence test above.
+      const walkBranch = gitRun(item.trunk, ["symbolic-ref", "--short", "HEAD"]);
+      gitRun(item.trunk, ["checkout", "--quiet", "--detach", item.sharedBase]);
+      const up9 = commitFile(item.trunk, "up9.txt", "9\n", "upstream landing 9");
+      gitRun(item.trunk, ["tag", "v1.3.0"]);
+      gitRun(item.trunk, ["push", "--quiet", "origin", "v1.3.0"]);
+      gitRun(item.trunk, ["checkout", "--quiet", walkBranch]);
+      gitRun(item.lane, ["fetch", "--quiet", "origin", "refs/tags/v1.3.0:refs/tags/v1.3.0"]);
+      const checked: SyncReport = {
+        ...item.report,
+        target: { tag: "v1.3.0", sha: up9 },
+        lane: {
+          branch: `rehearse/v1.3.0-from-${item.landed.slice(0, 12)}`,
+          worktree: item.lane,
+        },
+      };
+      NodeFS.writeFileSync(checked.reportPath, JSON.stringify(checked));
+      NodeFS.writeFileSync(checked.recordPath, renderRecord(checked));
+      const ledger = ledgerEnv(item.trunk, checked.recordPath);
+      const stable = stableGhEnv(checked.recordPath);
+      try {
+        // The record comment post throws; the snapshots were already created and must already be
+        // persisted on the report.
+        let commentCalls = 0;
+        const failing = wrapperRunner({
+          commentResult: () =>
+            ++commentCalls === 1
+              ? { status: 1, stdout: "", stderr: "comment refused\n" }
+              : { status: 0, stdout: "https://example.test/record#issuecomment-123\n", stderr: "" },
+        });
+        assert.throws(
+          () =>
+            execute(
+              ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+              item.trunk,
+              failing,
+            ),
+          /comment refused/,
+        );
+        const onDisk = validateReport(
+          JSON.parse(NodeFS.readFileSync(checked.reportPath, "utf8")),
+        ) as SyncReport;
+        assert.strictEqual(onDisk.stage, "checked");
+        assert.strictEqual(onDisk.stableCandidates?.length, 1);
+        assert.strictEqual(onDisk.stableCandidates?.[0]?.tag, "v1.3.0");
+        const snapshotBefore = gitRun(item.trunk, [
+          "ls-remote",
+          "origin",
+          "refs/heads/release/v1.3.0-hyprws",
+        ]);
+        assert.notStrictEqual(snapshotBefore, "");
+        // The rerun finds the bindings on the report, posts the comment, pushes once, and
+        // announces each persisted candidate exactly once — the snapshot branch was never
+        // re-created.
+        const resume = wrapperRunner({
+          commentUrl: "https://example.test/record#issuecomment-123",
+        });
+        const applied = execute(
+          ["unblock-apply", "--report", checked.reportPath, "--record", checked.recordPath],
+          item.trunk,
+          resume,
+        );
+        assert.strictEqual(applied.stage, "applied");
+        assert.deepStrictEqual(forceWithLeasePushes(resume).length, 1);
+        assert.strictEqual(applied.stableCandidates?.length, 1);
+        assert.strictEqual(
+          gitRun(item.trunk, ["ls-remote", "origin", "refs/heads/release/v1.3.0-hyprws"]),
+          snapshotBefore,
+        );
+        const state = JSON.parse(NodeFS.readFileSync(stable.statePath, "utf8")) as {
+          issues: Array<{ body: string }>;
+        };
+        assert.strictEqual(state.issues.length, 1);
+        assert.include(state.issues[0]!.body, "hyprws-stable-candidate: v1.3.0-hyprws");
+      } finally {
+        stable.restore();
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
+  });
+
+  it("unblock-auto resumes an applied publication report instead of the legacy healer", () => {
+    const item = foldFixture();
+    try {
+      item.land("up1.txt", "1\n", "upstream landing 1");
+      const recordPath = item.report.recordPath;
+      const commentUrl = "https://example.test/record#issuecomment-123";
+      const ledger = ledgerEnv(item.trunk, recordPath);
+      try {
+        // The fold-retry push lands, but the applied-record PATCH fails: the report is applied
+        // and the remote comment is stale.
+        let patchCalls = 0;
+        const failing = wrapperRunner({
+          commentUrl,
+          recordBody: () => "",
+          patchResult: () =>
+            ++patchCalls === 1
+              ? { status: 1, stdout: "", stderr: "patch refused\n" }
+              : { status: 0, stdout: "", stderr: "" },
+        });
+        assert.throws(
+          () =>
+            execute(
+              ["unblock-apply", "--report", item.report.reportPath, "--record", recordPath],
+              item.trunk,
+              failing,
+            ),
+          /patch refused/,
+        );
+        const onDisk = validateReport(
+          JSON.parse(NodeFS.readFileSync(item.report.reportPath, "utf8")),
+        ) as SyncReport;
+        assert.strictEqual(onDisk.stage, "applied");
+        // unblock-auto must route through the applied resume: the record comment is republished,
+        // the churn row is appended exactly once, and the walk is not stopped.
+        let autoPatchCalls = 0;
+        const resume = wrapperRunner({
+          commentUrl,
+          recordBody: () => "",
+          patchResult: () => {
+            autoPatchCalls += 1;
+            return { status: 0, stdout: "", stderr: "" };
+          },
+        });
+        let finished: SyncReport;
+        try {
+          finished = execute(
+            ["unblock-auto", "--report", item.report.reportPath],
+            item.trunk,
+            resume,
+          );
+        } catch {
+          finished = validateReport(
+            JSON.parse(NodeFS.readFileSync(item.report.reportPath, "utf8")),
+          ) as SyncReport;
+        }
+        assert.strictEqual(finished.stage, "applied");
+        assert.strictEqual(autoPatchCalls, 1);
+        assert.deepStrictEqual(forceWithLeasePushes(resume), []);
+        assert.notStrictEqual(finished.announcementUrl, "");
+        assert.strictEqual(finished.rererePublication?.state, "published");
+        assert.strictEqual(finished.walk?.ledger?.state, "published");
+        gitRun(item.trunk, ["fetch", "--quiet", "origin", CHURN_REF]);
+        const churnState = JSON.parse(
+          readBotRefFile(item.trunk, CHURN_REF, CHURN_LEDGER_FILE) ?? "[]",
+        ) as { walks: Array<{ tag: string; pending?: boolean }> };
+        assert.strictEqual(
+          churnState.walks.filter((row) => row.tag === "v1.2.3" && row.pending !== true).length,
+          1,
+        );
+      } finally {
+        ledger.restore();
+      }
+    } finally {
+      item.cleanup();
+    }
   });
 });
