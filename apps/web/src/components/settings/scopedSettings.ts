@@ -15,6 +15,10 @@ import {
   resolveProjectSettings,
   type ProjectSettingSource,
 } from "@t3tools/shared/projectSettings";
+import {
+  fromWireThreadEnvModeFields,
+  toWireThreadEnvModeOverrideFields,
+} from "@t3tools/shared/threadEnvMode.fork";
 import * as Equal from "effect/Equal";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
@@ -207,8 +211,14 @@ export function planScopedSettingsPatch(
   const serverKeys = Object.keys(serverPatch);
   const { connectedEnvironments } = selectScopedSettingsEnvironments(scope, environments, null);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  // Fork: the thread mode's `...Fork` sibling travels with the wire slot it
+  // belongs to, so it never counts as an unscopable key on its own.
   const unscopableKeys = isProjectScope
-    ? serverKeys.filter((key) => !isProjectScopedSettingKey(key))
+    ? serverKeys.filter(
+        (key) =>
+          !isProjectScopedSettingKey(key) &&
+          !(key === "defaultThreadEnvModeFork" && "defaultThreadEnvMode" in serverPatch),
+      )
     : [];
   const serverWrites: ScopedServerWrite[] =
     serverKeys.length === 0
@@ -226,6 +236,20 @@ export function planScopedSettingsPatch(
                 const base = effective[key as keyof ServerSettings];
                 next[key] =
                   isPlainObject(value) && isPlainObject(base) ? { ...base, ...value } : value;
+              }
+              // Fork: the thread-mode pair replaces wholesale, so a cleared or
+              // exact mode cannot keep a stale `...Fork` sibling alive.
+              if (serverPatch.defaultThreadEnvMode !== undefined) {
+                delete next.defaultThreadEnvModeFork;
+                Object.assign(
+                  next,
+                  toWireThreadEnvModeOverrideFields(
+                    fromWireThreadEnvModeFields({
+                      defaultThreadEnvMode: serverPatch.defaultThreadEnvMode,
+                      defaultThreadEnvModeFork: serverPatch.defaultThreadEnvModeFork,
+                    }),
+                  ),
+                );
               }
               return next as ProjectSettingsOverrides;
             })
