@@ -150,6 +150,14 @@ const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string
     privateNetworkOnly: state.privateNetworkOnly,
   });
 
+const resolveJsonPairingBaseUrl = (state: PersistedServerRuntimeState): string => {
+  // The desktop compares `pairingUrl.origin` to the runtime-state `origin` strictly, and with
+  // no host the upstream base says `localhost` while the record says `127.0.0.1`. So JSON output
+  // pairs through the recorded origin only when no host is configured; any other host value
+  // keeps the upstream base, whose interface fallback suits a remote client.
+  return state.host === undefined ? state.origin : resolveDirectPairingBaseUrl(state);
+}; // fork-hook: backend-attach/json-pairing-origin
+
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
   { devUrl: Schema.String },
@@ -476,7 +484,7 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
-const jsonFlag = Flag.boolean("json").pipe(
+const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDescription("Emit JSON instead of human-readable output."),
   Flag.withDefault(false),
 );
@@ -537,7 +545,9 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolved.baseUrl;
         notes.push(...resolved.notes);
       } else {
-        pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
+        pairingBaseUrl = flags.json
+          ? resolveJsonPairingBaseUrl(target.state)
+          : resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
             "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
