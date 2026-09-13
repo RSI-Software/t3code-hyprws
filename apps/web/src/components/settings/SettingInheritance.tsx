@@ -5,6 +5,11 @@ import {
 } from "@t3tools/contracts";
 import { CheckIcon, LayersIcon } from "lucide-react";
 import * as Equal from "effect/Equal";
+import {
+  fromWireThreadEnvModeFields,
+  isWorktreeEnvMode,
+  type StoredThreadEnvMode,
+} from "@t3tools/shared/threadEnvMode.fork";
 
 import { cn } from "../../lib/utils";
 import type { EnvironmentPresentation } from "../../state/environments";
@@ -51,8 +56,11 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
       : String(value);
   }
   if (typeof value === "string") {
-    if (key === "defaultThreadEnvMode" && (value === "local" || value === "worktree")) {
-      return resolveEnvModeLabel(value);
+    if (
+      key === "defaultThreadEnvMode" &&
+      (value === "local" || isWorktreeEnvMode(value as StoredThreadEnvMode))
+    ) {
+      return resolveEnvModeLabel(value as StoredThreadEnvMode);
     }
     if (key === "pullRequestMergeMethod" && value in PULL_REQUEST_MERGE_METHOD_LABELS) {
       return PULL_REQUEST_MERGE_METHOD_LABELS[
@@ -69,6 +77,16 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
     }
   }
   return "Custom";
+}
+
+/**
+ * Fork: the stored value behind a layer's settings, so the chain shows the
+ * exact mode (including `worktrunk`) rather than the wire stand-in. Every
+ * layer decodes the same way or the inheritance arrows would point at a
+ * difference that is not real.
+ */
+function storedLayerValue(settings: ServerSettings, key: keyof ServerSettings): unknown {
+  return key === "defaultThreadEnvMode" ? fromWireThreadEnvModeFields(settings) : settings[key];
 }
 
 /**
@@ -90,7 +108,10 @@ export function settingInheritanceLayers(
     layers.push({
       key: "project",
       label: "Project",
-      value: projectSource === "project" ? formatValue(key, target.settings[key]) : "Inherits",
+      value:
+        projectSource === "project"
+          ? formatValue(key, storedLayerValue(target.settings, key))
+          : "Inherits",
       effective: projectSource === "project",
       set: projectSource === "project",
     });
@@ -98,14 +119,16 @@ export function settingInheritanceLayers(
   layers.push({
     key: "environment",
     label: target.label,
-    value: environmentSet ? formatValue(key, environmentValue) : "Inherits",
+    value: environmentSet
+      ? formatValue(key, storedLayerValue(environmentSettings, key))
+      : "Inherits",
     effective: projectSource !== "project" && environmentSet,
     set: environmentSet,
   });
   layers.push({
     key: "built-in",
     label: "Default",
-    value: formatValue(key, builtIn),
+    value: formatValue(key, storedLayerValue(DEFAULT_SERVER_SETTINGS, key)),
     effective: projectSource !== "project" && !environmentSet,
     set: true,
   });
@@ -285,7 +308,14 @@ export function SettingInheritance({
                           </button>
                           <span className="max-w-32 truncate text-muted-foreground tabular-nums">
                             {isProjectScopedSettingKey(key)
-                              ? formatValue(key, overrides[project.projectId]?.[key])
+                              ? formatValue(
+                                  key,
+                                  key === "defaultThreadEnvMode"
+                                    ? fromWireThreadEnvModeFields(
+                                        overrides[project.projectId] ?? {},
+                                      )
+                                    : overrides[project.projectId]?.[key],
+                                )
                               : null}
                           </span>
                         </li>

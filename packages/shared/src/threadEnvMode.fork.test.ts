@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { StoredThreadEnvMode } from "./threadEnvMode.fork.ts";
 import {
   fromWireThreadEnvModeFields,
   toWireThreadEnvModeFields,
@@ -27,5 +28,39 @@ describe("thread env mode wire fields", () => {
     expect(fromWireThreadEnvModeFields({ defaultThreadEnvMode: "worktree" })).toBe("worktree");
     expect(fromWireThreadEnvModeFields({ defaultThreadEnvMode: null })).toBeNull();
     expect(fromWireThreadEnvModeFields({})).toBeUndefined();
+  });
+});
+
+describe("project override thread env mode path", () => {
+  const writeOverride = (mode: StoredThreadEnvMode | null) =>
+    toWireThreadEnvModeOverrideFields(mode);
+
+  it("a project override of worktrunk survives write then read", () => {
+    expect(fromWireThreadEnvModeFields(writeOverride("worktrunk"))).toBe("worktrunk");
+  });
+
+  it("sends a worktrunk override on the wire as worktree plus the sibling", () => {
+    expect(writeOverride("worktrunk")).toEqual({
+      defaultThreadEnvMode: "worktree",
+      defaultThreadEnvModeFork: "worktrunk",
+    });
+  });
+
+  it("a worktree override adds no fork sibling", () => {
+    expect(writeOverride("worktree")).toEqual({ defaultThreadEnvMode: "worktree" });
+  });
+
+  it("clearing the override round-trips as null", () => {
+    expect(writeOverride(null)).toEqual({ defaultThreadEnvMode: null });
+    expect(fromWireThreadEnvModeFields(writeOverride(null))).toBeNull();
+  });
+
+  it("an override payload with no sibling decodes to the wire value", () => {
+    expect(
+      fromWireThreadEnvModeFields({
+        defaultThreadEnvMode: "worktree",
+        defaultThreadEnvModeFork: undefined,
+      }),
+    ).toBe("worktree");
   });
 });
