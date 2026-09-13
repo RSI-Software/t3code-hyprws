@@ -56,23 +56,77 @@ export const forkLogArguments = (base: string, head: string) =>
     `${base}..${head}`,
   ] as const;
 
-const readTrailer = (body: string, key: string): string | undefined => {
+/**
+ * Squash messages routinely carry a trailer block more than once (18 of the last 400 trunk commits
+ * repeat `Fork-Domain`, some five times). Repetition itself is benign — every observed duplicate
+ * agrees on the value — so the parser only fails when the copies disagree: the proof checks can
+ * never validate a copy they were never shown, so a stale first copy next to a corrected later one
+ * would otherwise pass in silence (see 43e1a15ad3, where the whole block landed twice).
+ */
+class DuplicateForkTrailerError extends Error {}
+
+/**
+ * A repeated trailer whose copies disagree is a parse failure. One copy parses exactly as before;
+ * several copies that all agree on the value return that value; several copies that disagree throw,
+ * naming the key, the copy count, and every distinct value in message order so the stale clause is
+ * visible to the author.
+ */
+const readTrailerValues = (body: string, key: string): Array<string | undefined> => {
+  const values: Array<string | undefined> = [];
   for (const line of body.split("\n")) {
     const separator = line.indexOf(":");
     if (separator === -1) continue;
     if (line.slice(0, separator).trim().toLowerCase() !== key.toLowerCase()) continue;
-    return normalizeTrailerValue(line.slice(separator + 1));
+    values.push(normalizeTrailerValue(line.slice(separator + 1)));
   }
-  return undefined;
+  return values;
 };
 
-export const parseForkTrailers = (body: string): ForkTrailers => {
-  const domain = readTrailer(body, "Fork-Domain");
-  const tier = readTrailer(body, "Fork-Tier");
-  const upstreamable = readTrailer(body, "Fork-Upstreamable");
-  const wireReviewed = readTrailer(body, "Fork-Wire");
-  const repair = readTrailer(body, "Fork-Repair");
-  const budget = readTrailer(body, "Fork-Budget");
+const readTrailer = (body: string, key: string): string | undefined => {
+  const values = readTrailerValues(body, key);
+  if (values.length <= 1) return values[0];
+  const distinct = [...new Set(values.map((value) => value ?? ""))];
+  if (distinct.length > 1) {
+    throw new DuplicateForkTrailerError(
+      `duplicate ${key} trailer: ${values.length} copies disagree, distinct values in message ` +
+        `order: ${distinct
+          .map((value) => (value === "" ? "(empty)" : JSON.stringify(value)))
+          .join(", ")}`,
+    );
+  }
+  const only = distinct[0] ?? "";
+  return only === "" ? undefined : only;
+};
+
+// A tolerant read for the one grandfathered commit below: among disagreeing copies, the later copy
+// is the corrected clause, so it is the one kept.
+const readLastTrailer = (body: string, key: string): string | undefined => {
+  const values = readTrailerValues(body, key).filter((value) => value !== undefined);
+  return values[values.length - 1];
+};
+
+/**
+ * Exemption for exactly one trunk commit that cannot be amended. 8778853f80 carries `Fork-Budget`
+ * twice and the copies disagree: line 107 ("the five walk-friction fixes ... 69149 ... 5489") is
+ * the true clause and matches the landed ledger row; line 88 ("the four ... 68792 ... 5409") is
+ * the stale leftover from an earlier revision of the same squash. The disagreement must not
+ * silently pass for any other commit, so this is a one-sha exemption, never a rule.
+ */
+export const GRANDFATHERED_DUPLICATE_TRAILER_SHAS = new Set([
+  "8778853f805664e3a1ccf6f6086753ca1695b446",
+]);
+
+export const parseForkTrailers = (
+  body: string,
+  options: { tolerateDuplicateTrailers?: boolean } = {},
+): ForkTrailers => {
+  const read = options.tolerateDuplicateTrailers === true ? readLastTrailer : readTrailer;
+  const domain = read(body, "Fork-Domain");
+  const tier = read(body, "Fork-Tier");
+  const upstreamable = read(body, "Fork-Upstreamable");
+  const wireReviewed = read(body, "Fork-Wire");
+  const repair = read(body, "Fork-Repair");
+  const budget = read(body, "Fork-Budget");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
@@ -91,7 +145,24 @@ export const parseForkLog = (raw: string): ReadonlyArray<ParsedForkCommit> =>
     .map((record) => {
       const [sha = "", short = "", subject = "", body = ""] =
         record.split(FORK_LOG_FIELD_SEPARATOR);
-      return { sha, short, subject, ...parseForkTrailers(body) };
+      if (GRANDFATHERED_DUPLICATE_TRAILER_SHAS.has(sha)) {
+        return {
+          sha,
+          short,
+          subject,
+          ...parseForkTrailers(body, { tolerateDuplicateTrailers: true }),
+        };
+      }
+      try {
+        return { sha, short, subject, ...parseForkTrailers(body) };
+      } catch (error) {
+        if (error instanceof DuplicateForkTrailerError) {
+          // Name the offending commit, following the shape describeReplayMessageDiff established:
+          // an unattended failure must not require reading the whole series to find the culprit.
+          throw new Error(`${short} ${subject}: ${error.message}`, { cause: error });
+        }
+        throw error;
+      }
     });
 
 export const isForkDomain = (value: string | undefined): value is ForkDomain =>
