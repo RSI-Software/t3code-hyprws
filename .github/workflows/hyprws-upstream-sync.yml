@@ -69,6 +69,39 @@ jobs:
           git push origin upstream/main:refs/heads/main
           git push origin --tags
 
+  # The blocking live-upstream rebase scan. The PR lane runs the same scan
+  # against live upstream/main only advisory, because upstream landing a
+  # commit on a shared file is not the fault of the pull request under test;
+  # there it fails silently by design (a ::warning:: is its only signal). On
+  # trunk the blame is ours, so a missing scan row for a file upstream now
+  # touches must fail here, on a cadence and in a lane that can act on it.
+  # Independent of `mirror`: the scan fetches live upstream/main itself, so it
+  # must still run when the mirror token is missing or the mirror fails. It is
+  # deliberately not a dependency of `rebase`, which reports and never gates
+  # auto-rebase.
+  scan-live-upstream:
+    name: Live upstream rebase scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout fork trunk
+        uses: actions/checkout@v6
+        with:
+          ref: hyprws
+          fetch-depth: 0
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Add upstream
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+      - name: Scan against live upstream/main
+        run: vp run fork:scan --no-typecheck
+
   forecast:
     name: Forecast
     needs: mirror
