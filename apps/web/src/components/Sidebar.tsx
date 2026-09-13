@@ -12,9 +12,11 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import * as Schema from "effect/Schema";
 import {
   DndContext,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
   type Modifier,
@@ -173,8 +175,8 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
   buildSidebarThreadGroupLayout,
-  buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -183,8 +185,10 @@ import {
   firstValidTimestampMs,
   getSidebarThreadGroupDissolvingKey,
   hasUnseenCompletion,
+  isSidebarGroupHeaderGroupingTarget,
   isSidebarNestedLinkClick,
   isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
@@ -193,6 +197,9 @@ import {
   resolveCompletedTurnTiming,
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
+  resolveSidebarGroupHeaderDropAnchor,
+  parseSidebarThreadGroupHeaderId,
+  sidebarThreadGroupHeaderId,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
   searchSidebarThreads,
@@ -210,7 +217,6 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
-  type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
@@ -584,6 +590,40 @@ function SortableThreadRow(props: {
     [listeners, setNodeRef, transform, transition, isDragging],
   );
   return props.children(bag);
+}
+
+// A group header is a grouping drop target: a thread released on it joins
+// that group. It rides the same DndContext as the rows but can never be
+// picked up, so a plain droppable is enough — dnd-kit resolves it as `over`
+// through the shared collision detection, gated by the header eligibility in
+// the detector's validity filter.
+function DroppableThreadGroupHeader(props: {
+  readonly id: string;
+  readonly group: SidebarThreadGroup;
+  readonly memberCount: number;
+  readonly isGenerating: boolean;
+  readonly isGroupDropTarget?: boolean;
+  readonly isDissolving?: boolean;
+  readonly onCollapsedChange: (collapsed: boolean) => void;
+  readonly onRename: (title: string) => void;
+  readonly onRegenerate: () => void;
+  readonly onRemove: () => void;
+}) {
+  const { setNodeRef } = useDroppable({ id: props.id });
+  return (
+    <SidebarThreadGroupHeader
+      group={props.group}
+      memberCount={props.memberCount}
+      isGenerating={props.isGenerating}
+      isGroupDropTarget={props.isGroupDropTarget ?? false}
+      isDissolving={props.isDissolving ?? false}
+      onCollapsedChange={props.onCollapsedChange}
+      onRename={props.onRename}
+      onRegenerate={props.onRegenerate}
+      onRemove={props.onRemove}
+      rootRef={setNodeRef}
+    />
+  );
 }
 
 // Unsent work shares one look: the new-thread draft rows and thread rows
@@ -2239,10 +2279,15 @@ export default function Sidebar() {
     setGroupDropTargetKey(threadKey);
   }, []);
   const [dissolvingGroupKey, setDissolvingGroupKey] = useState<string | null>(null);
+  const dissolvingGroupKeyRef = useRef<string | null>(null);
+  const updateDissolvingGroupKey = useCallback((groupKey: string | null) => {
+    dissolvingGroupKeyRef.current = groupKey;
+    setDissolvingGroupKey(groupKey);
+  }, []);
   const resetActiveDragPreview = useCallback(() => {
     updateGroupDropTarget(null);
-    setDissolvingGroupKey(null);
-  }, [updateGroupDropTarget]);
+    updateDissolvingGroupKey(null);
+  }, [updateDissolvingGroupKey, updateGroupDropTarget]);
   const [generatingGroupIds, setGeneratingGroupIds] = useState<ReadonlySet<string>>(new Set());
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
@@ -3575,49 +3620,43 @@ export default function Sidebar() {
     [sectionByThreadKey],
   );
   // Include every visible row in the measured order. Older servers disable
-  // pickup on their rows without changing where those rows render.
-  const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
-    const rowsOf = (
-      list: readonly EnvironmentThreadShell[],
-      section: SidebarSection,
-    ): SidebarListItem[] =>
-      list.map((thread) => {
-        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-        return { kind: "thread", key, section };
-      });
-    if (
-      pinnedThreads.length +
-        activeThreads.length +
-        snoozedThreads.length +
-        settledThreads.length ===
-      0
-    ) {
-      return [];
-    }
-    const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
-    items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
-    items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
-    if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
-      items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
-    }
-    items.push({ kind: "marker", marker: "settled-header" });
-    const settledRows = rowsOf(renderedSettledThreads, "settled");
-    items.push({ kind: "marker", marker: "settled-placeholder" });
-    items.push(...settledRows);
-    return items;
-  }, [
-    activeThreads,
-    pinnedThreads,
-    renderedSettledThreads,
-    settledThreads.length,
-    snoozedThreads.length,
-    visibleSnoozedThreads,
-  ]);
+  // pickup on their rows without changing where those rows render. Active
+  // rows come from visibleActiveThreads — the same list orderedThreads
+  // resolves threadByKey from — so every emitted row has a thread behind it,
+  // even when a collapsed group hides all but its anchor.
+  const sidebarListItems = useMemo(
+    () =>
+      buildSidebarListItems({
+        hasNoThreads:
+          pinnedThreads.length +
+            activeThreads.length +
+            snoozedThreads.length +
+            settledThreads.length ===
+          0,
+        pinnedKeys: pinnedThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        activeKeys: visibleActiveThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        hasSnoozedThreads: snoozedThreads.length > 0,
+        snoozedVisibleKeys: visibleSnoozedThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        settledKeys: renderedSettledThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+      }),
+    [
+      activeThreads.length,
+      pinnedThreads,
+      renderedSettledThreads,
+      settledThreads.length,
+      snoozedThreads.length,
+      visibleActiveThreads,
+      visibleSnoozedThreads,
+    ],
+  );
   useEffect(() => {
     if (
       dragState !== null &&
@@ -3654,10 +3693,11 @@ export default function Sidebar() {
     visibleDraftSessionCount,
   ]);
   // Grouping rides upstream's one sidebar DndContext. A drop onto the middle
-  // band of another active row in the same project groups the two rows; every
-  // other drop is upstream's reorder or section move, untouched. The same pass
-  // reports the group the lifted row is leaving, so a pair about to fall below
-  // two members previews its dissolution instead of snapping out after release.
+  // band of another active row — or anywhere on a registered group header —
+  // in the same project groups the two rows; every other drop is upstream's
+  // reorder or section move, untouched. The same pass reports the group the
+  // lifted row is leaving, so a pair about to fall below two members previews
+  // its dissolution instead of snapping out after release.
   const resolveThreadGroupPreview = useCallback(
     (input: {
       readonly activeKey: string;
@@ -3672,18 +3712,44 @@ export default function Sidebar() {
           (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === key,
         );
       const active = threadFor(input.activeKey);
-      const over = threadFor(input.overKey);
-      if (active === undefined || over === undefined) return none;
+      if (active === undefined) return none;
       const projectKey = threadProjectOrderKey(active);
-      if (threadProjectOrderKey(over) !== projectKey) return none;
       const groups = threadGroupsByProject[projectKey] ?? [];
       const activeGroup = groups.find((group) => group.threadIds.includes(input.activeKey));
+      const headerTarget = parseSidebarThreadGroupHeaderId(input.overKey);
+      if (headerTarget !== null) {
+        // Group headers are registered droppables on the same list, so `over`
+        // carries the header id and the whole header is the target. It must
+        // belong to the dragged row's project and hold an existing group the
+        // row is not already in.
+        if (headerTarget.projectKey !== projectKey) return none;
+        const overGroup = groups.find((group) => group.id === headerTarget.groupId);
+        if (overGroup === undefined) return none;
+        const grouping = isSidebarThreadGroupingTarget({
+          activeGroupId: activeGroup?.id ?? null,
+          overGroupId: overGroup.id,
+          overGroupHeader: true,
+          activeRect: input.activeRect,
+          overRect: input.overRect,
+        });
+        return {
+          groupTargetKey: grouping ? input.overKey : null,
+          dissolvingGroupKey: getSidebarThreadGroupDissolvingKey({
+            projectKey,
+            activeGroup,
+            overGroupId: overGroup.id,
+          }),
+        };
+      }
+      const over = threadFor(input.overKey);
+      if (over === undefined) return none;
+      if (threadProjectOrderKey(over) !== projectKey) return none;
       const overGroup = groups.find((group) => group.threadIds.includes(input.overKey));
       const grouping = isSidebarThreadGroupingTarget({
         activeGroupId: activeGroup?.id ?? null,
         overGroupId: overGroup?.id ?? null,
-        // Group headers are not sortable targets on upstream's list, so a drop
-        // only ever lands on a member row's central band.
+        // Row drops group only inside the central band; the row edges stay
+        // reorder zones. Header drops resolve in the branch above.
         overGroupHeader: false,
         activeRect: input.activeRect,
         overRect: input.overRect,
@@ -3699,29 +3765,60 @@ export default function Sidebar() {
     },
     [threadGroupsByProject, visibleActiveThreads],
   );
+  // Both drag events resolve the same preview: drag-over keeps the target
+  // current when the hovered row changes, drag-move keeps the central
+  // grouping band current within that row while the pointer descends into
+  // it — the band is never evaluated by drag-over alone, because dnd-kit
+  // fires it only when `over` changes, and the handover instant sits outside
+  // the band.
+  const resolveGroupPreviewFromEvent = useCallback(
+    (event: DragMoveEvent) =>
+      event.over === null
+        ? { groupTargetKey: null, dissolvingGroupKey: null }
+        : resolveThreadGroupPreview({
+            activeKey: String(event.active.id),
+            overKey: String(event.over.id),
+            activeRect: event.active.rect.current.translated,
+            overRect: event.over.rect,
+          }),
+    [resolveThreadGroupPreview],
+  );
+  const handleThreadDragMove = useCallback(
+    (event: DragMoveEvent) => {
+      const groupPreview = resolveGroupPreviewFromEvent(event);
+      // Pointer-rate handler: write nothing when the preview already shows
+      // this target.
+      if (
+        groupPreview.groupTargetKey === groupDropTargetKeyRef.current &&
+        groupPreview.dissolvingGroupKey === dissolvingGroupKeyRef.current
+      ) {
+        return;
+      }
+      updateGroupDropTarget(groupPreview.groupTargetKey);
+      updateDissolvingGroupKey(groupPreview.dissolvingGroupKey);
+    },
+    [resolveGroupPreviewFromEvent, updateDissolvingGroupKey, updateGroupDropTarget],
+  );
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
       const target = event.over
         ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
         : null;
-      const groupPreview =
-        event.over === null
-          ? { groupTargetKey: null, dissolvingGroupKey: null }
-          : resolveThreadGroupPreview({
-              activeKey: String(event.active.id),
-              overKey: String(event.over.id),
-              activeRect: event.active.rect.current.translated,
-              overRect: event.over.rect,
-            });
+      const groupPreview = resolveGroupPreviewFromEvent(event);
       updateGroupDropTarget(groupPreview.groupTargetKey);
-      setDissolvingGroupKey(groupPreview.dissolvingGroupKey);
+      updateDissolvingGroupKey(groupPreview.dissolvingGroupKey);
       setDragState((current) =>
         current === null || current.activeKey !== String(event.active.id)
           ? current
           : { ...current, targetSection: target?.section ?? null },
       );
     },
-    [resolveThreadGroupPreview, sidebarListItems, updateGroupDropTarget],
+    [
+      resolveGroupPreviewFromEvent,
+      sidebarListItems,
+      updateDissolvingGroupKey,
+      updateGroupDropTarget,
+    ],
   );
   const sortableIds = useMemo(() => sidebarListItems.map(sidebarListItemId), [sidebarListItems]);
   const draggedSettledOrder = useMemo(() => {
@@ -3783,6 +3880,46 @@ export default function Sidebar() {
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
+        // Group headers are registered droppables but not list entries, so
+        // the section resolver cannot see them. Eligibility mirrors the row
+        // band rule without geometry: active section, same project, existing
+        // group the row is not already in.
+        const headerTarget = parseSidebarThreadGroupHeaderId(id);
+        if (headerTarget !== null) {
+          if (
+            isSidebarGroupHeaderGroupingTarget({
+              activeKey: draggedThreadKey,
+              activeSection: draggedFromSection,
+              activeProjectKey: threadProjectOrderKey(source),
+              header: headerTarget,
+              groups: threadGroupsByProject[headerTarget.projectKey] ?? [],
+            })
+          ) {
+            return true;
+          }
+          // A member's own group header stays droppable for exactly one
+          // release: the first member dropped back onto its own header
+          // detaches. The same classifier gates the drag-end write, so a
+          // non-anchor member still cannot hit its own header.
+          const groups = threadGroupsByProject[headerTarget.projectKey] ?? [];
+          const activeGroup = groups.find((group) => group.threadIds.includes(draggedThreadKey));
+          const anchorThreadId = groups.find((group) => group.id === headerTarget.groupId)
+            ?.threadIds[0];
+          return isSidebarThreadUngroupBeforeTarget({
+            activeThreadId: draggedThreadKey,
+            activeGroup,
+            overItem:
+              anchorThreadId === undefined
+                ? undefined
+                : {
+                    kind: "group-header",
+                    id,
+                    projectKey: headerTarget.projectKey,
+                    groupId: headerTarget.groupId,
+                    anchorThreadId,
+                  },
+          });
+        }
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
         if (target === null) return false;
         return (
@@ -3822,6 +3959,7 @@ export default function Sidebar() {
     pinnedKeys,
     sidebarListItems,
     threadByKey,
+    threadGroupsByProject,
   ]);
   const handleThreadDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -3833,29 +3971,82 @@ export default function Sidebar() {
           : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
       const activeThread = threadByKey.get(activeKey);
       const groupTargetKey = groupDropTargetKeyRef.current;
+      // A header target never matches a thread key against `over.id`: relax
+      // the row gate for it so both drops take the one write path below.
+      const headerTarget =
+        groupTargetKey === null ? null : parseSidebarThreadGroupHeaderId(groupTargetKey);
       resetActiveDragPreview();
+      // Dropping the first member on its own group's header detaches it: the
+      // same classifier that gates the header as a droppable resolves the
+      // release into the membership write the row context menu performs. This
+      // must be checked before the grouping branch below — both can match a
+      // header drop, and joining the group the row is leaving would be wrong.
+      const overHeaderTarget =
+        event.over === null ? null : parseSidebarThreadGroupHeaderId(String(event.over.id));
+      if (activeThread !== undefined && overHeaderTarget !== null) {
+        const projectKey = threadProjectOrderKey(activeThread);
+        const groups = threadGroupsByProject[projectKey] ?? [];
+        const overGroup = groups.find((group) => group.id === overHeaderTarget.groupId);
+        const anchorThreadId = overGroup?.threadIds[0];
+        if (
+          overHeaderTarget.projectKey === projectKey &&
+          isSidebarThreadUngroupBeforeTarget({
+            activeThreadId: activeKey,
+            activeGroup: groups.find((group) => group.threadIds.includes(activeKey)),
+            overItem:
+              anchorThreadId === undefined
+                ? undefined
+                : {
+                    kind: "group-header",
+                    id: String(event.over!.id),
+                    projectKey: overHeaderTarget.projectKey,
+                    groupId: overHeaderTarget.groupId,
+                    anchorThreadId,
+                  },
+          })
+        ) {
+          const projectThreadKeys = visibleActiveThreads
+            .filter((thread) => threadProjectOrderKey(thread) === projectKey)
+            .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+          setThreadGroupMembership(projectKey, projectThreadKeys, [activeKey], { kind: "none" });
+          return;
+        }
+      }
       if (
         groupTargetKey !== null &&
         activeThread !== undefined &&
-        event.over !== null &&
-        String(event.over.id) === groupTargetKey
+        (headerTarget !== null || (event.over !== null && String(event.over.id) === groupTargetKey))
       ) {
         const projectKey = threadProjectOrderKey(activeThread);
-        const overThread = threadByKey.get(groupTargetKey);
         const memberKeys = visibleActiveThreads
           .filter((thread) => threadProjectOrderKey(thread) === projectKey)
           .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+        // A header drop always joins an existing group: it lands on that
+        // group's first visible member, so no new group is created and no
+        // title is generated. A header whose group vanished mid-drag fails
+        // the drop instead of resolving to something adjacent.
+        let targetThreadId = groupTargetKey;
+        if (headerTarget !== null) {
+          const anchorKey = resolveSidebarGroupHeaderDropAnchor({
+            header: headerTarget,
+            groups: threadGroupsByProject[headerTarget.projectKey] ?? [],
+            visibleMemberKeys: memberKeys,
+          });
+          if (headerTarget.projectKey !== projectKey || anchorKey === null) return;
+          targetThreadId = anchorKey;
+        }
+        const overThread = threadByKey.get(targetThreadId);
         const targetGroup = (threadGroupsByProject[projectKey] ?? []).find((group) =>
-          group.threadIds.includes(groupTargetKey),
+          group.threadIds.includes(targetThreadId),
         );
         const newGroup = targetGroup ? undefined : { id: randomUUID(), title: "New group" };
-        moveProjectThread(projectKey, memberKeys, activeKey, groupTargetKey, "group", newGroup);
+        moveProjectThread(projectKey, memberKeys, activeKey, targetThreadId, "group", newGroup);
         if (newGroup && overThread !== undefined) {
           void requestThreadGroupTitle({
             projectKey,
             groupId: newGroup.id,
             members: [activeThread, overThread],
-            expectedGroup: { title: newGroup.title, threadIds: [activeKey, groupTargetKey] },
+            expectedGroup: { title: newGroup.title, threadIds: [activeKey, targetThreadId] },
           });
         }
         return;
@@ -4013,6 +4204,7 @@ export default function Sidebar() {
       moveProjectThread,
       requestThreadGroupTitle,
       resetActiveDragPreview,
+      setThreadGroupMembership,
       threadGroupsByProject,
       visibleActiveThreads,
     ],
@@ -5118,6 +5310,7 @@ export default function Sidebar() {
                   restrictToFirstScrollableAncestor,
                 ]}
                 onDragStart={handleThreadDragStart}
+                onDragMove={handleThreadDragMove}
                 onDragOver={handleThreadDragOver}
                 onDragCancel={resetActiveDragPreview}
                 onDragEnd={handleThreadDragEnd}
@@ -5294,12 +5487,18 @@ export default function Sidebar() {
                           const isDissolving = groupKey !== null && dissolvingGroupKey === groupKey;
                           if (groupEntry?.isAnchor) {
                             const generatingKey = `${groupEntry.projectKey}\0${groupEntry.group.id}`;
+                            const headerId = sidebarThreadGroupHeaderId(
+                              groupEntry.projectKey,
+                              groupEntry.group.id,
+                            );
                             items.push(
-                              <SidebarThreadGroupHeader
+                              <DroppableThreadGroupHeader
                                 key={`group:${generatingKey}`}
+                                id={headerId}
                                 group={groupEntry.group}
                                 memberCount={groupEntry.threads.length}
                                 isGenerating={generatingGroupIds.has(generatingKey)}
+                                isGroupDropTarget={groupDropTargetKey === headerId}
                                 isDissolving={isDissolving}
                                 onCollapsedChange={(collapsed) =>
                                   setThreadGroupCollapsed(
