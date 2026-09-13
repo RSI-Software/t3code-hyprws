@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
@@ -10,9 +11,14 @@ import {
   formatSidebarRelativeTimeLabel,
   isSidebarThreadGroupingTarget,
   isSidebarThreadUngroupBeforeTarget,
+  isSidebarGroupHeaderGroupingTarget,
   isProjectInSidebarScope,
   resolveCompletedTurnTiming,
+  resolveSidebarDropTarget,
+  resolveSidebarGroupHeaderDropAnchor,
+  parseSidebarThreadGroupHeaderId,
   shouldShowSidebarDoneStatus,
+  sidebarThreadGroupHeaderId,
 } from "./Sidebar.logic";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { localEnvironmentId, makeLatestTurn } from "./Sidebar.logic.test.ts";
@@ -297,6 +303,121 @@ describe("sidebar thread groups", () => {
   });
 });
 
+describe("sidebar group header drop targets", () => {
+  const headerId = sidebarThreadGroupHeaderId("project-a", "group-1");
+  const header = { projectKey: "project-a", groupId: "group-1" };
+  const headerGroups = [{ id: "group-1", threadIds: ["env-a:thread-b", "env-a:thread-c"] }];
+
+  it("round-trips a header id and refuses every other id space", () => {
+    expect(parseSidebarThreadGroupHeaderId(headerId)).toEqual({
+      projectKey: "project-a",
+      groupId: "group-1",
+    });
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0project-a")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0project-a\0")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0\0group-1")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-marker-pinned-header")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("env-a:thread-b")).toBeNull();
+  });
+
+  it("never resolves a header id as a reorder target", () => {
+    // sidebarListItems emits no header entries, so the section resolver must
+    // return null for one — the drag-end reorder path then bails instead of
+    // writing a move against something adjacent.
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: ["env-a:thread-a", "env-a:thread-b", "env-a:thread-c"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    });
+    expect(resolveSidebarDropTarget(items, "env-a:thread-a", headerId)).toBeNull();
+    expect(resolveSidebarDropTarget(items, "env-a:thread-a", "env-a:thread-b")).not.toBeNull();
+  });
+
+  it("groups from a header only for active rows outside the header's group", () => {
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(true);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-b",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "pinned",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-b",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("lands a header drop on the group's first visible member", () => {
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-a", "env-a:thread-b", "env-a:thread-c"],
+      }),
+    ).toBe("env-a:thread-b");
+    // A collapsed group keeps only its anchor visible; the anchor still
+    // anchors the drop.
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-b"],
+      }),
+    ).toBe("env-a:thread-b");
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: [],
+        visibleMemberKeys: ["env-a:thread-b"],
+      }),
+    ).toBeNull();
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-a"],
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("isProjectInSidebarScope", () => {
   const forcedProjectRef = {
     environmentId: EnvironmentId.make("environment-remote"),
@@ -417,6 +538,136 @@ describe("shouldShowSidebarDoneStatus", () => {
         completedTiming,
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildSidebarListItems", () => {
+  const groupThreads = [
+    { id: "thread-a", projectKey: "project-a" },
+    { id: "thread-b", projectKey: "project-a" },
+    { id: "thread-c", projectKey: "project-a" },
+  ];
+  // The sidebar's thread map resolves rows only from the layout's visible
+  // threads, so the list must derive its active rows from the same source.
+  const visibleKeys = (
+    layout: ReturnType<typeof buildSidebarThreadGroupLayout<{ id: string }>>,
+  ): string[] =>
+    layout.flatMap((item) =>
+      item.kind === "thread"
+        ? [item.thread.id]
+        : item.group.collapsed
+          ? item.threads.slice(0, 1).map((thread) => thread.id)
+          : item.threads.map((thread) => thread.id),
+    );
+
+  it("emits only a collapsed group's anchor as an active row", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads: groupThreads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: true,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+    const keys = visibleKeys(layout);
+    expect(keys).toEqual(["thread-a", "thread-b"]);
+
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: keys,
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    });
+    expect(
+      items.flatMap((item) =>
+        item.kind === "thread" && item.section === "active" ? [item.key] : [],
+      ),
+    ).toEqual(["thread-a", "thread-b"]);
+    // A row for the hidden member would reach the renderer unresolved and
+    // crash on its thread fields (issue #901).
+    const resolvable = new Set(keys);
+    for (const item of items) {
+      if (item.kind === "thread") expect(resolvable.has(item.key)).toBe(true);
+    }
+  });
+
+  it("keeps an expanded group's rows contiguous in layout order", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads: groupThreads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: false,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+
+    expect(
+      buildSidebarListItems({
+        hasNoThreads: false,
+        pinnedKeys: [],
+        activeKeys: visibleKeys(layout),
+        hasSnoozedThreads: false,
+        snoozedVisibleKeys: [],
+        settledKeys: ["thread-a"],
+      }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "thread", key: "thread-a", section: "active" },
+      { kind: "thread", key: "thread-b", section: "active" },
+      { kind: "thread", key: "thread-c", section: "active" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+      { kind: "thread", key: "thread-a", section: "settled" },
+    ]);
+  });
+
+  it("renders nothing without threads and the snoozed shelf only when populated", () => {
+    const empty = {
+      pinnedKeys: [],
+      activeKeys: [],
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    };
+    expect(
+      buildSidebarListItems({ hasNoThreads: true, hasSnoozedThreads: true, ...empty }),
+    ).toEqual([]);
+    expect(
+      buildSidebarListItems({ hasNoThreads: false, hasSnoozedThreads: true, ...empty }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "marker", marker: "snoozed-header" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+    ]);
+    expect(
+      buildSidebarListItems({ hasNoThreads: false, hasSnoozedThreads: false, ...empty }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+    ]);
   });
 });
 
