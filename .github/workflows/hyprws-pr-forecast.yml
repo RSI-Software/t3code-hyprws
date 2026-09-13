@@ -5,9 +5,19 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - hyprws
+  # pull_request_target always runs the base branch's workflow, so a workflow
+  # change cannot prove itself on its own pull request (RSI-Software/t3code-hyprws#896).
+  # Dispatch from the fix branch against a live pull request instead; same shape
+  # as hyprws-upstream-sync.yml's manual trigger.
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: "Pull request number to forecast"
+        required: true
+        type: string
 
 concurrency:
-  group: hyprws-pr-forecast-${{ github.event.pull_request.number }}
+  group: hyprws-pr-forecast-${{ github.event.pull_request.number || github.event.inputs.pull-request }}
   cancel-in-progress: false
 
 # The forecast comment lands on the pull request: the issues comments endpoint needs
@@ -28,11 +38,19 @@ jobs:
       # checked out or executed, so fork pull requests get the same report.
       - uses: actions/checkout@v6
         with:
-          ref: hyprws
+          # A workflow_dispatch runs from the dispatching ref (write-access only),
+          # so a workflow or script change can prove itself before it lands.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'hyprws' }}
           fetch-depth: 0
           # Upstream's undeclared gitlinks make checkout's credential-teardown foreach exit 128 (RSI-Software/t3code-hyprws#896).
           # Same decision as hyprws-release.yml and hyprws-upstream-sync.yml; token is job-scoped,
           # and the pull-request head is fetched as data only.
+      # The census's provisional continuation commits at a replay stop, so the
+      # rehearsal needs an identity; same lines as hyprws-upstream-sync.yml.
+      - name: Set forecast committer identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - uses: voidzero-dev/setup-vp@v1
         with:
@@ -40,19 +58,25 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Fetch pull request head
+      - name: Resolve pull request and fetch head
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pull-request }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          if [ -z "$EVENT_HEAD_SHA" ]; then
+            HEAD_SHA="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          else
+            HEAD_SHA="$EVENT_HEAD_SHA"
+          fi
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
           git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pull-request/head"
           test "$(git rev-parse refs/remotes/pull-request/head)" = "$HEAD_SHA"
 
       - name: Forecast pull request commits
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if ! node scripts/fork-pr-forecast.ts "$PR_NUMBER" "$HEAD_SHA"; then
             echo "::error::Fork conflict forecast could not run; see this step's log."

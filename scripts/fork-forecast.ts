@@ -9,7 +9,7 @@ import { rehearseStopCensus } from "./fork-auto-rebase.ts";
 import { readChurnState, writeChurnState, type ForecastEntry } from "./fork-churn-ledger.ts";
 import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
-import { runCommandText } from "./lib/fork-command.ts";
+import { runCommand, runCommandText } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 
 export const FORECAST_MARKER = "<!-- hyprws-fork-forecast -->";
@@ -26,6 +26,10 @@ export interface PullRequestForecast extends ForecastEntry {
 const git = (root: string, args: ReadonlyArray<string>): string =>
   runCommandText("git", args, { cwd: root }).trim();
 
+// merge-base --is-ancestor signals its verdict in the exit code, not stdout.
+const isAncestor = (root: string, commit: string, ancestor: string): boolean =>
+  runCommand("git", ["merge-base", "--is-ancestor", commit, ancestor], { cwd: root }).status === 0;
+
 export const appendForecast = (
   forecasts: ReadonlyArray<ForecastEntry>,
   forecast: ForecastEntry,
@@ -37,6 +41,9 @@ export const appendForecast = (
 const forkCommits = (root: string, base: string, head: string) =>
   git(root, ["log", "--reverse", "--format=%H%x1f%s%x1f%b%x1e", `${base}..${head}`])
     .split("\x1e")
+    // Git separates entries with a newline after the record terminator; the
+    // whole output is trimmed only at the ends, so later rows keep a leading one.
+    .map((row) => row.trim())
     .filter(Boolean)
     .map((row) => {
       const [commit = "", subject = "", body = ""] = row.split("\x1f");
@@ -134,10 +141,22 @@ export const forecastPullRequest = (
   head: string,
   readBudget: BudgetStatusReader = readOverBudgetDomains,
 ): PullRequestForecast => {
-  const base = git(root, ["merge-base", "hyprws", head]);
+  // On a hyprws checkout the trunk is the checked-out branch; on a workflow
+  // dispatch of another branch only the remote-tracking ref exists.
+  const trunk =
+    runCommand("git", ["rev-parse", "--verify", "--quiet", "hyprws"], { cwd: root }).status === 0
+      ? "hyprws"
+      : "origin/hyprws";
+  const pullBase = git(root, ["merge-base", trunk, head]);
   git(root, ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
   const main = git(root, ["rev-parse", "origin/main^{commit}"]);
-  return { ...forecastRange(root, head, base, main), overBudgetDomains: readBudget(root, head) };
+  // The pull request rides on the fork stack: rehearse from the upstream merge
+  // base so the stack beneath the pull request replays too, then keep only the
+  // stops that land on commits inside the pull-request range.
+  const stackBase = git(root, ["merge-base", main, head]);
+  const census = forecastRange(root, head, stackBase, main);
+  const conflicts = census.conflicts.filter((commit) => !isAncestor(root, commit.commit, pullBase));
+  return { ...census, conflicts, overBudgetDomains: readBudget(root, head) };
 };
 
 export const renderForecast = (row: ForecastEntry, deduped: boolean): string => {
