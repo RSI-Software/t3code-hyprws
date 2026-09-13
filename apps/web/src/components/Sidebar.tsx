@@ -177,6 +177,7 @@ import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
+import { useAttemptResetThreadOrder } from "../hooks/useThreadActions.fork"; // fork-hook: thread-ordering/reset-order-action-import
 import {
   applySidebarThreadDrop,
   buildSidebarThreadGroupLayout,
@@ -937,6 +938,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    reorderActiveThreadOrClear, // fork-hook: thread-ordering/reset-order-clear
     archiveThread,
     deleteThread,
     collectOrphanedWorktreePathsForThreads,
@@ -1696,6 +1698,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       }
     })();
   };
+  const attemptResetOrder = useAttemptResetThreadOrder(reorderActiveThreadOrClear); // fork-hook: thread-ordering/reset-order-action
   const attemptUnsnooze = (threadRef: ScopedThreadRef) => {
     void (async () => {
       const result = await unsnoozeThread(threadRef);
@@ -2707,6 +2710,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
               isRunning: !threadRuntimeCanArchive(thread.runtime),
+              hasManualOrder: thread.activeOrderKey != null, // fork-hook: thread-ordering/reset-order-state
               canShareWithGuest: appAtomRegistry.get(
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
@@ -2829,6 +2833,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             }
             return;
           }
+          case "reset-order":
+            return attemptResetOrder(threadRef); // fork-hook: thread-ordering/reset-order-dispatch
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
