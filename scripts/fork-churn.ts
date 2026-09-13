@@ -81,6 +81,14 @@ export {
 export const LEDGER_PATH = "docs/internals/fork-churn.json";
 export const DOCUMENT_PATH = "docs/internals/fork-churn.md";
 export const DELTA_PATH = "docs/internals/fork-delta.md";
+/** Wrap-independent markers that a committed mirror uses to declare itself frozen. */
+export const FROZEN_MIRROR_MARKER = ["Deprecated.", "frozen mirror"] as const;
+
+/** True when a document's header declares it a frozen deprecated mirror. */
+const declaresFrozenMirror = (document: string): boolean => {
+  const header = document.split("\n").slice(0, 10).join(" ").replace(/\s+/g, " ");
+  return FROZEN_MIRROR_MARKER.every((marker) => header.includes(marker));
+};
 
 const SHA = /^[0-9a-f]{7,64}$/;
 
@@ -1042,7 +1050,8 @@ It validates content digests and frozen evidence; it does not execute guard comm
 report writes the GitHub churn comment and reports unresolved failures.
 It reads one current immutable lesson source and reports its SHA/freshness without moving local refs.
 Newer schemas publish an unavailable assessment and exit 1; no policy pass is inferred.
-render writes the local mirror; --check compares without writing.
+render regenerates the local mirror; --check compares without writing. render refuses when the
+committed mirror declares itself a frozen deprecated mirror.
 seed initializes the ledger; append records a completed walk.
 Exit: 0 complete, 1 runtime/evidence failure or blocking seam, 2 invalid arguments.
 Output: compact receipts on stdout; failures on stderr. -h / --help writes nothing.
@@ -1074,12 +1083,22 @@ export const run = (argv: ReadonlyArray<string>, root = process.cwd()): number =
     if (verb !== "render") throw new UsageError(USAGE);
     if (args.length > 1 || (args.length === 1 && args[0] !== "--check"))
       throw new UsageError("usage: fork-churn render [--check]");
-    const rendered = renderForRoot(root, readDurableLedger(root));
+    const ledger = readDurableLedger(root);
     const documentPath = NodePath.join(root, DOCUMENT_PATH);
+    const committed = NodeFS.existsSync(documentPath)
+      ? NodeFS.readFileSync(documentPath, "utf8")
+      : "";
+    if (declaresFrozenMirror(committed)) {
+      process.stderr.write(
+        `${DOCUMENT_PATH} is a frozen, deprecated mirror and is not regenerated.\n` +
+          `${CHURN_REF} is the live ledger; RSI-Software/t3code-hyprws#476 retires the mirror.\n` +
+          `Regenerating would pin per-file rows against ORIGINAL_LESSON_PATHS and fail the\n` +
+          `lesson-guidance suite. Do not run fork-churn render; do not commit a regenerated mirror.\n`,
+      );
+      return 1;
+    }
+    const rendered = renderForRoot(root, ledger);
     if (args[0] === "--check") {
-      const committed = NodeFS.existsSync(documentPath)
-        ? NodeFS.readFileSync(documentPath, "utf8")
-        : "";
       if (committed !== rendered) {
         process.stderr.write(`${DOCUMENT_PATH} is stale; run vp run fork:churn\n`);
         return 1;
