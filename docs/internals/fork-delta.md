@@ -215,21 +215,21 @@ excluded from the recorded size the same way.
 
 ## Domain index
 
-| Domain                                  | Status | Tiers present     | Retires when                                                  |
-| --------------------------------------- | ------ | ----------------- | ------------------------------------------------------------- |
-| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                 |
-| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile browser bookmarks. |
-| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach to a running local server.      |
-| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.         |
-| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection.                  |
-| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing.                    |
-| [workspace-files](#workspace-files)     | Active | core              | Upstream supports ignored and trusted linked artifacts.       |
-| [fork-meta](#fork-meta)                 | Active | qol               | Never. It documents the fork itself.                          |
-| [distribution](#distribution)           | Active | core              | Never, while the fork ships its own builds.                   |
-| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix.                     |
-| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships equivalent manual active-thread ordering.      |
-| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager.     |
-| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream worktree lifecycle exposes create and remove hooks.  |
+| Domain                                  | Status | Tiers present     | Retires when                                                        |
+| --------------------------------------- | ------ | ----------------- | ------------------------------------------------------------------- |
+| [project-windows](#project-windows)     | Active | core, qol, bugfix | Web preview parity, or upstream multi-window.                       |
+| [browser-bookmarks](#browser-bookmarks) | Active | core              | Upstream ships durable project and profile browser bookmarks.       |
+| [backend-attach](#backend-attach)       | Active | core              | Upstream ships desktop attach to a running local server.            |
+| [github-issues](#github-issues)         | Active | core, bugfix      | Upstream multi-environment Issues on web and desktop.               |
+| [custom-agents](#custom-agents)         | Active | core              | Upstream main-thread custom-agent selection.                        |
+| [markdown-editing](#markdown-editing)   | Active | core              | Upstream ships safe rich Markdown editing.                          |
+| [workspace-files](#workspace-files)     | Active | core              | Upstream supports ignored and trusted linked artifacts.             |
+| [fork-meta](#fork-meta)                 | Active | qol               | Never. It documents the fork itself.                                |
+| [distribution](#distribution)           | Active | core              | Never, while the fork ships its own builds.                         |
+| [upstream-fixes](#upstream-fixes)       | Active | bugfix            | Each commit, when upstream ships the fix.                           |
+| [thread-ordering](#thread-ordering)     | Active | qol               | Upstream ships named thread groups and a return to automatic order. |
+| [zmux-estate](#zmux-estate)             | Active | core              | Upstream terminals attach to an external session manager.           |
+| [worktrunk-hooks](#worktrunk-hooks)     | Active | core, bugfix      | Upstream worktree lifecycle exposes create and remove hooks.        |
 
 Add a row per domain.
 A domain is a reason the fork exists, not a feature area of the app.
@@ -248,6 +248,9 @@ A domain is a reason the fork exists, not a feature area of the app.
 | fix(web): scope markdown actions to thread environment    | project-windows | `pingdotgg/t3code#7140` (`082e6ea52`) inlines `threadRef?.environmentId ?? explicitEnvironmentId ?? null` at the same binding in `apps/web/src/components/ChatMarkdown.tsx`, leaving `resolveChatMarkdownEnvironmentId` a redundant wrapper.                                                                                                                                                                                       | v0.0.35                       |
 | fix(web): upload media in pull request descriptions       | upstream-fixes  | `pingdotgg/t3code#8235` replaces the attachment extension-inference generalization with typed `image \| file` claims, streamed bodies, and the advertised 50 MB limit. The `gh-image` pull-request publication path remains fork-owned.                                                                                                                                                                                            | v0.0.36                       |
 | `fix(provider): resolve repo skills per workspace (#188)` | upstream-fixes  | `pingdotgg/t3code#9210` (`bc918e7`) adds per-workspace provider snapshots upstream: `snapshotForCwd` on every driver, `refreshWorkspaceSnapshot` in the registry, `workspaceSnapshots` on `ServerProvider`, and the client resolvers. That supersedes the fork's `providers.workspaceSkills` RPC, its contract schemas, the client atom family, the chat-view preference, and the Codex pair, all of which came out of the commit. | v0.0.39-nightly.20260902.1261 |
+| feat(web): add manual sidebar thread ordering             | thread-ordering | Upstream persists per-thread active order server side. `activeOrderKey` is on the thread contract in `packages/contracts/src/orchestration.ts`, written by the reorder command in `apps/server/src/orchestration/decider.ts`, and read by the sidebar drag path in `apps/web/src/components/Sidebar.tsx`. The fork's client-local order store is superseded. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.   | v0.0.41-nightly.20260908.1414 |
+| fix(web): make sidebar thread ordering direct (#246)      | thread-ordering | Same upstream `activeOrderKey` path supersedes drop-to-manual ordering. The order-mode marker this commit carried has no upstream equivalent; it is rewritten on top of `activeOrderKey` under RSI-Software/t3code-hyprws#907, not restored. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.                                                                                                                   | v0.0.41-nightly.20260908.1414 |
+| fix(web): keep sidebar groups in automatic order          | thread-ordering | Grouping now layers over upstream's `activeOrderKey` instead of a fork-owned order, so the automatic-order carve-out has no fork order left to protect. Retire verdict recorded in the RSI-Software/t3code-hyprws#657 walk.                                                                                                                                                                                                        | v0.0.41-nightly.20260908.1414 |
 
 References in Upstream replacement are code-spanned records such as `pingdotgg/t3code#7140`, never
 live links. A retired-only subject must no longer be present in the fork stack; `fork:delta --check`
@@ -276,9 +279,7 @@ reports it as `retired but present` until the rebase drops it.
 | feat: New worktrunk thread mode replaces the Worktrunk hook switches           | worktrunk-hooks  | The target does not add a third thread environment mode or its wire-safe compatibility pair.                                                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
 | fix(server): preserve attributed child work (#177)                             | custom-agents    | The target's `routeCodexChildNotification` still routes `item/*` deltas to `drop` via `CHILD_CHATTER_METHODS`, so attributed child work still vanishes.                                                                                                                                               | v0.0.39-nightly.20260907.1332 |
 | fix(provider): resolve repo skills per workspace (#188)                        | upstream-fixes   | Partial. Upstream's `snapshotForCwd` merges `skills` alone, and its Claude capabilities probe cache stays capacity 1 keyed on binary plus resolved HOME. The fork keeps the cwd-keyed probe cache at capacity 16 and merges the workspace probe's `slashCommands` into the snapshot.                  | v0.0.39-nightly.20260907.1332 |
-| feat(web): add manual sidebar thread ordering                                  | thread-ordering  | The target removes only the unrelated stage-badge helper and does not provide durable per-project manual ordering.                                                                                                                                                                                    | v0.0.37-nightly.20260830.1227 |
 | feat(web): group sidebar threads into named sections (#205)                    | thread-ordering  | The target removes only the unrelated stage-badge helper and does not provide named thread sections or group-drop behavior.                                                                                                                                                                           | v0.0.37-nightly.20260830.1227 |
-| fix(web): make sidebar thread ordering direct (#246)                           | thread-ordering  | The target removes only the obsolete stage-badge import and does not provide drop-to-manual ordering or its restore action.                                                                                                                                                                           | v0.0.37-nightly.20260830.1227 |
 | feat(web): add GitHub link destination controls (#178)                         | github-issues    | Markdown and settings overlap did not provide the fork's GitHub link destination control. Upstream-owned `ChatMarkdown.test.tsx` favicon-privacy test edited: fork renders PR URLs as `GitHubDestinationLink` chips (no `GitHubIcon`), so the brand-mark assertion targets bare `https://github.com`. | v0.0.37-nightly.20260829.1224 |
 | docs(fork): fork sync runbook for the auto-rebase model                        | fork-meta        | Environment-theme glossary additions are independent of the fork synchronization model.                                                                                                                                                                                                               | v0.0.37-nightly.20260829.1224 |
 | fix(contracts): released clients decode threads from a worktrunk server (#233) | worktrunk-hooks  | Environment-theme settings do not replace the two-value wire mode plus exact fork-mode sibling required by released clients.                                                                                                                                                                          | v0.0.37-nightly.20260829.1224 |
@@ -1023,54 +1024,56 @@ explicitly trusted artifact links shared across worktrees.
 
 ### Need
 
-Operators need to keep active threads in their own priority order without pinning every thread or
-letting new activity reshuffle the list.
+Operators need related active threads kept together in named groups, and need a way back to
+automatic order after a manual drag. Upstream persists per-thread active order under
+`activeOrderKey` but has no group concept, and once a drop writes that key nothing clears it except
+settling the thread.
 
 ### Shape
 
-- Web and desktop keep active threads drag-ready. The first valid drop seeds a custom order from
-  the visible newest-first order, then applies the move.
-- A compact marker always stays below the project filter and above the thread list without shifting
-  the layout. It shows the current order, then reveals the available action on hover or focus.
-- Newest-first without a saved order teaches **Drag threads to reorder**. With a saved order it
-  offers **Use custom order**; custom order offers **Sort newest first** without deleting the saved
-  sequence.
-- Dragging is limited to active, unpinned threads in the same physical project.
-- The preference is client-local and overlays the existing newest-first order, so new threads append
-  predictably and switching between orders is lossless.
-- Pinned, snoozed, and settled ordering remains unchanged.
-- A center drop on another active thread creates or extends a visual group; an edge drop keeps the
-  existing reorder behavior. Dragging outside a group removes the member, and one-member groups
-  dissolve automatically.
-- Group membership, names, and collapsed state persist beside the custom order. Newest-first mode
-  preserves but does not render those preferences.
-- Initial and regenerated group names use the server's existing thread-title generation path;
-  group headers also support inline manual renaming and dissolution.
+- Web and desktop group active threads into named sections. A center drop on another active thread
+  creates or extends a group; an edge drop falls through to upstream's reorder.
+- Group membership, names, and collapsed state are client-local and layer over upstream's
+  `activeOrderKey`. The fork stores no thread order of its own.
+- Dragging outside a group removes the member. A one-member group dissolves automatically.
+- A collapsed group holds one slot in the drop order: its header replaces the anchor row.
+- Initial and regenerated group names use the server's existing thread-title generation path. Group
+  headers also support inline manual renaming and dissolution.
+- Grouping is limited to active, unpinned threads in the same physical project. Pinned, snoozed, and
+  settled ordering stays unchanged.
+- A compact marker below the project filter shows the current order mode and offers the return to
+  automatic order. Not implemented yet; tracked in RSI-Software/t3code-hyprws#907.
 
 ### Retirement condition
 
-Delete this domain when an upstream release provides equivalent manual ordering for active threads
-without requiring the fork to migrate or discard saved order.
+Delete this domain when an upstream release provides named thread groups with persistent membership
+and a control that returns active threads to automatic order.
+
+The fork's own manual ordering was retired at `v0.0.41-nightly.20260908.1414`; see the three
+`thread-ordering` rows in [Retired](#retired). What remains here is grouping plus the order-mode
+control, both built on upstream's `activeOrderKey`.
 
 ### Rebase scan
 
-| Path                                                   | Why it matters                                                                 |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| `packages/contracts/src/settings.ts`                   | Carries the Manual sort option.                                                |
-| `packages/client-runtime/package.json`                 | Client ordering package dependencies.                                          |
-| `packages/client-runtime/src/state/threadSort.ts`      | Defines Manual as preserving supplied order.                                   |
-| `packages/client-runtime/src/state/threadSort.test.ts` | Covers the Manual comparator.                                                  |
-| `apps/web/src/uiStateStore.ts`                         | Persists client-local per-project thread order.                                |
-| `apps/web/src/components/Sidebar.logic.ts`             | Overlays per-project order without crossing groups.                            |
-| `apps/web/src/components/Sidebar.logic.test.ts`        | Covers manual ordering beside upstream grouping.                               |
-| `apps/web/src/components/Sidebar.tsx`                  | Owns the active-thread drag interaction.                                       |
-| `apps/web/src/components/SidebarThreadGroup.tsx`       | Renders group headers and name controls.                                       |
-| `packages/contracts/src/environmentHttp.ts`            | Types remote-safe group title generation.                                      |
-| `apps/server/src/orchestration/ThreadGroupTitles.ts`   | Reuses the thread-title generation service.                                    |
-| `apps/web/src/components/LegacySidebar.tsx`            | Keeps the legacy sort control compatible.                                      |
-| `docs/user/thread-sidebar.md`                          | Documents the user-visible behavior.                                           |
-| `apps/web/src/connection/runtime.ts`                   | Client runtime that carries the sidebar section grouping.                      |
-| `apps/web/src/uiStateStore.test.ts`                    | Covers persisted per-project manual thread order and sidebar group membership. |
+| Path                                                        | Why it matters                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------- |
+| `apps/web/src/components/Sidebar.logic.ts`                  | Builds the group layout over upstream's active order.               |
+| `apps/web/src/components/Sidebar.logic.test.ts`             | Covers grouping beside upstream ordering.                           |
+| `apps/web/src/components/Sidebar.logic.fork.test.ts`        | Fork-owned grouping cases.                                          |
+| `apps/web/src/components/Sidebar.tsx`                       | Owns the group drag interaction and the header row.                 |
+| `apps/web/src/components/SidebarThreadGroup.tsx`            | Renders group headers and name controls.                            |
+| `apps/web/src/components/SidebarRenameInput.tsx`            | Inline group rename input.                                          |
+| `apps/web/src/state/threadGroups.ts`                        | Web group state.                                                    |
+| `apps/web/src/uiStateStore.ts`                              | Persists client-local group membership, names, and collapsed state. |
+| `apps/web/src/uiStateStore.test.ts`                         | Covers that persistence.                                            |
+| `apps/web/src/connection/runtime.ts`                        | Client runtime that carries the sidebar section grouping.           |
+| `packages/client-runtime/src/state/threadGroups.ts`         | Shared group model for web and mobile.                              |
+| `packages/client-runtime/src/state/threadGroupTitleHttp.ts` | Remote-safe group title generation client.                          |
+| `packages/client-runtime/package.json`                      | Client grouping package dependencies.                               |
+| `packages/contracts/src/environmentHttp.ts`                 | Types remote-safe group title generation.                           |
+| `apps/server/src/orchestration/ThreadGroupTitles.ts`        | Reuses the thread-title generation service.                         |
+| `apps/server/src/orchestration/http.ts`                     | Routes the group-title generation request.                          |
+| `docs/user/thread-sidebar.md`                               | Documents the user-visible behavior.                                |
 
 ## upstream-fixes
 
