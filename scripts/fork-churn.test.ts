@@ -12,6 +12,7 @@ import {
   DOCUMENT_PATH,
   hotSeams,
   parseCensusFiles,
+  FROZEN_MIRROR_MARKER,
   parseCensusTag,
   parseLedger,
   renderMarkdown,
@@ -1537,14 +1538,98 @@ it("refuses to read the ledger when the bot-owned ref was never seeded", () => {
   }
 });
 
-it("returns exit 1 when render --check finds a stale committed document", () => {
+it("refuses render --check instead of comparing the frozen mirror", () => {
   const root = ledgerRepository([]);
   const internals = NodePath.join(root, "docs", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
   );
-  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.md"), "stale\n");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-churn.md"),
+    `stale\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render", "--check"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+    assert.match(stderr, /RSI-Software\/t3code-hyprws#476/);
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses bare render and leaves the frozen mirror byte-identical", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  const documentPath = NodePath.join(internals, "fork-churn.md");
+  NodeFS.writeFileSync(
+    documentPath,
+    `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+    assert.strictEqual(
+      NodeFS.readFileSync(documentPath, "utf8"),
+      `frozen bytes\n\n> ${FROZEN_MIRROR_MARKER[0]} It is a ${FROZEN_MIRROR_MARKER[1]}.\n`,
+    );
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a mirror whose deprecation notice is rewrapped differently", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-churn.md"),
+    "# Reflown\n\n> This document is\na\nfrozen mirror.\nDeprecated.\n\n- Entries: 0\n",
+  );
+  let stderr = "";
+  const originalWrite = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += chunk.toString();
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    assert.strictEqual(run(["render"], root), 1);
+    assert.match(stderr, /frozen, deprecated mirror/);
+  } finally {
+    process.stderr.write = originalWrite;
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("still reports staleness for a mirror that is not frozen", () => {
+  const root = ledgerRepository([]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  NodeFS.writeFileSync(NodePath.join(internals, "fork-churn.md"), "stale, but not frozen\n");
   try {
     assert.strictEqual(run(["render", "--check"], root), 1);
   } finally {
