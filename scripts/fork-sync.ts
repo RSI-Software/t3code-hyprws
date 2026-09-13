@@ -29,6 +29,10 @@ import {
   type ForkBudgetMeasured,
 } from "./lib/fork-budget.ts";
 import { UsageError } from "./lib/fork-cli.ts";
+import {
+  FORK_RETIREMENT_LEDGER_PATH,
+  readForkRetirementLedger,
+} from "./lib/fork-retirement-ledger.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import {
   executeConflictOutcome,
@@ -904,6 +908,25 @@ export const rehearsalConflictStop = (
   ].join("\n");
 };
 
+// A skip drops a fork commit because a retire verdict said so, and only a
+// Retired row in the fork delta ledger is that verdict (#916): the walk record
+// records the decision, the ledger is what drops the commit. A human writes
+// the row; the tool never infers it from the record.
+const assertRetiredInLedger = (subjects: ReadonlySet<string>, cwd: string): void => {
+  const missing = [...subjects].filter((subject) => {
+    try {
+      return !readForkRetirementLedger(cwd).retired.has(subject);
+    } catch {
+      return true;
+    }
+  });
+  if (missing.length > 0) {
+    throw new Error(
+      `refusing git rebase --skip: no Retired row in ${FORK_RETIREMENT_LEDGER_PATH} for ${missing.join(", ")} — a human writes that row first; the tool never infers it from the walk record`,
+    );
+  }
+};
+
 const retiredSubjectsForReport = (report: SyncReport): ReadonlySet<string> => {
   const subjects = new Set<string>();
   for (const row of report.recordDecisions ?? []) {
@@ -1145,6 +1168,7 @@ const assertReplayedWithoutRebase = (report: SyncReport, runner: CommandRunner):
 
 export const retiredSubjectsForTest = retiredSubjectsForReport;
 export const filterRetiredMessagesForTest = filterRetiredMessages;
+export const assertRetiredInLedgerForTest = assertRetiredInLedger;
 
 export const completeGeneratedConflictRegeneration = (row: ConflictRow): ConflictRow => ({
   ...row,
@@ -1295,7 +1319,10 @@ const unblockRehearse = (
       }),
     };
     const retiredForRehearse = retiredSubjectsForReport(report);
-    const pendingRetired = pending.some((row) => retiredForRehearse.has(row.subject));
+    const pendingRetiredSubjects = new Set(
+      pending.filter((row) => retiredForRehearse.has(row.subject)).map((row) => row.subject),
+    );
+    const pendingRetired = pendingRetiredSubjects.size > 0;
     if (!rebasing) {
       if (report.activeFold !== undefined) {
         // The fold's rebase outlived the worker that ran it; finishing the fold proves whatever
@@ -1307,6 +1334,7 @@ const unblockRehearse = (
       assertReplayedWithoutRebase(report, runner);
     } else if (pendingRetired) {
       // The rebase drops the emptied commit knowingly via --skip, not by accident
+      assertRetiredInLedger(pendingRetiredSubjects, lane.worktree);
       const continued = runner.run(
         "git",
         rehearsalRebaseArgs(["rebase", "--skip"]),
