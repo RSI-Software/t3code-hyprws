@@ -16,6 +16,27 @@ import {
   validateRewriteArchiveBinding,
   type RewriteArchiveBinding,
 } from "./lib/fork-rewrite-archive.ts";
+import {
+  renderFoldHeader,
+  renderFoldSection,
+  requireFoldSegment,
+  type ActiveFold,
+  type FoldPublication,
+  type FoldSegment,
+} from "./lib/fork-sync-fold-types.ts";
+
+export {
+  foldMessagesDigest,
+  parseFoldRecordHeader,
+  parseFoldSection,
+  renderFoldHeader,
+  renderFoldSection,
+  requireFoldSegment,
+  restoreFoldSegments,
+  type ActiveFold,
+  type FoldPublication,
+  type FoldSegment,
+} from "./lib/fork-sync-fold-types.ts";
 
 export const REPOSITORY = FORK_REPOSITORY;
 export const BLOCK_LABEL = "rebase-blocked";
@@ -43,7 +64,14 @@ export const BOT_COMMIT_CONFIG = {
   GIT_COMMITTER_EMAIL: FORK_BOT_IDENTITY.email,
 } as const;
 
-export type SyncStage = "listed" | "oriented" | "conflicts" | "replayed" | "checked" | "applied";
+export type SyncStage =
+  | "listed"
+  | "oriented"
+  | "conflicts"
+  | "replayed"
+  | "checked"
+  | "folding"
+  | "applied";
 export type SyncKind = "unblock" | "rewrite";
 
 export interface RewriteProof {
@@ -346,10 +374,25 @@ export interface SyncReport {
   readonly botCarried?: boolean;
   readonly target?: { readonly tag: string; readonly sha: string };
   readonly source?: {
+    /** Immutable original orientation (T): the trunk tip this walk first oriented at. */
     readonly sha: string;
+    /** Immutable merge base of T and the target tag; never advances during folds. */
     readonly sharedBase: string;
+    /**
+     * Incorporated trunk frontier (B): the latest trunk tip already contained in the candidate.
+     * With no folds this equals `sha`; a fold advances only after the new segment is proved
+     * (RSI-Software/t3code-hyprws#920).
+     */
     readonly expectedOld: string;
   };
+  /** Ordered fold segments; empty or absent for a walk that has never folded. */
+  readonly folds?: ReadonlyArray<FoldSegment>;
+  /** The fold operation a stopped or resumed walk is mid-way through, set before Git mutation. */
+  readonly activeFold?: ActiveFold;
+  /** The verified candidate head the first fold replayed onto (H₀, after its own verification). */
+  readonly baseCheckedHead?: string;
+  /** A pending or resolved leased push of a folded candidate, for interrupted-push recovery. */
+  readonly publication?: FoldPublication;
   readonly rewrite?: RewriteBinding;
   readonly lane?: { readonly branch: string; readonly worktree: string };
   readonly originalMessages?: string;
@@ -661,6 +704,25 @@ export const validateReport = (value: unknown): SyncReport => {
     if (archive.ref !== rewriteArchiveRef(rewrite.originSha))
       throw new Error("rewrite archive does not match rewrite origin");
   }
+  const folds = report.folds ?? [];
+  for (const fold of folds) requireFoldSegment(fold);
+  const activeFold = report.activeFold;
+  if (
+    activeFold !== undefined &&
+    ((activeFold.operation !== "replay" && activeFold.operation !== "check") ||
+      !Number.isSafeInteger(activeFold.index) ||
+      activeFold.index < 0 ||
+      activeFold.index >= folds.length)
+  )
+    throw new Error("report active fold is invalid");
+  const foldPublication = report.publication;
+  if (
+    foldPublication !== undefined &&
+    (!FULL_SHA.test(foldPublication.expectedOld) ||
+      !FULL_SHA.test(foldPublication.head) ||
+      !SHA256.test(foldPublication.recordDigest))
+  )
+    throw new Error("report fold publication is invalid");
   return report as SyncReport;
 };
 
@@ -904,6 +966,7 @@ export const renderRecord = (report: SyncReport): string => {
         : row.decidedBy;
     return `| \`${escapeCell(row.subject)}\` | ${row.domain} | ${row.classSummary} | ${row.action} | ${NO_GROUNDING_CLAIM} | ${decidedCell} |`;
   });
+  const folds = report.folds ?? [];
   const leaseBoundary =
     source?.expectedOld === undefined
       ? "Lease: report has no expected_old — rerun unblock-list"
@@ -915,7 +978,18 @@ export const renderRecord = (report: SyncReport): string => {
   return [
     "## Header",
     "",
-    `- Source: \`origin/hyprws@${source?.expectedOld ?? "absent"}\``,
+    ...(folds.length === 0
+      ? [`- Source: \`origin/hyprws@${source?.expectedOld ?? "absent"}\``]
+      : renderFoldHeader({
+          ...(source === undefined
+            ? {}
+            : { source: { sha: source.sha, expectedOld: source.expectedOld } }),
+          ...(report.baseCheckedHead === undefined
+            ? {}
+            : { baseCheckedHead: report.baseCheckedHead }),
+          ...(report.rebasedHead === undefined ? {} : { rebasedHead: report.rebasedHead }),
+          folds,
+        })),
     `- Target: \`${target?.tag ?? "absent"}@${target?.sha ?? "absent"}\``,
     `- \`expected_old\`: \`${source?.expectedOld ?? "absent"}\``,
     `- ${leaseBoundary}`,
@@ -924,6 +998,7 @@ export const renderRecord = (report: SyncReport): string => {
     `- Rebased head: \`${head}\``,
     `- Stack size: \`${report.stackSize ?? report.originalCount ?? 0}\` fork commits`,
     "",
+    ...(folds.length === 0 ? [] : [renderFoldSection(folds)]),
     "## Conflicts",
     "",
     ...(rows.length === 0

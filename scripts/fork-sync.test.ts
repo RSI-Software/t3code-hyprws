@@ -94,7 +94,16 @@ import {
   readChurnState,
 } from "./fork-churn-ledger.ts";
 import { summarizeOutcomes } from "./lib/fork-sync-outcomes.ts";
-import { SYNC_HELP, REPOSITORY, uniqueSilentSeams } from "./fork-sync-state.ts";
+import {
+  foldMessagesDigest,
+  parseFoldRecordHeader,
+  parseFoldSection,
+  parseRecord,
+  restoreFoldSegments,
+  SYNC_HELP,
+  REPOSITORY,
+  uniqueSilentSeams,
+} from "./fork-sync-state.ts";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -6812,5 +6821,215 @@ describe("resumed conflict-stop lane cleanliness (#694)", () => {
     } finally {
       cleanup(root, stopped.reportPath);
     }
+  });
+});
+
+describe("fold report model (RSI-Software/t3code-hyprws#920)", () => {
+  const foldSource = {
+    sha: A,
+    sharedBase: "0".repeat(40),
+    expectedOld: B,
+  };
+  type FoldSegmentOverride = Partial<NonNullable<SyncReport["folds"]>[number]>;
+  const foldSegment = (
+    overrides: FoldSegmentOverride = {},
+  ): NonNullable<SyncReport["folds"]>[number] => ({
+    from: "1".repeat(40),
+    to: "2".repeat(40),
+    onto: "3".repeat(40),
+    originalCount: 2,
+    originalMessages: "feat(a): one\nfix(b): two",
+    ...overrides,
+  });
+  const folded = (root: string, folds: NonNullable<SyncReport["folds"]>): SyncReport =>
+    report(root, {
+      stage: "checked",
+      source: foldSource,
+      target: { tag: "v1.2.3", sha: C },
+      lane: { branch: "rehearse/v1.2.3-from-aaaaaaaaaaaa", worktree: root },
+      rebasedHead: "4".repeat(40),
+      baseCheckedHead: "5".repeat(40),
+      folds,
+    });
+
+  it("renders zero-fold records exactly like unfolded records and parses them back foldless", () => {
+    const root = fixtureRoot();
+    const plain = report(root, {
+      stage: "checked",
+      source: foldSource,
+      target: { tag: "v1.2.3", sha: C },
+    });
+    const empty = { ...plain, folds: [] };
+    assert.strictEqual(renderRecord(plain), renderRecord(empty));
+    const record = renderRecord(plain);
+    assert.include(record, `- Source: \`origin/hyprws@${B}\``);
+    assert.notInclude(record, "Source incorporated");
+    assert.notInclude(record, "## Folds");
+    assert.strictEqual(parseFoldRecordHeader(record), undefined);
+    assert.strictEqual(parseFoldSection(record), undefined);
+  });
+
+  it("round-trips a record with one fold through the header and Folds section", () => {
+    const root = fixtureRoot();
+    const folds = [foldSegment()];
+    const record = renderRecord(folded(root, folds));
+    const header = parseFoldRecordHeader(record)!;
+    assert.deepStrictEqual(header, {
+      originalSource: A,
+      incorporatedSource: B,
+      baseCheckedHead: "5".repeat(40),
+      finalHead: "4".repeat(40),
+    });
+    const rows = parseFoldSection(record)!;
+    assert.strictEqual(rows.length, 1);
+    assert.deepStrictEqual(rows[0], {
+      from: "1".repeat(40),
+      to: "2".repeat(40),
+      onto: "3".repeat(40),
+      originalCount: 2,
+      messagesDigest: foldMessagesDigest(folds[0]!.originalMessages),
+      repairCommits: [],
+    });
+    assert.deepStrictEqual(restoreFoldSegments(folds, rows), folds);
+    // parseRecord still reads the conflict tables of a folded record untouched.
+    const parsed = parseRecord(record);
+    assert.deepStrictEqual(parsed.conflicts, []);
+  });
+
+  it("round-trips two folds, including repair-commit subjects with escaped pipes", () => {
+    const root = fixtureRoot();
+    const folds = [
+      foldSegment({
+        checkedHead: "6".repeat(40),
+        repairCommits: [{ sha: "7".repeat(40), subject: "fix: keep a | pipe and a \\ slash" }],
+      }),
+      foldSegment({
+        from: "8".repeat(40),
+        to: "9".repeat(40),
+        onto: "6".repeat(40),
+        replayedHead: "a".repeat(40),
+        originalCount: 1,
+        originalMessages: "feat(c): three",
+      }),
+    ];
+    const record = renderRecord(folded(root, folds));
+    const rows = parseFoldSection(record)!;
+    assert.strictEqual(rows.length, 2);
+    assert.deepStrictEqual(rows[1], {
+      from: "8".repeat(40),
+      to: "9".repeat(40),
+      onto: "6".repeat(40),
+      replayedHead: "a".repeat(40),
+      originalCount: 1,
+      messagesDigest: foldMessagesDigest("feat(c): three"),
+      repairCommits: [],
+    });
+    assert.strictEqual(rows[0]!.repairCommits[0]!.subject, "fix: keep a | pipe and a \\ slash");
+    assert.deepStrictEqual(restoreFoldSegments(folds, rows), folds);
+  });
+
+  it("refuses a record whose fold chain no longer matches the report", () => {
+    const root = fixtureRoot();
+    const folds = [foldSegment()];
+    const record = renderRecord(folded(root, folds));
+    const rows = parseFoldSection(record)!;
+    assert.throws(
+      () => restoreFoldSegments([{ ...folds[0]!, originalMessages: "feat(z): different" }], rows),
+      /does not match the report/,
+    );
+    assert.throws(() => restoreFoldSegments([], rows), /does not match the report/);
+  });
+
+  it("validates fold fields on the report and keeps existing foldless reports valid", () => {
+    const root = fixtureRoot();
+    const good = folded(root, [foldSegment()]);
+    validateReport(JSON.parse(JSON.stringify(good)));
+    validateReport({
+      ...JSON.parse(JSON.stringify(good)),
+      activeFold: { index: 0, operation: "replay" },
+      publication: {
+        expectedOld: B,
+        head: "4".repeat(40),
+        recordDigest: "d".repeat(64),
+      },
+    });
+    assert.throws(
+      () => validateReport({ ...good, folds: [{ ...good.folds![0]!, from: "short" }] }),
+      /invalid fold segment/,
+    );
+    assert.throws(
+      () => validateReport({ ...good, activeFold: { index: 3, operation: "replay" } }),
+      /active fold is invalid/,
+    );
+    assert.throws(
+      () =>
+        validateReport({
+          ...good,
+          publication: { expectedOld: B, head: "4".repeat(40), recordDigest: "nope" },
+        }),
+      /fold publication is invalid/,
+    );
+  });
+
+  it("parses the current walk-record shape as a foldless report", () => {
+    // Inline copy of a current walk record: no Folds section, no incorporated-source line.
+    const record = [
+      "## Header",
+      "",
+      `- Source: \`origin/hyprws@${"b891577fbf4bebf2974e916bcb1e64a3741783b7"}\``,
+      "- Target: `v0.0.41-nightly.20260913.1625@2db675aeffd9cb1e8b5ad76ddd018433b45b02e9`",
+      "- `expected_old`: `b891577fbf4bebf2974e916bcb1e64a3741783b7`",
+      "- Lease: report leased at `b891577fbf4bebf2974e916bcb1e64a3741783b7` (origin/hyprws) — any movement of `origin/hyprws` voids this rehearsal; restart at `vp run fork:sync unblock-list`",
+      "- Rehearsal branch: `rehearse/v0.0.41-nightly.20260913.1625-from-b891577fbf4b`",
+      "- Rebased head: `absent`",
+      "- Stack size: `219` fork commits",
+      "",
+      "## Conflicts",
+      "",
+      "Escaped pipes are accepted in Subject, File, Resolution, and Agent-safe cells (`\\|`); write a literal backslash as `\\\\`.",
+      "",
+      "| Fork commit and subject | Domain | File | Class | Resolution | Agent-safe? | Decided by |",
+      "| --- | --- | --- | --- | --- | --- | --- |",
+      "| `347da0d7ad9e` `refactor(web): centralize thread route navigation` | project-windows | `apps/web/src/components/ChatView.tsx` | mechanical | rerere replay | true | agent |",
+      "",
+      "## Automerged overlap review",
+      "",
+      "See orientation in the JSON report.",
+      "",
+      "## Fork commits",
+      "",
+      "None.",
+      "",
+      "## Silent seams",
+      "",
+      "None.",
+      "",
+      "## Decisions",
+      "",
+      "None.",
+      "",
+      "## Repair commits",
+      "",
+      "None.",
+      "",
+      "## Verification",
+      "",
+      "",
+      "## Grounding",
+      "",
+      "None.",
+      "",
+      "do-not-land",
+      "",
+    ].join("\n");
+    assert.strictEqual(parseFoldRecordHeader(record), undefined);
+    assert.strictEqual(parseFoldSection(record), undefined);
+    const parsed = parseRecord(record);
+    assert.strictEqual(parsed.conflicts.length, 1);
+    assert.strictEqual(
+      parsed.conflicts[0]!.subject,
+      "refactor(web): centralize thread route navigation",
+    );
+    assert.deepStrictEqual(parsed.decisions, []);
   });
 });
