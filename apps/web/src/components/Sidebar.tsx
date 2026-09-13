@@ -26,9 +26,11 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import * as Schema from "effect/Schema";
 import {
   DndContext,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
   type Modifier,
@@ -205,17 +207,19 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
   buildSidebarThreadGroupLayout,
-  buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
   getSidebarThreadGroupDissolvingKey,
   hasUnseenCompletion,
+  isSidebarGroupHeaderGroupingTarget,
   isSidebarNestedLinkClick,
   isSidebarThreadWorking,
   isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
@@ -226,6 +230,9 @@ import {
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
   resolveSidebarRowAccessibility,
+  resolveSidebarGroupHeaderDropAnchor,
+  parseSidebarThreadGroupHeaderId,
+  sidebarThreadGroupHeaderId,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
@@ -244,7 +251,6 @@ import {
   useThreadJumpHintVisibility,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
-  type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
   resolveSidebarRowThreadId,
@@ -301,6 +307,7 @@ import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarT
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
+import { sidebarWorkingShelfKeysFork } from "./Sidebar.workingShelf.fork"; // fork-hook: thread-ordering/working-shelf-keys-import
 import {
   resolveCompletedTurnTiming,
   shouldShowSidebarDoneStatus,
@@ -1212,6 +1219,40 @@ function SortableThreadRow(
   };
   // Keyed by variant so a card/slim switch remounts the row.
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} sortable={bag} />;
+}
+
+// A group header is a grouping drop target: a thread released on it joins
+// that group. It rides the same DndContext as the rows but can never be
+// picked up, so a plain droppable is enough — dnd-kit resolves it as `over`
+// through the shared collision detection, gated by the header eligibility in
+// the detector's validity filter.
+function DroppableThreadGroupHeader(props: {
+  readonly id: string;
+  readonly group: SidebarThreadGroup;
+  readonly memberCount: number;
+  readonly isGenerating: boolean;
+  readonly isGroupDropTarget?: boolean;
+  readonly isDissolving?: boolean;
+  readonly onCollapsedChange: (collapsed: boolean) => void;
+  readonly onRename: (title: string) => void;
+  readonly onRegenerate: () => void;
+  readonly onRemove: () => void;
+}) {
+  const { setNodeRef } = useDroppable({ id: props.id });
+  return (
+    <SidebarThreadGroupHeader
+      group={props.group}
+      memberCount={props.memberCount}
+      isGenerating={props.isGenerating}
+      isGroupDropTarget={props.isGroupDropTarget ?? false}
+      isDissolving={props.isDissolving ?? false}
+      onCollapsedChange={props.onCollapsedChange}
+      onRename={props.onRename}
+      onRegenerate={props.onRegenerate}
+      onRemove={props.onRemove}
+      rootRef={setNodeRef}
+    />
+  );
 }
 
 const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
@@ -2800,10 +2841,15 @@ export default function Sidebar() {
     setGroupDropTargetKey(threadKey);
   }, []);
   const [dissolvingGroupKey, setDissolvingGroupKey] = useState<string | null>(null);
+  const dissolvingGroupKeyRef = useRef<string | null>(null);
+  const updateDissolvingGroupKey = useCallback((groupKey: string | null) => {
+    dissolvingGroupKeyRef.current = groupKey;
+    setDissolvingGroupKey(groupKey);
+  }, []);
   const resetActiveDragPreview = useCallback(() => {
     updateGroupDropTarget(null);
-    setDissolvingGroupKey(null);
-  }, [updateGroupDropTarget]);
+    updateDissolvingGroupKey(null);
+  }, [updateDissolvingGroupKey, updateGroupDropTarget]);
   const [generatingGroupIds, setGeneratingGroupIds] = useState<ReadonlySet<string>>(new Set());
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onCopy: ({ path }) => {
@@ -3822,10 +3868,11 @@ export default function Sidebar() {
     listMotionRef.current?.update(listMotionPass.animate);
   }, [listMotionPass]);
   // Grouping rides upstream's one sidebar DndContext. A drop onto the middle
-  // band of another active row in the same project groups the two rows; every
-  // other drop is upstream's reorder or section move, untouched. The same pass
-  // reports the group the lifted row is leaving, so a pair about to fall below
-  // two members previews its dissolution instead of snapping out after release.
+  // band of another active row — or anywhere on a registered group header —
+  // in the same project groups the two rows; every other drop is upstream's
+  // reorder or section move, untouched. The same pass reports the group the
+  // lifted row is leaving, so a pair about to fall below two members previews
+  // its dissolution instead of snapping out after release.
   const resolveThreadGroupPreview = useCallback(
     (input: {
       readonly activeKey: string;
@@ -3840,18 +3887,44 @@ export default function Sidebar() {
           (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === key,
         );
       const active = threadFor(input.activeKey);
-      const over = threadFor(input.overKey);
-      if (active === undefined || over === undefined) return none;
+      if (active === undefined) return none;
       const projectKey = threadProjectOrderKey(active);
-      if (threadProjectOrderKey(over) !== projectKey) return none;
       const groups = threadGroupsByProject[projectKey] ?? [];
       const activeGroup = groups.find((group) => group.threadIds.includes(input.activeKey));
+      const headerTarget = parseSidebarThreadGroupHeaderId(input.overKey);
+      if (headerTarget !== null) {
+        // Group headers are registered droppables on the same list, so `over`
+        // carries the header id and the whole header is the target. It must
+        // belong to the dragged row's project and hold an existing group the
+        // row is not already in.
+        if (headerTarget.projectKey !== projectKey) return none;
+        const overGroup = groups.find((group) => group.id === headerTarget.groupId);
+        if (overGroup === undefined) return none;
+        const grouping = isSidebarThreadGroupingTarget({
+          activeGroupId: activeGroup?.id ?? null,
+          overGroupId: overGroup.id,
+          overGroupHeader: true,
+          activeRect: input.activeRect,
+          overRect: input.overRect,
+        });
+        return {
+          groupTargetKey: grouping ? input.overKey : null,
+          dissolvingGroupKey: getSidebarThreadGroupDissolvingKey({
+            projectKey,
+            activeGroup,
+            overGroupId: overGroup.id,
+          }),
+        };
+      }
+      const over = threadFor(input.overKey);
+      if (over === undefined) return none;
+      if (threadProjectOrderKey(over) !== projectKey) return none;
       const overGroup = groups.find((group) => group.threadIds.includes(input.overKey));
       const grouping = isSidebarThreadGroupingTarget({
         activeGroupId: activeGroup?.id ?? null,
         overGroupId: overGroup?.id ?? null,
-        // Group headers are not sortable targets on upstream's list, so a drop
-        // only ever lands on a member row's central band.
+        // Row drops group only inside the central band; the row edges stay
+        // reorder zones. Header drops resolve in the branch above.
         overGroupHeader: false,
         activeRect: input.activeRect,
         overRect: input.overRect,
@@ -3922,6 +3995,46 @@ export default function Sidebar() {
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
+        // Group headers are registered droppables but not list entries, so
+        // the section resolver cannot see them. Eligibility mirrors the row
+        // band rule without geometry: active section, same project, existing
+        // group the row is not already in.
+        const headerTarget = parseSidebarThreadGroupHeaderId(id);
+        if (headerTarget !== null) {
+          if (
+            isSidebarGroupHeaderGroupingTarget({
+              activeKey: draggedThreadKey,
+              activeSection: draggedFromSection,
+              activeProjectKey: threadProjectOrderKey(source),
+              header: headerTarget,
+              groups: threadGroupsByProject[headerTarget.projectKey] ?? [],
+            })
+          ) {
+            return true;
+          }
+          // A member's own group header stays droppable for exactly one
+          // release: the first member dropped back onto its own header
+          // detaches. The same classifier gates the drag-end write, so a
+          // non-anchor member still cannot hit its own header.
+          const groups = threadGroupsByProject[headerTarget.projectKey] ?? [];
+          const activeGroup = groups.find((group) => group.threadIds.includes(draggedThreadKey));
+          const anchorThreadId = groups.find((group) => group.id === headerTarget.groupId)
+            ?.threadIds[0];
+          return isSidebarThreadUngroupBeforeTarget({
+            activeThreadId: draggedThreadKey,
+            activeGroup,
+            overItem:
+              anchorThreadId === undefined
+                ? undefined
+                : {
+                    kind: "group-header",
+                    id,
+                    projectKey: headerTarget.projectKey,
+                    groupId: headerTarget.groupId,
+                    anchorThreadId,
+                  },
+          });
+        }
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
         if (target === null) return false;
         return (
@@ -5202,6 +5315,7 @@ export default function Sidebar() {
                 collisionDetection={dndCollisionDetection}
                 modifiers={dndModifiers}
                 onDragStart={handleThreadDragStart}
+                onDragMove={handleThreadDragMove}
                 onDragOver={handleThreadDragOver}
                 onDragCancel={resetActiveDragPreview}
                 onDragEnd={handleThreadDragEnd}
@@ -5363,12 +5477,18 @@ export default function Sidebar() {
                           const isDissolving = groupKey !== null && dissolvingGroupKey === groupKey;
                           if (groupEntry?.isAnchor) {
                             const generatingKey = `${groupEntry.projectKey}\0${groupEntry.group.id}`;
+                            const headerId = sidebarThreadGroupHeaderId(
+                              groupEntry.projectKey,
+                              groupEntry.group.id,
+                            );
                             items.push(
-                              <SidebarThreadGroupHeader
+                              <DroppableThreadGroupHeader
                                 key={`group:${generatingKey}`}
+                                id={headerId}
                                 group={groupEntry.group}
                                 memberCount={groupEntry.threads.length}
                                 isGenerating={generatingGroupIds.has(generatingKey)}
+                                isGroupDropTarget={groupDropTargetKey === headerId}
                                 isDissolving={isDissolving}
                                 onCollapsedChange={(collapsed) =>
                                   setThreadGroupCollapsed(
