@@ -714,3 +714,5 @@ Prefer the option that makes a project window feel obvious while adding the leas
 Reject a shortcut if it makes upstream rebases harder, duplicates shared state, or silently breaks another surface.
 
 The fork is healthy when its behavior is distinctive and its diff is boring.
+
+Forecast proof line: this fork-only document is the fixture for the pull-request forecast range fix (RSI-Software/t3code-hyprws#912).
