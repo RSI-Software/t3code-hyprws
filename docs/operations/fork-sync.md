@@ -842,14 +842,19 @@ verdicts never do.
 
 ### Walk mode
 
-#### Walk freeze
+#### The fold rule
 
-While a report holds a lease, `hyprws` takes no landing until `unblock-apply` or an explicit
-void. Any movement of `origin/hyprws` past the report's `expected_old` voids the rehearsal and costs
-the full replay: `unblock-auto` re-lists from the moved trunk once by itself, and a single verb
-restarts at `unblock-list`. A tooling fix the walk itself needs goes into
-the walk's lane (folded as a fixup) or is run from a branch the walk rehearses against — never
-landed on `hyprws` mid-walk.
+A walk leases `origin/hyprws` at its `expected_old` (the incorporated frontier B) but does not
+freeze landings. A landing that advances the trunk linearly folds: `unblock-fold` replays
+`B..live` onto the verified candidate with fixed SHAs, proves the segment, advances the frontier,
+and regresses the walk to `replayed` so `unblock-check` reruns the final-tree gates on the new
+head; `unblock-apply` performs the same fold-and-retry itself (bounded to three attempts) when its
+leased push is rejected as stale. Movement that cannot fold — a merge commit, a rewritten trunk,
+a moved shared base, or a moved target — still voids the rehearsal and costs the full replay:
+`unblock-auto` re-lists from the moved trunk once by itself, and a single verb restarts at
+`unblock-list`, retaining the stopped lane as evidence. A tooling fix the walk itself needs goes
+into the walk's lane (folded as a fixup) or is run from a branch the walk rehearses against —
+never landed on `hyprws` mid-walk.
 
 `unblock-auto` runs the transitions below in one invocation. The individual verbs remain callable
 for diagnostics, for picking a stopped walk up by hand, and for the series rewrite, which drives
@@ -908,8 +913,8 @@ The report and record stay outside the repository and new rehearsals never add t
 A series rewrite keeps its two sessions: the host owns the proposal, another session owns the review
 verdict, and a reviewer sign-off is never counted as a human choice. Every transition still refuses
 stale refs, wrong lanes, incomplete rows, changed messages/counts, unowned importer drift, failed
-checks, or a missing/stale/same-session/withheld review. A stale lease voids the report: the walk
-re-lists from the moved trunk by itself, and a single verb restarts at `unblock-list`.
+checks, or a missing/stale/same-session/withheld review. Movement that cannot fold voids the report: the
+walk re-lists from the moved trunk by itself, and a single verb restarts at `unblock-list`.
 Never move `hyprws-previous`, `hyprws-next`, or a release ref as part of the unblock. A successful
 leased push starts the bot run that reconciles the resolved blocking SHA and any later block. The
 apply publishes the walk's row and outcome record on `refs/fork/churn` before it reports `applied`,
