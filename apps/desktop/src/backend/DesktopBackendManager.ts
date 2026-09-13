@@ -1177,11 +1177,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
       ),
   );
 
-  yield* Effect.addFinalizer(() =>
-    Ref.get(startRequestedRef).pipe(
-      Effect.flatMap((startRequested) => (startRequested ? stop() : Effect.void)),
-    ),
-  );
+  yield* Effect.addFinalizer(() => stop());
 
   return {
     id: spec.id,
