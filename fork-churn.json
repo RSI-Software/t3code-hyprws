@@ -43628,6 +43628,43 @@
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34758756267"
     },
     {
+      "kind": "attempt",
+      "targetSha": "2db675aeffd9cb1e8b5ad76ddd018433b45b02e9",
+      "attemptId": "34759400721/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "b9a35c1c46c5514712723f67c0b094d5c3984127",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "2db675aeffd9cb1e8b5ad76ddd018433b45b02e9",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "selected clean target",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "2db675aeffd9cb1e8b5ad76ddd018433b45b02e9",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "2db675aeffd9cb1e8b5ad76ddd018433b45b02e9",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260913.1646",
@@ -44405,6 +44442,61 @@
       "status": "failed",
       "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34758756267"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "candidate",
+      "sourceSha": "b9a35c1c46c5514712723f67c0b094d5c3984127",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "selection",
+      "status": "blocked",
+      "detail": "target blocked by retained census",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "verification",
+      "status": "not-attempted",
+      "detail": "no passing replay verification receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "no successful trunk apply receipt",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "report-publication",
+      "status": "succeeded",
+      "detail": "churn comment publication result",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/933#issuecomment-5652660105"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "17f8e2a8acba76d5516e0a52c85bf802b0e17892",
+      "attemptId": "34759400721/1/rebase",
+      "stage": "report-policy",
+      "status": "failed",
+      "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34759400721"
     }
   ],
   "forecasts": [
