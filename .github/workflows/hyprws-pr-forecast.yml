@@ -10,9 +10,11 @@ concurrency:
   group: hyprws-pr-forecast-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
+# The forecast comment lands on the pull request: the issues comments endpoint needs
+# pull-requests: write on PRs (RSI-Software/t3code-hyprws#863).
 permissions:
   contents: read
-  issues: write
+  pull-requests: write
   checks: write
 
 jobs:
