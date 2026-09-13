@@ -97,8 +97,10 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
-      - name: Add upstream
-        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+      - name: Add and fetch upstream
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
       - name: Scan against live upstream/main
         run: vp run fork:scan --no-typecheck
 
