@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5649686861",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5649728305",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9410,6 +9410,15 @@
           "commit": "92c926225560",
           "subject": "test(fork): move fork test blocks into fork-owned siblings",
           "domain": "github-issues",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "commit": "77aca34b7db7",
+          "subject": "refactor(web): isolate rich Markdown preview seams",
+          "domain": "markdown-editing",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
@@ -10400,6 +10409,15 @@
         ]
       },
       "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "apps/web/src/components/files/FilePreviewPanel.tsx",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260912.1612",
+          "recordedAt": "2026-09-12T22:11:53.863Z",
+          "path": "apps/web/src/components/files/FilePreviewPanel.tsx"
+        },
         {
           "kind": "conflict",
           "subject": "apps/web/src/components/CommandPalette.logic.test.ts",
