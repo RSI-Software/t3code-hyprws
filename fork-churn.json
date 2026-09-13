@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5649736523",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650020144",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9428,6 +9428,15 @@
           "commit": "4a9f9b802b69",
           "subject": "refactor(mobile): isolate ignored file listing policy",
           "domain": "workspace-files",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts",
+          "commit": "9752216918ed",
+          "subject": "refactor(web): isolate issue handoff settings search",
+          "domain": "github-issues",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
@@ -10418,6 +10427,15 @@
         ]
       },
       "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260912.1612",
+          "recordedAt": "2026-09-12T22:11:53.863Z",
+          "path": "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts"
+        },
         {
           "kind": "conflict",
           "subject": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
