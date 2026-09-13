@@ -69,6 +69,25 @@ export const squashBudgetRefusalMessage = (finding: ForkBudgetFinding): string =
     finding.baselined ? "" : " (domain has no budget row)"
   } (over by ${finding.actual - finding.ceiling}) — edit ${FORK_BUDGET_PATH} on the branch to set the ${finding.domain} ${finding.measure} ceiling to at least ${finding.actual}, and keep Fork-Budget: raise <reason> in the body`;
 
+/**
+ * Commits authored before this carry raise trailers written against a budget
+ * table a later rebase has since rewritten, or no numbers at all. Their proof
+ * is unrecoverable from the current tree, so the checks below skip them.
+ * Author date, never sha: a rebase preserves the date and discards the sha.
+ * Retire this by repairing the 29 trailers at the next full-stack rebase and
+ * deleting the constant; see the fork-delta rebase scan.
+ */
+export const FORK_BUDGET_PROOF_FROM = "2026-09-13T17:00:00+12:00";
+
+/**
+ * Whether a raise commit owes trailer proof. Fails closed: a commit whose
+ * author date is missing or unparseable is treated as new.
+ */
+export const isForkBudgetProofRequired = (authorDate: string | undefined): boolean =>
+  authorDate === undefined ||
+  Number.isNaN(Date.parse(authorDate)) ||
+  Date.parse(authorDate) >= Date.parse(FORK_BUDGET_PROOF_FROM);
+
 /** One ceiling number a commit pushed up; the raising commit owes its trailer. */
 export interface ForkBudgetRaise {
   readonly domain: string;
@@ -76,6 +95,80 @@ export interface ForkBudgetRaise {
   readonly from: number;
   readonly to: number;
 }
+
+/** One `<domain> <added|deleted> <old> -> <new>` clause inside a raise trailer. */
+export interface ForkBudgetRaiseClause {
+  readonly domain: string;
+  readonly measure: ForkBudgetMeasure;
+  readonly from: number;
+  readonly to: number;
+}
+
+const RAISE_CLAUSE_PATTERN = new RegExp(
+  `(?:(${FORK_DOMAINS.join("|")})\\s+)?(added|deleted)\\s+(\\d+)\\s*->\\s*(\\d+)`,
+  "gi",
+);
+
+/**
+ * The movement clauses a raise trailer names. Order-free and comma-separated;
+ * prose around or between clauses is ignored, so a numbers-free reason parses
+ * to zero clauses and fails the matching check on every ceiling it moved. A
+ * clause after the first may omit the domain and inherit the previous clause's
+ * — `fork-meta added 3 -> 4, deleted 1 -> 2` names one domain twice. A word
+ * before a measure that is not a fork domain ("and", "for") is prose, not a
+ * domain, so such a clause still inherits.
+ */
+export const parseBudgetRaiseClauses = (reason: string): ReadonlyArray<ForkBudgetRaiseClause> => {
+  let domain: string | undefined;
+  const text = reason.replace(/^raise\s+/i, "");
+  return Array.from(text.matchAll(RAISE_CLAUSE_PATTERN), (match): ForkBudgetRaiseClause => {
+    if (match[1] !== undefined) domain = match[1];
+    return {
+      domain: domain ?? "",
+      measure: (match[2] === "deleted" ? "deleted" : "added") as ForkBudgetMeasure,
+      from: Number(match[3]),
+      to: Number(match[4]),
+    };
+  });
+};
+
+/**
+ * A raise trailer is proof, not prose: it must name every ceiling the commit
+ * moved with the exact numbers it moved it by, and name nothing else. These
+ * findings turn a trailer into the audit trail the raise echo claims it is.
+ */
+export const budgetRaiseClauseFindings = (
+  reason: string,
+  raises: ReadonlyArray<ForkBudgetRaise>,
+): ReadonlyArray<string> => {
+  const clauses = parseBudgetRaiseClauses(reason);
+  const byDomainMeasure = new Map(
+    clauses.map((clause) => [`${clause.domain} ${clause.measure}`, clause]),
+  );
+  const problems: Array<string> = [];
+  for (const raise of raises) {
+    const clause = byDomainMeasure.get(`${raise.domain} ${raise.measure}`);
+    if (clause === undefined) {
+      problems.push(
+        `Fork-Budget trailer does not name the ${raise.domain} ${raise.measure} movement ${raise.from} -> ${raise.to} — write Fork-Budget: raise with the clause "${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}" (one comma-separated clause per moved ceiling)`,
+      );
+    } else if (clause.from !== raise.from || clause.to !== raise.to) {
+      problems.push(
+        `Fork-Budget trailer claims ${raise.domain} ${raise.measure} ${clause.from} -> ${clause.to} but the commit moves it ${raise.from} -> ${raise.to} — write the clause as "${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to}"`,
+      );
+    }
+  }
+  for (const clause of clauses) {
+    if (
+      !raises.some((raise) => raise.domain === clause.domain && raise.measure === clause.measure)
+    ) {
+      problems.push(
+        `Fork-Budget trailer names ${clause.domain} ${clause.measure} ${clause.from} -> ${clause.to} but the commit does not move that ceiling — remove the clause or name only the ceiling the commit actually moves`,
+      );
+    }
+  }
+  return problems;
+};
 
 const splitTableRow = (line: string): ReadonlyArray<string> => {
   const cells: Array<string> = [];
