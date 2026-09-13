@@ -12,7 +12,11 @@ import type {
   ProjectId,
   PullRequestState,
 } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import {
+  disambiguateTerminalLabels,
+  getTerminalLabel,
+  splitTerminalLabelSuffix,
+} from "@t3tools/shared/terminalLabels";
 import {
   Bot,
   Smartphone,
@@ -37,6 +41,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -856,6 +861,22 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     canScrollRight: false,
   });
 
+  // Terminals sharing a zmux session all carry the session target as their
+  // label; suffix duplicates so the strip stays readable (#909).
+  const terminalStripLabelsById = useMemo(() => {
+    const base = new Map<string, string>();
+    for (const surface of props.surfaces) {
+      if (surface.kind !== "terminal") continue;
+      const terminalId = surface.activeTerminalId;
+      if (base.has(terminalId)) continue;
+      base.set(
+        terminalId,
+        props.terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId),
+      );
+    }
+    return disambiguateTerminalLabels(base);
+  }, [props.surfaces, props.terminalLabelsById]);
+
   const updateTabScrollState = useCallback(() => {
     const viewport = tabScrollViewport(tabListRef.current);
     if (!viewport) return;
@@ -1087,7 +1108,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
-              const title = surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
+              const title = surfaceTitle(
+                surface,
+                props.previewSessions,
+                surface.kind === "terminal" ? terminalStripLabelsById : props.terminalLabelsById,
+              );
+              const { base: titleBase, suffix: titleSuffix } = splitTerminalLabelSuffix(title);
               const previewTabId = previewTabIdOf(surface, props.previewSessions);
               // Desktop state is keyed by the session id, but desktop actions
               // must be addressed with the runtime id.
@@ -1194,7 +1220,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                             className="cursor-pointer flex min-w-0 items-center"
                             onClick={() => props.onActivate(surface)}
                           >
-                            <span className="truncate">{title}</span>
+                            <span className="truncate">{titleBase}</span>
+                            {titleSuffix ? <span className="shrink-0">{titleSuffix}</span> : null}
                           </button>
                         }
                       />
