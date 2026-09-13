@@ -123,3 +123,77 @@ it("uses the census conflict rows without moving fork refs or tags", () => {
     NodeFS.rmSync(item.root, { recursive: true, force: true });
   }
 });
+
+// A fork stack rides beneath the pull requests under test: the trunk commit is
+// fork-only, and upstream has moved seam.txt since the stack base.
+const stackedFixture = () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-pr-stack-forecast-test-"));
+  git(root, ["init", "-b", "main"]);
+  git(root, ["config", "user.name", "test"]);
+  git(root, ["config", "user.email", "test@example.com"]);
+  NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "base\n");
+  commit(root, "base");
+  git(root, ["remote", "add", "origin", root]);
+  git(root, ["branch", "hyprws"]);
+  git(root, ["switch", "hyprws"]);
+  NodeFS.writeFileSync(NodePath.join(root, "fork.txt"), "fork\n");
+  commit(root, "feat: trunk\n\nFork-Domain: fork-meta\nFork-Tier: qol");
+  git(root, ["switch", "main"]);
+  NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "upstream\n");
+  const main = commit(root, "upstream seam");
+  git(root, ["update-ref", "refs/remotes/origin/main", main]);
+  git(root, ["update-ref", "refs/heads/main", main]);
+  return { root, main };
+};
+
+it("reports a fork-only pull-request commit as clean on top of a colliding stack", () => {
+  const item = stackedFixture();
+  try {
+    const { root } = item;
+    git(root, ["switch", "hyprws"]);
+    git(root, ["switch", "-c", "fork-only"]);
+    // Edits fork.txt, the fork-only file the stack added: replaying the PR
+    // commit alone onto main hits modify/delete, but replaying the stack plus
+    // the pull request does not.
+    NodeFS.writeFileSync(NodePath.join(root, "fork.txt"), "pr\n");
+    const prCommit = commit(
+      root,
+      "feat: edit the stack's fork-only file\n\nFork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const result = forecastPullRequest(root, "fork-only", () => new Set());
+    assert.deepStrictEqual(
+      result.conflicts.map((row) => row.commit),
+      [prCommit],
+    );
+    assert.strictEqual(result.conflicts[0]?.conflicts, false);
+    assert.deepStrictEqual(result.conflicts[0]?.files, []);
+  } finally {
+    NodeFS.rmSync(item.root, { recursive: true, force: true });
+  }
+});
+
+it("attributes a seam the pull request shares with upstream to the pull-request commit", () => {
+  const item = stackedFixture();
+  try {
+    const { root, main } = item;
+    git(root, ["switch", "hyprws"]);
+    git(root, ["switch", "-c", "collision"]);
+    NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "pull request\n");
+    const prCommit = commit(
+      root,
+      "fix: collision\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no",
+    );
+
+    const result = forecastPullRequest(root, "collision", () => new Set());
+    assert.deepStrictEqual(
+      result.conflicts.map((row) => row.commit),
+      [prCommit],
+    );
+    assert.strictEqual(result.conflicts[0]?.conflicts, true);
+    assert.deepStrictEqual(result.conflicts[0]?.files, ["seam.txt"]);
+    assert.strictEqual(result.conflicts[0]?.seam, main);
+  } finally {
+    NodeFS.rmSync(item.root, { recursive: true, force: true });
+  }
+});
