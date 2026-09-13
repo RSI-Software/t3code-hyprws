@@ -45,6 +45,7 @@ import {
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
+  assertRetiredInLedgerForTest,
   retiredSubjectsForTest,
   renderRecord,
   verifyReplay,
@@ -2007,6 +2008,51 @@ it("filters a retired middle commit without changing git-log record framing", ()
     filterRetiredMessagesForTest(original, new Set(["fix: retire me"])),
     "feat: first\n\x1e\nfeat: last\n\x1e\n",
   );
+});
+
+it("refuses a skip whose subject has no Retired row in the fork delta ledger", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-skip-ledger-"));
+  try {
+    NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
+    const ledger = [
+      "## Retired",
+      "",
+      "| Fork commit | Domain | Upstream replacement | Retired at |",
+      "| --- | --- | --- | --- |",
+      "| fix: retired properly | thread-ordering | `upstream#1` | v1.0.0 |",
+      "",
+      "## Kept",
+      "",
+      "| Fork commit | Domain | Reason | Reviewed at |",
+      "| --- | --- | --- | --- |",
+      "|",
+    ];
+    // Keep the Kept table header-valid with one empty-ish row.
+    ledger[ledger.length - 1] = "| fix: kept | thread-ordering | still wanted | v1.0.0 |";
+    NodeFS.writeFileSync(
+      NodePath.join(root, "docs/internals/fork-delta.md"),
+      `${ledger.join("\n")}\n`,
+    );
+    // A recorded verdict without the ledger row is refused, loud, with the subject.
+    assert.throws(
+      () => assertRetiredInLedgerForTest(new Set(["fix: retire me"]), root),
+      /refusing git rebase --skip: no Retired row in docs\/internals\/fork-delta\.md for fix: retire me/,
+    );
+    // The subject whose row a human wrote is allowed to skip.
+    assertRetiredInLedgerForTest(new Set(["fix: retired properly"]), root);
+    // A missing ledger fails closed for every subject.
+    const empty = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-skip-noledger-"));
+    try {
+      assert.throws(
+        () => assertRetiredInLedgerForTest(new Set(["fix: retire me"]), empty),
+        /refusing git rebase --skip/,
+      );
+    } finally {
+      NodeFS.rmSync(empty, { recursive: true, force: true });
+    }
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 /** A fixture upstream tree plus two fork commits: one retired upstream, one not. */
