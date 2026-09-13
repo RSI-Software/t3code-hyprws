@@ -262,14 +262,6 @@ https://github.com/user-attachments/assets/442458b8-dfc8-4bb4-8f99-40207fab03f1
 
 </details>
 
-### Backend attach
-
-- **Attach:** desktop joins a running backend
-- **Pair:** automatically, once per launch
-- **State:** one writer on `state.sqlite`, not two
-
-![Client-only desktop connected to a local backend](https://github.com/user-attachments/assets/cc5573e5-9f55-40dd-b827-90ac7a08d4b8)
-
 ### Releases and upstream fixes
 
 - **Builds:** Linux AppImage releases
