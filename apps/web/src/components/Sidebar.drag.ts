@@ -1,6 +1,7 @@
 import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
+  parseSidebarThreadGroupHeaderId,
   resolveSidebarDropTarget,
   sidebarListItemId,
   sidebarMarkerId,
@@ -69,9 +70,15 @@ export function createSidebarCollisionDetection(
           const target = collisions.find((collision) => {
             const id = String(collision.id);
             if (!sections.has(id)) {
+              // A group header has no entry in `items`, so the reorder resolver
+              // declines it. Headers only ever render in the active section, so
+              // read the id space directly; otherwise this branch would promote
+              // a member row past every header the pointer is actually over.
               sections.set(
                 id,
-                resolveSidebarDropTarget(items, String(args.active.id), id)?.section ?? null,
+                parseSidebarThreadGroupHeaderId(id)
+                  ? "active"
+                  : (resolveSidebarDropTarget(items, String(args.active.id), id)?.section ?? null),
               );
             }
             return sections.get(id) === boundarySection;
