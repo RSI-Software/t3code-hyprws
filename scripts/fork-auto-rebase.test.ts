@@ -194,6 +194,35 @@ Fork-Tier: qol
     () => verifyReplayMetadata(1, 1, original, commentLinesStripped),
     /commit messages changed/,
   );
+
+  // The failure names the first offending record: index, subject, and first differing line.
+  const twoCommitOriginal = `${driftedOriginal}feat: third commit stays clean\n\nFork-Domain: fork-meta\nFork-Tier: qol\n\x1e`;
+  const twoCommitReplayed = twoCommitOriginal.replace("Fork-Tier: bugfix", "Fork-Tier: core");
+  try {
+    verifyReplayMetadata(3, 3, twoCommitOriginal, twoCommitReplayed);
+    assert.fail("expected replay message mismatch to throw");
+  } catch (error) {
+    assert.match(String(error), /commit messages changed/);
+    assert.match(
+      String(error),
+      /commit 1: fix\(server\): reconcile managed sessions after branch changes/,
+    );
+    assert.match(String(error), /"Fork-Tier: bugfix" -> "Fork-Tier: core"/);
+  }
+
+  // The gained-line direction: the original is a matching prefix of the replayed message, so
+  // scanning the original alone finds no differing index. The message must still name both sides.
+  const gainedLineReplay = twoCommitOriginal.replace(
+    "Fork-Tier: bugfix\n\x1e",
+    "Fork-Tier: bugfix\na stray line appeared\n\x1e",
+  );
+  try {
+    verifyReplayMetadata(3, 3, twoCommitOriginal, gainedLineReplay);
+    assert.fail("expected replay message mismatch to throw");
+  } catch (error) {
+    assert.match(String(error), /commit messages changed/);
+    assert.match(String(error), /"\(absent\)" -> "a stray line appeared"/);
+  }
 });
 
 interface Fixture {
