@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5649728305",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5649736523",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9419,6 +9419,15 @@
           "commit": "77aca34b7db7",
           "subject": "refactor(web): isolate rich Markdown preview seams",
           "domain": "markdown-editing",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+          "commit": "4a9f9b802b69",
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
@@ -10409,6 +10418,15 @@
         ]
       },
       "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260912.1612",
+          "recordedAt": "2026-09-12T22:11:53.863Z",
+          "path": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx"
+        },
         {
           "kind": "conflict",
           "subject": "apps/web/src/components/files/FilePreviewPanel.tsx",
