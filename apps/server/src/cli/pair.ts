@@ -136,6 +136,17 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
 
+// Fork (`pair --json`): the desktop consumes this output and compares
+// `pairingUrl.origin` to the runtime-state `origin` field strictly. With no
+// explicit host the upstream direct base falls back to `localhost` while the
+// runtime record says `127.0.0.1`, so one JSON object carried two origins and
+// the desktop rejected the link. JSON output therefore pairs through the
+// recorded origin when — and only when — no host is configured; every other
+// host value (wildcard included) keeps the upstream base, whose interface
+// fallback stays the useful URL for a remote client.
+const resolveJsonPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
+  state.host === undefined ? state.origin : resolveDirectPairingBaseUrl(state);
+
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
   { devUrl: Schema.String },
@@ -526,7 +537,9 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolved.baseUrl;
         notes.push(...resolved.notes);
       } else {
-        pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
+        pairingBaseUrl = flags.json
+          ? resolveJsonPairingBaseUrl(target.state)
+          : resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
             "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
