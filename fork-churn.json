@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650539494",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650585636",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9572,6 +9572,15 @@
           "commit": "2cac25e31744",
           "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473",
           "domain": "fork-meta",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/CommandPalette.logic.test.ts",
+          "commit": "827846fc35e1",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
