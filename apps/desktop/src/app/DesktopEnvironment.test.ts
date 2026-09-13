@@ -74,7 +74,7 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
       assert.deepEqual(environment.packagedClientRootCandidates, [
-        "/Applications/T3 Code.app/Contents/Resources/app.asar/apps/server/dist/client",
+        "/repo/apps/server/dist/client",
         "/Applications/T3 Code.app/Contents/Resources/app.asar.unpacked/apps/server/dist/client",
       ]);
       assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
