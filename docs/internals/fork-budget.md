@@ -20,7 +20,7 @@ so a new domain fails the check until a commit adds its row.
 | markdown-editing  | 4       | 3909  | 1299    | 0      |
 | project-windows   | 48      | 14433 | 2904    | 0      |
 | thread-ordering   | 8       | 2338  | 229     | 0      |
-| upstream-fixes    | 26      | 4552  | 453     | 6      |
+| upstream-fixes    | 27      | 4697  | 458     | 6      |
 | workspace-files   | 4       | 403   | 48      | 0      |
 | worktrunk-hooks   | 7       | 2367  | 894     | 1      |
 | zmux-estate       | 23      | 13137 | 1431    | 3      |
