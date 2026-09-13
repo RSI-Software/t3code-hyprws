@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650239226",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650391834",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9536,6 +9536,15 @@
           "commit": "c4b8937e03fe",
           "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
           "domain": "worktrunk-hooks",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/preview/Manager.ts",
+          "commit": "6f8deb029bab",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
@@ -10526,6 +10535,15 @@
         ]
       },
       "walkDecisions": [
+        {
+          "kind": "conflict",
+          "subject": "apps/desktop/src/preview/Manager.ts",
+          "outcome": "manual",
+          "decidedBy": "human",
+          "tag": "v0.0.41-nightly.20260912.1612",
+          "recordedAt": "2026-09-12T22:11:53.863Z",
+          "path": "apps/desktop/src/preview/Manager.ts"
+        },
         {
           "kind": "conflict",
           "subject": "apps/server/src/provider/Layers/ClaudeAdapter.ts",
