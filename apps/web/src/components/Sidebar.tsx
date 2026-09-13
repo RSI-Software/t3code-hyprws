@@ -168,6 +168,7 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
@@ -205,7 +206,6 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
-  type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
@@ -3540,49 +3540,43 @@ export default function Sidebar() {
     [sectionByThreadKey],
   );
   // Include every visible row in the measured order. Older servers disable
-  // pickup on their rows without changing where those rows render.
-  const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
-    const rowsOf = (
-      list: readonly EnvironmentThreadShell[],
-      section: SidebarSection,
-    ): SidebarListItem[] =>
-      list.map((thread) => {
-        const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-        return { kind: "thread", key, section };
-      });
-    if (
-      pinnedThreads.length +
-        activeThreads.length +
-        snoozedThreads.length +
-        settledThreads.length ===
-      0
-    ) {
-      return [];
-    }
-    const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
-    items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
-    items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
-    if (snoozedThreads.length > 0) {
-      items.push({ kind: "marker", marker: "snoozed-header" });
-      items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
-    }
-    items.push({ kind: "marker", marker: "settled-header" });
-    const settledRows = rowsOf(renderedSettledThreads, "settled");
-    items.push({ kind: "marker", marker: "settled-placeholder" });
-    items.push(...settledRows);
-    return items;
-  }, [
-    activeThreads,
-    pinnedThreads,
-    renderedSettledThreads,
-    settledThreads.length,
-    snoozedThreads.length,
-    visibleSnoozedThreads,
-  ]);
+  // pickup on their rows without changing where those rows render. Active
+  // rows come from visibleActiveThreads — the same list orderedThreads
+  // resolves threadByKey from — so every emitted row has a thread behind it,
+  // even when a collapsed group hides all but its anchor.
+  const sidebarListItems = useMemo(
+    () =>
+      buildSidebarListItems({
+        hasNoThreads:
+          pinnedThreads.length +
+            activeThreads.length +
+            snoozedThreads.length +
+            settledThreads.length ===
+          0,
+        pinnedKeys: pinnedThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        activeKeys: visibleActiveThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        hasSnoozedThreads: snoozedThreads.length > 0,
+        snoozedVisibleKeys: visibleSnoozedThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+        settledKeys: renderedSettledThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ),
+      }),
+    [
+      activeThreads.length,
+      pinnedThreads,
+      renderedSettledThreads,
+      settledThreads.length,
+      snoozedThreads.length,
+      visibleActiveThreads,
+      visibleSnoozedThreads,
+    ],
+  );
   useEffect(() => {
     if (
       dragState !== null &&
