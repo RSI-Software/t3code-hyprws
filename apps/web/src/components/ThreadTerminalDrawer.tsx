@@ -39,6 +39,10 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
+import {
+  disambiguateTerminalLabels,
+  splitTerminalLabelSuffix,
+} from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import {
@@ -1621,6 +1625,7 @@ function TerminalSidebarGroup({
         {terminalGroup.terminalIds.map((terminalId) => {
           const isActive = terminalId === activeTerminalId;
           const terminalLabel = terminalLabelById.get(terminalId) ?? gt("Terminal");
+          const { base: labelBase, suffix: labelSuffix } = splitTerminalLabelSuffix(terminalLabel);
           const closeTerminalLabel =
             isActive && closeShortcutLabel
               ? gt("Close {terminal} ({shortcut})", {
@@ -1654,7 +1659,8 @@ function TerminalSidebarGroup({
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
                 onClick={() => onActiveTerminalChange(terminalId)}
               >
-                <span className="truncate">{terminalLabel}</span>
+                <span className="truncate">{labelBase}</span>
+                {labelSuffix ? <span className="shrink-0">{labelSuffix}</span> : null}
               </button>
             </div>
           );
@@ -1860,7 +1866,9 @@ export default function ThreadTerminalDrawer({
         terminalLabelsById?.get(terminalId) ?? getTerminalLabel(terminalId, messages),
       );
     }
-    return next;
+    // Terminals sharing a zmux session all carry the session target as their
+    // label; suffix duplicates so the strip stays readable.
+    return disambiguateTerminalLabels(next);
   })();
 
   const resolvedActiveTerminalId =
