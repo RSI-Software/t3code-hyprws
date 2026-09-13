@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildCreateThreadGroupContextMenuItem,
+  buildSidebarListItems,
   buildSidebarThreadGroupLayout,
   buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
@@ -417,6 +418,136 @@ describe("shouldShowSidebarDoneStatus", () => {
         completedTiming,
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildSidebarListItems", () => {
+  const groupThreads = [
+    { id: "thread-a", projectKey: "project-a" },
+    { id: "thread-b", projectKey: "project-a" },
+    { id: "thread-c", projectKey: "project-a" },
+  ];
+  // The sidebar's thread map resolves rows only from the layout's visible
+  // threads, so the list must derive its active rows from the same source.
+  const visibleKeys = (
+    layout: ReturnType<typeof buildSidebarThreadGroupLayout<{ id: string }>>,
+  ): string[] =>
+    layout.flatMap((item) =>
+      item.kind === "thread"
+        ? [item.thread.id]
+        : item.group.collapsed
+          ? item.threads.slice(0, 1).map((thread) => thread.id)
+          : item.threads.map((thread) => thread.id),
+    );
+
+  it("emits only a collapsed group's anchor as an active row", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads: groupThreads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: true,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+    const keys = visibleKeys(layout);
+    expect(keys).toEqual(["thread-a", "thread-b"]);
+
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: keys,
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    });
+    expect(
+      items.flatMap((item) =>
+        item.kind === "thread" && item.section === "active" ? [item.key] : [],
+      ),
+    ).toEqual(["thread-a", "thread-b"]);
+    // A row for the hidden member would reach the renderer unresolved and
+    // crash on its thread fields (issue #901).
+    const resolvable = new Set(keys);
+    for (const item of items) {
+      if (item.kind === "thread") expect(resolvable.has(item.key)).toBe(true);
+    }
+  });
+
+  it("keeps an expanded group's rows contiguous in layout order", () => {
+    const layout = buildSidebarThreadGroupLayout({
+      threads: groupThreads,
+      groupsByProject: {
+        "project-a": [
+          {
+            id: "group-1",
+            title: "Related work",
+            threadIds: ["thread-b", "thread-c"],
+            collapsed: false,
+          },
+        ],
+      },
+      getId: (thread) => thread.id,
+      getProjectKey: (thread) => thread.projectKey,
+    });
+
+    expect(
+      buildSidebarListItems({
+        hasNoThreads: false,
+        pinnedKeys: [],
+        activeKeys: visibleKeys(layout),
+        hasSnoozedThreads: false,
+        snoozedVisibleKeys: [],
+        settledKeys: ["thread-a"],
+      }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "thread", key: "thread-a", section: "active" },
+      { kind: "thread", key: "thread-b", section: "active" },
+      { kind: "thread", key: "thread-c", section: "active" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+      { kind: "thread", key: "thread-a", section: "settled" },
+    ]);
+  });
+
+  it("renders nothing without threads and the snoozed shelf only when populated", () => {
+    const empty = {
+      pinnedKeys: [],
+      activeKeys: [],
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    };
+    expect(
+      buildSidebarListItems({ hasNoThreads: true, hasSnoozedThreads: true, ...empty }),
+    ).toEqual([]);
+    expect(
+      buildSidebarListItems({ hasNoThreads: false, hasSnoozedThreads: true, ...empty }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "marker", marker: "snoozed-header" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+    ]);
+    expect(
+      buildSidebarListItems({ hasNoThreads: false, hasSnoozedThreads: false, ...empty }),
+    ).toEqual([
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "marker", marker: "active-placeholder" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "marker", marker: "settled-placeholder" },
+    ]);
   });
 });
 

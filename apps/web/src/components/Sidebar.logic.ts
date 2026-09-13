@@ -124,6 +124,36 @@ export function sidebarListItemId(item: SidebarListItem): string {
   return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
 }
 
+/** Every row and marker in sidebar render order: pinned rows, the active
+    inbox, the optional snoozed shelf, then settled. The row keys must come
+    from the same visible lists the sidebar's thread map resolves from —
+    feeding raw section lists here emits rows for threads the map cannot
+    resolve, e.g. the non-anchor members a collapsed group hides. */
+export function buildSidebarListItems(input: {
+  readonly hasNoThreads: boolean;
+  readonly pinnedKeys: readonly string[];
+  readonly activeKeys: readonly string[];
+  readonly hasSnoozedThreads: boolean;
+  readonly snoozedVisibleKeys: readonly string[];
+  readonly settledKeys: readonly string[];
+}): readonly SidebarListItem[] {
+  if (input.hasNoThreads) return [];
+  const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
+  for (const key of input.pinnedKeys) items.push({ kind: "thread", key, section: "pinned" });
+  items.push({ kind: "marker", marker: "pinned-divider" });
+  items.push({ kind: "marker", marker: "active-placeholder" });
+  for (const key of input.activeKeys) items.push({ kind: "thread", key, section: "active" });
+  if (input.hasSnoozedThreads) {
+    items.push({ kind: "marker", marker: "snoozed-header" });
+    for (const key of input.snoozedVisibleKeys)
+      items.push({ kind: "thread", key, section: "snoozed" });
+  }
+  items.push({ kind: "marker", marker: "settled-header" });
+  items.push({ kind: "marker", marker: "settled-placeholder" });
+  for (const key of input.settledKeys) items.push({ kind: "thread", key, section: "settled" });
+  return items;
+}
+
 /** The section a slot belongs to, read off the markers around it: from
     the top down, everything before the pinned divider is pinned, then the
     inbox until the snoozed header, the shelf until the settled header,
