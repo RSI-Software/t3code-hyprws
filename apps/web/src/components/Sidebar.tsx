@@ -172,7 +172,6 @@ import {
   buildCreateThreadGroupContextMenuItem,
   buildSidebarListItems,
   buildSidebarThreadGroupLayout,
-  buildSidebarThreadSortableItems,
   buildThreadGroupMembershipContextMenuItems,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -184,6 +183,7 @@ import {
   isSidebarGroupHeaderGroupingTarget,
   isSidebarNestedLinkClick,
   isSidebarThreadGroupingTarget,
+  isSidebarThreadUngroupBeforeTarget,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   planSidebarThreadDrop,
@@ -3851,12 +3851,38 @@ export default function Sidebar() {
         // group the row is not already in.
         const headerTarget = parseSidebarThreadGroupHeaderId(id);
         if (headerTarget !== null) {
-          return isSidebarGroupHeaderGroupingTarget({
-            activeKey: draggedThreadKey,
-            activeSection: draggedFromSection,
-            activeProjectKey: threadProjectOrderKey(source),
-            header: headerTarget,
-            groups: threadGroupsByProject[headerTarget.projectKey] ?? [],
+          if (
+            isSidebarGroupHeaderGroupingTarget({
+              activeKey: draggedThreadKey,
+              activeSection: draggedFromSection,
+              activeProjectKey: threadProjectOrderKey(source),
+              header: headerTarget,
+              groups: threadGroupsByProject[headerTarget.projectKey] ?? [],
+            })
+          ) {
+            return true;
+          }
+          // A member's own group header stays droppable for exactly one
+          // release: the first member dropped back onto its own header
+          // detaches. The same classifier gates the drag-end write, so a
+          // non-anchor member still cannot hit its own header.
+          const groups = threadGroupsByProject[headerTarget.projectKey] ?? [];
+          const activeGroup = groups.find((group) => group.threadIds.includes(draggedThreadKey));
+          const anchorThreadId = groups.find((group) => group.id === headerTarget.groupId)
+            ?.threadIds[0];
+          return isSidebarThreadUngroupBeforeTarget({
+            activeThreadId: draggedThreadKey,
+            activeGroup,
+            overItem:
+              anchorThreadId === undefined
+                ? undefined
+                : {
+                    kind: "group-header",
+                    id,
+                    projectKey: headerTarget.projectKey,
+                    groupId: headerTarget.groupId,
+                    anchorThreadId,
+                  },
           });
         }
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
@@ -3915,6 +3941,42 @@ export default function Sidebar() {
       const headerTarget =
         groupTargetKey === null ? null : parseSidebarThreadGroupHeaderId(groupTargetKey);
       resetActiveDragPreview();
+      // Dropping the first member on its own group's header detaches it: the
+      // same classifier that gates the header as a droppable resolves the
+      // release into the membership write the row context menu performs. This
+      // must be checked before the grouping branch below — both can match a
+      // header drop, and joining the group the row is leaving would be wrong.
+      const overHeaderTarget =
+        event.over === null ? null : parseSidebarThreadGroupHeaderId(String(event.over.id));
+      if (activeThread !== undefined && overHeaderTarget !== null) {
+        const projectKey = threadProjectOrderKey(activeThread);
+        const groups = threadGroupsByProject[projectKey] ?? [];
+        const overGroup = groups.find((group) => group.id === overHeaderTarget.groupId);
+        const anchorThreadId = overGroup?.threadIds[0];
+        if (
+          overHeaderTarget.projectKey === projectKey &&
+          isSidebarThreadUngroupBeforeTarget({
+            activeThreadId: activeKey,
+            activeGroup: groups.find((group) => group.threadIds.includes(activeKey)),
+            overItem:
+              anchorThreadId === undefined
+                ? undefined
+                : {
+                    kind: "group-header",
+                    id: String(event.over!.id),
+                    projectKey: overHeaderTarget.projectKey,
+                    groupId: overHeaderTarget.groupId,
+                    anchorThreadId,
+                  },
+          })
+        ) {
+          const projectThreadKeys = visibleActiveThreads
+            .filter((thread) => threadProjectOrderKey(thread) === projectKey)
+            .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+          setThreadGroupMembership(projectKey, projectThreadKeys, [activeKey], { kind: "none" });
+          return;
+        }
+      }
       if (
         groupTargetKey !== null &&
         activeThread !== undefined &&
@@ -4107,6 +4169,7 @@ export default function Sidebar() {
       moveProjectThread,
       requestThreadGroupTitle,
       resetActiveDragPreview,
+      setThreadGroupMembership,
       threadGroupsByProject,
       visibleActiveThreads,
     ],
