@@ -253,7 +253,11 @@ export const make = Effect.gen(function* () {
         instances.push({ config: settings.providers[driver] });
       }
       for (const instance of instances) {
-        const environment = mergeProviderInstanceEnvironment(instance.environment, hostEnvironment);
+        const environment = mergeProviderInstanceEnvironment(
+          instance.environment,
+          undefined,
+          hostEnvironment,
+        );
         const provider = driver === "claudeAgent" ? "claude" : driver;
         let home: string;
         if (driver === "codex") {
