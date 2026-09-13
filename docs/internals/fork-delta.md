@@ -777,6 +777,8 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `fork:sync rewrite-build` constructs reviewed same-base history through `scripts/lib/fork-rewrite-build.ts`; exact snapshot/metadata/final-tree receipts bind the existing nightly review and leased apply. Batch transforms remain external, and rewrite attempts preserve existing outcome eligibility.
 - `scripts/fork-orient.ts` with its `fork:orient` alias, the single Gate 1 command that prints the orientation and its Stop block.
 - `scripts/fork-scan.ts` with its `fork:scan` alias, the guard that keeps a domain's rebase scan honest.
+- `scripts/fork-workflow-checkout.test.ts`, which keeps every fork workflow checkout off
+  `persist-credentials: false`; `hyprws-upstream-sync.yml` scrubs its token after checkout when needed.
 - `scripts/fork-lesson-guidance.ts` resolves declared lesson evidence without moving refs and
   reconciles the full original scope with live observations and preferred authoring boundaries.
 - `scripts/fork-rebase-report.ts`, its artifact sibling, and `.github/workflows/hyprws-upstream-sync.yml`.
