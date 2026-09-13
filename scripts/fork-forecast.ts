@@ -9,7 +9,7 @@ import { rehearseStopCensus } from "./fork-auto-rebase.ts";
 import { readChurnState, writeChurnState, type ForecastEntry } from "./fork-churn-ledger.ts";
 import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
-import { runCommand, runCommandText } from "./lib/fork-command.ts";
+import { runCommand, runCommandText, runCommandTextWithRetry } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
 
 export const FORECAST_MARKER = "<!-- hyprws-fork-forecast -->";
@@ -205,7 +205,7 @@ export const renderPullRequestForecast = (row: PullRequestForecast): string => {
 
 const post = (root: string, body: string): void => {
   const issues = JSON.parse(
-    runCommandText(
+    runCommandTextWithRetry(
       "gh",
       [
         "issue",
@@ -225,7 +225,7 @@ const post = (root: string, body: string): void => {
   const issue = issues[0]?.number ?? FORECAST_PARENT_ISSUE;
   if (issues.length > 1) throw new Error("expected at most one open rebase-blocked issue");
   const view = JSON.parse(
-    runCommandText(
+    runCommandTextWithRetry(
       "gh",
       ["issue", "view", String(issue), "--repo", FORK_REPOSITORY, "--json", "comments"],
       { cwd: root },
@@ -238,6 +238,8 @@ const post = (root: string, body: string): void => {
   );
   NodeFS.writeFileSync(file, body);
   if (existing === undefined) {
+    // Deliberately unretried: gh can return a transient 503 *after* creating the comment, so a
+    // retry would double-post the forecast. Losing a run is cheaper than a duplicate record.
     runCommandText(
       "gh",
       ["issue", "comment", String(issue), "--repo", FORK_REPOSITORY, "--body-file", file],
@@ -246,7 +248,8 @@ const post = (root: string, body: string): void => {
   } else {
     const id = /#issuecomment-(\d+)$/.exec(existing.url)?.[1];
     if (id === undefined) throw new Error("forecast comment URL has no REST id");
-    runCommandText(
+    // Same body each time, so a PATCH retry is idempotent and safe.
+    runCommandTextWithRetry(
       "gh",
       [
         "api",
