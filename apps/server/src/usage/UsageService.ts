@@ -255,7 +255,9 @@ export const make = Effect.gen(function* () {
       for (const instance of instances) {
         const environment = mergeProviderInstanceEnvironment(
           instance.environment,
-          undefined,
+          // Name this reader's own driver so its home variable survives the
+          // harness-identity scrub while every other provider's is dropped.
+          driver,
           hostEnvironment,
         );
         const provider = driver === "claudeAgent" ? "claude" : driver;
