@@ -76,4 +76,25 @@ describe("DesktopEnvironment", () => {
       }
     }),
   );
+  it.effect("resolves client renderer roots for packaged and built unpackaged launches", () =>
+    Effect.gen(function* () {
+      // A packaged launch anchors both candidates on the shipped app tree.
+      const packaged = yield* makeEnvironment({
+        isPackaged: true,
+        appPath: "/install/resources/app.asar",
+        resourcesPath: "/install/resources",
+      });
+      assert.deepEqual(packaged.packagedClientRootCandidates, [
+        "/install/resources/app.asar/apps/server/dist/client",
+        "/install/resources/app.asar.unpacked/apps/server/dist/client",
+      ]);
+      // A built unpackaged launch serves the same built client from the
+      // repository tree, not from a packaged appPath (#893).
+      const unpackaged = yield* makeEnvironment({}, { T3CODE_HOME: "/tmp/t3" });
+      assert.deepEqual(unpackaged.packagedClientRootCandidates, [
+        "/repo/apps/server/dist/client",
+        "/Applications/T3 Code.app/Contents/Resources/app.asar.unpacked/apps/server/dist/client",
+      ]);
+    }),
+  );
 });
