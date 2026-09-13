@@ -10,10 +10,15 @@ import {
   isSidebarThreadGroupDrop,
   isSidebarThreadGroupingTarget,
   isSidebarThreadUngroupBeforeTarget,
+  isSidebarGroupHeaderGroupingTarget,
   isProjectInSidebarScope,
   resolveCompletedTurnTiming,
+  resolveSidebarDropTarget,
+  resolveSidebarGroupHeaderDropAnchor,
+  parseSidebarThreadGroupHeaderId,
   shouldShowSidebarDoneStatus,
   formatSidebarRelativeTimeLabel,
+  sidebarThreadGroupHeaderId,
 } from "./Sidebar.logic";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { localEnvironmentId, makeLatestTurn } from "./Sidebar.logic.test.ts";
@@ -295,6 +300,121 @@ describe("sidebar thread groups", () => {
         separatorBefore: false,
       },
     ]);
+  });
+});
+
+describe("sidebar group header drop targets", () => {
+  const headerId = sidebarThreadGroupHeaderId("project-a", "group-1");
+  const header = { projectKey: "project-a", groupId: "group-1" };
+  const headerGroups = [{ id: "group-1", threadIds: ["env-a:thread-b", "env-a:thread-c"] }];
+
+  it("round-trips a header id and refuses every other id space", () => {
+    expect(parseSidebarThreadGroupHeaderId(headerId)).toEqual({
+      projectKey: "project-a",
+      groupId: "group-1",
+    });
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0project-a")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0project-a\0")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-thread-group\0\0group-1")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("sidebar-marker-pinned-header")).toBeNull();
+    expect(parseSidebarThreadGroupHeaderId("env-a:thread-b")).toBeNull();
+  });
+
+  it("never resolves a header id as a reorder target", () => {
+    // sidebarListItems emits no header entries, so the section resolver must
+    // return null for one — the drag-end reorder path then bails instead of
+    // writing a move against something adjacent.
+    const items = buildSidebarListItems({
+      hasNoThreads: false,
+      pinnedKeys: [],
+      activeKeys: ["env-a:thread-a", "env-a:thread-b", "env-a:thread-c"],
+      hasSnoozedThreads: false,
+      snoozedVisibleKeys: [],
+      settledKeys: [],
+    });
+    expect(resolveSidebarDropTarget(items, "env-a:thread-a", headerId)).toBeNull();
+    expect(resolveSidebarDropTarget(items, "env-a:thread-a", "env-a:thread-b")).not.toBeNull();
+  });
+
+  it("groups from a header only for active rows outside the header's group", () => {
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(true);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-b",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "pinned",
+        activeProjectKey: "project-a",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-b",
+        header,
+        groups: headerGroups,
+      }),
+    ).toBe(false);
+    expect(
+      isSidebarGroupHeaderGroupingTarget({
+        activeKey: "env-a:thread-a",
+        activeSection: "active",
+        activeProjectKey: "project-a",
+        header,
+        groups: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("lands a header drop on the group's first visible member", () => {
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-a", "env-a:thread-b", "env-a:thread-c"],
+      }),
+    ).toBe("env-a:thread-b");
+    // A collapsed group keeps only its anchor visible; the anchor still
+    // anchors the drop.
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-b"],
+      }),
+    ).toBe("env-a:thread-b");
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: [],
+        visibleMemberKeys: ["env-a:thread-b"],
+      }),
+    ).toBeNull();
+    expect(
+      resolveSidebarGroupHeaderDropAnchor({
+        header,
+        groups: headerGroups,
+        visibleMemberKeys: ["env-a:thread-a"],
+      }),
+    ).toBeNull();
   });
 });
 
