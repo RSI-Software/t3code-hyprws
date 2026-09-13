@@ -145,6 +145,36 @@ export function sidebarListItemId(item: SidebarListItem): string {
   return item.kind === "thread" ? item.key : sidebarMarkerId(item.marker);
 }
 
+/** Every row and marker in sidebar render order: pinned rows, the active
+    inbox, the optional snoozed shelf, then settled. The row keys must come
+    from the same visible lists the sidebar's thread map resolves from —
+    feeding raw section lists here emits rows for threads the map cannot
+    resolve, e.g. the non-anchor members a collapsed group hides. */
+export function buildSidebarListItems(input: {
+  readonly hasNoThreads: boolean;
+  readonly pinnedKeys: readonly string[];
+  readonly activeKeys: readonly string[];
+  readonly hasSnoozedThreads: boolean;
+  readonly snoozedVisibleKeys: readonly string[];
+  readonly settledKeys: readonly string[];
+}): readonly SidebarListItem[] {
+  if (input.hasNoThreads) return [];
+  const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
+  for (const key of input.pinnedKeys) items.push({ kind: "thread", key, section: "pinned" });
+  items.push({ kind: "marker", marker: "pinned-divider" });
+  items.push({ kind: "marker", marker: "active-placeholder" });
+  for (const key of input.activeKeys) items.push({ kind: "thread", key, section: "active" });
+  if (input.hasSnoozedThreads) {
+    items.push({ kind: "marker", marker: "snoozed-header" });
+    for (const key of input.snoozedVisibleKeys)
+      items.push({ kind: "thread", key, section: "snoozed" });
+  }
+  items.push({ kind: "marker", marker: "settled-header" });
+  items.push({ kind: "marker", marker: "settled-placeholder" });
+  for (const key of input.settledKeys) items.push({ kind: "thread", key, section: "settled" });
+  return items;
+}
+
 /** The section a slot belongs to, read off the markers around it: from
     the top down, everything before the pinned divider is pinned, then the
     inbox until the snoozed header, the shelf until the settled header,
@@ -353,8 +383,25 @@ export type SidebarThreadSortableItem =
       readonly anchorThreadId: string;
     };
 
-function sidebarThreadGroupSortableId(projectKey: string, groupId: string): string {
-  return `sidebar-thread-group\0${projectKey}\0${groupId}`;
+const SIDEBAR_THREAD_GROUP_HEADER_PREFIX = "sidebar-thread-group\0";
+
+/** Sortable and droppable id of a group header. Colon-free like the marker
+    ids — scoped thread keys always contain a colon, so the header id space
+    never collides with a row key. */
+export function sidebarThreadGroupHeaderId(projectKey: string, groupId: string): string {
+  return `${SIDEBAR_THREAD_GROUP_HEADER_PREFIX}${projectKey}\0${groupId}`;
+}
+
+/** Inverse of sidebarThreadGroupHeaderId. Null for every other id space:
+    thread keys, marker ids, and truncated or malformed header ids. */
+export function parseSidebarThreadGroupHeaderId(
+  id: string,
+): { readonly projectKey: string; readonly groupId: string } | null {
+  if (!id.startsWith(SIDEBAR_THREAD_GROUP_HEADER_PREFIX)) return null;
+  const rest = id.slice(SIDEBAR_THREAD_GROUP_HEADER_PREFIX.length);
+  const separator = rest.indexOf("\0");
+  if (separator <= 0 || separator === rest.length - 1) return null;
+  return { projectKey: rest.slice(0, separator), groupId: rest.slice(separator + 1) };
 }
 
 export function buildSidebarThreadSortableItems<T>(input: {
@@ -369,7 +416,7 @@ export function buildSidebarThreadSortableItems<T>(input: {
     if (!anchorThread) return [];
     const header: SidebarThreadSortableItem = {
       kind: "group-header",
-      id: sidebarThreadGroupSortableId(item.projectKey, item.group.id),
+      id: sidebarThreadGroupHeaderId(item.projectKey, item.group.id),
       projectKey: item.projectKey,
       groupId: item.group.id,
       anchorThreadId: input.getId(anchorThread),
@@ -475,6 +522,39 @@ export function getSidebarThreadGroupDissolvingKey(input: {
   if (!input.activeGroup || input.activeGroup.threadIds.length !== 2) return null;
   if (input.activeGroup.id === input.overGroupId) return null;
   return `${input.projectKey}\0${input.activeGroup.id}`;
+}
+
+/** Whether a drag onto a group header can group the dragged thread into that
+    group: the header must belong to the dragged row's project, the group must
+    still exist, and the dragged row must be an active-section thread that is
+    not already a member. Pinned, snoozed, and settled rows never group, and
+    dropping a member on its own group's header stays a no-op. */
+export function isSidebarGroupHeaderGroupingTarget(input: {
+  readonly activeKey: string;
+  readonly activeSection: SidebarSection | null | undefined;
+  readonly activeProjectKey: string | null;
+  readonly header: { readonly projectKey: string; readonly groupId: string };
+  readonly groups: readonly Pick<SidebarThreadGroup, "id" | "threadIds">[];
+}): boolean {
+  if (input.activeSection !== "active") return false;
+  if (input.activeProjectKey !== input.header.projectKey) return false;
+  return input.groups.some(
+    (group) => group.id === input.header.groupId && !group.threadIds.includes(input.activeKey),
+  );
+}
+
+/** The member a header drop lands on: the header group's first member the
+    visible active list still shows. The drop then takes the same write path
+    as a row-centre group drop. Null when the group is gone or hides every
+    member mid-drag — the drop must fail rather than resolve to something
+    adjacent. */
+export function resolveSidebarGroupHeaderDropAnchor(input: {
+  readonly header: { readonly projectKey: string; readonly groupId: string };
+  readonly groups: readonly Pick<SidebarThreadGroup, "id" | "threadIds">[];
+  readonly visibleMemberKeys: readonly string[];
+}): string | null {
+  const group = input.groups.find((candidate) => candidate.id === input.header.groupId);
+  return group?.threadIds.find((threadId) => input.visibleMemberKeys.includes(threadId)) ?? null;
 }
 
 /** Project a drop's lifecycle fields before sorting its destination. Reusing
