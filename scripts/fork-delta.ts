@@ -214,6 +214,7 @@ export const buildLedger = (
   wireFindings: ReadonlyMap<string, ReadonlyArray<WireShapeFinding>> = new Map(),
   wireBaseline: ForkWireBaseline = new Map(),
 ): ForkLedger => {
+  const stackSubjects = new Set(commits.map((commit) => commit.subject));
   const retired = commits.filter(
     (commit) => retirementDecision(retirementLedger, commit.subject).decision === "retire",
   );
@@ -250,6 +251,16 @@ export const buildLedger = (
         subject: commit.subject,
         problem: "retired but present",
       })),
+      // The mirror of "retired but present" (#916): a Kept row names a fork
+      // commit the stack must carry, so a subject that walks away without a
+      // Retired row fails the check instead of staying green forever.
+      ...[...retirementLedger.kept.keys()]
+        .filter((subject) => !stackSubjects.has(subject))
+        .map((subject) => ({
+          short: "ledger",
+          subject,
+          problem: "kept but absent",
+        })),
     ],
     warnings: [...wireBaseline.keys()]
       .filter((key) => !producedWireKeys.has(key))
