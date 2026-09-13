@@ -107,6 +107,7 @@ jobs:
       # and 4 of the fork-sync skill, which scan against the new target tag while
       # the fork still sits on the old one.
       - name: Live upstream rebase scan (advisory)
+        id: live_scan
         continue-on-error: true
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -116,7 +117,26 @@ jobs:
           # already carries, so scope them to the commits this branch adds.
           # `--since` only narrows the warnings; the scan verdict still covers
           # every domain.
-          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck
+          set +e
+          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck \
+            2>&1 | tee "$RUNNER_TEMP/live-upstream-scan.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          # Advisory, so the exit code cannot red the run — but a step that
+          # fails and reports nothing is the same silence the scan exists to
+          # remove. Surface it as an annotation and a summary section instead:
+          # upstream landing on a shared file is not the branch's fault, yet
+          # the sync lane still has to learn about it. The blocking live
+          # upstream scan runs in hyprws-upstream-sync.yml against trunk.
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::live upstream rebase scan failed (exit $code): a domain's scan has no row for a shared file upstream now touches; see the step summary"
+            {
+              printf '## Live upstream rebase scan (advisory) failed\n\n```\n'
+              cat "$RUNNER_TEMP/live-upstream-scan.log"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
