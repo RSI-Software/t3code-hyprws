@@ -9259,7 +9259,7 @@
       "tag": "v0.0.41-nightly.20260912.1612",
       "before": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
       "after": "d4202a4cd9110b014a307ad3a2a4ed4fb02fc20b",
-      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650050654",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/858#issuecomment-5650069848",
       "conflicts": [
         {
           "path": "apps/web/src/components/ChatView.tsx",
@@ -9455,6 +9455,15 @@
           "commit": "f40f8ea1317a",
           "subject": "test(fork): complete fork-owned test sibling migration",
           "domain": "fork-meta",
+          "class": "human",
+          "resolution": "resolved by hand in the lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/Sidebar.tsx",
+          "commit": "04426357343f",
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
           "class": "human",
           "resolution": "resolved by hand in the lane",
           "decidedBy": "human"
