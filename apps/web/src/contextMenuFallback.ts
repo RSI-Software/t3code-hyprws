@@ -3,6 +3,8 @@ import { msg } from "gt-react";
 
 import { m } from "./i18n/messages";
 
+import { forkIconPaths } from "./contextMenuFallback.fork"; // fork-hook: thread-ordering/reset-order-icon-import
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<string, string> }>> = {
@@ -167,6 +169,7 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "line", attrs: { x1: "10", x2: "10", y1: "11", y2: "17" } },
     { tag: "line", attrs: { x1: "14", x2: "14", y1: "11", y2: "17" } },
   ],
+  ...forkIconPaths, // fork-hook: thread-ordering/reset-order-icon
 };
 
 function createIconElement(name: string, tone: "neutral" | "destructive"): SVGSVGElement | null {
