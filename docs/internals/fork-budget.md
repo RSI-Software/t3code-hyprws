@@ -18,7 +18,7 @@ so a new domain fails the check until a commit adds its row.
 | fork-meta         | 62      | 76680 | 6135    | 4      |
 | github-issues     | 11      | 7822  | 1033    | 0      |
 | markdown-editing  | 4       | 3909  | 1299    | 0      |
-| project-windows   | 47      | 14344 | 2900    | 0      |
+| project-windows   | 48      | 14433 | 2904    | 0      |
 | thread-ordering   | 8       | 2338  | 229     | 0      |
 | upstream-fixes    | 26      | 4552  | 453     | 6      |
 | workspace-files   | 4       | 403   | 48      | 0      |
