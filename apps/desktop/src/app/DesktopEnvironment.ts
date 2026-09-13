@@ -251,8 +251,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     serverRoot,
     backendEntryPath: path.join(serverRoot, "apps/server/dist/bin.mjs"),
     backendCwd: input.isPackaged ? homeDirectory : appRoot,
+    // appRoot equals appPath when packaged and the repo root when unpackaged,
+    // so a built unpackaged client-only launch finds apps/server/dist/client
+    // (#893).
     packagedClientRootCandidates: [
-      path.join(input.appPath, "apps/server/dist/client"),
+      path.join(appRoot, "apps/server/dist/client"),
       path.join(resourcesPath, "app.asar.unpacked/apps/server/dist/client"),
     ],
     preloadPath: path.join(input.dirname, "preload.cjs"),
