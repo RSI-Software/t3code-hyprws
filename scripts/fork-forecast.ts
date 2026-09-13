@@ -7,7 +7,6 @@ import * as NodePath from "node:path";
 
 import { rehearseStopCensus } from "./fork-auto-rebase.ts";
 import { readChurnState, writeChurnState, type ForecastEntry } from "./fork-churn-ledger.ts";
-import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import { acquireBotRefLease, CHURN_REF, publishBotRefLease } from "./lib/fork-bot-refs.ts";
 import { runCommand, runCommandText, runCommandTextWithRetry } from "./lib/fork-command.ts";
 import { FORK_REPOSITORY } from "./lib/fork-policy.ts";
@@ -18,10 +17,6 @@ export const FORECAST_STATE = /<!-- hyprws-fork-forecast-state:([0-9a-f]{40,64})
 // survives transient block and feature issues closing.
 export const FORECAST_PARENT_ISSUE = 443;
 export const PULL_REQUEST_FORECAST_MARKER = "<!-- hyprws-pull-request-forecast -->";
-
-export interface PullRequestForecast extends ForecastEntry {
-  readonly overBudgetDomains: ReadonlySet<string>;
-}
 
 const git = (root: string, args: ReadonlyArray<string>): string =>
   runCommandText("git", args, { cwd: root }).trim();
@@ -106,41 +101,7 @@ export const forecast = (root: string): ForecastEntry => {
   return forecastRange(root, head, base, main);
 };
 
-type BudgetStatusReader = (root: string, head: string) => ReadonlySet<string>;
-
-const readOverBudgetDomains: BudgetStatusReader = (root, head) => {
-  const inventory = JSON.parse(
-    runCommandText(
-      process.execPath,
-      [
-        "scripts/fork-delta.ts",
-        "--inventory",
-        "--json",
-        "--head",
-        head,
-        "--upstream",
-        "origin/main",
-      ],
-      { cwd: root },
-    ),
-  ) as {
-    readonly domains: ReadonlyArray<{
-      readonly domain: string;
-      readonly commits: number;
-      readonly added: number;
-      readonly deleted: number;
-      readonly overlaps: number;
-    }>;
-  };
-  const budget = parseForkBudget(git(root, ["show", `${head}:docs/internals/fork-budget.md`]));
-  return new Set(budgetFindings(inventory.domains, budget).map((finding) => finding.domain));
-};
-
-export const forecastPullRequest = (
-  root: string,
-  head: string,
-  readBudget: BudgetStatusReader = readOverBudgetDomains,
-): PullRequestForecast => {
+export const forecastPullRequest = (root: string, head: string): ForecastEntry => {
   // On a hyprws checkout the trunk is the checked-out branch; on a workflow
   // dispatch of another branch only the remote-tracking ref exists.
   const trunk =
@@ -156,7 +117,7 @@ export const forecastPullRequest = (
   const stackBase = git(root, ["merge-base", main, head]);
   const census = forecastRange(root, head, stackBase, main);
   const conflicts = census.conflicts.filter((commit) => !isAncestor(root, commit.commit, pullBase));
-  return { ...census, conflicts, overBudgetDomains: readBudget(root, head) };
+  return { ...census, conflicts };
 };
 
 export const renderForecast = (row: ForecastEntry, deduped: boolean): string => {
@@ -182,7 +143,7 @@ export const renderForecast = (row: ForecastEntry, deduped: boolean): string => 
   ].join("\n");
 };
 
-export const renderPullRequestForecast = (row: PullRequestForecast): string => {
+export const renderPullRequestForecast = (row: ForecastEntry): string => {
   const conflicts = row.conflicts.filter((commit) => commit.conflicts);
   return [
     PULL_REQUEST_FORECAST_MARKER,
@@ -193,11 +154,11 @@ export const renderPullRequestForecast = (row: PullRequestForecast): string => {
       ? []
       : [
           "",
-          "| Fork commit | Fork-Domain | Over ceiling | Conflicting files |",
-          "| --- | --- | --- | --- |",
+          "| Fork commit | Fork-Domain | Conflicting files |",
+          "| --- | --- | --- |",
           ...conflicts.map(
             (commit) =>
-              `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | \`${commit.domain}\` | ${row.overBudgetDomains.has(commit.domain) ? "yes" : "no"} | ${commit.files.map((path) => `\`${path}\``).join(", ")} |`,
+              `| \`${commit.commit.slice(0, 12)} ${commit.subject}\` | \`${commit.domain}\` | ${commit.files.map((path) => `\`${path}\``).join(", ")} |`,
           ),
         ]),
   ].join("\n");
