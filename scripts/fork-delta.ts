@@ -17,9 +17,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import {
   budgetFindings,
+  budgetRaiseClauseFindings,
   budgetRaises,
   forkBudgetRefusalMessage,
   FORK_BUDGET_PATH,
+  isForkBudgetProofRequired,
   parseForkBudget,
   projectSquashDomains,
   renderForkBudget,
@@ -626,16 +628,22 @@ const readBudgetCommitShas = Effect.fn("readBudgetCommitShas")(function* (
   head: string,
 ) {
   const result = yield* runGit(
-    ["log", "--reverse", "--format=%H", `${base}..${head}`, "--", FORK_BUDGET_PATH],
+    ["log", "--reverse", "--format=%H%x1f%aI", `${base}..${head}`, "--", FORK_BUDGET_PATH],
     process.cwd(),
   );
   if (result.exitCode !== 0) {
     return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
   }
+  // Strict ISO-8601 author date rides beside each sha: the proof cutoff
+  // compares author dates, the one field a rebase preserves.
   return result.stdout
     .split("\n")
-    .map((sha) => sha.trim())
-    .filter((sha) => sha.length > 0);
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [sha = "", authorDate = ""] = line.split("\u001f");
+      return { sha, authorDate: authorDate.length > 0 ? authorDate : undefined };
+    });
 });
 
 // A plain comparison so the parse failure stays out of the Effect error channel.
@@ -682,7 +690,7 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
   const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
   const findings: Array<ForkFinding> = [];
   const raises: Array<ForkBudgetRaise & { readonly short: string; readonly reason: string }> = [];
-  for (const sha of shas) {
+  for (const { sha, authorDate } of shas) {
     const commit = bySha.get(sha);
     if (commit === undefined) continue;
     const [before, after] = yield* Effect.all(
@@ -719,8 +727,23 @@ export const collectBudgetRaiseFindings = Effect.fn("collectBudgetRaiseFindings"
       });
       continue;
     }
+    // The trailer must prove the movement, not just gesture at it: every
+    // ceiling the commit moved has to be named with the exact numbers, and
+    // nothing may be named that the commit did not move. Commits authored
+    // before the cutoff predate the numbers requirement — their proof is
+    // unrecoverable from the current tree — so neither their trailer is
+    // graded nor their raise recorded (which also exempts them from the
+    // over-measured check downstream).
+    const proofRequired = isForkBudgetProofRequired(authorDate);
+    if (proofRequired) {
+      for (const problem of budgetRaiseClauseFindings(commit.budget ?? "", outcome.raises)) {
+        findings.push({ short: commit.short, subject: commit.subject, problem });
+      }
+    }
     // A raise is never silent: it is echoed into the gate output so the
-    // ceiling growth stays auditable at the point it was accepted.
+    // ceiling growth stays auditable at the point it was accepted. Pre-cutoff
+    // raises stay unrecorded — see the proof-required comment above.
+    if (!proofRequired) continue;
     for (const raise of outcome.raises) {
       raises.push({ ...raise, short: commit.short, reason: commit.budget ?? "" });
     }
@@ -1221,14 +1244,34 @@ const command = Command.make(
           for (const finding of overBudget) {
             process.stderr.write(`over budget: ${forkBudgetRefusalMessage(finding)}\n`);
           }
+          // A ceiling pays for what the branch actually measures, never for
+          // padding: a raise whose new number exceeds the live measurement for
+          // that domain and measure is refused. The initial seed never reaches
+          // this loop — it carries no raise trailer by design. This compares a
+          // historical raise against a present-day measurement, so a future
+          // commit that shrinks a domain can red the gate on an older, honest
+          // raise; the author-date cutoff blunts that, it does not remove it.
+          const overMeasured = budgetRaisesMade.flatMap((raise) => {
+            const measured = stack.domains.find((row) => row.domain === raise.domain);
+            const actual =
+              raise.measure === "added" ? (measured?.added ?? 0) : (measured?.deleted ?? 0);
+            return raise.to <= actual
+              ? []
+              : [
+                  `${raise.short}: ${raise.domain} ${raise.measure} ceiling ${raise.to} exceeds the measured ${raise.measure} ${actual} — edit ${FORK_BUDGET_PATH} to set the ${raise.domain} ${raise.measure} ceiling to the measured ${raise.measure} ${actual}, not higher`,
+                ];
+          });
+          for (const problem of overMeasured) {
+            process.stderr.write(`over measured: ${problem}\n`);
+          }
           for (const raise of budgetRaisesMade) {
             process.stdout.write(
               `budget raise: ${raise.domain} ${raise.measure} ${raise.from} -> ${raise.to} (${raise.short} ${raise.reason})\n`,
             );
           }
-          if (overBudget.length > 0) {
+          if (overBudget.length > 0 || overMeasured.length > 0) {
             process.stderr.write(
-              `failed: ${overBudget.length} fork budget ceiling(s) exceeded (${FORK_BUDGET_PATH})\n`,
+              `failed: ${overBudget.length + overMeasured.length} fork budget ceiling(s) exceeded (${FORK_BUDGET_PATH})\n`,
             );
             process.exitCode = 1;
             return;
