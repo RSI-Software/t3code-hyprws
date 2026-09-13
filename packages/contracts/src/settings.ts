@@ -1057,6 +1057,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  // Fork: the exact stored mode when the override's `defaultThreadEnvMode` is
+  // only standing in for it, same field pair as the global settings.
+  defaultThreadEnvModeFork: Schema.optionalKey(ForkThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
@@ -1070,7 +1073,11 @@ export const ProjectSettingsOverrides = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
-} satisfies Record<ProjectScopedServerSettingKey, unknown>);
+} satisfies Record<ProjectScopedServerSettingKey, unknown> & {
+  // Fork: the `...Fork` sibling is deliberately NOT a standalone scopable
+  // key — it only travels with the wire slot it belongs to.
+  defaultThreadEnvModeFork?: unknown;
+});
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
 export const StorageCleanupSettings = Schema.Struct({
