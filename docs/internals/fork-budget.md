@@ -22,5 +22,5 @@ so a new domain fails the check until a commit adds its row.
 | thread-ordering   | 8       | 2338  | 229     | 0      |
 | upstream-fixes    | 26      | 4552  | 453     | 6      |
 | workspace-files   | 4       | 403   | 48      | 0      |
-| worktrunk-hooks   | 6       | 2146  | 894     | 1      |
+| worktrunk-hooks   | 7       | 2367  | 894     | 1      |
 | zmux-estate       | 23      | 13137 | 1431    | 3      |
