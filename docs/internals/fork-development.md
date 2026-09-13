@@ -294,8 +294,9 @@ Upstream workflows stay in the tree but are disabled on the fork; see [Fork sync
 Do not use raw `git merge` to integrate a feature branch.
 It bypasses both Worktrunk verification and the GitHub pull-request lifecycle.
 
-While a fork-sync report holds a walk lease, `hyprws` takes no landing at all; see the
-[walk freeze](../operations/fork-sync.md#walk-freeze).
+A fork-sync walk folds linear landings on `hyprws` instead of freezing them; non-linear movement
+(merge commits, a rewritten trunk, a moved shared base or target) still voids the walk; see the
+[fold rule](../operations/fork-sync.md#the-fold-rule). `hyprws-next` stays inspection-only.
 
 ## Upstream citations
 
