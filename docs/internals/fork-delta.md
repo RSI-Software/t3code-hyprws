@@ -37,6 +37,11 @@ human-selected target. The [fork sync runbook](../operations/fork-sync.md) conne
 boundary, bot run summary, blocked issue, and human rehearsal. Every code span in a Path cell is one
 pattern: `*` stays inside a path segment, `**` spans them.
 
+On every upstream rebase, for each `*.fork.test.*` sibling that mocks a service, diff its mock's key
+set against the sibling `*.test.*` mock of the same service; a key present upstream and absent in the
+fork sibling is a stale mock even when both suites are green (see the `custom-agents` rebase scan row
+for the symptom). The sibling files are already listed in the domain tables.
+
 ## Why the fork exists
 
 The fork carries a small set of independent domains that upstream T3 Code does not currently provide.
