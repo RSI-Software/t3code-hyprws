@@ -95,10 +95,11 @@ const keyedRows = <T extends { readonly subject: string }>(
   const entries = new Map<string, T>();
   for (const row of rows) {
     if (row.subject.length === 0) throw new Error(`## ${heading} contains an empty fork subject`);
-    if (entries.has(row.subject)) {
+    const key = normalizeSubjectKey(row.subject);
+    if (entries.has(key)) {
       throw new Error(`## ${heading} contains duplicate fork subject: ${row.subject}`);
     }
-    entries.set(row.subject, row);
+    entries.set(key, row);
   }
   return entries;
 };
@@ -134,12 +135,24 @@ export const readForkRetirementLedger = (root: string): ForkRetirementLedger =>
     NodeFS.readFileSync(NodePath.join(root, FORK_RETIREMENT_LEDGER_PATH), "utf8"),
   );
 
+/**
+ * A subject is keyed by its bare text: one pair of surrounding backticks is
+ * stripped, so a row the ledger writes as a code span resolves to the same
+ * commit subject a bare row does. Inner or unpaired backticks are left alone —
+ * they are part of the subject, not its wrapping.
+ */
+export const normalizeSubjectKey = (subject: string): string => {
+  const match = /^`([^`]+)`$/.exec(subject.trim());
+  return match?.[1] ?? subject;
+};
+
 export const retirementDecision = (
   ledger: ForkRetirementLedger,
   subject: string,
 ): RecordedRetirementDecision => {
-  const retired = ledger.retired.get(subject);
-  const kept = ledger.kept.get(subject);
+  const key = normalizeSubjectKey(subject);
+  const retired = ledger.retired.get(key);
+  const kept = ledger.kept.get(key);
   if (retired !== undefined && kept !== undefined) {
     return { decision: "partial", ...(kept.reason.length === 0 ? {} : { reason: kept.reason }) };
   }
