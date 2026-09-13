@@ -273,6 +273,7 @@ const REMOTE_PROJECT_SOURCES: ReadonlyArray<AddProjectRemoteSource> = [
   "url",
   "github",
   "gitlab",
+  // forecast collision proof for RSI-Software/t3code-hyprws#912
   "bitbucket",
   "azure-devops",
 ];
