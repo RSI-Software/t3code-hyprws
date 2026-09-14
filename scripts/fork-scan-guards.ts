@@ -192,6 +192,12 @@ export interface CommitPatch {
     string,
     { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
   >;
+  // Pre-image (old-file) line numbers of the removed content lines, keyed by
+  // path and index-aligned with `changedLines`' `removed` arrays. fork-hook-seam
+  // checks a removal against the target blob at that position, not by line-set
+  // membership, so a fork `});` elsewhere upstream no longer reads as a
+  // deletion of the upstream `});`.
+  readonly removedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
@@ -243,7 +249,7 @@ export interface GuardInput {
   // commits remove lines from, so a fork deletion of its own earlier hook line
   // is not refused as an upstream removal. Populated only for the files the
   // fork-hook-seam rule needs; an absent entry refuses every removal.
-  readonly upstreamHookLines?: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly upstreamHookLines?: ReadonlyMap<string, ReadonlyArray<string>>;
 }
 
 const PATCH_RECORD_SEPARATOR = "";
@@ -423,6 +429,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const removedTestLines = new Map<string, Array<string>>();
     const addedLines = new Map<string, Array<string>>();
     const removedLines = new Map<string, Array<string>>();
+    const removedPositions = new Map<string, Array<number>>();
+    let preImageLine = 0;
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
@@ -469,10 +477,17 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
       if (line.startsWith("@@")) {
         flushTestBlockHunk();
+        // `--unified=0` keeps hunks context-free, so the header carries the
+        // exact pre-image position the removal side starts counting from.
+        preImageLine = Number.parseInt(/^@@ -(\d+)/.exec(line)?.[1] ?? "0", 10);
         continue;
       }
       const added = line.startsWith("+");
-      if (!added && !line.startsWith("-")) continue;
+      const removed = !added && line.startsWith("-");
+      if (!added && !removed) {
+        if (line.startsWith(" ") || line === "") preImageLine += 1;
+        continue;
+      }
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
@@ -480,6 +495,12 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const lines = side.get(path);
       if (lines === undefined) side.set(path, [content]);
       else lines.push(content);
+      if (removed) {
+        const positions = removedPositions.get(path) ?? [];
+        positions.push(preImageLine);
+        removedPositions.set(path, positions);
+        preImageLine += 1;
+      }
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const lines = removedTestLines.get(path) ?? [];
         lines.push(content.trim());
@@ -588,6 +609,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       testBlockHunks,
       removedTestLines,
       changedLines,
+      removedPositions,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
@@ -644,6 +666,7 @@ const EMPTY_PATCH: CommitPatch = {
   testBlockHunks: [],
   removedTestLines: new Map(),
   changedLines: new Map(),
+  removedPositions: new Map(),
 };
 
 export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarning> => {
@@ -820,6 +843,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       commit,
       files,
       changedLines: patch.changedLines,
+      removedPositions: patch.removedPositions,
       upstreamFiles: input.upstreamFiles,
       forkHooks: input.forkHooks,
       upstreamLines: input.upstreamHookLines ?? new Map(),
