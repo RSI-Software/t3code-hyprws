@@ -132,4 +132,4 @@ Open **Issues** from the sidebar utility row or **Open issues** in the command p
 
 A started thread can move to another existing checkout from the branch selector. Provider
 continuation, queued turns, terminal follow and pin behavior, retry, and checked undo are described
-in [Managed terminals and checkout moves](managed-terminals.md).
+in [Managed terminals and checkout moves](../fork/user/managed-terminals.md).
