@@ -15,25 +15,52 @@ export interface CommandOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timeout?: number;
   readonly maxBuffer?: number;
+  /**
+   * Opt-in: the child inherits our stdout/stderr instead of having them captured, so its native
+   * progress reaches wherever ours already goes — an interactive terminal, or an operator's own
+   * `2>&1 | tee run.log`. The trade-off is real, not a bug: `stdout`/`stderr` come back empty,
+   * because spawnSync can give you live output or captured text, never both. Callers that still
+   * need the captured text after a failure must read real state instead (e.g. `git status`), not
+   * lean on the (now-empty) result text.
+   */
+  readonly stream?: boolean;
 }
+
+/**
+ * A wedged child — a stuck network call, a prompt with nothing left to answer it — used to hang
+ * forever; only an external CI job's own timeout-minutes ever ended it. This bounds every command
+ * that does not name its own timeout. 45 minutes clears the slowest ordinary fork-walk step (a
+ * 275-commit rebase, `vp i`, `fork:scan`, `fork:delta --check`) with room to spare; a caller whose
+ * command is legitimately allowed to run longer (a CI-watch poll, a release-workflow wait) must
+ * say so with its own explicit `timeout`.
+ */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 45 * 60 * 1000;
 
 export const runCommand = (
   command: string,
   args: ReadonlyArray<string>,
   options: CommandOptions = {},
 ): CommandResult => {
+  if (options.stream === true && options.input !== undefined)
+    throw new Error(
+      "runCommand: stream and input are mutually exclusive (inherited stdin can't also receive piped input)",
+    );
   const result = NodeChildProcess.spawnSync(command, [...args], {
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    timeout: options.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.input === undefined ? {} : { input: options.input }),
     ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+    // stdin stays "ignore", not "inherit": a child that unexpectedly prompts (a credential
+    // helper, a pager, a rebase whose GIT_EDITOR did not take) should fail fast on a closed
+    // stdin like before, not sit on the operator's terminal until the timeout fires.
+    ...(options.stream === true ? { stdio: ["ignore", "inherit", "inherit"] } : {}),
   });
   return {
     status: result.status ?? 1,
-    stdout: result.stdout,
-    stderr: result.stderr,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
     ...(result.error === undefined ? {} : { error: result.error }),
   };
 };
@@ -135,6 +162,8 @@ export interface CommandRunner {
     cwd?: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult;
 }
 
@@ -145,6 +174,8 @@ export interface CwdCommandRunner {
     cwd: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult;
 }
 
@@ -167,11 +198,15 @@ export class SystemCommandRunner implements CwdCommandRunner {
     cwd: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult {
     const result = runCommand(command, args, {
       cwd,
       ...(input === undefined ? {} : { input }),
       ...(env === undefined ? {} : { env }),
+      ...(stream === undefined ? {} : { stream }),
+      ...(timeout === undefined ? {} : { timeout }),
     });
     if (result.error !== undefined) throw result.error;
     return result;
