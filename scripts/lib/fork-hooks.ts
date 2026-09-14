@@ -361,6 +361,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
     anchor: { kind: "after-decl", symbol: "headerScrollEdgeEffects" },
   },
+  // project-windows — marked on RSI-Software/t3code-hyprws#952.
+  "project-windows/pull-request-page-scope-import": {
+    path: "apps/web/src/routes/_chat.pull-requests.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "project-windows/pull-request-page-scope": {
+    path: "apps/web/src/routes/_chat.pull-requests.tsx",
+    anchor: { kind: "after-decl", symbol: "capableEnvironments" },
+  },
+  "project-windows/pull-request-scope-search-field": {
+    path: "apps/web/src/routes/_chat.pull-requests.tsx",
+    anchor: { kind: "collection", symbol: "PullRequestsSearch" },
+  },
+  "project-windows/pull-request-scope-patch": {
+    path: "apps/web/src/routes/_chat.pull-requests.tsx",
+    anchor: { kind: "after-call", symbol: "updateSearch" },
+  },
+  "project-windows/pull-request-scope-toggle": {
+    path: "apps/web/src/routes/_chat.pull-requests.tsx",
+    anchor: { kind: "jsx-parent", symbol: "PullRequestsColumn" },
+  },
+  "project-windows/pull-request-filter-visibility": {
+    path: "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
+    anchor: { kind: "collection", symbol: "PullRequestFiltersMenu" },
+  },
+  "project-windows/sidebar-pr-list-route-import": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "import-block" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
