@@ -279,10 +279,8 @@ import { pullRequestPanelContext } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
-import { GitHubIssueDetailPanel } from "./githubIssue/GitHubIssueDetailPanel";
-import { GitHubIssueEmptyState } from "./githubIssue/GitHubIssueEmptyState";
-import { GitHubIssueDetailGhost } from "./githubIssue/GitHubIssueGhosts";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { GitHubIssueDetailSurfaceFork } from "./githubIssue/GitHubIssueDetailSurface.fork"; // fork-hook: github-issues/chat-view-detail-import
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -3022,13 +3020,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const autoBalanceUpdateBanner = useAutoBalanceUpdateBanner(autoUpdateEnvironments);
 
-  const issueServerConfig =
-    renderedRightPanelSurface?.kind === "github-issue"
-      ? (environmentById.get(renderedRightPanelSurface.environmentId as EnvironmentId)
-          ?.serverConfig ?? null)
-      : null;
-  const githubIssuesCapabilityKnown = issueServerConfig !== null;
-  const supportsGitHubIssues = issueServerConfig?.environment.capabilities.githubIssues === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
@@ -10602,32 +10593,12 @@ export default function ChatView(props: ChatViewProps) {
         projectRef={scopeProjectRef(activeProject.environmentId, activeProject.id)}
         onSelectIssue={openIssueFromBrowser}
       />
-    ) : renderedRightPanelSurface?.kind === "github-issue" && !githubIssuesCapabilityKnown ? (
-      <GitHubIssueDetailGhost />
-    ) : renderedRightPanelSurface?.kind === "github-issue" && !supportsGitHubIssues ? (
-      <GitHubIssueEmptyState
-        title="GitHub issues unavailable"
-        description="Update this environment's T3 Code server to browse GitHub issues."
-      />
     ) : renderedRightPanelSurface?.kind === "github-issue" ? (
-      <GitHubIssueDetailPanel
-        key={`${renderedRightPanelSurface.environmentId}:${renderedRightPanelSurface.projectId}:${renderedRightPanelSurface.repository}#${renderedRightPanelSurface.number}`}
-        environmentId={renderedRightPanelSurface.environmentId as EnvironmentId}
-        onSelectSubIssue={(child) => {
-          if (!activeThreadRef) return;
-          useRightPanelStore.getState().openGitHubIssue(activeThreadRef, {
-            environmentId: renderedRightPanelSurface.environmentId,
-            projectId: renderedRightPanelSurface.projectId,
-            repository: renderedRightPanelSurface.repository,
-            number: child.number,
-          });
-        }}
-        reference={{
-          projectId: renderedRightPanelSurface.projectId as ProjectId,
-          repository: renderedRightPanelSurface.repository,
-          number: renderedRightPanelSurface.number,
-        }}
-      />
+      <GitHubIssueDetailSurfaceFork
+        surface={renderedRightPanelSurface}
+        environments={environments}
+        activeThreadRef={activeThreadRef}
+      /> // fork-hook: github-issues/chat-view-detail-surface
     ) : renderedRightPanelSurface?.kind === "pull-request" && !pullRequestsCapabilityKnown ? (
       <PullRequestDetailGhost />
     ) : renderedRightPanelSurface?.kind === "pull-request" && !supportsPullRequests ? (
