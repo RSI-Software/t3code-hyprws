@@ -5,7 +5,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { captureSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
+import { captureSyncOutcome, declareSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
 import { deriveFoldManifest, type FoldGit } from "./lib/fork-fold-reshape.ts";
 import {
   runRewriteBuild,
@@ -29,13 +29,12 @@ import {
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import {
-  executeConflictOutcome,
-  isUnresolved,
   readConflictStages,
   seamKey,
   type ConflictOutcome,
   type UnresolvedOutcome,
 } from "./lib/fork-conflict-outcomes.ts";
+import { rerereReplayed, resolveConflictPath } from "./lib/fork-conflict-resolution.ts";
 import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
 import {
   formatCommand,
@@ -276,7 +275,7 @@ const readBotMode = (runner: CommandRunner, root: string): BotMode => {
     if (/\b(?:HTTP 404|not found)\b/i.test(detail)) return "candidate";
     throw new Error(
       [
-        `${commandText("gh", args)} failed: ${detail}`,
+        `${commandText("gh", args)} failed${detail.length === 0 ? "" : `: ${detail}`}`,
         `a caller that cannot read repository variables sets ${BOT_VARIABLE} in the environment instead`,
       ].join("\n"),
     );
@@ -593,7 +592,7 @@ const mintLane = (
         );
   // A minted lane has no node_modules, and the first gate battery would fail
   // on module resolution before it ever reached a verdict.
-  requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree));
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree), true);
   return worktree;
 };
 
@@ -728,6 +727,11 @@ const unblockOrient = (
   if (liveTarget !== offered.sha) throw new Error(`target ${targetTag} moved since unblock-list`);
   const expectedOld = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   const sharedBase = git(runner, root, ["merge-base", expectedOld, liveTarget]);
+  // Declare the attempt before the walk can fail (RSI-Software/t3code-hyprws#1023): orient,
+  // retire evidence, and verdict resolution all run after this line, and a throw in any of them
+  // used to leave no outcome bundle — the receipt guards see a report with no bound target yet
+  // and return nothing.
+  declareSyncOutcome(report, { tag: targetTag, sha: liveTarget }, expectedOld);
   const orientation = requireSuccess(
     runner,
     "node",
@@ -790,6 +794,18 @@ const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<str
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
 
 /**
+ * A streamed `git rebase` inherits stdio, so its stderr never reaches `CommandResult` — the
+ * operator already saw it live. A non-conflict rebase failure still needs a reason on the thrown
+ * error, so this reads the worktree's real state instead of the (now-empty) captured stderr.
+ */
+const rebaseFailureDetail = (runner: CommandRunner, cwd: string): string => {
+  const status = git(runner, cwd, ["status", "--porcelain=v1"], true);
+  return status.length > 0
+    ? `worktree state:\n${status}`
+    : "worktree is clean; see the streamed rebase output above for the failure detail";
+};
+
+/**
  * A rebase is running exactly while its state directory exists; `REBASE_HEAD` outlives the
  * finish and cannot answer this. A git directory that will not resolve proves nothing, so it
  * reports "running" and the caller continues the rebase, which is what a stopped lane needs.
@@ -821,6 +837,16 @@ export const rehearsalRebaseArgs = (args: ReadonlyArray<string>): ReadonlyArray<
   "rerere.autoupdate=false",
   ...args,
 ];
+
+/**
+ * The trunk walk's startup rebase. `--no-keep-empty` drops commits that start empty — an empty
+ * patch satisfies the probe's already-upstream test vacuously and, worse, `git rebase` keeps
+ * start-empty commits by default, so the empty distribution commits replay on every sync.
+ * The flag is startup-only: it is not valid on `rebase --skip`/`--continue` and is wrong for the
+ * interactive autosquash, so it lives at this call site instead of inside `rehearsalRebaseArgs`.
+ */
+export const walkRebaseArgs = (targetSha: string): ReadonlyArray<string> =>
+  rehearsalRebaseArgs(["rebase", "--no-keep-empty", targetSha]);
 
 export const identifyRerereResolvedPaths = (
   conflicts: ReadonlyArray<string>,
@@ -1244,13 +1270,16 @@ const unblockRehearse = (
     report = { ...report, lane: { branch, worktree }, originalMessages, originalCount };
     const rebase = runner.run(
       "git",
-      rehearsalRebaseArgs(["rebase", target.sha]),
+      walkRebaseArgs(target.sha),
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+      true,
     );
     if (rebase.status !== 0 && pendingConflicts(runner, worktree).length === 0)
-      throw new Error(`git rebase failed without conflicts: ${rebase.stderr.trim()}`);
+      throw new Error(
+        `git rebase failed without conflicts: ${rebaseFailureDetail(runner, worktree)}`,
+      );
   } else if (
     report.stage === "conflicts" ||
     (report.stage === "folding" && report.activeFold !== undefined)
@@ -1363,9 +1392,12 @@ const unblockRehearse = (
         lane.worktree,
         undefined,
         { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+        true,
       );
       if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
-        throw new Error(`git rebase --skip failed without conflicts: ${continued.stderr.trim()}`);
+        throw new Error(
+          `git rebase --skip failed without conflicts: ${rebaseFailureDetail(runner, lane.worktree)}`,
+        );
     } else {
       const continued = runner.run(
         "git",
@@ -1373,10 +1405,11 @@ const unblockRehearse = (
         lane.worktree,
         undefined,
         { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+        true,
       );
       if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
         throw new Error(
-          `git rebase --continue failed without conflicts: ${continued.stderr.trim()}`,
+          `git rebase --continue failed without conflicts: ${rebaseFailureDetail(runner, lane.worktree)}`,
         );
     }
   } else
@@ -1703,7 +1736,7 @@ const runAdditivePhase = (
     if (repaired === undefined)
       throw new Error("additive repairs dirtied the tree but left no commit");
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
-    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     commit = repaired;
   }
   const retry = checkAdditive(runner, worktree, trees);
@@ -1821,7 +1854,7 @@ const unblockCheck = (
     );
   }
   if (drift === "snapshots") restoreSnapshotDrift(runner, worktree);
-  requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv);
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv, true);
   const installedAfter = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
   if (lockDriftClass(before, installedAfter) === "importers")
     throw new Error("vp i introduced importer drift after replay");
@@ -1847,7 +1880,15 @@ const unblockCheck = (
   ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
-    requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
+    requireSuccess(
+      runner,
+      command.command,
+      command.args,
+      worktree,
+      undefined,
+      verificationEnv,
+      true,
+    );
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
   // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
@@ -1916,7 +1957,7 @@ const unblockCheck = (
   if (repaired.length > 0) {
     // Prove the repair in the lane before folding it into its declared owner.
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
-    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
   const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
@@ -1936,6 +1977,7 @@ const unblockCheck = (
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+      true,
     );
     if (
       (report.folds ?? []).length > 0 &&
@@ -3263,6 +3305,15 @@ export const resolveAutoTarget = (
   return { target: newest, rule: "newest offered tag containing the block" };
 };
 
+/**
+ * Every caller keeps only `.value` and discards `.output`, so this monkeypatch's real job is
+ * suppressing subcommand chatter during the automated walk, not capturing it for later use. A
+ * streamed child (`stream: true` in fork-command.ts — `vp i`, the verification battery,
+ * `fork:delta --check`, the autosquash rebase) writes to fd 1 directly and never passes through
+ * `process.stdout.write`, so it bypasses this silencer and reaches the walk's own stdout (and
+ * whatever redirects that, e.g. `carry.log` in CI). That is intended: nothing here parses that
+ * output, and the extra lines make an operator's log more useful, not less.
+ */
 const captureStdout = <T>(effect: () => T): { readonly output: string; readonly value: T } => {
   let output = "";
   const original = process.stdout.write;
@@ -3389,6 +3440,46 @@ const stopAuto = (surface: string, reportPath: string): never => {
 };
 
 /**
+ * A stopped walk is a walk: it owes the ledger the same pending row `record-decisions` writes
+ * (RSI-Software/t3code-hyprws#1023), written here so the row exists even when no maintainer ever
+ * follows up. The write is best-effort — a churn bookkeeping failure must never mask why the walk
+ * stopped, and must never turn the stop into a different error — but it is never silent: a
+ * missing record and a failed write are named as the different outcomes they are, with the path
+ * the write looked for.
+ */
+const stopChurnRow = (stopped: SyncReport): void => {
+  const before = stopped.source?.expectedOld;
+  const target = stopped.target;
+  if (target === undefined || before === undefined) {
+    process.stderr.write(
+      `churn row not written: the stopped walk bound no target and source (${stopped.reportPath})\n`,
+    );
+    return;
+  }
+  if (!NodeFS.existsSync(stopped.recordPath)) {
+    process.stderr.write(
+      `churn row not written: no record to write from at ${stopped.recordPath}\n`,
+    );
+    return;
+  }
+  if (stopped.walk?.ledger?.state === "unpublished") {
+    // The stop is the ledger write's own failure: it already ran with its lease retry this
+    // invocation, named its reason in the report and on stderr, and re-attempting a refused
+    // write here would only duplicate the noise. The unpublished marker keeps the debt visible.
+    return;
+  }
+  try {
+    publishPendingDecisionRow(stopped, target.tag);
+  } catch (error) {
+    process.stderr.write(
+      `churn row write failed; the stop reason is unchanged: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  }
+};
+
+/**
  * Record the stop before raising it, so the report the workflow uploads and the issue body it
  * posts carry the same sentence.
  */
@@ -3403,6 +3494,7 @@ const stopWalk = (
     walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started, stop: { reason, detail } },
   };
   writeReport(stopped);
+  stopChurnRow(stopped);
   return stopAuto(
     `${stopped.reportPath}\nStop (${reason}). ${detail}\n${walkSummary(stopped)}`,
     stopped.reportPath,
@@ -3613,25 +3705,8 @@ const rererePathIsClean = (
   remaining: ReadonlySet<string>,
   worktree: string,
   runner: CommandRunner,
-): boolean => {
-  if (remaining.has(row.path)) return false;
-  let contents: string;
-  try {
-    contents = NodeFS.readFileSync(NodePath.join(worktree, row.path), "utf8");
-  } catch {
-    return false;
-  }
-  if (/^(?:<{7}|={7}|>{7})/m.test(contents)) return false;
-  return (
-    runner.run(
-      "git",
-      ["-c", "core.commentChar=auto", "diff", "--check", "--", row.path],
-      worktree,
-      undefined,
-      { ...process.env, ...COMMENT_CONFIG },
-    ).status === 0
-  );
-};
+): boolean =>
+  rerereReplayed(runner, worktree, row.path, remaining, { ...process.env, ...COMMENT_CONFIG });
 
 export type AutoConflictResolution =
   | { readonly kind: "resolved"; readonly report: SyncReport }
@@ -3729,7 +3804,12 @@ export const autoResolveConflicts = (
     // row is resolved or staged they are gone, and this key is what ties the row to a record.
     const key = seamKeyFor(runner, worktree, row.path);
     if (key !== null) keys.set(row, key);
-    if (isRerereRow(row) && rererePathIsClean(row, remaining, worktree, runner)) {
+    // Supersession evidence deliberately plays no part in the executor: gate 4 keeps the commit, so
+    // taking the upstream side of its files would keep the commit and drop the behaviour it carries.
+    const resolution = resolveConflictPath(runner, worktree, row.path, {
+      rerereRemaining: isRerereRow(row) ? remaining : null,
+    });
+    if (resolution.stage === "rerere") {
       const prior = key === null ? null : priorDecision(key);
       decided.set(row, {
         class: "mechanical",
@@ -3749,13 +3829,11 @@ export const autoResolveConflicts = (
       });
       continue;
     }
-    // Supersession evidence deliberately plays no part here: gate 4 keeps the commit, so taking
-    // the upstream side of its files would keep the commit and drop the behaviour it carries.
-    const outcome = executeConflictOutcome(runner, worktree, row.path);
-    if (isUnresolved(outcome)) {
-      unresolved.push({ ...outcome, subject: row.subject, seamKey: key });
+    if (resolution.stage === "unresolved") {
+      unresolved.push({ ...resolution.outcome, subject: row.subject, seamKey: key });
       continue;
     }
+    const outcome = resolution.outcome;
     decided.set(row, { class: outcome.conflictClass, resolution: outcome.resolution });
     decisions.push({
       kind: "conflict",
@@ -4273,8 +4351,11 @@ const walkOnce = (
           "conflict",
           [
             "The outcome executor cannot produce a result for:",
+            // The captured detail is the operator's, not the record's: a stop prints it, a census
+            // row never stores it (RSI-Software/t3code-hyprws#1012).
             ...resolution.rows.map(
-              ({ path, subject, reason }) => `  - ${path} (${subject}): ${reason}`,
+              ({ path, subject, reason, detail }) =>
+                `  - ${path} (${subject}): ${reason}${detail === undefined ? "" : `: ${detail}`}`,
             ),
           ].join("\n"),
           started,
@@ -4874,12 +4955,20 @@ const rewriteRehearse = (
     const parsed = JSON.parse(laneResult) as Record<string, unknown>;
     worktree = String(parsed["worktree_path"] ?? parsed["worktreePath"] ?? parsed["path"] ?? "");
     if (!worktree) throw new Error("Worktrunk JSON omitted the worktree path");
-    requireSuccess(runner, "vp", ["i"], worktree, undefined, {
-      ...process.env,
-      PATH: [NodePath.join(worktree, "node_modules", ".bin"), process.env.PATH ?? ""].join(
-        NodePath.delimiter,
-      ),
-    } as NodeJS.ProcessEnv);
+    requireSuccess(
+      runner,
+      "vp",
+      ["i"],
+      worktree,
+      undefined,
+      {
+        ...process.env,
+        PATH: [NodePath.join(worktree, "node_modules", ".bin"), process.env.PATH ?? ""].join(
+          NodePath.delimiter,
+        ),
+      } as NodeJS.ProcessEnv,
+      true,
+    );
   } else {
     worktree = NodePath.join(root, ".tmp-rewrite-dry-run");
   }
@@ -5055,6 +5144,13 @@ const foldReshape = (argv: ReadonlyArray<string>, cwd: string, runner: CommandRu
       process.stdout.write(`  originating commit ${slot.commit.slice(0, 12)}\n`);
       for (const change of slot.changes)
         process.stdout.write(`    ${change.path}: ${change.reason}\n`);
+    }
+    if (result.overrides !== undefined) {
+      process.stdout.write("  operator overrides (reviewed evidence, not derivation)\n");
+      for (const entry of result.overrides.attributed)
+        process.stdout.write(`    attribute ${entry.path}=${entry.commit.slice(0, 12)}\n`);
+      for (const path of result.overrides.left) process.stdout.write(`    leave ${path}\n`);
+      for (const record of result.overrides.unused) process.stdout.write(`    unused ${record}\n`);
     }
     return 0;
   } catch (error) {

@@ -6,11 +6,15 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import { makeProgressReporter } from "./fork-progress.ts";
 import {
   parseRewriteManifest,
   REWRITE_MANIFEST_SCHEMA,
+  type RewriteAttribution,
   type RewriteEntry,
   type RewriteManifest,
+  type RewriteOrigin,
+  type RewriteOverrides,
 } from "./fork-rewrite-build.ts";
 
 export type FoldGit = (args: ReadonlyArray<string>, input?: string) => string;
@@ -37,6 +41,13 @@ interface FoldEntry {
   readonly type: string;
   readonly oid: string;
 }
+interface SlotChange {
+  readonly path: string;
+  readonly before: RewriteEntry | null;
+  readonly after: RewriteEntry | null;
+  readonly reason: string;
+  readonly origin?: RewriteOrigin;
+}
 interface DiffHunk {
   readonly path: string;
   readonly oldStart: number;
@@ -55,15 +66,34 @@ const hunkName = (hunk: DiffHunk): string => `${hunk.path}:${hunk.oldStart},+${h
 const PROOF_NAMES = ["snapshot-tests", "composition", "test-ownership", "compatibility"] as const;
 const NULL_DIGEST = "0".repeat(64);
 
-const entryAt = (git: FoldGit, treeish: string, path: string): FoldEntry | null => {
-  const raw = git(["ls-tree", treeish, "--", path]).trim();
-  if (raw.length === 0) return null;
-  const [meta, name] = raw.split("\t");
-  if (name !== path) throw new Error(`ls-tree returned unexpected path: ${name}`);
-  const [mode, type, oid] = (meta ?? "").split(" ");
-  if (mode === undefined || type === undefined || oid === undefined)
-    throw new Error(`unparsable ls-tree output for ${path}`);
-  return { mode, type, oid };
+/**
+ * One `ls-tree` per tree for a fixed path set, memoized on the tree OID.
+ *
+ * The slot walk only ever asks about the reshape's attributed paths, so a single spawn per
+ * tree answers every lookup; asking per path costs O(paths x slots) spawns on a long stack.
+ * Absence is cached as `null` alongside the hits, because a path missing from a slot tree and
+ * a path present but unchanged drive different fold branches. The cache holds one entry per
+ * distinct tree, each the size of the path set, and is rebuilt per reshape.
+ */
+const makeTreeReader = (git: FoldGit, paths: ReadonlyArray<string>) => {
+  const cache = new Map<string, ReadonlyMap<string, FoldEntry | null>>();
+  return (treeOid: string): ReadonlyMap<string, FoldEntry | null> => {
+    const known = cache.get(treeOid);
+    if (known !== undefined) return known;
+    const entries = new Map<string, FoldEntry | null>(paths.map((path) => [path, null]));
+    const raw = paths.length === 0 ? "" : git(["ls-tree", "-z", treeOid, "--", ...paths]);
+    for (const row of raw.split("\0").filter(Boolean)) {
+      const tab = row.indexOf("\t");
+      const name = row.slice(tab + 1);
+      if (!entries.has(name)) throw new Error(`ls-tree returned unexpected path: ${name}`);
+      const [mode, type, oid] = row.slice(0, tab).split(" ");
+      if (mode === undefined || type === undefined || oid === undefined)
+        throw new Error(`unparsable ls-tree output for ${name}`);
+      entries.set(name, { mode, type, oid });
+    }
+    cache.set(treeOid, entries);
+    return entries;
+  };
 };
 
 /**
@@ -238,7 +268,11 @@ const attributeReshape = (
   overrides: ReadonlySet<string>,
   leaves: ReadonlySet<string>,
   order: ReadonlyArray<string>,
-): { paths: ReadonlyMap<string, string>; refusals: ReadonlyArray<string> } => {
+): {
+  paths: ReadonlyMap<string, string>;
+  refusals: ReadonlyArray<string>;
+  excluded: ReadonlyArray<string>;
+} => {
   const parent = git(["rev-parse", `${reshape}^`]).trim();
   const hunks = parseHunks(
     git(["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", parent, reshape]),
@@ -250,10 +284,14 @@ const attributeReshape = (
     byPath.set(hunk.path, owned);
   }
   const refusals: string[] = [];
+  const excluded: string[] = [];
   const origins = new Map<string, string>();
   const position = new Map(order.map((sha, index) => [sha, index]));
   for (const [path, owned] of byPath) {
-    if (leaves.has(path)) continue; // The path stays in R and is never attributed.
+    if (leaves.has(path)) {
+      excluded.push(path); // The path stays in R and is never attributed.
+      continue;
+    }
     if (overrides.has(path)) {
       origins.set(path, ""); // An --attribute override names the origin instead.
       continue;
@@ -314,7 +352,7 @@ const attributeReshape = (
       );
     } else if (candidates.size === 1) origins.set(path, [...candidates][0]!);
   }
-  return { paths: origins, refusals };
+  return { paths: origins, refusals, excluded };
 };
 
 /** 3-way blob merge (base = reshape parent, ours = folded slot, theirs = reshape). */
@@ -384,8 +422,15 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
   );
   const changesBySlot = new Map<
     string,
-    Map<string, { before: FoldEntry | null; after: FoldEntry | null; reason: string }>
+    Map<
+      string,
+      { before: FoldEntry | null; after: FoldEntry | null; reason: string; origin: RewriteOrigin }
+    >
   >();
+  // An override only becomes evidence where it placed a change (or, for --leave, where a reshape
+  // diff carried the path). Anything else the operator passed did nothing, and the record says so.
+  const attributed = new Map<string, string>();
+  const excluded = new Set<string>();
   const blobContent = (oid: string): string => {
     const known = blobMemo.get(oid);
     if (known !== undefined) return known;
@@ -397,7 +442,9 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
     string,
     Map<string, { mode: string; type: string; oid: string; name: string }>
   >();
-  for (const reshape of reshapes) {
+  const report = makeProgressReporter("fold-reshape");
+  for (const [reshapeIndex, reshape] of reshapes.entries()) {
+    report(`attributing ${shortSha(reshape)}`, reshapeIndex + 1, reshapes.length);
     const parent = git(["rev-parse", `${reshape}^`]).trim();
     const belowReshape = new Set(
       git(["rev-list", `${base}..${parent}`])
@@ -406,7 +453,11 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
         .filter(Boolean),
     );
     const overrides = new Set([...(input.attribute?.keys() ?? [])]);
-    const { paths, refusals: pathRefusals } = attributeReshape(
+    const {
+      paths,
+      refusals: pathRefusals,
+      excluded: reshapeExcluded,
+    } = attributeReshape(
       git,
       reshape,
       stack,
@@ -416,8 +467,10 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       commits,
     );
     refusals.push(...pathRefusals);
-    const parentTree = `${parent}^{tree}`;
-    const reshapeTree = `${reshape}^{tree}`;
+    for (const path of reshapeExcluded) excluded.add(path);
+    const readTree = makeTreeReader(git, [...paths.keys()]);
+    const parentEntries = readTree(git(["rev-parse", `${parent}^{tree}`]).trim());
+    const reshapeEntries = readTree(git(["rev-parse", `${reshape}^{tree}`]).trim());
     for (const [path, blamed] of paths) {
       const override = input.attribute?.get(path);
       let origin = override ?? blamed;
@@ -434,19 +487,28 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       if (start < 0 || end < 0)
         refusals.push(`${path}: origin ${shortSha(origin)} is not in base..source`);
       if (refusals.length > 0) continue;
-      const parentBlob = entryAt(git, parentTree, path);
-      const reshapeBlob = entryAt(git, reshapeTree, path);
+      const parentBlob = parentEntries.get(path) ?? null;
+      const reshapeBlob = reshapeEntries.get(path) ?? null;
       if (parentBlob === null && reshapeBlob === null) continue;
       for (let index = start; index < end; index++) {
+        report(`${shortSha(reshape)} ${path}`, index - start + 1, end - start);
         const slotCommit = commits[index]!;
         const slotChanges =
           changesBySlot.get(slotCommit) ??
-          new Map<string, { before: FoldEntry | null; after: FoldEntry | null; reason: string }>();
+          new Map<
+            string,
+            {
+              before: FoldEntry | null;
+              after: FoldEntry | null;
+              reason: string;
+              origin: RewriteOrigin;
+            }
+          >();
         if (slotChanges.has(path)) {
           refusals.push(`${path}: already folded at ${shortSha(slotCommit)} by an earlier reshape`);
           continue;
         }
-        const before = entryAt(git, `${slotCommit}^{tree}`, path);
+        const before = readTree(treeOf.get(slotCommit) ?? "").get(path) ?? null;
         let after: FoldEntry | null;
         if (parentBlob === null)
           after = reshapeBlob; // R created the path: every slot takes R's blob.
@@ -471,14 +533,37 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
           before,
           after,
           reason: `fold ${shortSha(reshape)}: ${subjects.get(reshape) ?? ""}`,
+          origin: override === undefined ? { kind: "blame" } : { kind: "operator", commit: origin },
         });
         changesBySlot.set(slotCommit, slotChanges);
+        if (override !== undefined) attributed.set(path, origin);
       }
     }
   }
   if (refusals.length > 0) return { refused: true, reasons: refusals };
 
-  const slots = commits.map((commit) => {
+  const attributedRows = [...attributed].map(([path, commit]): RewriteAttribution => ({
+    path,
+    commit,
+  }));
+  const leftRows = [...excluded];
+  // Keep the operator's own flag text for an override that bound to nothing: a mistyped --leave
+  // means a path the operator believed was protected and was not, and silence reads as success.
+  const unusedRows = [
+    ...[...(input.attribute ?? new Map<string, string>())]
+      .filter(([path]) => !attributed.has(path))
+      .map(([path, value]) => `attribute ${path}=${value}`),
+    ...[...(input.leave ?? new Set<string>())]
+      .filter((path) => !excluded.has(path))
+      .map((path) => `leave ${path}`),
+  ];
+  const overrides: RewriteOverrides | undefined =
+    attributedRows.length + leftRows.length + unusedRows.length === 0
+      ? undefined
+      : { attributed: attributedRows, left: leftRows, unused: unusedRows };
+
+  const slots = commits.map((commit, index) => {
+    report("building", index + 1, commits.length);
     const tree = treeOf.get(commit) ?? "";
     const changes = changesBySlot.get(commit);
     if (changes === undefined)
@@ -487,12 +572,7 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
         tree,
         resultTree: tree,
         readSet: [] as Array<{ path: string; entry: RewriteEntry | null }>,
-        changes: [] as Array<{
-          path: string;
-          before: RewriteEntry | null;
-          after: RewriteEntry | null;
-          reason: string;
-        }>,
+        changes: [] as Array<SlotChange>,
       };
     const snapshot = new Map<string, FoldEntry | null>(
       [...changes].map(([path, change]) => [path, change.after]),
@@ -505,11 +585,14 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
         path,
         entry: change.before === null ? null : toRewriteEntry(change.before),
       })),
-      changes: [...changes].map(([path, change]) => ({
+      changes: [...changes].map(([path, change]): SlotChange => ({
         path,
         before: change.before === null ? null : toRewriteEntry(change.before),
         after: change.after === null ? null : toRewriteEntry(change.after),
         reason: change.reason,
+        // Provenance is all or nothing: a fold with no overrides stays byte-identical to one
+        // frozen before the record existed, so every archived manifest still parses.
+        ...(overrides === undefined ? {} : { origin: change.origin }),
       })),
     };
   });
@@ -533,6 +616,7 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       removedSignatures,
     },
     unresolved: [],
+    ...(overrides === undefined ? {} : { overrides }),
     slots: slots.map((slot) => ({
       commit: slot.commit,
       tree: slot.tree,
