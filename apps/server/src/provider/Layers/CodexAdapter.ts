@@ -14,7 +14,6 @@ import {
   type CodexSettings,
   ProviderDriverKind,
   type ProviderEvent,
-  ProviderItemId,
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
@@ -49,9 +48,8 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
-import { truncateActivityDetail } from "../../activityDetail.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { withProviderSessionIdentity } from "../providerSessionEnvironment.ts";
+import { withProviderSessionIdentity } from "../providerSessionEnvironment.ts"; // fork-hook: custom-agents/codex-session-identity-import
 
 import {
   ProviderAdapterRequestError,
@@ -75,14 +73,17 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
-import { discoverCodexAgents } from "../Drivers/CodexAgents.ts";
+import {
+  codexAgentRuntimeInput,
+  resolveCodexSessionAgentOption,
+} from "./CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-session-agent-import
+import { mapCodexChildItemLifecycleEvents } from "./CodexChildItemLifecycle.fork.ts"; // fork-hook: custom-agents/codex-child-item-lifecycle-import
 import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
   codexUsageLimitMessage,
   mergeCodexRateLimits,
 } from "./codexUsageLimits.ts";
-import { extractChildItemResultText, makeChildItemRenderDetail } from "../childItemRenderDetail.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
 const isCodexSessionRuntimeThreadIdMissingError = Schema.is(
@@ -828,21 +829,6 @@ function describeFileChanges(
   return remaining > 0 ? `${described.join("\n")}\n+${remaining} more` : described.join("\n");
 }
 
-function childItemRenderDetail(item: Record<string, unknown>, workspaceRoot?: string) {
-  const resultSource =
-    item.aggregatedOutput ??
-    (item.type === "mcpToolCall" ? (item.result ?? item.error) : undefined) ??
-    (item.type === "dynamicToolCall" ? item.contentItems : undefined);
-  const result = extractChildItemResultText(resultSource);
-  return makeChildItemRenderDetail({
-    ...(workspaceRoot ? { workspaceRoot } : {}),
-    command: item.command,
-    ...(result.value ? { result: result.value } : {}),
-    ...(Array.isArray(item.changes) ? { changedFiles: item.changes } : {}),
-    truncated: result.truncated,
-  });
-}
-
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
   switch (method) {
     case "item/commandExecution/requestApproval":
@@ -1284,53 +1270,16 @@ function mapCollabAgentEvent(
       if (!item || !itemTypeRaw) {
         return [];
       }
-      const lifecycle =
-        payload.lifecycle === "item.started" ||
-        payload.lifecycle === "item.updated" ||
-        payload.lifecycle === "item.completed"
-          ? payload.lifecycle
-          : undefined;
-      const itemId = typeof item.id === "string" ? item.id : undefined;
-      if (lifecycle && itemId) {
-        const canonical = toCanonicalItemType(itemTypeRaw);
-        const detail = itemDetail(canonical, item as CodexLifecycleItem);
-        const renderDetail = childItemRenderDetail(item, workspaceRoot);
-        const terminalStatus =
-          item.status === "failed" || item.status === "declined" ? item.status : undefined;
-        const status =
-          lifecycle === "item.started"
-            ? "inProgress"
-            : terminalStatus
-              ? terminalStatus
-              : lifecycle === "item.completed"
-                ? "completed"
-                : "inProgress";
-        const providerItemId = ProviderItemId.make(itemId);
-        const providerRefs = {
-          ...base.providerRefs,
-          providerItemId,
-        };
-        return [
-          {
-            ...base,
-            itemId: asRuntimeItemId(providerItemId),
-            providerRefs,
-            type: lifecycle,
-            payload: {
-              itemType: canonical,
-              status,
-              ...(itemTitle(canonical, item as CodexLifecycleItem)
-                ? { title: itemTitle(canonical, item as CodexLifecycleItem) }
-                : {}),
-              ...(detail ? { detail: truncateActivityDetail(detail) } : {}),
-              ...(renderDetail ? { renderDetail } : {}),
-              data: { item },
-              agentId: agentThreadId,
-              timelineBypass: true,
-            },
-          },
-        ];
-      }
+      const childItemEvents = mapCodexChildItemLifecycleEvents({
+        base,
+        payload,
+        item,
+        itemTypeRaw,
+        agentThreadId,
+        workspaceRoot,
+        helpers: { toCanonicalItemType, itemTitle, itemDetail },
+      }); // fork-hook: custom-agents/codex-collab-child-item
+      if (childItemEvents !== undefined) return childItemEvents;
       // A loose summary from the raw item: the child stream is untyped at
       // this boundary (synthetic event payload), so read best-effort fields
       // rather than force a schema decode.
@@ -1372,7 +1321,7 @@ function mapToRuntimeEvents(
   workspaceRoot?: string,
 ): ReadonlyArray<ProviderRuntimeEvent> {
   if (event.kind === "notification" && event.method.startsWith("collabAgent/")) {
-    return mapCollabAgentEvent(event, canonicalThreadId, workspaceRoot);
+    return mapCollabAgentEvent(event, canonicalThreadId, workspaceRoot); // fork-hook: custom-agents/codex-collab-workspace-root
   }
   if (event.kind === "error") {
     if (!event.message) {
@@ -2321,41 +2270,29 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           yield* Effect.suspend(() => stopSessionInternal(existing));
         }
 
-        const modelSelection =
-          input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
-        const selectedAgentName = getModelSelectionStringOptionValue(modelSelection, "agent");
-        const cwd = input.cwd ?? process.cwd();
-        const selectedAgent =
-          selectedAgentName && selectedAgentName !== "default"
-            ? (yield* discoverCodexAgents({
-                homePath: codexConfig.homePath,
-                ...(options?.environment ? { environment: options.environment } : {}),
-                cwd,
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-              )).find((agent) => agent.name.toLowerCase() === selectedAgentName.toLowerCase())
-            : undefined;
-        if (selectedAgentName && selectedAgentName !== "default" && !selectedAgent) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "startSession",
-            issue: `Codex custom agent '${selectedAgentName}' is no longer available.`,
-          });
-        }
+        const forkSessionAgent = yield* resolveCodexSessionAgentOption({
+          modelSelection: input.modelSelection,
+          boundInstanceId,
+          homePath: codexConfig.homePath,
+          environment: options?.environment,
+          cwd: input.cwd,
+          fileSystem,
+          path,
+        }); // fork-hook: custom-agents/codex-session-agent-resolve
         const serviceTier =
           input.modelSelection?.instanceId === boundInstanceId
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-        const sessionEnvironment = withProviderSessionIdentity(options?.environment, input);
+        const forkSessionEnvironment = withProviderSessionIdentity(options?.environment, input); // fork-hook: custom-agents/codex-session-identity-env
+        const forkAgentRuntimeInput = codexAgentRuntimeInput(forkSessionAgent.agent); // fork-hook: custom-agents/codex-session-agent-runtime-input
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
-          cwd,
+          cwd: input.cwd ?? process.cwd(),
           binaryPath: codexConfig.binaryPath,
           launchArgs: resolveCodexLaunchArgs(codexConfig.launchArgs, options?.environment),
-          environment: sessionEnvironment,
+          environment: forkSessionEnvironment, // fork-hook: custom-agents/codex-session-identity-env-prop
           ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
           ...(isCodexResumeCursorSchema(input.resumeCursor)
             ? { resumeCursor: input.resumeCursor }
@@ -2365,11 +2302,14 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ? { model: input.modelSelection.model }
             : {}),
           ...(serviceTier ? { serviceTier } : {}),
-          ...(selectedAgent ? { agent: selectedAgent } : {}),
+          ...forkAgentRuntimeInput, // fork-hook: custom-agents/codex-session-agent-option
           ...(mcpSession
             ? {
                 environment: {
-                  ...McpProviderSession.withAgentDeviceEnvironment(sessionEnvironment, mcpSession),
+                  ...McpProviderSession.withAgentDeviceEnvironment(
+                    forkSessionEnvironment,
+                    mcpSession,
+                  ), // fork-hook: custom-agents/codex-session-identity-mcp-env
                   T3_MCP_BEARER_TOKEN: mcpSession.authorizationHeader.replace(/^Bearer\s+/, ""),
                 },
                 appServerArgs: [
@@ -2489,38 +2429,40 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }
             }
 
-            const mappedEvents = mapToRuntimeEvents(event, event.threadId, cwd).map(
-              (runtimeEvent) => {
-                if (runtimeEvent.type === "turn.completed" && runtimeEvent.turnId) {
-                  return {
-                    ...runtimeEvent,
-                    payload: {
-                      ...runtimeEvent.payload,
-                      ...(usageLimitMessage ? { errorMessage: usageLimitMessage } : {}),
-                      tokenUsage: completeCodexTurnTokenUsage(
-                        turnTokenUsage,
-                        String(runtimeEvent.turnId),
-                        runtimeEvent.payload.state === "completed",
-                      ),
-                    },
-                  } satisfies ProviderRuntimeEvent;
-                }
-                if (runtimeEvent.type === "turn.aborted" && runtimeEvent.turnId) {
-                  return {
-                    ...runtimeEvent,
-                    payload: {
-                      ...runtimeEvent.payload,
-                      tokenUsage: completeCodexTurnTokenUsage(
-                        turnTokenUsage,
-                        String(runtimeEvent.turnId),
-                        false,
-                      ),
-                    },
-                  } satisfies ProviderRuntimeEvent;
-                }
-                return runtimeEvent;
-              },
-            );
+            const mappedEvents = mapToRuntimeEvents(
+              event,
+              event.threadId,
+              forkSessionAgent.cwd,
+            ).map((runtimeEvent) => {
+              if (runtimeEvent.type === "turn.completed" && runtimeEvent.turnId) {
+                return {
+                  ...runtimeEvent,
+                  payload: {
+                    ...runtimeEvent.payload,
+                    ...(usageLimitMessage ? { errorMessage: usageLimitMessage } : {}),
+                    tokenUsage: completeCodexTurnTokenUsage(
+                      turnTokenUsage,
+                      String(runtimeEvent.turnId),
+                      runtimeEvent.payload.state === "completed",
+                    ),
+                  },
+                } satisfies ProviderRuntimeEvent;
+              }
+              if (runtimeEvent.type === "turn.aborted" && runtimeEvent.turnId) {
+                return {
+                  ...runtimeEvent,
+                  payload: {
+                    ...runtimeEvent.payload,
+                    tokenUsage: completeCodexTurnTokenUsage(
+                      turnTokenUsage,
+                      String(runtimeEvent.turnId),
+                      false,
+                    ),
+                  },
+                } satisfies ProviderRuntimeEvent;
+              }
+              return runtimeEvent;
+            });
             const runtimeEvents = usageLimitError
               ? [usageLimitError, ...mappedEvents]
               : mappedEvents;
