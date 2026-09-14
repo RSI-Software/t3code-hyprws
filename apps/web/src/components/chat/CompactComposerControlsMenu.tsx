@@ -17,7 +17,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   showInteractionModeToggle: boolean;
-  agentMenuContent?: ReactNode;
+  agentMenuContent?: ReactNode; // fork-hook: custom-agents/compact-menu-agent-prop
   traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
   /**
@@ -52,7 +52,8 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             {props.agentMenuContent}
             <MenuDivider />
           </>
-        ) : null}
+        ) : null}{" "}
+        {/* fork-hook: custom-agents/compact-menu-agent-render */}
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}
