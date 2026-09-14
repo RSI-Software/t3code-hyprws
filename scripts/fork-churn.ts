@@ -14,7 +14,6 @@ import {
   resolveBotRef,
 } from "./lib/fork-bot-refs.ts";
 import { runCommand, runCommandText } from "./lib/fork-command.ts";
-import { budgetFindings, parseForkBudget } from "./lib/fork-budget.ts";
 import {
   censusChurn,
   CONFLICT_CLASSES,
@@ -226,14 +225,8 @@ const churnDelta = (root: string): ChurnDelta | null => {
         throw new Error("invalid fork:delta inventory");
       return { domain, commits, added, deleted, overlaps: 0 };
     });
-    const budget = parseForkBudget(
-      NodeFS.readFileSync(NodePath.join(root, "docs/internals/fork-budget.md"), "utf8"),
-    );
     return {
       commits: domains.reduce((total, row) => total + row.commits, 0),
-      overBudget: [
-        ...new Set(budgetFindings(domains, budget).map((finding) => finding.domain)),
-      ].toSorted(),
     };
   } catch {
     return null;
