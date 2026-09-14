@@ -750,9 +750,130 @@ export interface ParsedForkHook {
   readonly endLine: number;
 }
 
+/** Literal state after scanning a prefix of the file: bracket depth and open string/template. */
+interface LiteralScan {
+  readonly depth: number;
+  /** The open quote character, when the scan sits inside a string or template text. */
+  readonly quote: string | null;
+  /** Open `${` frames, each counting the `{` nested inside the interpolation. */
+  readonly frames: ReadonlyArray<number>;
+  /** The last significant code character seen outside strings and comments. */
+  readonly lastCode: string;
+}
+
+const INITIAL_SCAN: LiteralScan = { depth: 0, quote: null, frames: [], lastCode: "" };
+
+const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
+  let { depth, quote, lastCode } = start;
+  const frames = [...start.frames];
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+      } else if (quote === "`") {
+        if (char === "`") quote = null;
+        else if (char === "$" && line[index + 1] === "{") {
+          index += 1;
+          frames.push(0);
+          quote = null;
+        }
+      } else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "/" && line[index + 1] === "/") break;
+    if (char === "/" && line[index + 1] === "*") {
+      const end = line.indexOf("*/", index + 2);
+      if (end === -1) break;
+      index = end + 1;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === "{") {
+      if (frames.length > 0) frames[frames.length - 1] = (frames[frames.length - 1] ?? 0) + 1;
+      else depth += 1;
+      continue;
+    }
+    if (char === ")" || char === "]") {
+      depth -= 1;
+      continue;
+    }
+    if (char === "}") {
+      const top = frames.length - 1;
+      if (top >= 0 && (frames[top] ?? 0) === 0) {
+        frames.pop();
+        quote = "`";
+      } else if (top >= 0) frames[top] = (frames[top] ?? 0) - 1;
+      else depth -= 1;
+    }
+    if (char !== " " && char !== "\t") lastCode = char;
+  }
+  return { depth, quote, frames, lastCode };
+};
+
+const COMMENT_ONLY = /^(?:\/\/|\/\*|\*(?:\/|$))/;
+
 /**
- * Every marker in one file's text, in source order. A line marker covers exactly
- * its own line; a JSX open marker covers through the next end marker (or end of
+ * The first line (1-based) of the statement a trailing marker on `markerLine` closes, found by
+ * walking backwards: while `()[]{}` brackets or string/template literals are still open, or the
+ * previous line neither ends a statement (`;`, `{`, `,` as the last code character outside any
+ * literal, or a balanced `}` closing a block) nor is blank or
+ * comment-only, the statement continues upward. `null` when the start cannot be proven — the
+ * marker sits inside a string or template text, or a stray close leaves the file unbalanced.
+ * Pure and line-based; there is deliberately no parser dependency.
+ */
+export const statementStartLine = (
+  lines: ReadonlyArray<string>,
+  markerLine: number,
+): number | null => {
+  const states: Array<LiteralScan> = [];
+  let state = INITIAL_SCAN;
+  for (const line of lines) {
+    states.push(state);
+    state = scanLiteralLine(line, state);
+  }
+  const index = markerLine - 1;
+  const entered = states[index];
+  if (entered === undefined) return null;
+  // A marker inside a string or template text, or a file already unbalanced before it, is
+  // unprovable. An open `${` frame is code, not text — the walk still applies.
+  if (entered.quote !== null || entered.depth < 0) return null;
+  let at = index;
+  while (at > 0) {
+    const previous = states[at];
+    if (previous === undefined) return null;
+    if (previous.depth < 0) return null;
+    // A blank or comment-only line, or a top-level statement terminator, only ends the walk when
+    // no bracket or literal is still open across it; inside an open construct the walk continues.
+    if (previous.depth === 0 && previous.quote === null && previous.frames.length === 0) {
+      const text = (lines[at - 1] ?? "").trim();
+      if (text === "" || COMMENT_ONLY.test(text)) break;
+      if (
+        previous.lastCode === ";" ||
+        previous.lastCode === "{" ||
+        previous.lastCode === "," ||
+        previous.lastCode === "}"
+      )
+        break;
+    }
+    at -= 1;
+  }
+  const start = states[at];
+  if (start === undefined || start.depth !== 0 || start.quote !== null || start.frames.length > 0)
+    return null;
+  return at + 1;
+};
+
+/**
+ * Every marker in one file's text, in source order. A line marker covers the whole statement it
+ * closes, walked back from the marker line; a JSX open marker covers through the next end marker (or end of
  * file when unclosed, so a missing end marker still bounds the
  * region rather than swallowing the rest of the file silently as "unmarked").
  */
@@ -781,12 +902,16 @@ export const parseForkHookMarkers = (content: string): ReadonlyArray<ParsedForkH
     }
     const line1 = FORK_HOOK_LINE_SUFFIX.exec(line) ?? FORK_HOOK_BLOCK_SUFFIX.exec(line);
     if (line1 !== null) {
+      // The marker covers the whole statement it closes; an unprovable start is the same
+      // refusal a malformed marker gets — the marker marks nothing.
+      const startLine = statementStartLine(lines, lineNumber);
+      if (startLine === null) continue;
       hooks.push({
         key: forkHookKey(line1[1] ?? "", line1[2] ?? ""),
         domain: line1[1] ?? "",
         name: line1[2] ?? "",
         kind: "line",
-        startLine: lineNumber,
+        startLine,
         endLine: lineNumber,
       });
     }

@@ -175,3 +175,51 @@ it("applies several reinsertions at one anchor in the order given", () => {
   assert.strictEqual(lines.indexOf('import { forkOne } from "one"; // fork-hook: dom/one'), 1);
   assert.strictEqual(lines.indexOf('import { forkTwo } from "two"; // fork-hook: dom/two'), 2);
 });
+
+it("re-inserts a multi-line import whole, marker on its last line", () => {
+  const merged = 'import { a } from "a";\nconst x = a();\n';
+  const fork = [
+    "import {",
+    "  forkThing,",
+    '} from "./fork.fork.ts"; // fork-hook: dom/name',
+    "",
+  ].join("\n");
+  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
+  assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
+  const lines = result.text.split("\n");
+  const at = lines.indexOf("import {");
+  assert.notStrictEqual(at, -1);
+  assert.strictEqual(lines[at + 1], "  forkThing,");
+  assert.strictEqual(lines[at + 2], '} from "./fork.fork.ts"; // fork-hook: dom/name');
+});
+
+it("re-inserts a multi-line branch statement whole, marker on its closing brace", () => {
+  const merged = "export function go() {\n  run();\n}\n";
+  const fork = ["if (maybeFork()) {", "  forkDispatch();", "} // fork-hook: dom/branch", ""].join(
+    "\n",
+  );
+  const result = reapply(merged, fork, [
+    { key: "dom/branch", anchor: { kind: "after-call", symbol: "run" } },
+  ]);
+  assert.deepInclude(result.results[0]?.outcome, { status: "reinsert" });
+  const lines = result.text.split("\n");
+  const at = lines.findIndex((line) => line.trim() === "if (maybeFork()) {");
+  assert.notStrictEqual(at, -1);
+  assert.strictEqual(lines[at + 1]?.trim(), "forkDispatch();");
+  assert.strictEqual(lines[at + 2]?.trim(), "} // fork-hook: dom/branch");
+});
+
+it("refuses a marker whose statement start cannot be proven", () => {
+  const merged = 'import { a } from "a";\n';
+  const fork = [
+    "const stray = f(",
+    '  "unterminated',
+    '} from "./fork.fork.ts"; // fork-hook: dom/name',
+    "",
+  ].join("\n");
+  const result = reapply(merged, fork, [{ key: "dom/name", anchor: { kind: "import-block" } }]);
+  assert.deepInclude(result.results[0]?.outcome, {
+    status: "refuse",
+    reason: "the fork side of this conflict carries no readable marker for the hook",
+  });
+});
