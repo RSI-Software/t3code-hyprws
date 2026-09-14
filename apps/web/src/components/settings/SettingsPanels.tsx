@@ -164,8 +164,8 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import {
-  externalSymlinksRestoreLabelFork,
   ExternalSymlinksSettingsRowFork,
+  externalSymlinksRestoreLabelFork,
 } from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
