@@ -5,6 +5,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { UsageError } from "./fork-cli.ts";
 import { externalPath } from "./fork-external-path.ts";
+import { makeProgressReporter } from "./fork-progress.ts";
 
 export const REWRITE_MANIFEST_SCHEMA = "fork.rewrite-manifest.v1";
 export const REWRITE_RECEIPT_SCHEMA = "fork.rewrite-build.v1";
@@ -19,11 +20,32 @@ interface ReadEntry {
   readonly path: string;
   readonly entry: RewriteEntry | null;
 }
+/** Where a folded change's attribution came from; absent on a manifest frozen before the record. */
+export type RewriteOrigin =
+  | { readonly kind: "blame" }
+  | { readonly kind: "operator"; readonly commit: string };
 interface RewriteChange {
   readonly path: string;
   readonly before: RewriteEntry | null;
   readonly after: RewriteEntry | null;
   readonly reason: string;
+  readonly origin?: RewriteOrigin;
+}
+export interface RewriteAttribution {
+  readonly path: string;
+  readonly commit: string;
+}
+/**
+ * The operator decisions a fold was given. `--attribute` and `--leave` are the only parts of a
+ * fold nothing derives, so a reviewer holding the manifest alone must be able to read them back.
+ */
+export interface RewriteOverrides {
+  /** Attributions that placed changes, each naming the commit the operator chose. */
+  readonly attributed: ReadonlyArray<RewriteAttribution>;
+  /** Paths the operator excluded that a reshape diff carried, so the fold skipped them. */
+  readonly left: ReadonlyArray<string>;
+  /** Flag text for overrides that bound to nothing, as `attribute <path>=<value>` or `leave <path>`. */
+  readonly unused: ReadonlyArray<string>;
 }
 interface RewriteSlot {
   readonly commit: string;
@@ -54,6 +76,8 @@ export interface RewriteManifest {
     readonly removedSignatures: number;
   };
   readonly unresolved: ReadonlyArray<string>;
+  /** Absent on a manifest frozen before operator decisions were recorded. */
+  readonly overrides?: RewriteOverrides;
   readonly slots: ReadonlyArray<RewriteSlot>;
 }
 export interface RewriteBuildReceipt {
@@ -135,6 +159,82 @@ const entry = (value: unknown): RewriteEntry | null => {
     oid: sha(row.oid),
   };
 };
+const provenance = (value: unknown): RewriteOrigin | undefined => {
+  if (value === undefined) return undefined;
+  const row = object(value, ["kind", "commit"]);
+  if (row.kind === "operator") return { kind: "operator", commit: sha(row.commit) };
+  if (row.kind !== "blame") throw new UsageError("unknown change provenance kind");
+  if ("commit" in row) throw new UsageError("blame provenance cannot name an operator commit");
+  return { kind: "blame" };
+};
+/** An ineffective override is kept as the operator's own flag text; it binds to no slot. */
+const unusedOverride = (value: unknown): { readonly record: string; readonly path: string } => {
+  const record = text(value);
+  const space = record.indexOf(" ");
+  if (space <= 0) throw new UsageError(`unused override must name a flag and a path: ${record}`);
+  const rest = record.slice(space + 1);
+  if (record.slice(0, space) === "leave") return { record, path: path(rest) };
+  if (record.slice(0, space) !== "attribute")
+    throw new UsageError(`unused override must name an attribute or leave flag: ${record}`);
+  const equals = rest.indexOf("=");
+  if (equals <= 0 || equals === rest.length - 1)
+    throw new UsageError(`unused attribute override must read <path>=<commit>: ${record}`);
+  return { record, path: path(rest.slice(0, equals)) };
+};
+/**
+ * Bind the recorded operator decisions to the slots they claim, so neither half of the record can
+ * be edited alone: an attribution must own every change at its path and start no later than the
+ * first slot folding it, and an excluded path must own none. Tree-neutrality holds whichever slot
+ * absorbs a change, so this cross-check is the only thing standing between a mistyped
+ * `--attribute` and a rewrite that passes every other proof.
+ */
+const overrideRecord = (input: unknown, slots: ReadonlyArray<RewriteSlot>): RewriteOverrides => {
+  const row = object(input, ["attributed", "left", "unused"]);
+  const attributed = array(row.attributed).map((input): RewriteAttribution => {
+    const record = object(input, ["path", "commit"]);
+    return { path: path(record.path), commit: sha(record.commit) };
+  });
+  const left = array(row.left).map(path);
+  const unused = array(row.unused).map(unusedOverride);
+  const claimed = [...attributed.map((row) => row.path), ...left, ...unused.map((row) => row.path)];
+  if (new Set(claimed).size !== claimed.length)
+    throw new UsageError("duplicate override path; one path carries one operator decision");
+  const position = new Map(slots.map((slot, index) => [slot.commit, index]));
+  const folded = new Map<
+    string,
+    Array<{ readonly slot: number; readonly origin: RewriteOrigin }>
+  >();
+  slots.forEach((slot, index) => {
+    for (const change of slot.changes)
+      folded.set(change.path, [
+        ...(folded.get(change.path) ?? []),
+        { slot: index, origin: change.origin ?? { kind: "blame" } },
+      ]);
+  });
+  for (const entry of attributed) {
+    const start =
+      position.get(entry.commit) ??
+      fail(`operator attribution names a commit outside the stack: ${entry.path}`);
+    const changes = folded.get(entry.path) ?? [];
+    if (changes.length === 0) fail(`operator attribution folds nothing: ${entry.path}`);
+    for (const change of changes) {
+      if (change.origin.kind !== "operator" || change.origin.commit !== entry.commit)
+        fail(`operator attribution disagrees with its folded change: ${entry.path}`);
+      if (change.slot < start)
+        fail(`operator attribution is later than the first slot it folds: ${entry.path}`);
+    }
+  }
+  for (const excluded of [...left, ...unused.map((row) => row.path)])
+    if (folded.has(excluded))
+      fail(`override excluded a path the manifest folds anyway: ${excluded}`);
+  for (const [name, changes] of folded)
+    for (const { origin } of changes) {
+      if (origin.kind !== "operator") continue;
+      if (!attributed.some((entry) => entry.path === name && entry.commit === origin.commit))
+        fail(`operator-attributed change is absent from the override record: ${name}`);
+    }
+  return { attributed, left, unused: unused.map((row) => row.record) };
+};
 export const parseRewriteManifest = (input: unknown): RewriteManifest => {
   const value = object(input, [
     "schema",
@@ -145,6 +245,7 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     "proofs",
     "expected",
     "unresolved",
+    "overrides",
     "slots",
   ]);
   if (value.schema !== REWRITE_MANIFEST_SCHEMA)
@@ -173,12 +274,14 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
       return { path: path(read.path), entry: entry(read.entry) };
     });
     const changes = array(slot.changes).map((input) => {
-      const change = object(input, ["path", "before", "after", "reason"]);
+      const change = object(input, ["path", "before", "after", "reason", "origin"]);
+      const origin = provenance(change.origin);
       const parsed = {
         path: path(change.path),
         before: entry(change.before),
         after: entry(change.after),
         reason: text(change.reason),
+        ...(origin === undefined ? {} : { origin }),
       };
       if (sameEntry(parsed.before, parsed.after))
         throw new UsageError(`rewrite change must alter its entry: ${parsed.path}`);
@@ -196,6 +299,16 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     };
   });
   if (slots.length === 0) throw new UsageError("rewrite manifest has no commit slots");
+  // All or nothing: a manifest either predates the override record or states every change's
+  // provenance, so a recorded attribution cannot be hidden by dropping one change's origin.
+  const changed = slots.flatMap((slot) => slot.changes);
+  if (value.overrides === undefined) {
+    if (changed.some((change) => change.origin !== undefined))
+      throw new UsageError("change provenance requires the manifest override record");
+  } else if (changed.some((change) => change.origin === undefined))
+    throw new UsageError("a recorded override set requires provenance on every change");
+  const overrides =
+    value.overrides === undefined ? undefined : overrideRecord(value.overrides, slots);
   const expectedValue = object(value.expected, [
     "changedSlots",
     "unchangedSlots",
@@ -220,6 +333,7 @@ export const parseRewriteManifest = (input: unknown): RewriteManifest => {
     proofs,
     expected,
     unresolved,
+    ...(overrides === undefined ? {} : { overrides }),
     slots,
   };
 };
@@ -321,30 +435,53 @@ export class RewriteObjects {
     );
   }
 }
+/** A grouped directory level: each name is either a blob entry or a nested directory. */
+type TreeChild =
+  | { readonly directory: false; readonly entry: RewriteEntry }
+  | { readonly directory: true; readonly node: TreeNode };
+interface TreeNode {
+  readonly children: Map<string, TreeChild>;
+}
+/**
+ * Groups the flat `path -> entry` map into a directory tree in one pass over `entries`
+ * (each entry costs O(path segments), not O(entries) again), for `buildTree` to fold
+ * bottom-up. Replaces an O(entries x directories) full-map rescan per directory with this
+ * single grouping pass plus one hash per directory.
+ */
+const groupTree = (entries: ReadonlyMap<string, RewriteEntry>): TreeNode => {
+  const root: TreeNode = { children: new Map() };
+  for (const [name, item] of entries) {
+    const segments = name.split("/");
+    let node = root;
+    for (let depth = 0; depth < segments.length - 1; depth++) {
+      const segment = segments[depth]!;
+      const existing = node.children.get(segment);
+      if (existing === undefined) {
+        const child: TreeNode = { children: new Map() };
+        node.children.set(segment, { directory: true, node: child });
+        node = child;
+      } else if (existing.directory) node = existing.node;
+      else fail(`file/directory collision at ${segments.slice(0, depth + 1).join("/")}`);
+    }
+    const leaf = segments[segments.length - 1]!;
+    if (node.children.has(leaf)) fail(`file/directory collision at ${name}`);
+    node.children.set(leaf, { directory: false, entry: item });
+  }
+  return root;
+};
 /** Tree ordering compares directories with their trailing slash, as Git does. */
 const buildTree = (
   objects: RewriteObjects,
   entries: ReadonlyMap<string, RewriteEntry>,
   write: boolean,
 ): string => {
-  const build = (prefix: string): string => {
-    const children = new Map<string, RewriteEntry | null>();
-    for (const [name, item] of entries) {
-      if (!name.startsWith(prefix)) continue;
-      const relative = name.slice(prefix.length),
-        slash = relative.indexOf("/");
-      const child = slash === -1 ? relative : relative.slice(0, slash);
-      const current = children.get(child);
-      if (current !== undefined && (current === null) !== (slash !== -1))
-        fail(`file/directory collision at ${prefix}${child}`);
-      children.set(child, slash === -1 ? item : null);
-    }
-    const chunks = [...children]
-      .map(([name, item]) => ({
+  const build = (node: TreeNode): string => {
+    const chunks = [...node.children]
+      .map(([name, child]) => ({
         name,
-        directory: item === null,
-        mode: item?.mode ?? "40000",
-        oid: item?.oid ?? build(`${prefix}${name}/`),
+        directory: child.directory,
+        mode: child.directory ? "40000" : child.entry.mode,
+        oid: child.directory ? build(child.node) : child.entry.oid,
       }))
       .sort((a, b) =>
         Buffer.compare(
@@ -357,7 +494,7 @@ const buildTree = (
       );
     return objects.hash("tree", Buffer.concat(chunks), write);
   };
-  return build("");
+  return build(groupTree(entries));
 };
 
 export const rebuildCommit = (raw: Buffer, tree: string, parent: string) => {
@@ -436,8 +573,10 @@ export const buildRewrite = (
     .split("\n");
   if (JSON.stringify(commits) !== JSON.stringify(manifest.slots.map((slot) => slot.commit)))
     fail("manifest must enumerate every original commit once, in order");
+  const reportProgress = makeProgressReporter("rewrite-build");
+  const slotCount = manifest.slots.length;
   let originalParent = manifest.base;
-  const prepared = manifest.slots.map((slot) => {
+  const prepared = manifest.slots.map((slot, index) => {
     const raw = objects.git(["cat-file", "commit", slot.commit]);
     const header = raw.subarray(0, raw.indexOf(Buffer.from("\n\n"))).toString("latin1");
     if (
@@ -469,18 +608,20 @@ export const buildRewrite = (
     }
     const tree = buildTree(objects, entries, false);
     if (tree !== slot.resultTree) fail(`snapshot output digest mismatch at ${slot.commit}`);
-    return { slot, entries, raw };
+    reportProgress("verifying", index + 1, slotCount);
+    return { slot, entries, raw, tree };
   });
   if (prepared.at(-1)?.slot.resultTree !== manifest.sourceTree)
     fail(
       "final full tree must equal frozen source; test/harness differences also require reconciliation",
     );
   // Preview every rewritten object so census/signature expectations fail before object writes.
+  // Reuses the `tree` already built (write=false) above: same `entries`, untouched since.
   let previewParent = manifest.base;
-  const preview = prepared.map(({ slot, entries, raw }) => {
-    const tree = buildTree(objects, entries, false);
+  const preview = prepared.map(({ slot, raw, tree }, index) => {
     const rewritten = rebuildCommit(raw, tree, previewParent);
     previewParent = objects.hash("commit", rewritten.bytes, false);
+    reportProgress("previewing", index + 1, slotCount);
     return { slot, tree, rebuilt: previewParent, rewritten };
   });
   for (const { slot, tree } of preview)
@@ -509,6 +650,7 @@ export const buildRewrite = (
     if (!objects.git(["cat-file", "commit", rebuilt]).equals(rewritten.bytes))
       fail("commit readback changed bytes");
     parent = rebuilt;
+    reportProgress("writing", index + 1, slotCount);
     return {
       original: slot.commit,
       rebuilt,
