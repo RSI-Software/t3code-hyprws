@@ -34,6 +34,8 @@ export interface ConflictOutcome {
   readonly conflictClass: "mechanical" | "seam-moved";
   readonly source: OutcomeSource;
   readonly resolution: string;
+  /** Hook keys re-inserted by a `hook-reapply`; set only on that source (RSI-Software/t3code-hyprws#953). */
+  readonly reinsertedHooks?: readonly string[];
 }
 
 export interface ConflictStages {
@@ -432,6 +434,7 @@ const hookReapply = (
       take: "union",
       conflictClass: "mechanical",
       source: "hook-reapply",
+      reinsertedHooks: reapply.reinserted,
       resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason})`,
     },
   };

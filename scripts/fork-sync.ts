@@ -32,6 +32,7 @@ import {
   isUnresolved,
   readConflictStages,
   seamKey,
+  type ConflictOutcome,
   type UnresolvedOutcome,
 } from "./lib/fork-conflict-outcomes.ts";
 import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
@@ -3653,9 +3654,13 @@ const decisionStamp = (
   recordedAt: report.walk?.startedAt ?? new Date().toISOString(),
 });
 
-/** The outcome a conflict decision records, in the walk's own vocabulary. */
-const decisionOutcome = (take: "ours" | "theirs" | "merge" | "union"): string =>
-  take === "ours" || take === "theirs" ? take : "keep-both";
+/** The outcome a conflict decision records, in the walk's own vocabulary; a hook re-apply names
+ * each re-inserted hook key (RSI-Software/t3code-hyprws#953). */
+const decisionOutcome = (outcome: ConflictOutcome): string => {
+  if (outcome.source === "hook-reapply")
+    return `hook-reapply(${(outcome.reinsertedHooks ?? []).join(", ")})`;
+  return outcome.take === "ours" || outcome.take === "theirs" ? outcome.take : "keep-both";
+};
 
 /** Seam key for a conflicted path while its index stages still exist; `null` otherwise. */
 const seamKeyFor = (runner: CommandRunner, worktree: string, path: string): string | null => {
@@ -3755,7 +3760,7 @@ export const autoResolveConflicts = (
       kind: "conflict",
       subject: key ?? row.path,
       path: row.path,
-      outcome: decisionOutcome(outcome.take),
+      outcome: decisionOutcome(outcome),
       decidedBy: "machine",
       ...stamp,
     });
