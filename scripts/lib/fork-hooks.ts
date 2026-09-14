@@ -283,6 +283,47 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/index.css",
     anchor: { kind: "import-block" },
   },
+  // upstream-fixes — external workspace symlinks marked on RSI-Software/t3code-hyprws#951.
+  "upstream-fixes/wfs-fork-import": {
+    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/wfs-external-symlinks-policy": {
+    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
+    anchor: { kind: "after-decl", symbol: "workspaceEntries" },
+  },
+  "upstream-fixes/wfs-external-symlinks-follow": {
+    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
+    anchor: { kind: "after-decl", symbol: "relativeRealPath" },
+  },
+  "upstream-fixes/wfs-server-settings-layer": {
+    path: "apps/server/src/server.ts",
+    anchor: { kind: "collection", symbol: "WorkspaceFileSystemLayerLive" },
+  },
+  "upstream-fixes/settings-row-import": {
+    path: "apps/web/src/components/settings/SettingsPanels.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/settings-restore-symlinks-label": {
+    path: "apps/web/src/components/settings/SettingsPanels.tsx",
+    anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+  },
+  "upstream-fixes/settings-row-mount": {
+    path: "apps/web/src/components/settings/SettingsPanels.tsx",
+    anchor: { kind: "jsx-parent", symbol: "GeneralSettingsPanel" },
+  },
+  "upstream-fixes/settings-search-external-symlinks-import": {
+    path: "apps/web/src/components/settings/settingsSearch.ts",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/settings-search-external-symlinks": {
+    path: "apps/web/src/components/settings/settingsSearch.ts",
+    anchor: { kind: "collection", symbol: "SETTINGS_SEARCH_ITEMS" },
+  },
+  "upstream-fixes/settings-patch-field": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ServerSettingsPatch" },
+  },
 
   // workspace-files — ignored workspace files reshaped behind one listing hook on RSI-Software/t3code-hyprws#955.
   "workspace-files/file-browser-ignored-listing": {
