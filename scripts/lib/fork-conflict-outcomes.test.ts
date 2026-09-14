@@ -7,7 +7,12 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import { SystemCommandRunner, type CwdCommandRunner, type CommandResult } from "./fork-command.ts";
+import {
+  SystemCommandRunner,
+  type CwdCommandRunner as CommandRunner,
+  type CommandResult,
+  type CwdCommandRunner,
+} from "./fork-command.ts";
 import {
   classifyConflictOutcome,
   everyConflictIsCoInsertion,
@@ -460,6 +465,93 @@ it("never resolves a kept commit's file to the upstream side alone", () => {
     const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
     assert.include(resolved, "forkOnly");
     assert.include(resolved, "upstream()");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** Delegates git to the system and answers `vp` (the scoped typecheck) with a canned result. */
+const typecheckRunner = (): CommandRunner => {
+  const system = new SystemCommandRunner();
+  return {
+    run: (command, args, cwd, input, env) =>
+      command === "vp"
+        ? { status: 0, stdout: "", stderr: "" }
+        : system.run(command, args, cwd ?? ".", input, env),
+  };
+};
+
+const SUBSTITUTION_HOOK = "upstream-fixes/test-sub";
+const gateManifest = {
+  [SUBSTITUTION_HOOK]: {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ServerSettingsPatch" },
+  },
+} as const;
+
+/** A seam where upstream rewrites `rename` and the fork touches other lines beside it. */
+const substitutionStages = (forkInterfaceTail: string, forkFileTail: string, keepGone = true) => ({
+  base: "export interface ServerSettingsPatch {\n  rename: string;\n  input: { cwd: props.cwd };\n}\n\nexport const tail = 0;\nexport const gone = 2;\n",
+  ours: "export interface ServerSettingsPatch {\n  name: string;\n  mount: boolean;\n}\n\nexport const tail = 0;\nexport const gone = 2;\nexport const up = 1;\n",
+
+  theirs: `export interface ServerSettingsPatch {\n  rename: string;\n${forkInterfaceTail}}\n\nexport const tail = 0;\n${keepGone ? "export const gone = 2;\n" : ""}${forkFileTail}`,
+});
+
+it("passes a one-line in-place substitution declared by marking the replacing line", () => {
+  const root = fixture();
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // The fork replaces `input: { cwd: props.cwd }` in place; the replacing line carries the
+    // marker, and the removed upstream line needs none (RSI-Software/t3code-hyprws#1024).
+    stageConflict(
+      root,
+      path,
+      substitutionStages(
+        "  input: workspaceFileListing; // fork-hook: upstream-fixes/test-sub\n",
+        "",
+      ),
+    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.source, "hook-reapply");
+    assert.strictEqual(outcome.conflictClass, "mechanical");
+    assert.deepStrictEqual(outcome.reinsertedHooks, [SUBSTITUTION_HOOK]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses an in-place substitution whose replacing line is unmarked", () => {
+  const root = fixture();
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    stageConflict(root, path, substitutionStages("  input: workspaceFileListing;\n", ""));
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest);
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "rewrote the same lines");
+    assert.include(outcome.reason, "removes base line 3 outside every marked hook");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses a removal outside every marked span even with a marked hook elsewhere", () => {
+  const root = fixture();
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // The fork deletes the trailing `gone` line and carries a marked hook far from it. A budget
+    // of marked lines would absorb the deletion; the positional check does not.
+    stageConflict(
+      root,
+      path,
+      substitutionStages("  forkField: string; // fork-hook: upstream-fixes/test-sub\n", "", false),
+    );
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, gateManifest);
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "removes base line 7 outside every marked hook");
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
