@@ -85,6 +85,7 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
+import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
 import {
   GitHubIssueCliMissingError,
   GitHubIssueCliUnauthenticatedError,
@@ -116,9 +117,6 @@ import {
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   PullRequestActionInput,
-  PullRequestAttachmentCreateUploadUrlInput,
-  PullRequestAttachmentUploadInput,
-  PullRequestAttachmentUploadResult,
   PullRequestActivity,
   PullRequestCommentInput,
   PullRequestCommentUpdateInput,
@@ -414,8 +412,7 @@ export const WS_METHODS = {
   pullRequestsDiffFileContents: "pullRequests.diffFileContents",
   pullRequestsRunAction: "pullRequests.runAction",
   pullRequestsUpdate: "pullRequests.update",
-  pullRequestsCreateAttachmentUploadUrl: "pullRequests.createAttachmentUploadUrl",
-  pullRequestsUploadAttachment: "pullRequests.uploadAttachment",
+  ...pullRequestAttachmentRpcFork.methodNames, // fork-hook: upstream-fixes/pr-attachment-rpc-methods
   pullRequestsComment: "pullRequests.comment",
   pullRequestsUpdateComment: "pullRequests.updateComment",
   pullRequestsSubmitReview: "pullRequests.submitReview",
@@ -797,21 +794,6 @@ const WsPullRequestsRunActionRpc = Rpc.make(WS_METHODS.pullRequestsRunAction, {
 const WsPullRequestsUpdateRpc = Rpc.make(WS_METHODS.pullRequestsUpdate, {
   payload: PullRequestUpdateInput,
   success: Schema.Void,
-  error: PullRequestRpcError,
-});
-
-const WsPullRequestsCreateAttachmentUploadUrlRpc = Rpc.make(
-  WS_METHODS.pullRequestsCreateAttachmentUploadUrl,
-  {
-    payload: PullRequestAttachmentCreateUploadUrlInput,
-    success: AttachmentCreateUploadUrlResult,
-    error: PullRequestRpcError,
-  },
-);
-
-const WsPullRequestsUploadAttachmentRpc = Rpc.make(WS_METHODS.pullRequestsUploadAttachment, {
-  payload: PullRequestAttachmentUploadInput,
-  success: PullRequestAttachmentUploadResult,
   error: PullRequestRpcError,
 });
 
@@ -1461,8 +1443,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPullRequestsDiffFileContentsRpc,
   WsPullRequestsRunActionRpc,
   WsPullRequestsUpdateRpc,
-  WsPullRequestsCreateAttachmentUploadUrlRpc,
-  WsPullRequestsUploadAttachmentRpc,
+  ...pullRequestAttachmentRpcFork.rpcs, // fork-hook: upstream-fixes/pr-attachment-rpc-group
   WsPullRequestsCommentRpc,
   WsPullRequestsUpdateCommentRpc,
   WsPullRequestsSubmitReviewRpc,
