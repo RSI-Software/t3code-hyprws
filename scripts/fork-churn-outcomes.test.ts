@@ -483,4 +483,21 @@ it.layer(NodeServices.layer)("outcome CLI", (it) => {
       assert.strictEqual(bare(["rev-parse", CHURN_REF]), head);
     }),
   );
+
+  // The workflow runs this step on `always()`, so a rebase that died before declaring a
+  // target must not be followed by a second, misleading failure here.
+  it.effect("skips retention when the rebase declared no outcome", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "fork-outcome-skip-" });
+      const skipped = NodeChildProcess.spawnSync(
+        process.execPath,
+        [cli, "outcome", "--auto-report", "fork-auto-rebase-issues.json"],
+        { cwd: root, env: { ...process.env }, encoding: "utf8" },
+      );
+      assert.strictEqual(skipped.status, 0, skipped.stderr);
+      assert.include(skipped.stderr, "nothing to retain");
+      assert.strictEqual(skipped.stdout, "");
+    }),
+  );
 });
