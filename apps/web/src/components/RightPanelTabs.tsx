@@ -598,7 +598,7 @@ function surfaceTitle(
     case "pull-requests":
       return "Pull requests";
     case "github-issue":
-      return `Issue #${surface.number}`;
+      return `Issue #${surface.number}`; // fork-hook: github-issues/panel-tab-title
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -694,9 +694,7 @@ function SurfaceIcon({
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "github-issue":
-      // The tab carries no issue state, and a closed issue reads as muted everywhere else it is
-      // drawn. Stays neutral until a tab status feeds this the way pull requests do.
-      return <CircleDot className="size-3 shrink-0 text-muted-foreground" />;
+      return <CircleDot className="size-3 shrink-0 text-muted-foreground" />; // fork-hook: github-issues/panel-tab-status-icon
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
