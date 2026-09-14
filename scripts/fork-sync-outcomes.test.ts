@@ -568,9 +568,11 @@ it("keeps the keep-both stop when the fork hunk carries woven unmarked lines", (
     );
     assert.isTrue(isUnresolved(outcome));
     if (!isUnresolved(outcome)) return;
-    // The stop is keep-both's, unchanged — the walk record names the keep-both seam, not a reapply.
+    // The stop is still keep-both's and the stage is unchanged; what moved is that the row now
+    // names the gate that turned the path away (RSI-Software/t3code-hyprws#1012).
     assert.include(outcome.reason, "rewrote the same lines");
-    assert.notInclude(outcome.reason, "fork-hook reapply");
+    assert.include(outcome.reason, "adds lines beyond its marked hooks");
+    assert.include(outcome.reason, MARKED_HOOK);
     // Nothing was written or staged.
     assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
     assert.strictEqual(
@@ -666,6 +668,143 @@ it("refuses the re-insertion when the lane's scoped typecheck fails afterwards",
     if (!isUnresolved(outcome)) return;
     assert.include(outcome.reason, MARKED_HOOK);
     assert.include(outcome.reason, "typecheck");
+    // The compiler's own words are the operator's, not the record's: a recorded reason is
+    // re-digested into a seam id, so two machines must produce the same text for the same seam.
+    assert.notInclude(outcome.reason, "TS2304");
+    assert.strictEqual(outcome.detail, "TS2304: cannot find name");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** Exactly what keep-both says for this seam, which a non-manifest path must still carry alone. */
+const KEEP_BOTH_REWROTE =
+  "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam";
+
+it("leaves a path the manifest does not cover carrying keep-both's reason alone", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  // A path no manifest entry names: the re-applier never looked at it, so its stop is byte-for-byte
+  // the one keep-both wrote before RSI-Software/t3code-hyprws#1012 named the hook gates.
+  const path = "packages/contracts/src/unhooked.ts";
+  try {
+    stageReapplyConflict(root, path, settingsStages(HOOK_LINE, FORK_TAIL));
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+      fixtureManifest,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.reason, KEEP_BOTH_REWROTE);
+    assert.isUndefined(outcome.detail);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("names the gate when the merged seam carries no conflict to re-apply into", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // Upstream and the fork change lines far apart, so git merges them without a conflict, but the
+    // file documents conflict markers and keep-both refuses to read its own merge back.
+    const marker = "<<<<<<< doc\nleft\n||||||| base\nmiddle\n=======\nright\n>>>>>>> doc\n";
+    stageReapplyConflict(root, path, {
+      base: `${marker}export interface ServerSettingsPatch {\n  rename: string;\n}\n\nexport const tail = 0;\n`,
+      ours: `${marker}export interface ServerSettingsPatch {\n  rename: string;\n}\n\nexport const tail = 1;\n`,
+      theirs: `${marker}export interface ServerSettingsPatch {\n  rename: string;\n${HOOK_LINE}}\n\nexport const tail = 0;\n`,
+    });
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+      fixtureManifest,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "no conflict to re-apply into");
+    assert.include(outcome.reason, MARKED_HOOK);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("names the gate when the merged text cannot be resolved to upstream's side", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // The fork's marked line is itself a conflict-marker line, so the diff3 hunks no longer parse
+    // and the stage cannot say which side it would be keeping.
+    stageReapplyConflict(
+      root,
+      path,
+      settingsStages(`======= boundary; // fork-hook: ${MARKED_HOOK}\n`, FORK_TAIL),
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+      fixtureManifest,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "could not be resolved to upstream's side");
+    assert.include(outcome.reason, MARKED_HOOK);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("names the gate when every marked hook already survived the merge", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // A third marked line sits in a region upstream never touched, so it survives the merge: the
+    // key is already in the merged text, every hook reads as intact and nothing is re-inserted.
+    stageReapplyConflict(root, path, {
+      base: "export interface ServerSettingsPatch {\n  rename: string;\n}\n\nexport const middle = 0;\n\nexport const tail = 0;\n",
+      ours: "export interface ServerSettingsPatch {\n  name: string;\n  mount: boolean;\n}\n\nexport const middle = 0;\n\nexport const tail = 0;\nexport const up = 1;\n",
+      theirs: `export interface ServerSettingsPatch {\n  rename: string;\n${HOOK_LINE}}\n\nexport const middle = 0;\nexport const mid = 1; // fork-hook: ${MARKED_HOOK}\n\nexport const tail = 0;\n${FORK_TAIL}`,
+    });
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+      fixtureManifest,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "re-inserted nothing");
+    assert.include(outcome.reason, MARKED_HOOK);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps every hook decline unresolved, and keeps keep-both's reason inside it", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // The woven-lines seam, which the re-applier declines: naming the gate must not move the stage
+    // or lose why the stop exists.
+    stageReapplyConflict(root, path, settingsStages(`${HOOK_LINE}  wovenHelper();\n`, FORK_TAIL));
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+      fixtureManifest,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, `(keep-both declined: ${KEEP_BOTH_REWROTE})`);
+    // Nothing was written or staged: the path is exactly as unresolved as it was.
+    assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
