@@ -29,6 +29,11 @@ import {
 } from "./composerProviderState";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+import {
+  agentRestingBlock,
+  renderProviderAgentMenuContent,
+  renderProviderAgentPicker,
+} from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-agent-render-import
 
 /**
  * The composer footer controls: model picker, traits, mode controls and the overflow menu for
@@ -189,6 +194,8 @@ export function ComposerControlsBar(props: {
         }
       : {}),
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
+  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-menu-content
+  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-picker
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
     accessDisplay,
@@ -199,6 +206,7 @@ export function ComposerControlsBar(props: {
     effortOwnsModeShortcut,
     overflowShowsPermissions,
   } = resolveComposerControlsOwnership({
+    leadingBlocksFork: providerAgentPicker ? ["agent"] : [], // fork-hook: custom-agents/composer-agent-ownership
     matchesDefault: permissionsChipHidden,
     hasTraits: providerTraitsPicker !== null,
     planModeUiEnabled,
@@ -212,6 +220,7 @@ export function ComposerControlsBar(props: {
     extraMenuOwnsModeShortcut: effortOwnsModeShortcut,
   });
   const restingBlockDefs = [
+    ...agentRestingBlock(providerAgentPicker), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
@@ -348,6 +357,9 @@ export function ComposerControlsBar(props: {
             size={composerControlsCollapsed ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
+            agentMenuContent={
+              hiddenRestingBlockIds.includes("agent") ? providerAgentMenuContent : undefined
+            } // fork-hook: custom-agents/composer-agent-compact-menu-prop
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
             }

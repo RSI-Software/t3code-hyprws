@@ -6,6 +6,7 @@
 export function resolveComposerControlsOwnership(input: {
   /** Permissions hide while the mode is the default, or while the new-thread strip names it. */
   readonly matchesDefault: boolean;
+  readonly leadingBlocksFork?: readonly string[]; // fork-hook: custom-agents/leading-blocks-input
   /** The model has an effort (traits) menu, which then always holds Permissions. */
   readonly hasTraits: boolean;
   readonly planModeUiEnabled: boolean;
@@ -23,6 +24,7 @@ export function resolveComposerControlsOwnership(input: {
       : ("icon" as const);
   const showModeBlock = !(accessDisplay === "hidden" && !input.planModeUiEnabled);
   const blockIds = [
+    ...(input.leadingBlocksFork ?? []), // fork-hook: custom-agents/leading-blocks
     ...(input.hasTraits ? ["traits" as const] : []),
     ...(showModeBlock ? ["mode" as const] : []),
   ];
@@ -30,6 +32,7 @@ export function resolveComposerControlsOwnership(input: {
   const overflowShowsPermissionsFor = (hidden: ReadonlyArray<string>) =>
     hidden.includes(input.hasTraits ? "traits" : "mode");
   const overflowHasContent = (hidden: ReadonlyArray<string>) =>
+    hidden.includes("agent") || // fork-hook: custom-agents/overflow-content
     hidden.includes("traits") ||
     (input.planModeUiEnabled && hidden.includes("mode")) ||
     overflowShowsPermissionsFor(hidden);
