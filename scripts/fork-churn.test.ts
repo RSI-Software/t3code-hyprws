@@ -525,14 +525,14 @@ it("pins the tooling-repair boundary to walk tooling alone", () => {
   // In: the harness itself and the fork's own internals pages.
   assert.isTrue(isToolingRepair(["scripts/fork-sync.ts"]));
   assert.isTrue(isToolingRepair(["scripts/lib/fork-additive.ts"]));
-  assert.isTrue(isToolingRepair(["docs/internals/fork-budget.md"]));
+  assert.isTrue(isToolingRepair(["docs/internals/fork-development.md"]));
   assert.isTrue(isToolingRepair(["scripts/a.ts", "docs/internals/fork-delta.md"]));
   // Out: anything a fork reader would call product, and lookalike paths.
   assert.isFalse(isToolingRepair([]));
   assert.isFalse(isToolingRepair(["apps/web/src/a.ts"]));
   assert.isFalse(isToolingRepair(["scriptsx/a.ts"]));
   assert.isFalse(isToolingRepair(["docs/internals/other.md"]));
-  assert.isFalse(isToolingRepair(["docs/internals/fork-budget/nested.md"]));
+  assert.isFalse(isToolingRepair(["docs/internals/fork-development/nested.md"]));
   // A repair that also touches a product path is not a tooling repair.
   assert.isFalse(isToolingRepair(["scripts/a.ts", "apps/web/src/b.ts"]));
 });
@@ -667,14 +667,13 @@ it("renders elapsed time and host effort on the Walks row, absent when unrecorde
   }
 });
 
-it("keeps the delta commit count when the budget table is absent", () => {
+it("keeps the delta commit count without reading a budget table", () => {
   const root = ledgerRepository([entry("v1", [])]);
   const internals = NodePath.join(root, "docs", "internals");
   NodeFS.writeFileSync(
     NodePath.join(internals, "fork-delta.md"),
     "## fork-meta\n\n### Retirement condition\n",
   );
-  NodeFS.rmSync(NodePath.join(internals, "fork-budget.md"), { force: true });
   // churnDelta spawns `node scripts/fork-delta.ts` relative to the repository root;
   // link the real scripts directory so the fixture can run the inventory probe.
   NodeFS.symlinkSync(
