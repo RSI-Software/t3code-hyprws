@@ -181,6 +181,13 @@ export const FORK_HOOK_BLOCK_SUFFIX = /\s+\/\*\s*fork-hook:\s*([\w-]+)\/([\w-]+)
 export const FORK_HOOK_JSX_OPEN = /\{\/\*\s*fork-hook:\s*([\w-]+)\/([\w-]+)\s*\*\/\}/;
 export const FORK_HOOK_JSX_END = /\{\/\*\s*fork-hook-end\s*\*\/\}/;
 
+/**
+ * A single-construct re-export hook, recognised for the `after-decl` anchor: a
+ * fork export placed immediately after an upstream declaration of the same
+ * symbol (`export { X }; // fork-hook: <domain>/<name>`, `export type { T };`).
+ */
+export const HOOK_REEXPORT = /^\s*export\s+(type\s+)?\{\s*[\w$]+\s*\};?\s*$/;
+
 export const stripForkHookLineMarker = (line: string): string =>
   line.replace(FORK_HOOK_LINE_SUFFIX, "");
 
