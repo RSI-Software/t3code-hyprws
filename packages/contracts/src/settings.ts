@@ -13,6 +13,12 @@ import {
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
 import { ForkThreadEnvMode } from "./environment.fork.ts";
+import {
+  DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE,
+  DEFAULT_GITHUB_LINK_OPEN_MODE,
+  GitHubChangeRequestOpenMode,
+  GitHubLinkOpenMode,
+} from "./settings.fork.ts"; // fork-hook: github-issues/settings-open-mode-import
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
   CustomModelSetting,
@@ -244,13 +250,8 @@ const LegacyConfirmQuit = Schema.Boolean.pipe(
 
 const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);
 
-export const GitHubLinkOpenMode = Schema.Literals(["integrated", "external"]);
-export type GitHubLinkOpenMode = typeof GitHubLinkOpenMode.Type;
-export const DEFAULT_GITHUB_LINK_OPEN_MODE: GitHubLinkOpenMode = "external";
-
-export const GitHubChangeRequestOpenMode = Schema.Literals(["native", "integrated", "external"]);
-export type GitHubChangeRequestOpenMode = typeof GitHubChangeRequestOpenMode.Type;
-export const DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE: GitHubChangeRequestOpenMode = "native";
+export { GitHubLinkOpenMode, DEFAULT_GITHUB_LINK_OPEN_MODE }; // fork-hook: github-issues/settings-link-open-mode-export
+export { GitHubChangeRequestOpenMode, DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE }; // fork-hook: github-issues/settings-change-request-open-mode-export
 
 /**
  * A user-chosen font family (a single name or a comma-separated list). Empty
@@ -361,10 +362,10 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   githubLinkOpenMode: GitHubLinkOpenMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_LINK_OPEN_MODE)),
-  ),
+  ), // fork-hook: github-issues/settings-link-open-mode-field
   githubChangeRequestOpenMode: GitHubChangeRequestOpenMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GITHUB_CHANGE_REQUEST_OPEN_MODE)),
-  ),
+  ), // fork-hook: github-issues/settings-change-request-open-mode-field
   // Desktop-only. Boolean values from older settings files decode to their
   // equivalent mode and encode back as the canonical string value.
   confirmQuit: QuitConfirmationModeSetting.pipe(
@@ -1562,8 +1563,8 @@ export const ClientSettingsPatch = Schema.Struct({
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
   browserProfiles: Schema.optionalKey(Schema.Array(BrowserProfile)),
   browserDefaultProfileId: Schema.optionalKey(BrowserProfileId),
-  githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode),
-  githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode),
+  githubLinkOpenMode: Schema.optionalKey(GitHubLinkOpenMode), // fork-hook: github-issues/settings-link-open-mode-patch
+  githubChangeRequestOpenMode: Schema.optionalKey(GitHubChangeRequestOpenMode), // fork-hook: github-issues/settings-change-request-open-mode-patch
   confirmQuit: Schema.optionalKey(QuitConfirmationMode),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
