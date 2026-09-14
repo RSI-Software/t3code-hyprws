@@ -577,6 +577,36 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "packages/contracts/src/settings.ts",
     anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
   },
+
+  // markdown-editing — marked on RSI-Software/t3code-hyprws#958.
+  "markdown-editing/rich-preview-import": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "markdown-editing/rich-preview-mode": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "after-decl", symbol: "revealHandled" },
+  },
+  "markdown-editing/rich-preview-rendered": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "after-decl", symbol: "renderMarkdown" },
+  },
+  "markdown-editing/rich-preview-toggle-label": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
+  },
+  "markdown-editing/rich-preview-toggle-disabled": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "collection", symbol: "disabled" },
+  },
+  "markdown-editing/rich-preview-icon": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
+  },
+  "markdown-editing/rich-preview-boundary": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "RenderedMarkdownSurface" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
