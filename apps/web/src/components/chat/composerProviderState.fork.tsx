@@ -4,7 +4,6 @@
 import type { ReactNode } from "react";
 
 import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker.fork";
-import { ComposerControlSeparator } from "./ComposerControl";
 import { renderProviderTraitsPicker } from "./composerProviderState";
 
 /** Structural mirror of the upstream file's private `TraitsRenderInput`. */
@@ -36,6 +35,7 @@ function renderAgentControl(
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
+      modelOptions={modelOptions}
       planModeEnabled={planModeEnabled}
     />
   );
@@ -52,18 +52,12 @@ export function renderProviderAgentPicker(input: TraitsRenderInput): ReactNode {
 /** The resting-block entry for the agent picker, or nothing when it does not render. */
 export function agentRestingBlock(
   providerAgentPicker: ReactNode,
-  composerControlsInStrip: boolean,
 ): Array<{ id: string; content: ReactNode }> {
   if (!providerAgentPicker) return [];
   return [
     {
       id: "agent",
-      content: (
-        <>
-          <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
-          {providerAgentPicker}
-        </>
-      ),
+      content: providerAgentPicker,
     },
   ];
 }
