@@ -37,6 +37,13 @@ export interface ForkTrailers {
 export interface ParsedForkCommit extends ForkTrailers {
   readonly sha: string;
   readonly short: string;
+  /**
+   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A rewrite
+   * (`scripts/lib/fork-rewrite-build.ts` `rebuildCommit`) only ever replaces the `tree` and
+   * `parent` headers and copies `author`/`committer`/message verbatim, so this survives a fold
+   * unchanged even though `sha` does not. See `GRANDFATHERED_WALK_REPAIR_KEYS` in fork-delta.ts.
+   */
+  readonly authorDate: string;
   readonly subject: string;
 }
 
@@ -47,18 +54,60 @@ export const forkLogArguments = (base: string, head: string) =>
   [
     "log",
     "--reverse",
-    `--format=%H${FORK_LOG_FIELD_SEPARATOR}%h${FORK_LOG_FIELD_SEPARATOR}%s${FORK_LOG_FIELD_SEPARATOR}%b${FORK_LOG_RECORD_SEPARATOR}`,
+    `--format=%H${FORK_LOG_FIELD_SEPARATOR}%h${FORK_LOG_FIELD_SEPARATOR}%aI${FORK_LOG_FIELD_SEPARATOR}%s${FORK_LOG_FIELD_SEPARATOR}%b${FORK_LOG_RECORD_SEPARATOR}`,
     `${base}..${head}`,
   ] as const;
 
 /**
- * Squash messages routinely carry a trailer block more than once (18 of the last 400 trunk commits
- * repeat `Fork-Domain`, some five times). Repetition itself is benign — every observed duplicate
- * agrees on the value — so the parser only fails when the copies disagree: the proof checks can
- * never validate a copy they were never shown, so a stale first copy next to a corrected later one
- * would otherwise pass in silence (see 43e1a15ad3, where the whole block landed twice).
+ * Squash messages often repeat a trailer block, and every observed duplicate agrees, so repetition
+ * is benign. Copies that disagree fail: the proof checks validate one copy, so a stale copy beside
+ * a corrected one would otherwise pass in silence.
  */
 class DuplicateForkTrailerError extends Error {}
+
+/**
+ * The trailer block is the final paragraph left after dropping trailing paragraphs of tail material:
+ * blank lines, whole-line HTML comments, `Co-authored-by:`, cherry-pick notes, `---` separators, and
+ * `Closes|Fixes|Resolves|Refs ... #<n>` lines. Every line must be `Key: value` or tail material, at
+ * least one `Key: value`; prose above the block is never walked across.
+ */
+const TAIL_LINE = [
+  /^\s*$/,
+  /^<!--[\s\S]*-->$/,
+  /^Co-authored-by:\s*\S/i,
+  /^\(cherry picked from commit [0-9a-f]{7,40}\)$/,
+  /^-{3,}$/,
+  /^(?:Closes|Fixes|Resolves|Refs)\b[^:]*#\d+\s*$/i,
+] as const;
+
+const TRAILER_LINE = /^[A-Za-z][A-Za-z0-9-]*:\s*\S/;
+
+const isTailLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  return (
+    (trimmed.startsWith("<!--") && trimmed.endsWith("-->")) ||
+    TAIL_LINE.some((pattern) => pattern.test(trimmed))
+  );
+};
+
+export const trailerBlock = (body: string): string => {
+  const paragraphs: Array<Array<string>> = [[]];
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.trim().length === 0 && (paragraphs.at(-1)?.length ?? 0) > 0) {
+      paragraphs.push([]);
+      continue;
+    }
+    if (line.trim().length === 0) continue;
+    paragraphs.at(-1)?.push(line);
+  }
+  while (paragraphs.length > 0 && (paragraphs.at(-1) ?? []).every(isTailLine)) {
+    paragraphs.pop();
+  }
+  const paragraph = paragraphs.at(-1) ?? [];
+  if (!paragraph.some((line) => TRAILER_LINE.test(line))) return "";
+  if (!paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line))) return "";
+  return paragraph.filter((line) => TRAILER_LINE.test(line)).join("\n");
+};
 
 /**
  * A repeated trailer whose copies disagree is a parse failure. One copy parses exactly as before;
@@ -94,12 +143,13 @@ const readTrailer = (body: string, key: string): string | undefined => {
 };
 
 export const parseForkTrailers = (body: string): ForkTrailers => {
-  const read = readTrailer;
-  const domain = read(body, "Fork-Domain");
-  const tier = read(body, "Fork-Tier");
-  const upstreamable = read(body, "Fork-Upstreamable");
-  const wireReviewed = read(body, "Fork-Wire");
-  const repair = read(body, "Fork-Repair");
+  const block = trailerBlock(body);
+  const read = (key: string) => readTrailer(block, key);
+  const domain = read("Fork-Domain");
+  const tier = read("Fork-Tier");
+  const upstreamable = read("Fork-Upstreamable");
+  const wireReviewed = read("Fork-Wire");
+  const repair = read("Fork-Repair");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
@@ -115,10 +165,10 @@ export const parseForkLog = (raw: string): ReadonlyArray<ParsedForkCommit> =>
     .map((record) => record.replace(/^\n/, ""))
     .filter((record) => record.trim().length > 0)
     .map((record) => {
-      const [sha = "", short = "", subject = "", body = ""] =
+      const [sha = "", short = "", authorDate = "", subject = "", body = ""] =
         record.split(FORK_LOG_FIELD_SEPARATOR);
       try {
-        return { sha, short, subject, ...parseForkTrailers(body) };
+        return { sha, short, authorDate, subject, ...parseForkTrailers(body) };
       } catch (error) {
         if (error instanceof DuplicateForkTrailerError) {
           // Name the offending commit, following the shape describeReplayMessageDiff established:

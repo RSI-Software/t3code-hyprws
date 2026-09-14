@@ -177,6 +177,7 @@ it("renders assessed repair states instead of presenting a guard name as verific
                   subject: file.subject,
                   domain: file.domain,
                   kind: "content",
+                  stage: "unresolved",
                 },
               ]
             : [],
