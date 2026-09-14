@@ -330,7 +330,11 @@ squash under a human-authorized expected-old trunk lease, legal because the
 archive ref `archive/hyprws-pre-rewrite-<expected-old>` was created and verified
 first (the one hand-created exception to the bot-owned ref families above),
 churn aliases for every squashed subject were recorded first, and the flatten is
-tree-neutral. The general never-squash rule otherwise stands. See
+tree-neutral. A second spent exception is the reshape fold
+(RSI-Software/t3code-hyprws#965): folding a landed reshape squash back into its
+originating fork commit via `vp run fork:sync fold-reshape` is tree-neutral by
+construction and rides the same lease and archive ref requirements as the
+flatten. The general never-squash rule otherwise stands. See
 [Fork strategy principle 4](./fork-strategy.md#principles) for the reasoning behind this asymmetry.
 
 - Keep one concern per commit and use the repository's conventional commit style.
