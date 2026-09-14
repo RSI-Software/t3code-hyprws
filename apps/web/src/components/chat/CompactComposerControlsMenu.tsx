@@ -17,7 +17,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   showInteractionModeToggle: boolean;
-  agentMenuContent?: ReactNode;
+  agentMenuContent?: ReactNode; // fork-hook: custom-agents/compact-menu-agent-prop
   traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
   /**
@@ -50,12 +50,14 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
+        {/* fork-hook: custom-agents/compact-menu-agent-render */}
         {props.agentMenuContent ? (
           <>
             {props.agentMenuContent}
             <MenuDivider />
           </>
         ) : null}
+        {/* fork-hook-end */}
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}
