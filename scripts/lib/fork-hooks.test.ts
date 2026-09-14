@@ -4,7 +4,7 @@ import { assert, it } from "@effect/vitest";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { fileURLToPath } from "node:url";
+import * as NodeURL from "node:url";
 import {
   FORK_HOOKS,
   FORK_HOOK_JSX_END,
@@ -19,7 +19,10 @@ import {
 } from "./fork-hooks.ts";
 import { FORK_DOMAINS } from "./fork-trailers.ts";
 
-const repoRoot = NodePath.resolve(NodePath.dirname(fileURLToPath(import.meta.url)), "../..");
+const repoRoot = NodePath.resolve(
+  NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 it("passes the schema on an empty manifest and tightens as entries arrive", () => {
   for (const [key, entry] of Object.entries(FORK_HOOKS)) {
