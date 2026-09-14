@@ -17,6 +17,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
+import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export {
   parseChangeRequestUrl,
@@ -27,51 +28,34 @@ export {
   changeRequestRepositoryUrl,
 } from "@t3tools/shared/changeRequestUrl";
 
-export interface GitHubIssueLink {
-  readonly host: string;
-  readonly repository: string;
-  readonly number: number;
-}
-
-function repositoryIdentityOf(project: EnvironmentProject): string | null {
+function resolvedForgejoRepository(project: EnvironmentProject): URL | null {
   const identity = project.repositoryIdentity;
-  if (!identity) return null;
-  return (
-    identity.displayName ??
-    (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null)
-  );
-}
-
-export function parseGitHubIssueUrl(targetUrl: string): GitHubIssueLink | null {
-  let url: URL;
+  if (identity?.provider !== "forgejo" || !identity.webUrl) return null;
   try {
-    url = new URL(targetUrl);
+    const url = new URL(identity.webUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  const host = url.hostname.toLowerCase();
-  // GitHub Enterprise hosts are arbitrary. The workspace project match in the click handler is
-  // the safety gate that keeps an ordinary link from being claimed by the issue surface.
-  const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  return claim(host, match);
 }
 
-function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | null {
-  const repository = match?.[1];
-  const number = Number(match?.[2]);
-  return repository && Number.isSafeInteger(number) && number > 0
-    ? { host, repository: repository.toLowerCase(), number }
-    : null;
+/** Keep Forgejo servers on different HTTP ports separate when selecting a project. */
+function matchesChangeRequestAuthority(
+  project: EnvironmentProject,
+  link: ChangeRequestLink,
+): boolean {
+  if (link.authority === undefined) return true;
+  try {
+    const remote = new URL(project.repositoryIdentity?.locator.remoteUrl ?? "");
+    if (remote.protocol === "http:" || remote.protocol === "https:") {
+      return remote.host.toLowerCase() === link.authority;
+    }
+  } catch {
+    // SSH remotes do not specify the server's HTTP port; tea resolves the configured login.
+  }
+  return true;
 }
 
-/**
- * Returns a click handler that opens a pull request URL in the system browser.
- *
- * Stops event propagation/default so activating the link does not also trigger
- * an enclosing row or trigger (e.g. opening the branch dropdown), and surfaces a
- * toast when the local API is unavailable or the open fails.
- */
 /**
  * The project a link belongs to, or nothing. Matched the way the server matches: the repository
  * identity is the full path below the host where one was recorded — which is what nested GitLab
@@ -84,37 +68,29 @@ export function findProjectForChangeRequest(
 ): EnvironmentProject | undefined {
   return projects.find((project) => {
     const identity = project.repositoryIdentity;
-    if (!identity) return false;
+    if (!identity || !matchesChangeRequestAuthority(project, link)) return false;
     const kind = identity.provider as SourceControlProviderKind | undefined;
     if (kind === undefined) return false;
+    const web = resolvedForgejoRepository(project);
+    if (web)
+      return (
+        web.host.toLowerCase() === (link.authority ?? link.host).toLowerCase() &&
+        web.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() === link.repository.toLowerCase()
+      );
     if (kind === "azure-devops") {
       return (
         canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) ===
         canonicalRepositoryKey(`${link.host}/${link.repository}`.toLowerCase())
       );
     }
-    const repository = repositoryIdentityOf(project);
+    const repository =
+      identity.displayName ??
+      (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
     return (
       repository !== null &&
       repository.toLowerCase() === link.repository.toLowerCase() &&
-      pullRequestHostOf(identity, kind) === link.host.toLowerCase()
-    );
-  });
-}
-
-export function findProjectForGitHubIssue(
-  projects: ReadonlyArray<EnvironmentProject>,
-  link: GitHubIssueLink,
-): EnvironmentProject | undefined {
-  return projects.find((project) => {
-    const identity = project.repositoryIdentity;
-    if (!identity || identity.provider !== "github") return false;
-    const repository = repositoryIdentityOf(project);
-    const host = pullRequestHostOf(identity, "github");
-    return (
-      repository !== null &&
-      repository.toLowerCase() === link.repository.toLowerCase() &&
-      (host === "github" ? "github.com" : host) === link.host.toLowerCase()
+      (pullRequestHostOf(identity, kind) === link.host.toLowerCase() ||
+        pullRequestHostOf(identity, kind) === link.authority)
     );
   });
 }
@@ -140,39 +116,27 @@ export function findProjectOnChangeRequestHost(
   return projects.find((project) => {
     const identity = project.repositoryIdentity;
     const kind = identity?.provider as SourceControlProviderKind | undefined;
+    const web = resolvedForgejoRepository(project);
+    if (web) {
+      const mount = web.pathname
+        .replace(/^\/+|\/+$/g, "")
+        .split("/")
+        .slice(0, -2)
+        .join("/");
+      return (
+        web.host.toLowerCase() === (link.authority ?? link.host).toLowerCase() &&
+        (!mount || link.repository.toLowerCase().startsWith(`${mount.toLowerCase()}/`))
+      );
+    }
     return (
       identity != null &&
       kind !== undefined &&
       kind !== "azure-devops" &&
-      pullRequestHostOf(identity, kind) === link.host.toLowerCase()
+      matchesChangeRequestAuthority(project, link) &&
+      (pullRequestHostOf(identity, kind) === link.host.toLowerCase() ||
+        pullRequestHostOf(identity, kind) === link.authority)
     );
   });
-}
-
-/**
- * Uses an exact workspace checkout when one exists, otherwise uses the active GitHub project as
- * the authenticated execution context for another repository on the same host.
- */
-export function findProjectForGitHubLink(
-  projects: ReadonlyArray<EnvironmentProject>,
-  link: GitHubIssueLink,
-  preferredProjectId?: string,
-): EnvironmentProject | undefined {
-  const exact = findProjectForGitHubIssue(projects, link);
-  if (exact !== undefined || preferredProjectId === undefined) return exact;
-  return projects.find((project) => {
-    const identity = project.repositoryIdentity;
-    if (project.id !== preferredProjectId || identity?.provider !== "github") return false;
-    const host = pullRequestHostOf(identity, "github");
-    return (host === "github" ? "github.com" : host) === link.host.toLowerCase();
-  });
-}
-
-function linkedRepository(project: EnvironmentProject, repository: string): string {
-  const projectRepository = repositoryIdentityOf(project);
-  return projectRepository?.toLowerCase() === repository.toLowerCase()
-    ? projectRepository
-    : repository;
 }
 
 /**
@@ -216,61 +180,19 @@ export function useOpenChangeRequestLink(
       if (shouldOpenPullRequestExternally(event)) return false;
       const resolvedThreadRef = targetThreadRef ?? threadRef;
       const resolvedPanelRef = panelRef ?? resolvedThreadRef;
-      const parsedIssue = parseGitHubIssueUrl(targetUrl);
-      if (parsedIssue !== null) {
-        const readsIssues = (environmentId: EnvironmentId) =>
-          serverConfigs.get(environmentId)?.environment.capabilities.githubIssues === true;
-        const projects = resolvedThreadRef
-          ? allProjects.filter(
-              (project) => project.environmentId === resolvedThreadRef.environmentId,
-            )
-          : allProjects
-              .filter((project) => readsIssues(project.environmentId))
-              .toSorted(
-                (left, right) =>
-                  Number(right.environmentId === primaryEnvironmentId) -
-                  Number(left.environmentId === primaryEnvironmentId),
-              );
-        const preferredProjectId = resolvedThreadRef
-          ? readThreadShell(resolvedThreadRef)?.projectId
-          : undefined;
-        const issueProject = findProjectForGitHubLink(projects, parsedIssue, preferredProjectId);
-        if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
-        event.preventDefault();
-        event.stopPropagation();
-        const repository = linkedRepository(issueProject, parsedIssue.repository);
-        if (resolvedThreadRef) {
-          useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
-            environmentId: issueProject.environmentId,
-            projectId: issueProject.id,
-            repository,
-            number: parsedIssue.number,
-          });
-          return true;
-        }
-        const search = {
-          state: "all" as const,
-          selectedEnvironmentId: issueProject.environmentId,
-          selectedProjectId: issueProject.id,
-          repository,
-          number: parsedIssue.number,
-        };
-        const windowProjectRef = resolveProjectRefFromPathname(
-          typeof window === "undefined" ? "/" : window.location.pathname,
-        );
-        void navigate({
-          ...listRouteTarget("issues", windowProjectRef),
-          search: {
-            ...search,
-            ...(windowProjectRef !== null &&
-            (windowProjectRef.environmentId !== issueProject.environmentId ||
-              windowProjectRef.projectId !== issueProject.id)
-              ? { scope: "all" as const }
-              : {}),
-          },
-        });
+      if (
+        openGitHubIssueLinkFork({
+          event,
+          targetUrl,
+          resolvedThreadRef,
+          allProjects,
+          serverConfigs,
+          primaryEnvironmentId,
+          navigate,
+        })
+      ) {
         return true;
-      }
+      } // fork-hook: github-issues/issue-link-claim
       const parsed = parseChangeRequestUrl(targetUrl);
       if (parsed === null) return false;
       const reads = (environmentId: string) =>
@@ -309,7 +231,7 @@ export function useOpenChangeRequestLink(
               parsed,
             )
           : undefined) ??
-        findProjectForGitHubLink(projects, parsed, preferredProjectId);
+        findProjectPreferredFork(projects, parsed, preferredProjectId); // fork-hook: github-issues/change-request-preferred-project
       if (project === undefined || !reads(project.environmentId)) return false;
       const repository =
         serverConfigs.get(project.environmentId)?.environment.capabilities.threadPullRequests ===
@@ -327,7 +249,7 @@ export function useOpenChangeRequestLink(
           projectId: project.id,
           ...(serverConfigs.get(project.environmentId)?.environment.capabilities
             .threadPullRequests === true
-            ? { host: parsed.host }
+            ? { host: parsed.authority ?? parsed.host }
             : {}),
           // The identity's own spelling, not the one read out of the URL: the panel asks the
           // provider for this repository, while matching a link only ever compares lower case.
@@ -344,7 +266,7 @@ export function useOpenChangeRequestLink(
               state: previous.state ?? "all",
               repository,
               number: parsed.number,
-              selectedHost: parsed.host,
+              selectedHost: parsed.authority ?? parsed.host,
               selectedProjectId: project.id,
               selectedEnvironmentId: project.environmentId,
             }),
@@ -365,7 +287,7 @@ export function useOpenChangeRequestLink(
           state: "all",
           repository,
           number: parsed.number,
-          selectedHost: parsed.host,
+          selectedHost: parsed.authority ?? parsed.host,
           selectedProjectId: project.id,
           // Named so the page opens the right one of two servers holding this project.
           selectedEnvironmentId: project.environmentId,
