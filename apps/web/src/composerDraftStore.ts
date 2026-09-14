@@ -1,4 +1,5 @@
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
+import { ForkThreadEnvMode } from "@t3tools/contracts"; // fork-hook: worktrunk-hooks/draft-thread-env-mode-schema-import
 import {
   ElementContextDetails,
   DEFAULT_MODEL,
@@ -97,7 +98,7 @@ export function resolveComposerDraftStorageKey(pathname: string): string {
 const activeComposerDraftStorageKey = resolveComposerDraftStorageKey(
   typeof window === "undefined" ? "/" : (window.location?.pathname ?? "/"),
 );
-const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree", "worktrunk"]);
+const DraftThreadEnvModeSchema = ForkThreadEnvMode; // fork-hook: worktrunk-hooks/draft-thread-env-mode-schema
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
 export const DraftId = Schema.String.pipe(Schema.brand("DraftId"));
