@@ -41,7 +41,7 @@ export interface ForkHookEntry {
  * the schema test passes on an empty manifest and tightens as entries arrive.
  */
 export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
-  // custom-agents — marked on RSI-Software/t3code-hyprws#963; test seams marked on #674 PR 2.
+  // custom-agents — marked on RSI-Software/t3code-hyprws#963; test seams marked on RSI-Software/t3code-hyprws#674 PR 2.
   "custom-agents/codex-test-env-split": {
     path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
     anchor: { kind: "after-call", symbol: "startSession" },
@@ -576,6 +576,32 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "github-issues/settings-change-request-open-mode-patch": {
     path: "packages/contracts/src/settings.ts",
     anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
+  },
+
+  // markdown-editing — marked on RSI-Software/t3code-hyprws#958.
+  "markdown-editing/rich-preview-import": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "markdown-editing/rich-preview-mode": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "after-decl", symbol: "revealHandled" },
+  },
+  "markdown-editing/rich-preview-rendered": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "after-decl", symbol: "renderMarkdown" },
+  },
+  "markdown-editing/rich-preview-toggle-props": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
+  },
+  "markdown-editing/rich-preview-icon": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
+  },
+  "markdown-editing/rich-preview-boundary": {
+    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "RenderedMarkdownSurface" },
   },
 };
 
