@@ -12,7 +12,8 @@ import type {
 import { useMemo } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
-import { createMergedEnvironmentQuery, type EnvironmentQueryTarget } from "./pullRequests";
+import type { EnvironmentQueryTarget } from "./pullRequests";
+import { createMergedEnvironmentQueryFork } from "./pullRequests.fork";
 import { allEnvironmentShellsBootstrappedAtom } from "./shell";
 import { environmentShellBootstrappedAtom } from "./windowProjectBootstrap.fork";
 
@@ -30,7 +31,7 @@ function useGitHubIssueEnvironmentShellBootstrapped(environmentId: EnvironmentId
   return useAtomValue(githubIssueShellBootstrappedAtom(environmentId));
 }
 
-const useGitHubIssueListsQuery = createMergedEnvironmentQuery<
+const useGitHubIssueListsQuery = createMergedEnvironmentQueryFork<
   GitHubIssueListInput,
   GitHubIssueListResult
 >("web-github-issues:list", githubIssueEnvironment.list);

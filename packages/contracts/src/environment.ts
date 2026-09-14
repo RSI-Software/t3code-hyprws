@@ -91,8 +91,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server exposes the pull-request list, detail, activity, diff, and mutation APIs. Absent on
       servers from before the pull-request workspace shipped, so clients must not probe them. */
   pullRequests: Schema.optionalKey(Schema.Boolean),
-  /** Server exposes read-only GitHub issue list and detail APIs. */
-  githubIssues: Schema.optionalKey(Schema.Boolean),
   /** Server understands canonical inline context links plus their message context records.
       Absent on servers from before inline context shipped, which drop the records and forward
       the links as literal text -- so a client must serialize context the legacy way for them. */
@@ -169,6 +167,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       desktop servers whose app predates the remote trigger, where clients
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
+  githubIssues: Schema.optionalKey(Schema.Boolean), // fork-hook: github-issues/environment-capability
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

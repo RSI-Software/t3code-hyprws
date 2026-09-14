@@ -166,7 +166,8 @@ import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueRpcHandlersFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/ws-wiring-import
+import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts"; // fork-hook: github-issues/ws-service-import
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
@@ -754,7 +755,7 @@ const makeWsRpcLayer = (
       const pullRequests = yield* PullRequestService.PullRequestService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
-      const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+      const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-service-yield
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -855,6 +856,37 @@ const makeWsRpcLayer = (
       }) =>
         Effect.all({
           commandId: serverCommandId("thread-activity"),
+          activityId: serverEventId,
+        }).pipe(
+          Effect.flatMap(({ commandId, activityId }) =>
+            dispatchFromClient({
+              type: "thread.activity.append",
+              commandId,
+              threadId: input.threadId,
+              activity: {
+                id: activityId,
+                tone: input.tone,
+                kind: input.kind,
+                summary: input.summary,
+                payload: input.payload,
+                turnId: null,
+                createdAt: input.createdAt,
+              },
+              createdAt: input.createdAt,
+            }),
+          ),
+        );
+
+      const appendSetupScriptActivity = (input: {
+        readonly threadId: ThreadId;
+        readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+        readonly summary: string;
+        readonly createdAt: string;
+        readonly payload: Record<string, unknown>;
+        readonly tone: "info" | "error";
+      }) =>
+        Effect.all({
+          commandId: serverCommandId("setup-script-activity"),
           activityId: serverEventId,
         }).pipe(
           Effect.flatMap(({ commandId, activityId }) =>
@@ -1267,7 +1299,7 @@ const makeWsRpcLayer = (
             readonly worktreePath: string;
           }) => {
             const detail = projectSetupScriptCompatibilityDetail(input.error);
-            return appendThreadActivity({
+            return appendSetupScriptActivity({
               threadId: command.threadId,
               kind: "setup-script.failed",
               summary: "Setup script failed to start",
@@ -1305,7 +1337,7 @@ const makeWsRpcLayer = (
                 worktreePath: input.worktreePath,
               };
               yield* Effect.all([
-                appendThreadActivity({
+                appendSetupScriptActivity({
                   threadId: command.threadId,
                   kind: "setup-script.requested",
                   summary: "Starting setup script",
@@ -1313,7 +1345,7 @@ const makeWsRpcLayer = (
                   payload,
                   tone: "info",
                 }),
-                appendThreadActivity({
+                appendSetupScriptActivity({
                   threadId: command.threadId,
                   kind: "setup-script.started",
                   summary: "Setup script started",
@@ -3147,14 +3179,7 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "pull-requests",
             },
           ),
-        [WS_METHODS.githubIssuesList]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesList, githubIssues.list(input), {
-            "rpc.aggregate": "github-issues",
-          }),
-        [WS_METHODS.githubIssuesDetail]: (input) =>
-          observeRpcEffect(WS_METHODS.githubIssuesDetail, githubIssues.detail(input), {
-            "rpc.aggregate": "github-issues",
-          }),
+        ...gitHubIssueRpcHandlersFork(githubIssues, observeRpcEffect), // fork-hook: github-issues/ws-rpc-handlers
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(
             WS_METHODS.sourceControlLookupRepository,
@@ -4024,7 +4049,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     });
     const pullRequests = yield* PullRequestService.PullRequestService;
     const sql = yield* SqlClient.SqlClient;
-    const githubIssues = yield* GitHubIssueService.GitHubIssueService;
+    const githubIssues = yield* GitHubIssueService.GitHubIssueService; // fork-hook: github-issues/ws-route-service-yield
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -4072,7 +4097,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               // One server-lifetime service means clients share the same PR caches, and a WS
               // mutation invalidates the HTTP diff cache that every client reads from.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
-              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)),
+              Layer.provide(Layer.succeed(GitHubIssueService.GitHubIssueService, githubIssues)), // fork-hook: github-issues/ws-route-service-provide
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

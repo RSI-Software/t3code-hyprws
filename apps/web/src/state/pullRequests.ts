@@ -84,17 +84,11 @@ export interface EnvironmentQueryTarget<Input> {
   readonly input: Input;
 }
 
-export interface MergedEnvironmentQueryError {
-  readonly environmentId: EnvironmentId;
-  readonly message: string;
-}
-
 interface MergedEnvironmentQueryView<A> {
   /** One entry per query target that has answered, in the order the targets were given. */
   readonly values: ReadonlyArray<readonly [EnvironmentId, A]>;
-  /** Every environment that failed. Others may still have answered — these are not fatal. */
-  readonly errors: ReadonlyArray<MergedEnvironmentQueryError>;
-  /** True while any targeted environment is still waiting for an answer. */
+  /** The first environment that failed. Others may still have answered — this is not fatal. */
+  readonly error: string | null;
   readonly isPending: boolean;
 }
 
@@ -103,10 +97,10 @@ interface MergedEnvironmentQueryView<A> {
  * to a list of atoms whose length changes, so the fan-out happens inside one derived atom keyed by
  * the targets — the same shape the cross-environment thread search uses.
  *
- * An environment that fails contributes nothing rather than blanking the page: these lists are a
- * union, and one unreachable machine should not hide the others' rows.
+ * An environment that fails contributes nothing rather than blanking the page: the pull request
+ * list is a union, and one unreachable machine should not hide the others' rows.
  */
-export function createMergedEnvironmentQuery<Input, A>(
+function createMergedEnvironmentQuery<Input, A>(
   label: string,
   atomFor: (
     target: EnvironmentQueryTarget<Input>,
@@ -116,26 +110,23 @@ export function createMergedEnvironmentQuery<Input, A>(
     Atom.make((get): MergedEnvironmentQueryView<A> => {
       const targets = JSON.parse(key) as ReadonlyArray<EnvironmentQueryTarget<Input>>;
       const values: Array<readonly [EnvironmentId, A]> = [];
-      const errors: MergedEnvironmentQueryError[] = [];
+      let error: string | null = null;
       let isPending = false;
       for (const target of targets) {
         const result = get(atomFor(target));
         isPending ||= result.waiting;
-        if (result._tag === "Failure") {
-          errors.push({
-            environmentId: target.environmentId,
-            message: formatEnvironmentQueryError(result.cause),
-          });
+        if (result._tag === "Failure" && error === null) {
+          error = formatEnvironmentQueryError(result.cause);
         }
         const value = Option.getOrNull(AsyncResult.value(result));
         if (value !== null) values.push([target.environmentId, value]);
       }
-      return { values, errors, isPending };
+      return { values, error, isPending };
     }).pipe(Atom.withLabel(`${label}:${key}`)),
   );
   const empty = Atom.make<MergedEnvironmentQueryView<A>>({
     values: [],
-    errors: [],
+    error: null,
     isPending: false,
   }).pipe(Atom.withLabel(`${label}:empty`));
   return function useMergedQuery(targets: ReadonlyArray<EnvironmentQueryTarget<Input>>) {
@@ -197,12 +188,7 @@ export function usePullRequestList(
 ): MergedPullRequestListView {
   const query = usePullRequestListsQuery(targets);
   const data = useMemo(() => mergePullRequestLists(query.values), [query.values]);
-  return {
-    data,
-    error: query.errors[0]?.message ?? null,
-    isPending: query.isPending,
-    refresh: query.refresh,
-  };
+  return { data, error: query.error, isPending: query.isPending, refresh: query.refresh };
 }
 
 /** The line counts for the rows on screen, asked of each environment for its own rows. */
