@@ -111,6 +111,19 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "import-block" },
   },
+  // zmux-estate — marked on RSI-Software/t3code-hyprws#962.
+  "zmux-estate/decider-checkout-move-import": {
+    path: "apps/server/src/orchestration/decider.ts",
+    anchor: { kind: "import-block" },
+  },
+  "zmux-estate/decider-checkout-move-dispatch": {
+    path: "apps/server/src/orchestration/decider.ts",
+    anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+  },
+  "zmux-estate/decider-turn-start-checkout-move-guard": {
+    path: "apps/server/src/orchestration/decider.ts",
+    anchor: { kind: "after-decl", symbol: "targetThread" },
+  },
   "custom-agents/claude-child-snapshot-emit": {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "after-decl", symbol: "handleAssistantMessage" },
