@@ -22,6 +22,7 @@
 // rule can ship before the stack it describes is clean.
 
 import { lessonHotSeams, readLessonEvidence } from "./fork-lesson-guidance.ts";
+import { forkHookSeamWarnings } from "./lib/fork-hook-guard.ts";
 
 // `#73` spans 12 hunks over 6 files in the v0.0.39-nightly.20260902.1256
 // census, the largest footprint the ledger has had to replay by hand.
@@ -42,7 +43,8 @@ export type ScanWarningRule =
   | "desktop-preview-ownership"
   | "thread-route-navigation"
   | "github-issue-settings-search"
-  | "mobile-ignored-file-listing";
+  | "mobile-ignored-file-listing"
+  | "fork-hook-seam";
 
 // Exact integration targets used by the real matchers and the lesson-guidance
 // coverage invariant. Upstream test ownership is a separate generic policy.
@@ -138,6 +140,7 @@ const RULE_ORDER: ReadonlyArray<ScanWarningRule> = [
   "pull-request-project-scope",
   "github-issue-settings-search",
   "mobile-ignored-file-listing",
+  "fork-hook-seam",
 ];
 
 export interface ScanWarning {
@@ -182,6 +185,13 @@ export interface CommitPatch {
   // blocks and carries no title change, and the two counting rules below miss
   // it entirely.
   readonly removedTestLines: ReadonlyMap<string, ReadonlyArray<string>>;
+  // Every added/removed content line a commit's patch carries, keyed by path,
+  // so ownership rules that read the raw seam (fork-hook-seam) can classify it
+  // without parsing diffs a second time.
+  readonly changedLines: ReadonlyMap<
+    string,
+    { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
+  >;
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
@@ -197,6 +207,9 @@ export interface GuardCommit {
   readonly sha: string;
   readonly short: string;
   readonly domain: string;
+  // Trailer values the fork-hook-seam exemption reads. Absent means unclaimed.
+  readonly tier?: string;
+  readonly upstreamable?: string;
 }
 
 export interface GuardInput {
@@ -223,6 +236,14 @@ export interface GuardInput {
   // by leaving that table. An absent set is an empty baseline, never a licence.
   readonly upstreamTestDebt?: ReadonlySet<string>;
   readonly hotSeams: ReadonlyMap<string, HotSeam>;
+  // Manifest keys from scripts/lib/fork-hooks.ts. A marker outside this set is
+  // a hook the sync walk cannot reason about.
+  readonly forkHooks: ReadonlySet<string>;
+  // The target-tree significant lines of the upstream-owned files the warned
+  // commits remove lines from, so a fork deletion of its own earlier hook line
+  // is not refused as an upstream removal. Populated only for the files the
+  // fork-hook-seam rule needs; an absent entry refuses every removal.
+  readonly upstreamHookLines?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 const PATCH_RECORD_SEPARATOR = "";
@@ -400,6 +421,8 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const addedExports: Array<ExportDeclaration> = [];
     const testBlockHunks: Array<TestBlockHunk> = [];
     const removedTestLines = new Map<string, Array<string>>();
+    const addedLines = new Map<string, Array<string>>();
+    const removedLines = new Map<string, Array<string>>();
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
@@ -453,6 +476,10 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
+      (added ? addedLines : removedLines).set(path, [
+        ...((added ? addedLines : removedLines).get(path) ?? []),
+        content,
+      ]);
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const lines = removedTestLines.get(path) ?? [];
         lines.push(content.trim());
@@ -538,6 +565,15 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       }
     }
     flushTestBlockHunk();
+    const changedLines = new Map<
+      string,
+      { readonly added: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }
+    >();
+    for (const path of new Set([...addedLines.keys(), ...removedLines.keys()]))
+      changedLines.set(path, {
+        added: addedLines.get(path) ?? [],
+        removed: removedLines.get(path) ?? [],
+      });
     const threadRouteNavigationAdded = [...navigationAdditions.values()].some((lines) => {
       const added = lines.join("\n");
       return (
@@ -551,6 +587,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       addedExports,
       testBlockHunks,
       removedTestLines,
+      changedLines,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
@@ -606,6 +643,7 @@ const EMPTY_PATCH: CommitPatch = {
   addedExports: [],
   testBlockHunks: [],
   removedTestLines: new Map(),
+  changedLines: new Map(),
 };
 
 export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarning> => {
@@ -775,6 +813,18 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
         `${upstreamTouched.length} upstream file(s) in one commit (budget ${UPSTREAM_FOOTPRINT_BUDGET}); prefer one adapter boundary over edits spread across upstream files`,
       );
     }
+
+    // Warn-only by construction: `fork-hook-seam` is not adopted, so this only
+    // ever adds advisory warnings, never scan failures on its own.
+    for (const detail of forkHookSeamWarnings({
+      commit,
+      files,
+      changedLines: patch.changedLines,
+      upstreamFiles: input.upstreamFiles,
+      forkHooks: input.forkHooks,
+      upstreamLines: input.upstreamHookLines ?? new Map(),
+    }))
+      warn("fork-hook-seam", detail);
 
     // The re-declaration is matched by name across the whole commit: moving an
     // upstream declaration into a fork-owned file is the common form of this

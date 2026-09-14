@@ -436,6 +436,7 @@ it("carries ledger guard warnings into the report without changing the scan verd
       upstreamChanged: new Set(),
       guard: {
         commits: [{ sha: "aaaaaaa".padEnd(40, "0"), short: "aaaaaaa", domain: "project-windows" }],
+        forkHooks: new Set<string>() as ReadonlySet<string>,
         filesBySha: new Map([
           ["aaaaaaa".padEnd(40, "0"), ["apps/web/src/components/ChatView.tsx"]],
         ]),
