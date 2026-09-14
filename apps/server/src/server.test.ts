@@ -721,21 +721,12 @@ const buildAppUnderTest = (options?: {
       Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
     );
-    const serverSettingsLayer = Layer.mock(ServerSettings.ServerSettingsService)({
-      start: Effect.void,
-      ready: Effect.void,
-      getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-      updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-      streamChanges: Stream.empty,
-      ...options?.layers?.serverSettings,
-    });
     const workspaceAndProjectServicesLayer = Layer.mergeAll(
       WorkspacePaths.layer,
       workspaceEntriesLayer,
       WorkspaceFileSystem.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
         Layer.provide(workspaceEntriesLayer),
-        Layer.provide(serverSettingsLayer),
       ),
       ProjectFaviconResolver.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
@@ -872,7 +863,16 @@ const buildAppUnderTest = (options?: {
           }),
         ),
       ),
-      Layer.provide(serverSettingsLayer),
+      Layer.provide(
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          start: Effect.void,
+          ready: Effect.void,
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          streamChanges: Stream.empty,
+          ...options?.layers?.serverSettings,
+        }),
+      ),
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(ExternalLauncher.ExternalLauncher)({
@@ -11686,7 +11686,12 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
+          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
+          // repository whose base resolves; stand both gates in so the fork's
+          // zmux bind at the created worktree stays under test.
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
           gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {
@@ -11752,11 +11757,23 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
       ]);
       assert.deepStrictEqual(
         dispatchedCommands.map((command) => command.type),
-        ["thread.create", "thread.activity.append", "thread.meta.update", "thread.turn.start"],
+        [
+          "thread.create",
+          "thread.message.user.append",
+          "thread.activity.append",
+          "thread.session.set",
+          "thread.activity.append",
+          "thread.meta.update",
+          "thread.turn.start",
+          "thread.activity.append",
+        ],
       );
+      // Target's bootstrap projects its own setup activities around the fork's
+      // zmux bind record; pick the bind failure by kind, not by position.
       const bindFailureActivity = dispatchedCommands.find(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind === "zmux-session.failed",
       );
       assert.equal(bindFailureActivity?.activity.kind, "zmux-session.failed");
       assert.deepStrictEqual(bindFailureActivity?.activity.payload, {
@@ -11779,7 +11796,12 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
+          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
+          // repository whose base resolves; stand both gates in so the fork's
+          // zmux bind at the created worktree stays under test.
+          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
           gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
             createWorktree: () =>
               Effect.succeed({
                 worktree: {
@@ -11840,9 +11862,12 @@ it.layer(ServerRouterTestLayer)("server router seam", (it) => {
       );
 
       assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/tmp/bootstrap-worktree");
+      // Target's bootstrap projects its own setup activities around the fork's
+      // zmux bind record; pick the bind outcome by kind, not by position.
       const bindActivity = dispatchedCommands.find(
         (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
+          command.type === "thread.activity.append" &&
+          command.activity.kind === "zmux-session.bound",
       );
       assert.equal(bindActivity?.activity.kind, "zmux-session.bound");
       assert.equal(bindActivity?.activity.summary, "zmux session reused");
