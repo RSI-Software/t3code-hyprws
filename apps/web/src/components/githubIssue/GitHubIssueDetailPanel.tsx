@@ -14,7 +14,7 @@ import {
   MessageSquareIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   composerDraftHasUserContent,
@@ -29,6 +29,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { PullRequestMarkdown } from "../pullRequest/PullRequestMarkdown";
 import { Button } from "../ui/button";
+import { RefreshIcon } from "../ui/refresh-icon";
 import { toastManager } from "../ui/toast";
 import { GitHubIssueLabelChip, GitHubIssueTypeChip } from "./GitHubIssueChips";
 import { GitHubIssueEmptyState } from "./GitHubIssueEmptyState";
@@ -71,6 +72,19 @@ export function GitHubIssueDetailPanel({
   const query = useEnvironmentQuery(
     githubIssueEnvironment.detail({ environmentId, input: reference }),
   );
+  // The detail query is shared with the issues page and keeps its answer while idle, so an
+  // already-read issue would otherwise show the cached read. Every arrival at an issue is worth
+  // one re-read, whether the panel just mounted or the reference changed underneath it:
+  // everything after that is the reader's explicit refresh. The server answers detail straight
+  // from the host with no cache of its own, so a re-read is the refresh. Keyed on the issue
+  // identity rather than the mount, and read through a ref so a new `refresh` closure alone
+  // never spends another read.
+  const issueKey = `${environmentId}:${reference.projectId}:${reference.repository.toLowerCase()}#${reference.number}`;
+  const refreshOnOpen = useRef(query.refresh);
+  refreshOnOpen.current = query.refresh;
+  useEffect(() => {
+    refreshOnOpen.current();
+  }, [issueKey]);
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <EnvironmentGitHubIssueDetailContent
@@ -78,6 +92,8 @@ export function GitHubIssueDetailPanel({
         detail={query.data}
         error={query.error}
         loading={query.isPending}
+        refreshing={query.isPending}
+        onRefresh={query.refresh}
         onRetry={query.refresh}
         onSelectSubIssue={onSelectSubIssue}
       />
@@ -110,6 +126,8 @@ export function GitHubIssueDetailContent({
   error,
   handoffPromptTemplate = DEFAULT_GITHUB_ISSUE_HANDOFF_PROMPT_TEMPLATE,
   loading,
+  refreshing = false,
+  onRefresh,
   onRetry,
   onSelectSubIssue,
 }: {
@@ -118,6 +136,10 @@ export function GitHubIssueDetailContent({
   readonly error: string | null;
   readonly handoffPromptTemplate?: string;
   readonly loading: boolean;
+  /** True while the header refresh is running: the glyph holds the panel's place until it answers. */
+  readonly refreshing?: boolean;
+  /** Re-reads the issue on demand. Absent where the panel owns no read, like the empty state. */
+  readonly onRefresh?: () => void;
   readonly onRetry: () => void;
   /** Opens a same-repository child in the surface that owns this detail view. */
   readonly onSelectSubIssue?: (child: GitHubSubIssue) => void;
@@ -203,6 +225,17 @@ export function GitHubIssueDetailContent({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {onRefresh ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Refresh issue"
+              disabled={refreshing}
+              onClick={onRefresh}
+            >
+              <RefreshIcon refreshing={refreshing} className="size-4" />
+            </Button>
+          ) : null}
           <Button size="sm" onClick={() => void workOnIssue()} disabled={preparing}>
             <WrenchIcon className="size-4" />
             {preparing ? "Preparing..." : "Work on this issue"}
