@@ -1,4 +1,10 @@
+// @effect-diagnostics nodeBuiltinImport:off - fixture worktrees run real git.
+
 import { assert, it } from "@effect/vitest";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import {
   collectScanWarnings,
@@ -8,10 +14,14 @@ import {
   readHotSeams,
   renderScanWarnings,
   significantTestLines,
+  ADOPTED_AUTHORING_GUARDS,
   UPSTREAM_FOOTPRINT_BUDGET,
   UPSTREAM_TEST_FILE_LOCAL_HARNESS_DEFERRALS,
   type GuardInput,
 } from "./fork-scan-guards.ts";
+import { commitFilesArguments, parseCommitFiles } from "./fork-scan.ts";
+import { FORK_HOOKS } from "./lib/fork-hooks.ts";
+import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 
 const RS = "";
 
@@ -77,6 +87,7 @@ const guardInput = (overrides: Partial<GuardInput> = {}): GuardInput => ({
   filesBySha: new Map(),
   patchesBySha: new Map(),
   upstreamFiles: new Set(),
+  forkHooks: new Set(Object.keys(FORK_HOOKS)),
   hotSeams: readHotSeams(churn),
   ...overrides,
 });
@@ -1193,4 +1204,303 @@ it("renders warnings under one counted heading and nothing when there are none",
   ]);
   assert.strictEqual(lines[1], "Ledger guards, 2 warning(s) (hot-seam: 1, footprint: 1):");
   assert.strictEqual(lines[2], "  WARN  footprint  aaaaaaa  project-windows  9 upstream");
+});
+
+// ---------------------------------------------------------------------------
+// fork-hook-seam: warn-only seam marking (RSI-Software/t3code-hyprws#948)
+// ---------------------------------------------------------------------------
+
+const hookSha = "b".repeat(40);
+const hookPath = "apps/web/src/components/ChatView.tsx";
+
+const hookPatch = (body: string) =>
+  guardInput({
+    commits: [{ sha: hookSha, short: "bbbbbbb", domain: "project-windows" }],
+    filesBySha: new Map([[hookSha, [hookPath]]]),
+    patchesBySha: parseCommitPatches(
+      patch(hookSha, `--- a/${hookPath}\n+++ b/${hookPath}\n@@ -10,4 +10,7 @@\n${body}`),
+    ),
+    upstreamFiles: new Set([hookPath]),
+    forkHooks: new Set(["project-windows/spawn-target", "project-windows/preview-pane"]),
+    upstreamHookLines: new Map([
+      [hookPath, significantTestLines("  return base;\n  const summary = summarize(input);\n")],
+    ]),
+  });
+
+const hookWarnings = (input: ReturnType<typeof hookPatch>) =>
+  collectScanWarnings(input).filter((warning) => warning.rule === "fork-hook-seam");
+
+it("passes a marked import and a marked JSX pair without a seam warning", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        '+import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target',
+        "+      {/* fork-hook: project-windows/preview-pane */}",
+        "+      <PreviewPane target={spawnTarget} />",
+        "+      {/* fork-hook-end */}",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(hookWarnings(hookPatch("")), warnings);
+  assert.deepStrictEqual(warnings, []);
+});
+
+it("warns once per cause per file with line counts, never per line", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+const extra = compute(spawnTarget);",
+        "+const more = computeAgain(spawnTarget);",
+        "-  return base;",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(warnings.length, 2, JSON.stringify(warnings));
+  assert.match(warnings[0]?.detail ?? "", /adds 2 line\(s\) outside a marked fork-hook/);
+  assert.match(warnings[1]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+});
+
+it("warns on a marker with no manifest entry", () => {
+  const warnings = hookWarnings(
+    hookPatch('+import { ghost } from "./ghost.fork.ts"; // fork-hook: fork-meta/ghost\n'),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings));
+  assert.match(warnings[0]?.detail ?? "", /`fork-meta\/ghost` missing from FORK_HOOKS/);
+});
+
+it("produces exactly three warnings for an unmarked line, a deleted upstream line, and an unmanifested marker", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        '+import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target',
+        "+      {/* fork-hook: project-windows/preview-pane */}",
+        "+      <PreviewPane target={spawnTarget} />",
+        "+      {/* fork-hook-end */}",
+        "+const extra = compute(spawnTarget);",
+        "-  return base;",
+        '+import { ghost } from "./ghost.fork.ts"; // fork-hook: fork-meta/ghost',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(warnings.length, 3, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /outside a marked fork-hook/);
+  assert.match(warnings[1]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+  assert.match(warnings[2]?.detail ?? "", /missing from FORK_HOOKS/);
+});
+
+it("never refuses: the rule is absent from the adopted set", () => {
+  assert.isFalse(ADOPTED_AUTHORING_GUARDS.has("fork-hook-seam"));
+});
+
+it("exempts a commit only when Fork-Tier is bugfix and Fork-Upstreamable is yes", () => {
+  const body = "+const extra = compute(spawnTarget);\n";
+  for (const [tier, upstreamable, expected] of [
+    ["bugfix", "yes", 0],
+    ["bugfix", "no", 1],
+    ["qol", "yes", 1],
+    [undefined, "yes", 1],
+    ["bugfix", undefined, 1],
+  ] as const) {
+    const input = hookPatch(body);
+    const commits = input.commits.map((commit) => ({
+      ...commit,
+      ...(tier === undefined ? {} : { tier }),
+      ...(upstreamable === undefined ? {} : { upstreamable }),
+    }));
+    const warnings = collectScanWarnings({ ...input, commits }).filter(
+      (warning) => warning.rule === "fork-hook-seam",
+    );
+    assert.strictEqual(warnings.length, expected, `${tier}/${upstreamable}`);
+  }
+});
+
+it("keeps generated paths and fork-owned files outside the rule", () => {
+  assert.match("pnpm-lock.yaml", GENERATED_HOOK_PATH);
+  assert.match("apps/web/src/messages.gen.ts", GENERATED_HOOK_PATH);
+  assert.isFalse(GENERATED_HOOK_PATH.test("apps/web/src/components/ChatView.tsx"));
+  for (const path of ["pnpm-lock.yaml", "apps/web/src/messages.gen.ts"]) {
+    const input = hookPatch("+const extra = compute(spawnTarget);\n");
+    const commits = input.commits;
+    const filesBySha = new Map([[hookSha, [path]]]);
+    const patchesBySha = new Map(
+      [...input.patchesBySha].map(([sha, p]) => [
+        sha,
+        { ...p, changedLines: new Map([[path, { added: ["+x"], removed: [] }]]) },
+      ]),
+    );
+    const warnings = collectScanWarnings({
+      ...input,
+      commits,
+      filesBySha,
+      patchesBySha,
+      upstreamFiles: new Set([path, hookPath]),
+    }).filter((warning) => warning.rule === "fork-hook-seam");
+    assert.deepStrictEqual(warnings, [], path);
+  }
+});
+
+it("warns on a marked control-flow line: it is not a single call", () => {
+  for (const line of [
+    "+if (x) forkThing(); // fork-hook: project-windows/spawn-target",
+    "+while (ready) forkThing(); // fork-hook: project-windows/spawn-target",
+    "+return forkThing(); // fork-hook: project-windows/spawn-target",
+    "+catch (error) forkThing(); // fork-hook: project-windows/spawn-target",
+  ]) {
+    const warnings = hookWarnings(hookPatch(`${line}\n`));
+    assert.strictEqual(
+      warnings.filter((warning) => /more than one construct/.test(warning.detail)).length,
+      1,
+      line,
+    );
+  }
+});
+
+it("warns when a marked hook carries more than one construct", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+const a = forkThing(); // fork-hook: project-windows/spawn-target",
+        "+      {rows.map((row) => <Row row={row} />)}",
+        "+      {/* fork-hook: project-windows/preview-pane */}",
+        "+      {rows.map((row) => <Row row={row} />)}",
+        "+      {/* fork-hook-end */}",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(
+    warnings.filter((warning) => /more than one construct/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
+it("does not refuse the deletion of a hook line the fork added itself", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      "-  const summary = forkSummarize(input); // fork-hook: project-windows/spawn-target\n",
+    ),
+  );
+  assert.deepStrictEqual(warnings, []);
+});
+
+it("refuses every removal in an upstream file whose target-tree lines could not be read", () => {
+  const input = hookPatch("-  return base;\n");
+  const warnings = collectScanWarnings({
+    ...input,
+    upstreamHookLines: new Map(),
+  }).filter((warning) => warning.rule === "fork-hook-seam");
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings));
+  assert.match(warnings[0]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+});
+
+it("reads a real temp-repo commit: marked hooks pass, woven edits draw exactly three warnings", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-hook-seam-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const git = (...args: readonly string[]) =>
+    NodeChildProcess.execFileSync("git", ["-c", "user.email=t@l", "-c", "user.name=t", ...args], {
+      cwd: root,
+    })
+      .toString()
+      .trim();
+  const write = (path: string, content: string) => {
+    NodeFS.mkdirSync(NodePath.join(root, NodePath.dirname(path)), { recursive: true });
+    NodeFS.writeFileSync(NodePath.join(root, path), content);
+  };
+  const upstream = [
+    "export const summarize = (input: { rows: string[] }) => input.rows.length;",
+    "",
+    "export const View = ({ input }: { input: { rows: string[] } }) => (",
+    "  <div>",
+    '    <Header title="rows" />',
+    "    {summarize(input)}",
+    "  </div>",
+    ");",
+    "",
+  ].join("\n");
+  write("apps/web/src/components/ChatView.tsx", upstream);
+  git("add", ".");
+  git("commit", "--quiet", "-m", "upstream base");
+  const base = git("rev-parse", "HEAD");
+
+  const good = [
+    '+import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target',
+    "+      {/* fork-hook: project-windows/preview-pane */}",
+    "+      <PreviewPane target={spawnTarget} />",
+    "+      {/* fork-hook-end */}",
+    "",
+  ].join("\n");
+  const apply = (body: string) => {
+    const path = "apps/web/src/components/ChatView.tsx";
+    const source = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    const lines = source.split("\n");
+    lines.splice(
+      1,
+      0,
+      ...body
+        .split("\n")
+        .filter((line) => line.startsWith("+"))
+        .map((line) => line.slice(1)),
+    );
+    if (body.includes("-  <Header")) {
+      const index = lines.findIndex((line) => line.includes("<Header"));
+      if (index >= 0) lines.splice(index, 1);
+    }
+    NodeFS.writeFileSync(NodePath.join(root, path), lines.join("\n"));
+  };
+  apply(good);
+  git("add", ".");
+  git("commit", "--quiet", "-m", "fork: marked hooks");
+  const head = git("rev-parse", "HEAD");
+
+  const path = "apps/web/src/components/ChatView.tsx";
+  const input = guardInput({
+    commits: [{ sha: head, short: head.slice(0, 7), domain: "project-windows" }],
+    filesBySha: parseCommitFiles(git(...commitFilesArguments([head]))),
+    patchesBySha: parseCommitPatches(git(...commitPatchArguments([head]))),
+    upstreamFiles: new Set(
+      git("-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).split("\n"),
+    ),
+    forkHooks: new Set(["project-windows/spawn-target", "project-windows/preview-pane"]),
+    upstreamHookLines: new Map([
+      [path, significantTestLines(NodeFS.readFileSync(NodePath.join(root, path), "utf8"))],
+    ]),
+  });
+  const commit = input.commits[0];
+  assert.isDefined(commit);
+  assert.deepStrictEqual(
+    collectScanWarnings(input).filter((warning) => warning.rule === "fork-hook-seam"),
+    [],
+    "marked import + marked JSX pair must pass",
+  );
+
+  // The same commit, now also weaving in an unmarked line, a deleted upstream
+  // line, and an unmanifested marker: exactly three warnings.
+  apply(
+    [
+      "+const extra = compute(spawnTarget);",
+      '-  <Header title="rows" />',
+      '+import { ghost } from "./ghost.fork.ts"; // fork-hook: fork-meta/ghost',
+      "",
+    ].join("\n"),
+  );
+  git("add", ".");
+  git("commit", "--quiet", "-m", "fork: woven");
+  const woven = git("rev-parse", "HEAD");
+  const wovenInput = guardInput({
+    ...input,
+    commits: [{ sha: woven, short: woven.slice(0, 7), domain: "project-windows" }],
+    filesBySha: parseCommitFiles(git(...commitFilesArguments([woven]))),
+    patchesBySha: parseCommitPatches(git(...commitPatchArguments([woven]))),
+  });
+  const wovenWarnings = collectScanWarnings(wovenInput).filter(
+    (warning) => warning.rule === "fork-hook-seam",
+  );
+  assert.strictEqual(wovenWarnings.length, 3, JSON.stringify(wovenWarnings, null, 2));
+  assert.match(wovenWarnings[0]?.detail ?? "", /outside a marked fork-hook/);
+  assert.match(wovenWarnings[1]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+  assert.match(wovenWarnings[2]?.detail ?? "", /missing from FORK_HOOKS/);
 });
