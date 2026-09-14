@@ -175,7 +175,10 @@ migrations, mobile deep-link parameters, or anything outside exported `Schema.Li
 Carry cost is decided per commit, by the parent direction's levers — retire, reshape, automate,
 or accept (RSI-Software/t3code-hyprws#665) — not by a numeric cap. Accept is never "as-is": a
 kept commit must have a mechanical seam, with fork code in fork-only files and upstream files
-carrying only marked hook lines the sync walk re-applies. A hook is marked in source with a
+carrying only marked hook lines the sync walk re-applies: at a replay stop the walk re-inserts a
+marked hook by its manifest anchor when the anchor resolves to exactly one site in the merged
+upstream text, and refuses — leaving an ordinary `conflict` stop naming the hook — on zero sites,
+several, or an end marker it cannot place. A hook is marked in source with a
 trailing `// fork-hook: <domain>/<name>`, or with the JSX comment pair
 `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end */}` for a multi-line construct, and
 listed in the `FORK_HOOKS` manifest in `scripts/lib/fork-hooks.ts`. A hook is exactly one
