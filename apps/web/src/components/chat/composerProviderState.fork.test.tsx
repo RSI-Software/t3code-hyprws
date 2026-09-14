@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
@@ -13,6 +14,24 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
+import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
+
+it.each([false, true])(
+  "keeps the agent reachable when all composer blocks overflow (traits: %s)",
+  (hasTraits) => {
+    const ownership = resolveComposerControlsOwnership({
+      matchesDefault: true,
+      hasTraits,
+      planModeUiEnabled: false,
+      collapsed: true,
+      measuredHiddenBlockCount: 3,
+      leadingBlocksFork: ["agent"],
+    });
+    expect(ownership.hiddenBlockIds).toContain("agent");
+    expect(ownership.hiddenBlockCount).toBe(ownership.hiddenBlockIds.length);
+    expect(ownership.overflowShowsPermissions).toBe(true);
+  },
+);
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -116,13 +135,38 @@ describe("provider traits render guards", () => {
       model: MODEL,
       models,
       modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
       planModeEnabled: false,
     };
     expect(renderProviderAgentPicker(args)).not.toBeNull();
     expect(renderProviderAgentMenuContent(args)).not.toBeNull();
     expect(renderProviderTraitsPicker(args)).toBeNull();
     expect(renderProviderTraitsMenuContent(args)).toBeNull();
+  });
+
+  // A dropped selection shows every agent as Default and rebuilds the other
+  // traits from defaults on the next pick.
+  it("hands the current selections to both agent controls", () => {
+    const args = {
+      provider: PROVIDER,
+      draftId: DraftId.make("draft-agent-selection"),
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [
+          { id: "default", label: "Default", isDefault: true },
+          { id: "fable", label: "fable" },
+        ]),
+      ]),
+      modelOptions: selections(["agent", "fable"]),
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
+      planModeEnabled: false,
+    };
+    for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
+      expect(isValidElement<{ modelOptions?: unknown }>(control)).toBe(true);
+      if (!isValidElement<{ modelOptions?: unknown }>(control)) continue;
+      expect(control.props.modelOptions).toEqual(args.modelOptions);
+    }
   });
 });
