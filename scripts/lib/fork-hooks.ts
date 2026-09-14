@@ -41,7 +41,112 @@ export interface ForkHookEntry {
  * the schema test passes on an empty manifest and tightens as entries arrive.
  */
 export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
-  // custom-agents — marked on RSI-Software/t3code-hyprws#963.
+  // custom-agents — marked on RSI-Software/t3code-hyprws#963; test seams marked on #674 PR 2.
+  "custom-agents/codex-test-env-split": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-call", symbol: "startSession" },
+  },
+  "custom-agents/codex-test-env-thread-id": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-call", symbol: "startSession" },
+  },
+  "custom-agents/codex-test-env-project-id": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-call", symbol: "startSession" },
+  },
+  "custom-agents/codex-test-start-options": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-call", symbol: "startSession" },
+  },
+  // custom-agents — marked on RSI-Software/t3code-hyprws#674 PR 2.
+  "custom-agents/codex-session-identity-import": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/codex-session-agent-import": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/codex-driver-instance-env": {
+    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
+    anchor: { kind: "after-decl", symbol: "pathService" },
+  },
+  "custom-agents/codex-child-item-lifecycle-import": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/codex-collab-child-item": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "itemTypeRaw" },
+  },
+  "custom-agents/codex-collab-workspace-root": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "workspaceRoot" },
+  },
+  "custom-agents/codex-session-agent-resolve": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "after-call", symbol: "stopSessionInternal" },
+  },
+  "custom-agents/codex-session-identity-env": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "after-call", symbol: "readMcpProviderSession" },
+  },
+  "custom-agents/codex-session-agent-runtime-input": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "forkSessionEnvironment" },
+  },
+  "custom-agents/codex-session-identity-env-prop": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
+  },
+  "custom-agents/codex-session-agent-option": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
+  },
+  "custom-agents/codex-session-identity-mcp-env": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
+    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
+  },
+  "custom-agents/claude-child-snapshot-import": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/claude-child-snapshot-emit": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "handleAssistantMessage" },
+  },
+  "custom-agents/claude-child-snapshot-assistant": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "rememberPendingTaskModel" },
+  },
+  "custom-agents/claude-child-snapshot-task-started": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "offerRuntimeEvent" },
+  },
+  "custom-agents/claude-child-detail-denied": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "completedStamp" },
+  },
+  "custom-agents/ingestion-child-lifecycle-import": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/ingestion-child-lifecycle-guard": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "after-decl", symbol: "isPersistableItemLifecycle" },
+  },
+  "custom-agents/ingestion-child-lifecycle-detail": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "collection", symbol: "payload" },
+  },
+  "custom-agents/ingestion-timeline-bypass": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "collection", symbol: "payload" },
+  },
+  "custom-agents/ingestion-provider-linkage": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "after-decl", symbol: "taskLinkageActivityFields" },
+  },
   "custom-agents/claude-child-detail-import": {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "import-block" },

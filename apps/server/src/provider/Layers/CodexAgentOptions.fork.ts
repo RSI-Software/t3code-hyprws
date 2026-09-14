@@ -1,8 +1,14 @@
-import type { ServerProviderModel } from "@t3tools/contracts";
-import { createModelCapabilities } from "@t3tools/shared/model";
+import {
+  type ServerProviderModel,
+  ModelSelection,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { ProviderAdapterValidationError } from "../Errors.ts";
 import { type CodexAgentDefinition, discoverCodexAgents } from "../Drivers/CodexAgents.ts";
 import { buildSelectOptionDescriptor } from "../providerSnapshot.ts";
 
@@ -71,3 +77,54 @@ export const makeCodexAgentOptionsDecorator = Effect.fn("makeCodexAgentOptionsDe
       );
   },
 );
+
+export interface CodexSessionAgentRequest {
+  readonly modelSelection: ModelSelection | undefined;
+  readonly boundInstanceId: ProviderInstanceId;
+  readonly homePath?: string | undefined;
+  readonly environment?: NodeJS.ProcessEnv | undefined;
+  readonly cwd?: string | undefined;
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+}
+
+/**
+ * Resolves the thread's custom-agent selection at session start. A missing
+ * selection fails with the adapter's validation error; "default" and no
+ * selection both resolve to no agent. Self-provides the filesystem services
+ * `discoverCodexAgents` needs so the adapter keeps a single `yield*`.
+ */
+export const resolveCodexSessionAgentOption = Effect.fn("resolveCodexSessionAgentOption")(
+  function* (request: CodexSessionAgentRequest) {
+    const modelSelection =
+      request.modelSelection?.instanceId === request.boundInstanceId
+        ? request.modelSelection
+        : undefined;
+    const selectedAgentName = getModelSelectionStringOptionValue(modelSelection, "agent");
+    const cwd = request.cwd ?? process.cwd();
+    const agent =
+      selectedAgentName && selectedAgentName !== "default"
+        ? (yield* discoverCodexAgents({
+            ...(request.homePath !== undefined ? { homePath: request.homePath } : {}),
+            ...(request.environment ? { environment: request.environment } : {}),
+            cwd,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, request.fileSystem),
+            Effect.provideService(Path.Path, request.path),
+          )).find((candidate) => candidate.name.toLowerCase() === selectedAgentName.toLowerCase())
+        : undefined;
+    if (selectedAgentName && selectedAgentName !== "default" && !agent) {
+      return yield* new ProviderAdapterValidationError({
+        provider: ProviderDriverKind.make("codex"),
+        operation: "startSession",
+        issue: `Codex custom agent '${selectedAgentName}' is no longer available.`,
+      });
+    }
+    return { agent, cwd };
+  },
+);
+
+/** The `runtimeInput` spread a resolved agent contributes; empty without one. */
+export function codexAgentRuntimeInput(agent: CodexAgentDefinition | undefined) {
+  return agent ? { agent } : {};
+}

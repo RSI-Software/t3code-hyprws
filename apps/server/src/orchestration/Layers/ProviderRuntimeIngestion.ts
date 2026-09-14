@@ -8,7 +8,6 @@ import {
   CheckpointRef,
   classifyTaskAgentKind,
   EventId,
-  isToolLifecycleItemType,
   ThreadId,
   type ThreadTokenUsageSnapshot,
   TurnId,
@@ -54,7 +53,10 @@ import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
-import { truncateActivityDetail as truncateDetail } from "../../activityDetail.ts";
+import {
+  isPersistableItemLifecycle,
+  persistedItemLifecycleDetail,
+} from "./ProviderRuntimeIngestion.fork.ts"; // fork-hook: custom-agents/ingestion-child-lifecycle-import
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -166,33 +168,8 @@ function maxCheckpointTurnCount(
   return maxTurnCount;
 }
 
-function isPersistableItemLifecycle(event: ProviderRuntimeEvent): boolean {
-  if (
-    event.type !== "item.started" &&
-    event.type !== "item.updated" &&
-    event.type !== "item.completed"
-  ) {
-    return false;
-  }
-  return (
-    isToolLifecycleItemType(event.payload.itemType) ||
-    (event.payload.agentId !== undefined && event.payload.timelineBypass === true)
-  );
-}
-
-function persistedItemLifecycleDetail(
-  event: Extract<
-    ProviderRuntimeEvent,
-    { readonly type: "item.started" | "item.updated" | "item.completed" }
-  >,
-): { readonly data?: unknown; readonly renderDetail?: unknown } {
-  const attributed = event.payload.agentId !== undefined && event.payload.timelineBypass === true;
-  return {
-    ...(!attributed && event.payload.data !== undefined ? { data: event.payload.data } : {}),
-    ...(event.payload.renderDetail !== undefined
-      ? { renderDetail: event.payload.renderDetail }
-      : {}),
-  };
+function truncateDetail(value: string, limit = 180): string {
+  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -338,10 +315,10 @@ function requestKindFromCanonicalRequestType(
  */
 function taskLinkageActivityFields(
   payload: Record<string, unknown>,
-  provider: ProviderDriverKind,
+  provider: ProviderDriverKind, // fork-hook: custom-agents/ingestion-provider-linkage
 ): Record<string, unknown> {
   const fields: Record<string, unknown> = {
-    provider,
+    provider, // fork-hook: custom-agents/ingestion-provider-linkage
     // Server-stamped classification: persisted rows are self-describing, so
     // clients trust the stamp instead of re-deriving agent-vs-background
     // from taskType denylists and marker heuristics (legacy rows without a
@@ -385,6 +362,12 @@ export function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   taskTitle?: string,
 ): ReadonlyArray<OrchestrationThreadActivity> {
+  const maybeSequence = (() => {
+    const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
+    return eventWithSequence.sessionSequence !== undefined
+      ? { sequence: eventWithSequence.sessionSequence }
+      : {};
+  })();
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
@@ -416,6 +399,7 @@ export function runtimeEventToActivities(
             ...(event.payload.options ? { options: event.payload.options } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -439,6 +423,7 @@ export function runtimeEventToActivities(
             ...(event.payload.decision ? { decision: event.payload.decision } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -455,6 +440,7 @@ export function runtimeEventToActivities(
             message: truncateDetail(event.payload.message),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -474,6 +460,7 @@ export function runtimeEventToActivities(
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -493,6 +480,7 @@ export function runtimeEventToActivities(
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -512,6 +500,7 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -530,6 +519,7 @@ export function runtimeEventToActivities(
             ...(event.payload.responseMode ? { responseMode: event.payload.responseMode } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -547,6 +537,7 @@ export function runtimeEventToActivities(
             answers: event.payload.answers,
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -570,9 +561,10 @@ export function runtimeEventToActivities(
             ...(event.payload.description
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider), // fork-hook: custom-agents/ingestion-provider-linkage
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -581,7 +573,7 @@ export function runtimeEventToActivities(
       const linkage = taskLinkageActivityFields(
         event.payload as Record<string, unknown>,
         event.provider,
-      );
+      ); // fork-hook: custom-agents/ingestion-provider-linkage
       // Usage and activity are independent latest-state streams. Keeping them
       // under separate stable ids prevents a command/reasoning update from
       // replacing the last known token count (and prevents a usage-only tick
@@ -631,6 +623,7 @@ export function runtimeEventToActivities(
                   ...identityLinkage,
                 },
                 turnId: toTurnId(event.turnId) ?? null,
+                ...maybeSequence,
               },
             ]
           : []),
@@ -650,6 +643,7 @@ export function runtimeEventToActivities(
                   typedUsage: event.payload.typedUsage,
                 },
                 turnId: toTurnId(event.turnId) ?? null,
+                ...maybeSequence,
               },
             ]
           : []),
@@ -678,9 +672,10 @@ export function runtimeEventToActivities(
             ...(event.payload.isBackgrounded !== undefined
               ? { isBackgrounded: event.payload.isBackgrounded }
               : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider), // fork-hook: custom-agents/ingestion-provider-linkage
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -714,6 +709,7 @@ export function runtimeEventToActivities(
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -744,9 +740,10 @@ export function runtimeEventToActivities(
                 }
               : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
-            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider),
+            ...taskLinkageActivityFields(event.payload as Record<string, unknown>, event.provider), // fork-hook: custom-agents/ingestion-provider-linkage
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -777,6 +774,7 @@ export function runtimeEventToActivities(
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
@@ -796,12 +794,14 @@ export function runtimeEventToActivities(
           summary: "Context window updated",
           payload,
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
 
     case "item.updated": {
       if (!isPersistableItemLifecycle(event)) {
+        // fork-hook: custom-agents/ingestion-child-lifecycle-guard
         return [];
       }
       // A streaming update's `data` carries the full tool output accumulated
@@ -827,22 +827,24 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleDetail(event),
+            ...persistedItemLifecycleDetail(event), // fork-hook: custom-agents/ingestion-child-lifecycle-detail
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
-              : {}),
+              : {}), // fork-hook: custom-agents/ingestion-timeline-bypass
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         }),
       ];
     }
 
     case "item.completed": {
       if (!isPersistableItemLifecycle(event)) {
+        // fork-hook: custom-agents/ingestion-child-lifecycle-guard
         return [];
       }
       return [
@@ -861,22 +863,24 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleDetail(event),
+            ...persistedItemLifecycleDetail(event), // fork-hook: custom-agents/ingestion-child-lifecycle-detail
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
-              : {}),
+              : {}), // fork-hook: custom-agents/ingestion-timeline-bypass
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
 
     case "item.started": {
       if (!isPersistableItemLifecycle(event)) {
+        // fork-hook: custom-agents/ingestion-child-lifecycle-guard
         return [];
       }
       return [
@@ -895,16 +899,17 @@ export function runtimeEventToActivities(
             ...(event.payload.toolSurface ? { toolSurface: event.payload.toolSurface } : {}),
             ...(event.payload.toolIcon ? { toolIcon: event.payload.toolIcon } : {}),
             ...(event.payload.toolSource ? { toolSource: event.payload.toolSource } : {}),
-            ...persistedItemLifecycleDetail(event),
+            ...persistedItemLifecycleDetail(event), // fork-hook: custom-agents/ingestion-child-lifecycle-detail
             ...(event.payload.agentId ? { agentId: event.payload.agentId } : {}),
             ...(event.payload.timelineBypass !== undefined
               ? { timelineBypass: event.payload.timelineBypass }
-              : {}),
+              : {}), // fork-hook: custom-agents/ingestion-timeline-bypass
             ...(event.payload.parentToolUseId
               ? { parentToolUseId: event.payload.parentToolUseId }
               : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
         },
       ];
     }
