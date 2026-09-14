@@ -10,14 +10,14 @@
 - [Source control](./user/source-control.md)
 - [Project settings](./user/project-settings.md)
 - [Projects with several repositories](./user/multi-repo-projects.md)
-- [Workspace files](./user/workspace-files.md)
+- [Workspace files](./fork/user/workspace-files.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Voice input](./user/voice-input.md)
 - [Text generation models](./user/text-generation.md)
 - [SnapShots](./user/snap-shot.md)
 - [Visual replies](./user/html-renders.md)
-- [Browser bookmarks](./user/browser.md)
+- [Browser bookmarks](./fork/user/browser.md)
 - [Import browser sessions](./user/browser-import.md)
 - [Use T3 Code as your default browser](./user/default-browser.md)
 - [Devices](./user/devices.md)
@@ -28,8 +28,8 @@
 - [Guest links](./user/guest-links.md)
 - [T3 Connect troubleshooting](./user/t3-connect-troubleshooting.md)
 - [Outside agents (MCP)](./user/outside-agents.md)
-- [Edit Markdown visually](./user/markdown-editing.md)
-- [Rich Markdown showcase](./user/markdown-showcase.md)
+- [Edit Markdown visually](./fork/user/markdown-editing.md)
+- [Rich Markdown showcase](./fork/user/markdown-showcase.md)
 - [Running in the background](./user/background-service.md)
 - [Updating T3 Code](./user/updating.md)
 - [Triage an issue](./user/triage.md)
@@ -49,9 +49,8 @@ anything.
 
 ### Internals (in reading order)
 
-- [Fork development](./internals/fork-development.md)
-- [Fork delta](./internals/fork-delta.md)
-- [Fork strategy](./internals/fork-strategy.md) and its [scorecard](./internals/fork-strategy-scorecard.md)
+- [Fork development](./fork/internals/fork-development.md)
+- [Fork delta](./fork/internals/fork-delta.md)
 
 - [00 · Glossary](./internals/00_glossary.md)
 - [01 · Architecture](./internals/01_architecture.md)
@@ -74,7 +73,7 @@ anything.
 
 ### Runbooks
 
-- [Fork sync](./operations/fork-sync.md)
+- [Fork sync](./fork/operations/fork-sync.md)
 
 - [00 · Development and local builds](./operations/00_development.md)
 - [01 · Dev container](./operations/01_devcontainer.md)
