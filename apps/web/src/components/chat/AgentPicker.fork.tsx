@@ -18,7 +18,7 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
-import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import {
   DefaultBadge,
   replaceDescriptorCurrentValue,
@@ -206,7 +206,6 @@ export const AgentPicker = memo(function AgentPicker({
         <span className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
           <ComposerControlIcon icon={BotIcon} className="opacity-80" />
           <span className="min-w-0 truncate">{label}</span>
-          <ComposerControlChevron />
         </span>
       </MenuTrigger>
       <MenuPopup align="start" className="min-w-64 max-w-80">
