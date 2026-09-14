@@ -1,0 +1,12 @@
+/* Fork-only stylesheet, imported once from index.css behind the marked hook
+   `project-windows/index-fork-css`. Fork rules live here as cascade overrides;
+   index.css follows upstream text. Overrides use bumped specificity because the
+   imported sheet precedes the upstream rules it beats. */
+
+/* upstream-fixes: at increased interface zoom, Electron's fixed native overlay
+   height leaves the workspace titlebar too shallow. Keep the native hit area as
+   the floor, then let the rem-based titlebar scale with the UI. The doubled
+   class wins the cascade over upstream's unlayered `.wco` rule. */
+.wco.wco {
+  --workspace-topbar-height: max(env(titlebar-area-height, 2.5rem), 2.5rem);
+}
