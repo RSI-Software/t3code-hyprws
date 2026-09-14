@@ -255,6 +255,13 @@ import { isPreviewFocused } from "../lib/previewFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { draftModelSelectionApplies, threadHasStarted } from "../lib/chatThreadActions";
 import {
+  terminalFocusPropsFork,
+  composerFocusCommandsFork,
+  shouldAutoFocusComposerOnThreadChange,
+  useTerminalFocusGateFork,
+  useOpenDrawerComposerFocusFork,
+} from "./ChatView.focus.fork"; // fork-hook: upstream-fixes/composer-refocus-import
+import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
@@ -1114,6 +1121,10 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const terminalFocusGateFork = useTerminalFocusGateFork({
+    requestId: terminalFocusRequestId,
+    threadKey: activeThreadKey,
+  }); // fork-hook: upstream-fixes/terminal-focus-gate
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -2011,6 +2022,11 @@ export default function ChatView(props: ChatViewProps) {
 
   const { focusComposer: focusComposerStable, scheduleComposerFocus: scheduleComposerFocusStable } =
     useComposerFocus(composerRef);
+  useOpenDrawerComposerFocusFork(
+    activeThreadKey,
+    terminalUiState.terminalOpen,
+    focusComposerStable,
+  ); // fork-hook: upstream-fixes/composer-refocus-open-drawer
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
   const onInterrupt = async () => {
@@ -2983,6 +2999,15 @@ export default function ChatView(props: ChatViewProps) {
     },
     commands: {
       ...terminalShortcuts,
+      ...composerFocusCommandsFork({
+        maximized: rightPanelMaximized,
+        toggleMaximized: toggleRightPanelMaximizedStable,
+        drawerOpen: terminalUiState.terminalOpen,
+        toggleDrawer: toggleTerminalVisibilityStable,
+        setRequestId: setTerminalFocusRequestId,
+        focusComposer: focusComposerStable,
+        scheduleComposerFocus: scheduleComposerFocusStable,
+      }), // fork-hook: upstream-fixes/terminal-focus-command
       ...rightPanelShortcuts,
       ...threadLifecycleShortcuts,
       "rightPanel.close": ({ event }) => {
@@ -3503,6 +3528,7 @@ export default function ChatView(props: ChatViewProps) {
       sideChatParentPanel={sideChatParentPanel}
       terminal={{
         launchContext: activeTerminalLaunchContext ?? null,
+        ...terminalFocusPropsFork(terminalFocusGateFork.panelRequestId), // fork-hook: upstream-fixes/terminal-focus-gate-panel
         keybindings,
         onAddTerminalContext: addTerminalContextToDraftStable,
         onSplitTerminal: splitPanelTerminalStable,
@@ -4269,6 +4295,11 @@ export default function ChatView(props: ChatViewProps) {
             activeTerminalOpen={Boolean(terminalUiState.terminalOpen)}
             composerHeight={composerReservedHeight}
             launchContext={activeTerminalLaunchContext ?? null}
+            {
+              ...terminalFocusPropsFork(
+                terminalFocusGateFork.drawerRequestId,
+              ) /* fork-hook: upstream-fixes/terminal-focus-gate-drawer */
+            }
             splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
             splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
             newShortcutLabel={newTerminalShortcutLabel ?? undefined}
