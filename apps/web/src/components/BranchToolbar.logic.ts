@@ -1,6 +1,7 @@
 import type { EnvironmentId, EnvironmentMachineKind, VcsRef, ProjectId } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { ForkThreadEnvMode } from "@t3tools/contracts"; // fork-hook: worktrunk-hooks/env-mode-enum-import
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
+import { resolveForkEnvModeLabel } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/env-mode-label-import
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -15,7 +16,7 @@ export interface EnvironmentOption {
   machine: EnvironmentMachineKind;
 }
 
-export const EnvMode = Schema.Literals(["local", "worktree", "worktrunk"]);
+export const EnvMode = ForkThreadEnvMode; // fork-hook: worktrunk-hooks/env-mode-enum
 export type EnvMode = typeof EnvMode.Type;
 
 const GENERIC_LOCAL_ENVIRONMENT_LABELS = new Set(["local", "local environment"]);
@@ -84,14 +85,9 @@ export function resolveContextStripLabelsCompact(input: {
 }
 
 export function resolveEnvModeLabel(mode: EnvMode): string {
-  switch (mode) {
-    case "worktree":
-      return "New worktree";
-    case "worktrunk":
-      return "New worktrunk";
-    case "local":
-      return "Current checkout";
-  }
+  const forkLabel = resolveForkEnvModeLabel(mode); // fork-hook: worktrunk-hooks/env-mode-label
+  if (forkLabel !== null) return forkLabel;
+  return mode === "worktree" ? "New worktree" : "Current checkout";
 }
 
 export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null): string {

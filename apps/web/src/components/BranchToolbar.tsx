@@ -3,7 +3,6 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { isWorktreeEnvMode } from "@t3tools/shared/threadEnvMode.fork";
 import {
   ChevronDownIcon,
-  FolderCogIcon,
   FolderGit2Icon,
   FolderGitIcon,
   FolderIcon,
@@ -42,7 +41,9 @@ import {
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
+import { BranchToolbarWorktrunkMenuItem } from "./BranchToolbarEnvModeSelector.fork"; // fork-hook: worktrunk-hooks/env-mode-selector-import
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import { resolveForkWorkspaceIcon } from "./BranchToolbar.logic.fork"; // fork-hook: worktrunk-hooks/workspace-icon-import
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -129,14 +130,11 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
     [availableEnvironments, environmentId],
   );
-  const WorkspaceIcon =
-    activeWorktrunk || effectiveEnvMode === "worktrunk"
-      ? FolderCogIcon
-      : effectiveEnvMode === "worktree"
-        ? FolderGit2Icon
-        : activeWorktreePath
-          ? FolderGitIcon
-          : FolderIcon;
+  const WorkspaceIcon = resolveForkWorkspaceIcon({
+    activeWorktrunk,
+    effectiveEnvMode,
+    activeWorktreePath,
+  }); // fork-hook: worktrunk-hooks/workspace-icon
   const workspaceLabel = envModeLocked
     ? resolveLockedWorkspaceLabel(activeWorktreePath, activeWorktrunk)
     : isWorktreeEnvMode(effectiveEnvMode)
@@ -279,12 +277,9 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
               </span>
             </MenuRadioItem>
-            <MenuRadioItem disabled={envModeLocked} value="worktrunk">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <FolderCogIcon className="size-3" />
-                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktrunk")}</span>
-              </span>
-            </MenuRadioItem>
+            {/* fork-hook: worktrunk-hooks/env-mode-menu-worktrunk */}
+            <BranchToolbarWorktrunkMenuItem disabled={envModeLocked} />
+            {/* fork-hook-end */}
             {previousWorktreeLabel ? (
               <MenuRadioItem disabled={envModeLocked} value="previous-worktree">
                 <span className="flex min-w-0 items-center gap-1.5">
@@ -616,7 +611,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onEnvironmentChange={onEnvironmentChange}
             effectiveEnvMode={effectiveEnvMode}
             activeWorktreePath={activeWorktreePath}
-            activeWorktrunk={activeWorktrunk}
+            activeWorktrunk={activeWorktrunk} // fork-hook: worktrunk-hooks/env-mode-mobile-worktrunk-prop
             onEnvModeChange={onEnvModeChange}
             previousWorktreeLabel={previousWorktreeLabel}
             onUsePreviousWorktree={onUsePreviousWorktree}
@@ -655,7 +650,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               envLocked={envModeLocked}
               effectiveEnvMode={effectiveEnvMode}
               activeWorktreePath={activeWorktreePath}
-              activeWorktrunk={activeWorktrunk}
+              activeWorktrunk={activeWorktrunk} // fork-hook: worktrunk-hooks/env-mode-selector-worktrunk-prop
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               onUsePreviousWorktree={onUsePreviousWorktree}
