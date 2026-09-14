@@ -16,6 +16,7 @@ import {
   type ForkHookEntry,
   isWellFormedForkHookKey,
   parseForkHookMarkers,
+  statementStartLine,
   stripForkHookLineMarker,
 } from "./fork-hooks.ts";
 import { FORK_DOMAINS } from "./fork-trailers.ts";
@@ -62,7 +63,7 @@ it("rejects malformed keys", () => {
 it("parses a trailing line marker and strips it without touching the code", () => {
   const line =
     'import { spawnTarget } from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target';
-  const hooks = parseForkHookMarkers(`a\n${line}\nb`);
+  const hooks = parseForkHookMarkers(`const stale = 1;\n${line}\nb`);
   assert.strictEqual(hooks.length, 1);
   assert.deepInclude(hooks[0], {
     key: "project-windows/spawn-target",
@@ -132,6 +133,63 @@ it("collects every marker form through the shared regexes", () => {
   assert.match("<div>{/* fork-hook: fork-meta/x */}", FORK_HOOK_JSX_OPEN);
   assert.match("{/* fork-hook-end */}", FORK_HOOK_JSX_END);
   assert.strictEqual(forkHookKey("fork-meta", "x"), "fork-meta/x");
+});
+
+it("walks a line marker back to the whole multi-line statement it closes", () => {
+  const multilineImport = [
+    'import { a } from "a";',
+    "import {",
+    "  forkThing,",
+    '} from "./fork.fork.ts"; // fork-hook: dom/name',
+  ].join("\n");
+  const hooks = parseForkHookMarkers(multilineImport);
+  assert.strictEqual(hooks.length, 1);
+  assert.deepInclude(hooks[0], { key: "dom/name", kind: "line", startLine: 2, endLine: 4 });
+  assert.strictEqual(statementStartLine(multilineImport.split("\n"), 4), 2);
+  assert.strictEqual(statementStartLine(multilineImport.split("\n"), 3), 2);
+});
+
+it("bounds a branch statement and template literals behind a trailing marker", () => {
+  const branch = [
+    "const ready = true;",
+    "if (maybeFork()) {",
+    "  doThing(`tick ${name} tock`);",
+    "} // fork-hook: dom/branch",
+  ].join("\n");
+  assert.strictEqual(statementStartLine(branch.split("\n"), 4), 2);
+  const template = [
+    "const first = 1;",
+    "const t = `run ${name",
+    "  } tail`; // fork-hook: dom/x",
+  ].join("\n");
+  assert.strictEqual(statementStartLine(template.split("\n"), 3), 2);
+  // A single-line statement after a closed one stays its own line.
+  const singleLines = ["const a = 1;", "markIt(); // x"].join("\n").split("\n");
+  const got = statementStartLine(singleLines, 2);
+  assert.strictEqual(got, 2, JSON.stringify({ singleLines, got }));
+});
+
+it("refuses a statement start it cannot prove", () => {
+  const lines = (text: string) => text.split("\n");
+  // Marker inside a string.
+  assert.strictEqual(
+    statementStartLine(lines('const s = "open\n// fork-hook: dom/x\nrest";'), 2),
+    null,
+  );
+  // A stray close makes the pre-image unbalanced.
+  assert.strictEqual(statementStartLine(lines("const a = b;\n};\n} // fork-hook: dom/x"), 3), null);
+  // An unclosed template literal.
+  assert.strictEqual(statementStartLine(lines("const t = `run\n// fork-hook: dom/x\n`;"), 2), null);
+});
+
+it("keeps a single-line line marker bounded to its own line", () => {
+  const content = [
+    "const base = 1;",
+    'import { forkThing } from "fork"; // fork-hook: dom/name',
+  ].join("\n");
+  const hooks = parseForkHookMarkers(content);
+  assert.strictEqual(hooks.length, 1);
+  assert.deepInclude(hooks[0], { key: "dom/name", startLine: 2, endLine: 2 });
 });
 
 // The repo's formatter is `vp fmt`, which forwards to the repo's Oxfmt binary

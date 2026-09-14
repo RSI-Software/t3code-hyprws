@@ -41,6 +41,9 @@ export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
 const HOOK_SINGLE_CALL =
   /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
+// A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
+// the fork, so the whole statement is still one fork construct.
+const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
 const HOOK_CONST_FROM_CALL =
   /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
@@ -107,18 +110,29 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
       if (line.includes("fork-hook:")) continue; // cause (c) counts the marker
       unmarked.push(line);
     }
-    // Each marked line-marker line is itself the whole hook: it must be one
-    // construct, and a property/spread must name a fork identifier.
-    for (const line of change.added) {
-      if (!FORK_HOOK_LINE_SUFFIX.test(line)) continue;
-      const code = stripForkHookLineMarker(line);
+    // Each line marker is itself the whole hook — the statement its span covers — so a
+    // multi-line hook is classified by its first line (`import {`), and a property/spread must
+    // name a fork identifier.
+    for (const hook of hooks) {
+      if (hook.kind !== "line") continue;
+      const markerLine = change.added[hook.endLine - 1];
+      if (markerLine === undefined || !FORK_HOOK_LINE_SUFFIX.test(markerLine)) continue;
+      const classified =
+        hook.startLine === hook.endLine
+          ? markerLine
+          : (change.added[hook.startLine - 1] ?? markerLine);
+      const code = stripForkHookLineMarker(classified);
       if (code.trim().length === 0) continue;
       if (HOOK_IMPORT.test(code)) continue;
       if (HOOK_SINGLE_CALL.test(code)) continue;
       if (HOOK_CONST_FROM_CALL.test(code)) continue;
       if (HOOK_REEXPORT.test(code)) continue;
+      // A branch opener is one construct only when the marker closes a multi-line block; a
+      // one-line control-flow statement is still a second construct smuggled into the hook.
+      if (hook.startLine !== hook.endLine && HOOK_BRANCH.test(code) && HOOK_FORK_NAMED.test(code))
+        continue;
       if (HOOK_PROPERTY.test(code) && HOOK_FORK_NAMED.test(code)) continue;
-      constructViolations.push(line);
+      constructViolations.push(markerLine);
     }
 
     if (unmarked.length > 0)
