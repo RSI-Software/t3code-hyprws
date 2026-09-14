@@ -13,7 +13,7 @@ function ProjectPullRequestsRouteView() {
     <PullRequestsPage
       forcedProjectRef={forcedProjectRef}
       search={search}
-      onNavigate={(update) => void navigate({ search: update, replace: true })}
+      onNavigate={(options) => void navigate(options)}
     />
   );
 }
