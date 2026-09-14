@@ -23,13 +23,7 @@ import {
   parseCommitNumstat,
   type CommitNumstat,
 } from "./lib/fork-numstat.ts";
-import {
-  forkLogArguments,
-  isForkDomain,
-  isForkUpstreamable,
-  parseForkLog,
-  parseForkTrailers,
-} from "./lib/fork-trailers.ts";
+import { isForkDomain, isForkUpstreamable, parseForkTrailers } from "./lib/fork-trailers.ts";
 import {
   compareWireShapes,
   parseForkWireBaseline,
@@ -107,32 +101,16 @@ export {
   parseCommitNumstat,
   type CommitNumstat,
 } from "./lib/fork-numstat.ts";
-export { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
-
-// A pull request lands as one squash commit whose body is the pull-request
-// body, so the trailer block git will see is that body's last paragraph. Trailing
-// HTML comments (the landing tool's attestation) are dropped first, because the
-// landing tool strips them before composing the commit message.
-export const squashTrailers = (body: string): string => {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  while (lines.length > 0) {
-    const last = lines[lines.length - 1]?.trim() ?? "";
-    if (last.length === 0 || (last.startsWith("<!--") && last.endsWith("-->"))) {
-      lines.pop();
-      continue;
-    }
-    break;
-  }
-  const paragraph: Array<string> = [];
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index] ?? "";
-    if (line.trim().length === 0) break;
-    paragraph.unshift(line);
-  }
-  return paragraph.every((line) => /^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(line))
-    ? paragraph.join("\n")
-    : "";
-};
+import {
+  forkLogArguments,
+  parseForkLog,
+  trailerBlock as squashTrailers,
+} from "./lib/fork-trailers.ts";
+export {
+  forkLogArguments,
+  parseForkLog,
+  trailerBlock as squashTrailers,
+} from "./lib/fork-trailers.ts";
 
 export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
   sha: "squash",
