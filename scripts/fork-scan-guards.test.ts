@@ -1354,6 +1354,34 @@ it("keeps generated paths and fork-owned files outside the rule", () => {
   }
 });
 
+it("scores a multi-line import hook whole: its leading lines are not woven debt", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+import {",
+        "+  spawnTarget,",
+        '+} from "./spawnTarget.fork.ts"; // fork-hook: project-windows/spawn-target',
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings));
+});
+
+it("scores a multi-line fork branch dispatch behind its closing brace as one construct", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+if (maybeFork()) {",
+        "+  spawnTarget();",
+        "+} // fork-hook: project-windows/spawn-target",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings));
+});
+
 it("warns on a marked control-flow line: it is not a single call", () => {
   for (const line of [
     "+if (x) forkThing(); // fork-hook: project-windows/spawn-target",
