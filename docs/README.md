@@ -25,10 +25,10 @@ New to T3 Code? Start with the **[User Guide & Index](./user/README.md)** for ho
 - [Background service](./user/background-service.md) · [Updating T3 Code](./user/updating.md) · [Usage and limits](./user/usage.md) · [Maintenance & diagnostics](./user/diagnostics.md)
 - [CLI reference (`t3`)](./user/cli.md) · [Product usage data](./user/telemetry.md) · [Managed policy](./user/managed-policy.md) · [Triage an issue](./user/triage.md) · [V1 migration](./user/thread-migration.md) · [Portable handoffs](./user/portable-handoffs.md) · [Question attachments](./user/question-attachments.md) · [Open source licenses](./user/open-source-licenses.md)
 
-- [Browser bookmarks](./user/browser.md)
-- [Workspace files](./user/workspace-files.md)
-- [Edit Markdown visually](./user/markdown-editing.md)
-- [Rich Markdown showcase](./user/markdown-showcase.md)
+- [Browser bookmarks](./fork/user/browser.md)
+- [Workspace files](./fork/user/workspace-files.md)
+- [Edit Markdown visually](./fork/user/markdown-editing.md)
+- [Rich Markdown showcase](./fork/user/markdown-showcase.md)
 
 ### Providers
 
@@ -48,9 +48,8 @@ anything.
 
 ### Internals (in reading order)
 
-- [Fork development](./internals/fork-development.md)
-- [Fork delta](./internals/fork-delta.md)
-- [Fork strategy](./internals/fork-strategy.md) and its [scorecard](./internals/fork-strategy-scorecard.md)
+- [Fork development](./fork/internals/fork-development.md)
+- [Fork delta](./fork/internals/fork-delta.md)
 
 - [00 · Glossary](./internals/00_glossary.md)
 - [01 · Architecture](./internals/01_architecture.md)
@@ -73,7 +72,7 @@ anything.
 
 ### Runbooks
 
-- [Fork sync](./operations/fork-sync.md)
+- [Fork sync](./fork/operations/fork-sync.md)
 
 - [00 · Development and local builds](./operations/00_development.md)
 - [01 · Dev container](./operations/01_devcontainer.md)
