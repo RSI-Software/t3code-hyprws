@@ -576,6 +576,7 @@ it("re-applies a marked fork hook into the merged upstream text of a real confli
     assert.strictEqual(outcome.source, "hook-reapply");
     assert.strictEqual(outcome.conflictClass, "mechanical");
     assert.include(outcome.resolution, MARKED_HOOK);
+    assert.deepStrictEqual(outcome.reinsertedHooks, [MARKED_HOOK]);
     const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
     // The upstream line stands and the hook line sits inside the collection, marker exactly once.
     assert.include(resolved, "  mount: boolean;");
