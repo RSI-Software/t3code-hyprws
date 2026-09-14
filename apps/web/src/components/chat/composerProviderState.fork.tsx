@@ -3,19 +3,19 @@
 // keeps only the marked re-export.
 import type { ReactNode } from "react";
 
-import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker.fork";
-import { ComposerControlSeparator } from "./ComposerControl";
-import { renderProviderTraitsPicker } from "./composerProviderState";
+import { cn } from "~/lib/utils";
 
-/** Structural mirror of the upstream file's private `TraitsRenderInput`. */
-type TraitsRenderInput = Parameters<typeof renderProviderTraitsPicker>[0];
+import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker.fork";
+import type { TraitsSelectionInput } from "./TraitsPicker";
 
 function renderAgentControl(
   Component: typeof AgentMenuContent | typeof AgentPicker,
-  input: TraitsRenderInput,
+  input: TraitsSelectionInput | null,
 ): ReactNode {
-  const { provider, instanceId, threadRef, draftId, model, models, modelOptions, planModeEnabled } =
-    input;
+  if (!input) return null;
+  const { provider, instanceId, threadRef, model, models, modelOptions, includePlanAgent } = input;
+  const planModeEnabled = includePlanAgent === true;
+  const draftId = "draftId" in input ? input.draftId : undefined;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   if (
     !hasTarget ||
@@ -36,34 +36,48 @@ function renderAgentControl(
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
+      modelOptions={modelOptions}
       planModeEnabled={planModeEnabled}
     />
   );
 }
 
-export function renderProviderAgentMenuContent(input: TraitsRenderInput): ReactNode {
+export function renderProviderAgentMenuContent(input: TraitsSelectionInput | null): ReactNode {
   return renderAgentControl(AgentMenuContent, input);
 }
 
-export function renderProviderAgentPicker(input: TraitsRenderInput): ReactNode {
+export function renderProviderAgentPicker(input: TraitsSelectionInput | null): ReactNode {
   return renderAgentControl(AgentPicker, input);
 }
 
-/** The resting-block entry for the agent picker, or nothing when it does not render. */
-export function agentRestingBlock(
-  providerAgentPicker: ReactNode,
-  composerControlsInStrip: boolean,
-): Array<{ id: string; content: ReactNode }> {
-  if (!providerAgentPicker) return [];
-  return [
-    {
-      id: "agent",
-      content: (
-        <>
-          <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
-          {providerAgentPicker}
-        </>
-      ),
-    },
-  ];
+/**
+ * The agent picker leads the resting blocks and overflows last: only once every upstream block
+ * has overflowed and the measurement still finds no room. It then moves into the overflow menu.
+ */
+export function agentBlockHiddenFork(input: {
+  readonly measuredHiddenBlockCount: number;
+  readonly upstreamBlockCount: number;
+  readonly upstreamHiddenBlockCount: number;
+}): boolean {
+  return (
+    input.upstreamHiddenBlockCount > 0 && input.measuredHiddenBlockCount > input.upstreamBlockCount
+  );
+}
+
+/** The agent picker's resting block, or nothing when it does not render. */
+export function agentRestingBlockFork(picker: ReactNode, hidden: boolean): ReactNode {
+  if (!picker) return null;
+  return (
+    <div
+      data-resting-block="agent"
+      aria-hidden={hidden || undefined}
+      inert={hidden || undefined}
+      className={cn(
+        "flex w-max min-w-max shrink-0 items-center gap-1",
+        hidden && "pointer-events-none invisible absolute",
+      )}
+    >
+      {picker}
+    </div>
+  );
 }

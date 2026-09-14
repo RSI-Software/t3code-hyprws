@@ -16,9 +16,17 @@ import { memo, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "../ui/menu";
 import { cn } from "~/lib/utils";
-import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import {
   DefaultBadge,
   replaceDescriptorCurrentValue,
@@ -120,9 +128,7 @@ export const AgentMenuContent = memo(function AgentMenuContentImpl({
   const selectedValue = getProviderOptionCurrentValue(descriptor);
   return (
     <MenuGroup>
-      <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-        {descriptor.label}
-      </div>
+      <MenuGroupLabel>{descriptor.label}</MenuGroupLabel>
       <MenuRadioGroup
         value={typeof selectedValue === "string" ? selectedValue : ""}
         onValueChange={(value) => {
@@ -206,7 +212,6 @@ export const AgentPicker = memo(function AgentPicker({
         <span className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
           <ComposerControlIcon icon={BotIcon} className="opacity-80" />
           <span className="min-w-0 truncate">{label}</span>
-          <ComposerControlChevron />
         </span>
       </MenuTrigger>
       <MenuPopup align="start" className="min-w-64 max-w-80">
