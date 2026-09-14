@@ -598,7 +598,21 @@ const stablePublish = (
     if (attempt < 11) requireSuccess(runner, "sleep", ["5"], root);
   }
   if (runId.length === 0) throw new Error(`no release workflow run found for ${release.tag}`);
-  requireSuccess(runner, "gh", ["run", "watch", runId, "-R", REPOSITORY], root);
+  // hyprws-release.yml's own timeout-minutes sum to 100 on the sequential critical path
+  // (preflight 30 -> build 45 -> release 15 -> outcome 10); this is not a walk-step command and
+  // must not silently inherit fork-command.ts's 45-minute default meant for those. 120 minutes
+  // covers the full run plus queueing/startup slack without masking a genuinely wedged watch.
+  const RELEASE_WATCH_TIMEOUT_MS = 120 * 60 * 1000;
+  requireSuccess(
+    runner,
+    "gh",
+    ["run", "watch", runId, "-R", REPOSITORY],
+    root,
+    undefined,
+    undefined,
+    undefined,
+    RELEASE_WATCH_TIMEOUT_MS,
+  );
   const assets = lines(
     requireSuccess(
       runner,
