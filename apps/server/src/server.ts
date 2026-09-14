@@ -43,7 +43,7 @@ import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueServiceLiveFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -608,10 +608,7 @@ const commandReadinessLayer = HttpRouter.middleware(
   { global: true },
 );
 
-const GitHubIssueServiceLive = GitHubIssueService.layer.pipe(
-  Layer.provide(GitHubCli.layer),
-  Layer.provide(VcsProcess.layer),
-);
+const GitHubIssueServiceLive = gitHubIssueServiceLiveFork; // fork-hook: github-issues/server-service-live
 
 export const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
@@ -635,7 +632,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
-  Layer.provide(GitHubIssueServiceLive),
+  Layer.provide(GitHubIssueServiceLive), // fork-hook: github-issues/server-service-provide
   Layer.provide(WorktrunkHookRunnerLayerLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(DesktopAppUpdateLayerLive))),
