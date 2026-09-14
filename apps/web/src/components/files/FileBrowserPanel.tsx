@@ -2,12 +2,11 @@ import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
-  GitStatusEntry,
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon, Eye, EyeOff, RotateCw } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -16,7 +15,6 @@ import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
 import { readLocalApi } from "~/localApi";
@@ -27,6 +25,7 @@ import { createFileTreeDragMentionController } from "./fileTreeDragMention";
 import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTreeExpansion";
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
+import { ShowIgnoredFilesButton, useIgnoredWorkspaceFileListing } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -62,30 +61,6 @@ function RefreshFilesButton(props: { isPending: boolean; onRefresh: () => void }
         <RefreshIcon refreshing={props.isPending} />
       </TooltipTrigger>
       <TooltipPopup>{props.isPending ? "Refreshing…" : "Refresh files"}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
-function ShowIgnoredFilesButton(props: { shown: boolean; onToggle: () => void }) {
-  const action = props.shown ? "Hide ignored files" : "Show ignored files";
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={action}
-            aria-pressed={props.shown}
-            data-pressed={props.shown || undefined}
-            onClick={props.onToggle}
-          />
-        }
-      >
-        {props.shown ? <Eye /> : <EyeOff />}
-      </TooltipTrigger>
-      <TooltipPopup>{action}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -130,9 +105,8 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
-  const showIgnoredFiles = useClientSettings((settings) => settings.showIgnoredFiles);
-  const updateClientSettings = useUpdateClientSettings();
-  const entriesQuery = useProjectEntriesQuery(environmentId, cwd, showIgnoredFiles);
+  const { entriesQuery, showIgnoredFiles, updateClientSettings, ignoredGitStatus } =
+    useIgnoredWorkspaceFileListing(environmentId, cwd); // fork-hook: workspace-files/file-browser-ignored-listing-call
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
     () => new Map(entries.map((entry) => [entry.path, entry.kind] as const)),
@@ -142,13 +116,6 @@ export default function FileBrowserPanel({
   const treePaths = useMemo(() => entries.map(treePath), [entries]);
   const directoryPaths = useMemo(
     () => entries.filter((entry) => entry.kind === "directory").map(treePath),
-    [entries],
-  );
-  const ignoredGitStatus = useMemo<ReadonlyArray<GitStatusEntry>>(
-    () =>
-      entries.flatMap((entry) =>
-        entry.ignored ? [{ path: treePath(entry), status: "ignored" as const }] : [],
-      ),
     [entries],
   );
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
@@ -321,7 +288,7 @@ export default function FileBrowserPanel({
 
   useEffect(() => {
     model.setGitStatus(ignoredGitStatus);
-  }, [ignoredGitStatus, model]);
+  }, [ignoredGitStatus, model]); // fork-hook: workspace-files/file-browser-ignored-git-status
 
   useEffect(() => {
     if (!selectedPath) {
@@ -416,10 +383,12 @@ export default function FileBrowserPanel({
         data-surface-subheader
       >
         <RefreshFilesButton isPending={entriesQuery.isPending} onRefresh={handleRefresh} />
+        {/* fork-hook: workspace-files/file-browser-ignored-toggle */}
         <ShowIgnoredFilesButton
           shown={showIgnoredFiles}
           onToggle={() => updateClientSettings({ showIgnoredFiles: !showIgnoredFiles })}
         />
+        {/* fork-hook-end */}
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}

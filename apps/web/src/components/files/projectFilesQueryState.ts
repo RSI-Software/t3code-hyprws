@@ -36,11 +36,16 @@ interface ProjectQueryState<A> {
 function getProjectEntriesQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
+  directoryPath?: string,
   includeIgnored = false,
 ) {
   return projectEnvironment.listEntries({
     environmentId,
-    input: includeIgnored ? { cwd, includeIgnored: true } : { cwd },
+    input: {
+      cwd,
+      ...(directoryPath !== undefined ? { directoryPath } : {}),
+      ...(includeIgnored ? { includeIgnored: true } : {}),
+    },
   });
 }
 
@@ -135,9 +140,10 @@ function errorMessage<A>(result: AsyncResult.AsyncResult<A, unknown>): string | 
 export function useProjectEntriesQuery(
   environmentId: EnvironmentId,
   cwd: string,
+  directoryPath?: string,
   includeIgnored = false,
 ): ProjectQueryState<ProjectListEntriesResult> {
-  const atom = getProjectEntriesQueryAtom(environmentId, cwd, includeIgnored);
+  const atom = getProjectEntriesQueryAtom(environmentId, cwd, directoryPath, includeIgnored);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
