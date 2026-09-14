@@ -21,6 +21,7 @@ import {
   collectFindings,
   dropTransientFixups,
   forkLogArguments,
+  grandfatheredWalkRepairKey,
   legacyWalkRepairFindings,
   parseCommitNumstat,
   parseForkLog,
@@ -98,8 +99,15 @@ const commitAll = (root: string, subject: string, body?: string): string => {
   return git(root, ["rev-parse", "HEAD"]);
 };
 
-const record = (short: string, subject: string, trailers: string) =>
-  `${short.padEnd(40, "0")}${FS}${short}${FS}${subject}${FS}${trailers}${RS}\n`;
+const DEFAULT_AUTHOR_DATE = "2026-01-01T00:00:00+00:00";
+
+const record = (
+  short: string,
+  subject: string,
+  trailers: string,
+  authorDate: string = DEFAULT_AUTHOR_DATE,
+) =>
+  `${short.padEnd(40, "0")}${FS}${short}${FS}${authorDate}${FS}${subject}${FS}${trailers}${RS}\n`;
 
 const fixture =
   record(
@@ -130,6 +138,7 @@ it("parses trailers and omits absent ones", () => {
   assert.deepStrictEqual(commits[0], {
     sha: "aaaaaaaaa".padEnd(40, "0"),
     short: "aaaaaaaaa",
+    authorDate: DEFAULT_AUTHOR_DATE,
     subject: "fix(web): scope markdown actions",
     domain: "project-windows",
     tier: "bugfix",
@@ -138,6 +147,7 @@ it("parses trailers and omits absent ones", () => {
   assert.deepStrictEqual(commits[3], {
     sha: "ddddddddd".padEnd(40, "0"),
     short: "ddddddddd",
+    authorDate: DEFAULT_AUTHOR_DATE,
     subject: "chore: untagged",
   });
 });
@@ -184,7 +194,10 @@ it("refuses an ungrandfathered legacy walk repair but ignores absent grandfather
     legacyWalkRepairFindings(legacy, new Set()).map((finding) => finding.problem),
     ["legacy walk repair must be folded"],
   );
-  assert.deepStrictEqual(legacyWalkRepairFindings(legacy, new Set([legacy[0]!.sha])), []);
+  assert.deepStrictEqual(
+    legacyWalkRepairFindings(legacy, new Set([grandfatheredWalkRepairKey(legacy[0]!)])),
+    [],
+  );
   // A grandfather entry with no reachable commit is deliberately a no-op.
   assert.deepStrictEqual(legacyWalkRepairFindings([], new Set(["f".repeat(40)])), []);
 });
@@ -201,6 +214,41 @@ it("accepts a grandfathered walk repair commit the sync appended after the repla
   // fork commit: it is appended, never folded into the commit it repairs.
   assert.strictEqual(commits[0]?.repair, "v1.2.3");
   assert.deepStrictEqual(collectFindings(commits), []);
+});
+
+it("keys the walk-repair exemption on (author date, subject) so a fold's new sha stays exempt", () => {
+  const authorDate = "2026-09-08T14:28:59+12:00";
+  const subject = "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414";
+  const grandfathered = new Set([grandfatheredWalkRepairKey({ authorDate, subject })]);
+
+  // A fold rewrites tree/parent, changing the sha, but rebuildCommit copies the author header
+  // and message verbatim: same (author date, subject), unrelated sha, must stay exempt.
+  const rewritten = parseForkLog(
+    record(
+      "111111111",
+      subject,
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\n",
+      authorDate,
+    ),
+  );
+  assert.deepStrictEqual(legacyWalkRepairFindings(rewritten, grandfathered), []);
+
+  // The trap: three real entries in this series share this exact subject with different author
+  // dates. Subject alone would wrongly exempt this counter-case; the author date must matter too.
+  const sameSubjectDifferentAuthorDate = parseForkLog(
+    record(
+      "222222222",
+      subject,
+      "Fork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no\n",
+      "2026-09-09T14:36:47+12:00",
+    ),
+  );
+  assert.deepStrictEqual(
+    legacyWalkRepairFindings(sameSubjectDifferentAuthorDate, grandfathered).map(
+      (finding) => finding.problem,
+    ),
+    ["legacy walk repair must be folded"],
+  );
 });
 
 it("validates Fork-Domain and Fork-Upstreamable values", () => {
