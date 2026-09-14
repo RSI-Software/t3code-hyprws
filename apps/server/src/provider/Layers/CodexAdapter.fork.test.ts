@@ -7,6 +7,7 @@ import {
   CodexSettings,
   EventId,
   ProviderDriverKind,
+  ProviderInstanceId,
   type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderRuntimeEvent,
@@ -37,6 +38,7 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+import { createModelSelection } from "@t3tools/shared/model";
 const encodeChildItemRenderDetailJson = Schema.encodeSync(
   Schema.fromJsonString(ChildItemRenderDetail),
 );
@@ -176,6 +178,58 @@ const lifecycleLayer = it.layer(
     Layer.provideMerge(NodeServices.layer),
   ),
 );
+const validationRuntimeFactory = makeRuntimeFactory();
+const validationLayer = it.layer(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: validationRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+validationLayer("CodexAdapterLive validation", (it) => {
+  // Moved from the upstream file: session identity rides on `environment`, so
+  // the runtime options are asserted as identity plus the upstream shape.
+  it.effect("maps codex model options before starting a session", () =>
+    Effect.gen(function* () {
+      validationRuntimeFactory.factory.mockClear();
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-1"),
+        modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
+          { id: "serviceTier", value: "priority" },
+        ]),
+        runtimeMode: "full-access",
+      });
+
+      const { environment, ...startOptions } =
+        validationRuntimeFactory.factory.mock.calls[0]?.[0] ?? {};
+      NodeAssert.equal(environment?.T3CODE_THREAD_ID, "thread-1");
+      NodeAssert.equal(environment?.T3CODE_PROJECT_ID, undefined);
+      NodeAssert.deepStrictEqual(startOptions, {
+        binaryPath: "codex",
+        cwd: process.cwd(),
+        launchArgs: "",
+        model: "gpt-5.3-codex",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        serviceTier: "priority",
+        threadId: asThreadId("thread-1"),
+        runtimeMode: "full-access",
+      });
+    }),
+  );
+});
+
 function startLifecycleRuntime(cwd?: string) {
   return Effect.gen(function* () {
     const adapter = yield* CodexAdapter;

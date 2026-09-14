@@ -47,7 +47,6 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
-
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -288,10 +287,11 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
 
       const { environment, ...startOptions } =
-        validationRuntimeFactory.factory.mock.calls[0]?.[0] ?? {};
-      NodeAssert.equal(environment?.T3CODE_THREAD_ID, "thread-1");
-      NodeAssert.equal(environment?.T3CODE_PROJECT_ID, undefined);
+        validationRuntimeFactory.factory.mock.calls[0]?.[0] ?? {}; // fork-hook: custom-agents/codex-test-env-split
+      NodeAssert.equal(environment?.T3CODE_THREAD_ID, "thread-1"); // fork-hook: custom-agents/codex-test-env-thread-id
+      NodeAssert.equal(environment?.T3CODE_PROJECT_ID, undefined); // fork-hook: custom-agents/codex-test-env-project-id
       NodeAssert.deepStrictEqual(startOptions, {
+        // fork-hook: custom-agents/codex-test-start-options
         binaryPath: "codex",
         cwd: process.cwd(),
         launchArgs: "",
@@ -590,14 +590,13 @@ const lifecycleLayer = it.layer(
   ),
 );
 
-function startLifecycleRuntime(cwd?: string) {
+function startLifecycleRuntime() {
   return Effect.gen(function* () {
     const adapter = yield* CodexAdapter;
     yield* adapter.startSession({
       provider: ProviderDriverKind.make("codex"),
       threadId: asThreadId("thread-1"),
       runtimeMode: "full-access",
-      ...(cwd ? { cwd } : {}),
     });
     const runtime = lifecycleRuntimeFactory.lastRuntime;
     NodeAssert.ok(runtime);
