@@ -3,12 +3,14 @@
 // is marked in source so a tool can find it, and listed here so a marker without
 // a manifest entry — a hook the sync walk cannot reason about — is visible.
 //
-// Two marker forms:
+// Three marker forms:
 //
 // - a trailing `// fork-hook: <domain>/<name>` on a one-line hook (an import,
 //   a call, a `const`, a property/spread);
 // - `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end *` + `/}`
-//   (the end-marker JSX comment) around a multi-line JSX construct.
+//   (the end-marker JSX comment) around a multi-line JSX construct;
+// - a trailing `/* fork-hook: <domain>/<name> */` for one-line hooks in
+//   languages where `//` is not a comment (CSS).
 //
 // The manifest starts empty: the sweep issues fill it as each recurring commit
 // is reshaped into marked hooks. A hook is exactly one construct and never
@@ -164,6 +166,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "useRightPanelStore" },
   },
+  "project-windows/index-fork-css": {
+    path: "apps/web/src/index.css",
+    anchor: { kind: "import-block" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
@@ -171,6 +177,7 @@ export const forkHookKey = (domain: string, name: string): string => `${domain}/
 // The comment must close the line: a marker mid-comment marks nothing.
 export const FORK_HOOK_LINE_MARKER = /^\/\/\s*fork-hook:\s*([\w-]+)\/([\w-]+)\s*$/;
 export const FORK_HOOK_LINE_SUFFIX = /\s+\/\/\s*fork-hook:\s*([\w-]+)\/([\w-]+)\s*$/;
+export const FORK_HOOK_BLOCK_SUFFIX = /\s+\/\*\s*fork-hook:\s*([\w-]+)\/([\w-]+)\s*\*\/\s*$/;
 export const FORK_HOOK_JSX_OPEN = /\{\/\*\s*fork-hook:\s*([\w-]+)\/([\w-]+)\s*\*\/\}/;
 export const FORK_HOOK_JSX_END = /\{\/\*\s*fork-hook-end\s*\*\/\}/;
 
@@ -217,7 +224,7 @@ export const parseForkHookMarkers = (content: string): ReadonlyArray<ParsedForkH
       };
       continue;
     }
-    const line1 = FORK_HOOK_LINE_SUFFIX.exec(line);
+    const line1 = FORK_HOOK_LINE_SUFFIX.exec(line) ?? FORK_HOOK_BLOCK_SUFFIX.exec(line);
     if (line1 !== null) {
       hooks.push({
         key: forkHookKey(line1[1] ?? "", line1[2] ?? ""),
