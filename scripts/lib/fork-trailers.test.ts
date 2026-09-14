@@ -82,17 +82,12 @@ for (const [key, first, second] of [
   });
 }
 
-it("an empty copy next to a valued copy throws, naming the empty copy legibly", () => {
+it("an empty copy invalidates the block shape, so the body has no trailers", () => {
+  // `Fork-Domain:` with no value is not a `Key: value` line, so the final paragraph is no longer
+  // a pure trailer block under the reader's rule; the body parses to no trailers and the caller's
+  // missing-trailer refusal names it instead of a duplicate-disagreement throw.
   const body = `${trailerBlock}\nFork-Domain:\nFork-Domain: fork-meta`;
-  NodeAssert.throws(
-    () => parseForkTrailers(body),
-    (error: Error) => {
-      NodeAssert.match(error.message, /Fork-Domain/);
-      // First occurrence in the body is the valued copy, so it comes first in the message.
-      NodeAssert.match(error.message, /"fork-meta", \(empty\)/);
-      return true;
-    },
-  );
+  NodeAssert.deepEqual(parseForkTrailers(body), {});
 });
 
 it("case-insensitive key matching still applies, including across duplicates", () => {
@@ -118,9 +113,89 @@ it("a colon-bearing prose line is not read as a trailer", () => {
   const body = ["Note: this prose mentions Fork-Domain in passing.", "", trailerBlock].join("\n");
   const parsed = parseForkTrailers(body);
   NodeAssert.equal(parsed.domain, "fork-meta");
-  // And a prose line after the trailer block does not override it.
-  const withTrailingProse = `${trailerBlock}\n\nWarning: Fork-Domain may be absent.`;
-  NodeAssert.equal(parseForkTrailers(withTrailingProse).domain, "fork-meta");
+});
+
+it("a prose paragraph that names fork trailers above a real block is not read as a trailer (1c2f9d5628)", () => {
+  const body = [
+    "## Tier decision",
+    "Fork-Tier: bugfix, Fork-Upstreamable: yes — after the fold, the composer refocus predicate",
+    "is shared with the window-focus path.",
+    "",
+    "Fork-Domain: upstream-fixes",
+    "Fork-Tier: bugfix",
+    "Fork-Upstreamable: yes",
+    "Co-authored-by: donjor-agent[bot] <agent@example.com>",
+  ].join("\n");
+  const parsed = parseForkTrailers(body);
+  NodeAssert.deepEqual(parsed, { domain: "upstream-fixes", tier: "bugfix", upstreamable: "yes" });
+});
+
+it("a body whose only fork trailer sits in prose has no trailers", () => {
+  const body = "The gate reads Fork-Tier: bugfix from the paragraph above.\n\nCloses #19.\n";
+  NodeAssert.deepEqual(parseForkTrailers(body), {});
+});
+
+it("a cherry-pick line inside the block does not hide it (c324f9bab0)", () => {
+  const body = [
+    "Fork-Domain: worktrunk-hooks",
+    "Fork-Tier: core",
+    "Fork-Wire: reviewed fork-local alias removed; wire slots and literals unchanged",
+    "Co-authored-by: donjor <38745786+donjor@users.noreply.github.com>",
+    "(cherry picked from commit 042c93b823229dca8aeb587d8dd8e3c72ac5123d)",
+  ].join("\n");
+  const parsed = parseForkTrailers(body);
+  NodeAssert.equal(parsed.domain, "worktrunk-hooks");
+  NodeAssert.equal(parsed.tier, "core");
+});
+
+it("a dash separator paragraph and co-author below the block do not hide it (8778853f80)", () => {
+  const body = [
+    trailerBlock,
+    "",
+    "---------",
+    "",
+    "Co-authored-by: donjor <donjordev@gmail.com>",
+  ].join("\n");
+  NodeAssert.equal(parseForkTrailers(body).domain, "fork-meta");
+});
+
+it("a Closes reference paragraph and co-author below the block do not hide it (47852a62a9)", () => {
+  const body = [
+    trailerBlock,
+    "",
+    "Closes RSI-Software/t3code-hyprws#920",
+    "",
+    "Co-authored-by: donjor <38745786+donjor@users.noreply.github.com>",
+  ].join("\n");
+  NodeAssert.equal(parseForkTrailers(body).domain, "fork-meta");
+});
+
+it("a trailing comment paragraph and co-author line do not hide the real block (134a11855d)", () => {
+  const body = [
+    trailerBlock,
+    "",
+    '<!-- gh-bot:stack {"v":1,"parent":610,"root":"hyprws"} -->',
+    "",
+    "Co-authored-by: donjor <38745786+donjor@users.noreply.github.com>",
+    "",
+  ].join("\n");
+  NodeAssert.deepEqual(parseForkTrailers(body), {
+    domain: "fork-meta",
+    tier: "bugfix",
+    upstreamable: "no",
+    wireReviewed: "reviewed #1",
+    repair: "none",
+  });
+});
+
+it("two disagreeing fork trailers inside one block still throw, even with tail material below", () => {
+  const body = [
+    trailerBlock,
+    "Fork-Tier: feature",
+    "",
+    "Co-authored-by: donjor <donjordev@gmail.com>",
+  ].join("\n");
+  NodeAssert.throws(() => parseForkTrailers(body), /Fork-Tier/);
 });
 
 it("forkLogArguments still targets base..head", () => {

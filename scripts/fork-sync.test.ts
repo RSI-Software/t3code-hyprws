@@ -41,6 +41,7 @@ import {
   reconcileAfterApply,
   repairDomain,
   resumeRererePublication,
+  regenerateGeneratedConflicts,
   rehearsalConflictRows,
   rehearsalConflictStop,
   rehearsalRebaseArgs,
@@ -1038,6 +1039,89 @@ it("records successful generated conflict regeneration as an agent decision", ()
       decidedBy: "agent",
     },
   );
+});
+
+it("classifies a conflicted routeTree.gen.ts as generated and regenerates it instead of resolving by hand", () => {
+  const root = fixtureRoot();
+  const routeTree = NodePath.join(root, "apps", "web", "src", "routeTree.gen.ts");
+  NodeFS.mkdirSync(NodePath.dirname(routeTree), { recursive: true });
+  NodeFS.writeFileSync(routeTree, "export const routeTree = 1;\n");
+  const git = (args: ReadonlyArray<string>): void => {
+    NodeChildProcess.execFileSync("git", args, { cwd: root });
+  };
+  git(["config", "user.name", "test"]);
+  git(["config", "user.email", "test@example.invalid"]);
+  git(["add", "apps/web/src/routeTree.gen.ts"]);
+  git(["commit", "--quiet", "-m", "base"]);
+  git(["checkout", "--quiet", "-b", "other"]);
+  NodeFS.writeFileSync(routeTree, "export const routeTree = 2;\n");
+  git(["commit", "--quiet", "-am", "other"]);
+  git(["checkout", "--quiet", "-"]);
+  NodeFS.writeFileSync(routeTree, "export const routeTree = 3;\n");
+  git(["commit", "--quiet", "-am", "ours"]);
+  try {
+    try {
+      git(["merge", "--no-edit", "other"]);
+    } catch {
+      // conflicting edits: the merge stops with the generated path unmerged
+    }
+    const unmerged = NodeChildProcess.execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=U"],
+      { cwd: root, encoding: "utf8" },
+    )
+      .trim()
+      .split("\n");
+    assert.deepStrictEqual(unmerged, ["apps/web/src/routeTree.gen.ts"]);
+    assert.deepStrictEqual(
+      rehearsalConflictRows({ sha: C, subject: "conflict", domain: "fork-meta" }, unmerged, []).map(
+        ({ path, class: klass, resolution }) => ({ path, class: klass, resolution }),
+      ),
+      [
+        {
+          path: "apps/web/src/routeTree.gen.ts",
+          class: "generated",
+          resolution: "restore HEAD and regenerate",
+        },
+      ],
+    );
+    const runner = new FakeRunner();
+    regenerateGeneratedConflicts(runner, root, unmerged);
+    assert.deepStrictEqual(
+      runner.calls.map(({ command, args }) => [command, ...args]),
+      [
+        [
+          "git",
+          "-c",
+          "core.commentChar=auto",
+          "restore",
+          "--source=HEAD",
+          "--staged",
+          "--worktree",
+          "--",
+          "apps/web/src/routeTree.gen.ts",
+        ],
+        ["vp", "run", "fork:regenerate-route-tree"],
+        ["git", "-c", "core.commentChar=auto", "add", "apps/web/src/routeTree.gen.ts"],
+      ],
+    );
+    // the same git moves the handoff models clear the conflict for real
+    NodeChildProcess.execFileSync(
+      "git",
+      ["checkout", "HEAD", "--", "apps/web/src/routeTree.gen.ts"],
+      { cwd: root },
+    );
+    NodeChildProcess.execFileSync("git", ["add", "apps/web/src/routeTree.gen.ts"], { cwd: root });
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], {
+        cwd: root,
+        encoding: "utf8",
+      }).trim(),
+      "",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it("asks for nothing when the only conflict is the regenerated lockfile", () => {
