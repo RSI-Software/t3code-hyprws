@@ -163,6 +163,10 @@ import {
   useSettingsSearchTargetId,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import {
+  externalSymlinksRestoreLabelFork,
+  ExternalSymlinksSettingsRowFork,
+} from "./SettingsPanels.fork"; // fork-hook: upstream-fixes/settings-row-import
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 
@@ -569,10 +573,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showIgnoredFiles !== DEFAULT_UNIFIED_SETTINGS.showIgnoredFiles
         ? ["Show ignored files"]
         : []),
-      ...(settings.followExternalWorkspaceSymlinks !==
-      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks
-        ? ["External workspace symlinks"]
-        : []),
+      ...externalSymlinksRestoreLabelFork(settings), // fork-hook: upstream-fixes/settings-restore-symlinks-label
       ...(settings.enableLegacyTokenStreaming !==
       DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
         ? ["Stream token by token"]
@@ -2566,34 +2567,9 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          serverScoped
-          {...searchableSetting("external-workspace-symlinks")}
-          description="Allow file previews to follow symlinks whose targets are outside the project. Applies to every project on this server."
-          resetAction={
-            settings.followExternalWorkspaceSymlinks !==
-            DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks ? (
-              <SettingResetButton
-                label="external workspace symlinks"
-                onClick={() =>
-                  updateSettings({
-                    followExternalWorkspaceSymlinks:
-                      DEFAULT_UNIFIED_SETTINGS.followExternalWorkspaceSymlinks,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.followExternalWorkspaceSymlinks}
-              onCheckedChange={(checked) =>
-                updateSettings({ followExternalWorkspaceSymlinks: Boolean(checked) })
-              }
-              aria-label="Follow external workspace symlinks"
-            />
-          }
-        />
+        {/* fork-hook: upstream-fixes/settings-row-mount */}
+        <ExternalSymlinksSettingsRowFork />
+        {/* fork-hook-end */}
 
         <SettingsRow
           serverScoped
