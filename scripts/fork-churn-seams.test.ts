@@ -178,6 +178,21 @@ it("keeps absent and returned observations unresolved without inventing a repair
   );
 });
 
+it("excludes stopped walks from the census snapshot set, which describes a landed stack", () => {
+  // Two stopped walks observe the same path; the applied walk's census is empty. If the stopped
+  // observations reached the snapshot set, the path would read as a run across two tags — a run
+  // over censuses of walks that landed nothing.
+  const stopped = (tag: string): ChurnEntry => ({
+    ...walk(tag, snapshot(B, [file("only-stopped.ts")])),
+    pending: true as const,
+  });
+  const churn = censusChurn([walk("v1", snapshot(A, [])), stopped("v2"), stopped("v3")]);
+  assert.deepStrictEqual(
+    churn.hotPaths.map(({ path }) => path),
+    [],
+  );
+});
+
 it("keeps a verified repair resolved when a complete census moves the base", () => {
   const E = "e".repeat(40),
     F = "f".repeat(40);
@@ -219,6 +234,38 @@ it("blocks a verified repair that returns on the new base and keeps partial cens
     censusChurn([walk("v1", snapshot(A))], snapshot(E, [], F, false), records),
   );
   assert.deepStrictEqual(lines, []);
+});
+
+it("accepts a stored record whose payload predates a parser field", () => {
+  // The ledger is re-digested from its parsed payload, so the parser has to be a pure validator:
+  // one field it materialises that the stored JSON never carried invalidates every record ever
+  // written. `stage` arrived with the walk-resolution census (RSI-Software/t3code-hyprws#1007),
+  // and the observations already on the ref were frozen without it.
+  // `reason` arrived the same way (RSI-Software/t3code-hyprws#1012) and is held to the same rule.
+  const stored = seamRecord(freezeObservation(snapshot(A)));
+  assert.isUndefined(stored.evidence?.rows[0]?.stage);
+  assert.isUndefined(stored.evidence?.rows[0]?.reason);
+  const parsed = requireSeamRecords([stored]);
+  assert.deepStrictEqual(parsed, [stored]);
+  assert.strictEqual(parsed[0]?.id, stored.id);
+  // A record whose rows do carry the newer fields keeps its own id too, and the frozen file list
+  // the observation compares against is unmoved by them.
+  const measured = seamRecord(
+    freezeObservation({
+      ...snapshot(A),
+      censusEvidence: {
+        ...snapshot(A).censusEvidence!,
+        rows: snapshot(A).censusEvidence!.rows.map((row) => ({
+          ...row,
+          stage: "unresolved" as const,
+          reason: "a recorded stop",
+        })),
+      },
+    }),
+  );
+  assert.strictEqual(measured.evidence?.rows[0]?.reason, "a recorded stop");
+  assert.deepStrictEqual(requireSeamRecords([measured]), [measured]);
+  assert.notStrictEqual(measured.id, stored.id);
 });
 
 it("separates repair, attested verification and comparable regression", () => {
