@@ -132,7 +132,13 @@ write one triage line per decision in exactly one of these forms:
 Then ask for the human's exact word for every decision and stop. A recommendation never becomes a
 record entry on its own. In steps 3 and 4, test every `retire-candidate` by asking: “does the upstream
 hunk implement the fork behaviour?” If the row does not make the answer obvious, show both hunks—the
-`git diff` of the fork commit's hunk and the upstream hunk—before recommending. `unblock-orient`
+`git diff` of the fork commit's hunk and the upstream hunk—before recommending. When the answer is
+yes — the upstream hunk is the same-shape feature, and `target-tree: <name> at <file>:<line>` is the
+usual proof — the recommendation defaults to `retire`: upstream wins, and the fork keeps only policy
+or behaviour upstream lacks, reapplied at upstream's seam. A `keep` or keep-both for such a row is a
+`judgement —` line that names the reason (what upstream's version loses), and that reason goes into
+the decision cell; a keep with no named reason is not a recordable decision. Default per
+RSI-Software/t3code-hyprws#665, Retire row. `unblock-orient`
 already runs that test for an orientation candidate: it searches the target tag's tree for the
 identifiers the fork commit introduces and writes the verdict into the row's class summary, so
 `target-tree: absent` is a proven keep and `target-tree: <name> at <file>:<line>` is the hunk to
