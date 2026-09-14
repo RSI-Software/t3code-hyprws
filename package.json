@@ -60,6 +60,7 @@
     "fork:scan": "node scripts/fork-scan.ts",
     "fork:lockfile": "node scripts/fork-lockfile.ts",
     "fork:sync": "node scripts/fork-sync.ts",
+    "fork:regenerate-route-tree": "node scripts/lib/regenerate-route-tree.ts",
     "fork:auto-rebase": "node scripts/fork-auto-rebase.ts",
     "fork:forecast": "node scripts/fork-forecast.ts",
     "fork:sync-gate": "node scripts/fork-sync-gate.ts",
