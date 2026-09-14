@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import { UsageError } from "./lib/fork-cli.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { carryFeasibility, type FeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
 import {
   buildFeasibility,
   type FeasibilityGit,
@@ -24,6 +25,16 @@ import { normalizeCommitMessage, normalizeReplayMessages } from "./lib/fork-repl
 
 export type PositionedTag = PositionedReleaseTag;
 
+/** What the plan's feasibility walk cost, and what a carried artifact saved it. */
+export interface FeasibilitySource {
+  readonly carried: boolean;
+  readonly refusal: string | null;
+  readonly mergesCarried: number;
+  readonly mergesComputed: number;
+  /** Carried merges re-run because this object store lacked the tree the producer wrote. */
+  readonly mergesRewalked: number;
+}
+
 export interface AutoRebasePlan {
   readonly oldSha: string;
   readonly upstreamSha: string;
@@ -34,6 +45,7 @@ export interface AutoRebasePlan {
   readonly stableTags: ReadonlyArray<PositionedTag>;
   readonly newestTagBeyondWindow: PositionedTag | null;
   readonly feasibility: ForkRebaseFeasibility;
+  readonly feasibilitySource: FeasibilitySource;
 }
 
 export type VerificationDependencySetup = "shared-install" | "fresh-install";
@@ -65,6 +77,7 @@ export const buildAutoRebasePlan = (
   git: FeasibilityGit,
   oldSha: string,
   targetOverride: string | null,
+  artifact: FeasibilityArtifact | null = null,
 ): AutoRebasePlan => {
   const upstreamSha = git.run(["rev-parse", "upstream/main^{commit}"]).trim();
   const baseSha = git.run(["merge-base", oldSha, upstreamSha]).trim();
@@ -75,7 +88,12 @@ export const buildAutoRebasePlan = (
   upstreamCommits.forEach((sha, index) => positions.set(sha, index + 1));
   const tags = positionUpstreamReleaseTags(git, [baseSha, ...upstreamCommits]);
   const horizon = selectNewestTag(tags);
-  const feasibility = buildFeasibility(git, oldSha, horizon?.sha ?? baseSha, baseSha);
+  // A carried walk is only the same walk when all three shas still match; its merge
+  // memo is keyed by commit pair, so it stays usable even when the walk is refused.
+  const horizonSha = horizon?.sha ?? baseSha;
+  const carried = carryFeasibility(artifact, { sourceSha: oldSha, targetSha: horizonSha, baseSha });
+  const feasibility =
+    carried.feasibility ?? buildFeasibility(git, oldSha, horizonSha, baseSha, carried.memo);
   let censusTarget = horizon;
   if (targetOverride !== null) {
     if (parseUpstreamReleaseTag(targetOverride) === null) {
@@ -121,6 +139,13 @@ export const buildAutoRebasePlan = (
       tags.filter((tag) => tag.position > feasibility.ffBoundary.cleanCommitCount),
     ),
     feasibility,
+    feasibilitySource: {
+      carried: carried.feasibility !== null,
+      refusal: carried.refusal,
+      mergesCarried: carried.memo.carried,
+      mergesComputed: carried.memo.computed,
+      mergesRewalked: carried.memo.rewalked,
+    },
   };
 };
 
@@ -328,6 +353,9 @@ export const createRebasedStack = (
       "-c",
       "rerere.autoupdate=false",
       "rebase",
+      // Drop commits that start empty; they satisfy every tree comparison vacuously and would
+      // otherwise replay forever, because git keeps start-empty commits by default.
+      "--no-keep-empty",
       "--onto",
       targetSha,
       baseSha,
