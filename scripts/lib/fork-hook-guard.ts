@@ -1,152 +1,150 @@
-// The `fork-hook-seam` rule, registered in `fork-scan-guards.ts` but kept here:
-// that file crossed the 700-line focus limit long ago. The rule is warn-only
-// (deliberately outside `ADOPTED_AUTHORING_GUARDS`) until the sweep clears the
-// woven-seam stack (RSI-Software/t3code-hyprws#948).
-//
-// For a fork commit touching an upstream-owned file it warns, one warning per
-// file per cause with a line count, on:
-//
-// (a) added lines outside a marked hook;
-// (b) removed or rewritten upstream lines — a hook never deletes upstream code;
-// (c) markers with no entry in the `FORK_HOOKS` manifest;
-// (d) a marked hook that is more than one construct.
-//
-// A commit whose trailers are `Fork-Tier: bugfix` **and** `Fork-Upstreamable:
-// yes` is exempt: it is an upstream-bound fix, not a fork seam. Generated paths
-// (`pnpm-lock.yaml`, `*.gen.ts`) and fork-owned files are outside the rule; both
-// reuse the scanner's existing ownership classification, not a second one.
-//
-// What the one-construct check does not catch: fork logic hidden in nested
-// expressions of one allowed element, several fork calls chained in one `const`
-// initializer, attribute helpers on an in-scope element, and any shape where
-// the added lines are syntactically innocent but their context is not — the
-// rule sees only diff lines, not the whole file. A pre-existing hook region is
-// likewise invisible to a patch-only view: additions inside one warn as
-// unmarked, which over-warns until adoption makes the whole-file read cheap.
+// @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+
+// Hook guard (a fork:scan stage): for a fork commit touching an
+// fork job steps 2 and 5: hook guard
+// Gate: fork:ci — the hook guard, computed inside the fork:scan range; an unmarked insertion fails the scan.
+// upstream-owned file, added lines must sit inside a marked hook. Marked
+// insertions only — cause (a) of the old four-cause hook-seam rule
+// (RSI-Software/t3code-hyprws#1190). Removal, marker-declaration, and
+// one-construct checks do not come back.
 
 import {
+  FORK_HOOK_BLOCK_SUFFIX,
   FORK_HOOK_JSX_END,
+  FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_SUFFIX,
   parseForkHookMarkers,
-  stripForkHookLineMarker,
 } from "./fork-hooks.ts";
 
 /** Generated dependency and codegen state no fork domain owns by hand. */
 export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 
-// A marked line hook must be exactly one of these shapes. The property/spread
-// shape additionally names a fork identifier; the others are structural.
-const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
-const HOOK_SINGLE_CALL =
-  /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
-const HOOK_CONST_FROM_CALL =
-  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
-const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
-const HOOK_PROPERTY = /^\s*(?:\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
-// Inside a JSX hook only an in-scope element is allowed — no derived rows, no
-// statements. These are the shapes that smuggle a second construct in.
-const JSX_HOOK_FLOW =
-  /\b(?:if|for|while|switch)\s*\(|^\s*(?:const|let|var|function|return)\b|\.\s*(?:map|filter|flatMap|reduce|forEach)\s*\(/;
+/**
+ * The grammars in which a marker form is a comment. JSON has no comment at
+ * all, and `//` in Markdown or YAML is body text, so on those paths the
+ * remedy the warning names cannot be written and the rule stays silent.
+ */
+export const MARKER_CAPABLE_PATH = /\.(?:[cm]?[jt]sx?|css|scss)$/;
 
-export interface ForkHookSeamCommit {
+export interface HookGuardCommit {
   readonly short: string;
   readonly domain: string;
   readonly tier?: string;
   readonly upstreamable?: string;
 }
 
-export interface ForkHookSeamChange {
+export interface HookGuardChange {
   readonly added: ReadonlyArray<string>;
-  readonly removed: ReadonlyArray<string>;
+  // Each added line's 1-based line in the committed file, parallel to `added`.
+  readonly addedAt?: ReadonlyArray<number> | undefined;
 }
 
-export interface ForkHookSeamInput {
-  readonly commit: ForkHookSeamCommit;
+export interface HookGuardInput {
+  readonly commit: HookGuardCommit;
   readonly files: ReadonlyArray<string>;
-  readonly changedLines: ReadonlyMap<string, ForkHookSeamChange>;
+  readonly changedLines: ReadonlyMap<string, HookGuardChange>;
   readonly upstreamFiles: ReadonlySet<string>;
-  readonly forkHooks: ReadonlySet<string>;
-  /**
-   * The target-tree lines of the touched upstream-owned files, the same read
-   * the upstream-test append-only rule makes. A file with no entry refuses
-   * every removal in it: an unread tree is not evidence the line was the fork's.
-   */
-  readonly upstreamLines: ReadonlyMap<string, ReadonlySet<string>>;
+  // The significant lines each touched upstream file carries in the target tree. An added line the
+  // target already has is a revert, not a fork insertion, so it drops before filtering. An absent
+  // entry refuses every addition: an unread tree is not evidence the line was upstream's.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  // Added lines from this commit's unique same-subject pre-replay counterpart,
+  // keyed by path. Occurrences matching after trimming are historical
+  // insertions, not lines introduced by this replay, and are exempt count by
+  // count.
+  readonly replayAddedLines?: ReadonlyMap<string, ReadonlyArray<string>> | undefined;
+  // The commit's own text of a path. A commit that edits one line of an
+  // existing multi-line hook adds no marker, so its added lines alone cannot
+  // show the hook; the committed file's markers can.
+  readonly readCommittedText?: ((path: string) => string | undefined) | undefined;
 }
 
-export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<string> => {
+/** The 1-based lines a marked hook covers in `text`. */
+const markedLines = (text: string): ReadonlySet<number> => {
+  const marked = new Set<number>();
+  for (const hook of parseForkHookMarkers(text))
+    for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  return marked;
+};
+
+/** A trimmed line that is only comment: `//`, a block opener, or a block continuation. */
+const COMMENT_LINE = /^(?:\/\/|\/\*|\*)/;
+
+const isForkHookSuffixLine = (line: string): boolean =>
+  FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
+
+/**
+ * A `<>` or `</>` added only to give a marker pair a JSX parent. A JSX
+ * comment needs one, so those two lines fall outside the region they exist
+ * to open. Adjacency is measured in the added lines.
+ */
+const isFragmentScaffold = (added: ReadonlyArray<string>, index: number): boolean => {
+  const line = added[index]?.trim();
+  if (line === "<>") return FORK_HOOK_JSX_OPEN.test(added[index + 1] ?? "");
+  if (line === "</>") return FORK_HOOK_JSX_END.test(added[index - 1] ?? "");
+  return false;
+};
+
+export const hookGuardWarnings = (input: HookGuardInput): ReadonlyArray<string> => {
   // The exemption needs both trailers: an upstreamable bugfix, not one alone.
   if (input.commit.tier === "bugfix" && input.commit.upstreamable === "yes") return [];
   const details: Array<string> = [];
   for (const path of [...input.files].toSorted()) {
     if (!input.upstreamFiles.has(path)) continue;
     if (GENERATED_HOOK_PATH.test(path)) continue;
+    if (!MARKER_CAPABLE_PATH.test(path)) continue;
     const change = input.changedLines.get(path);
-    if (change === undefined) continue;
+    if (change === undefined || change.added.length === 0) continue;
+    // No formatter exemption: any unmarked edit in range is refused, full
+    // stop. Over-refusing is safe — a human marks the line — while
+    // under-refusing ships the unmarked edit this gate exists to catch.
 
-    const addedText = change.added.join("\n");
-    const hooks = parseForkHookMarkers(addedText);
-    const marked = new Set<number>();
-    for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
-
-    const unmarked: Array<string> = [];
-    const constructViolations: Array<string> = [];
+    const unmarked: Array<{ readonly line: string; readonly index: number }> = [];
+    // The mirror of the upstream-test filter (RSI-Software/t3code-hyprws#1207):
+    // that rule drops lines the fork authored, this one drops added lines
+    // the upstream target already has.
+    const upstream = input.upstreamLines?.get(path);
+    // Replay lines match trimmed: an upstream restructure that re-indents a
+    // fork line around it leaves the same insertion, not a new one.
+    const replayCounts = new Map<string, number>();
+    for (const line of input.replayAddedLines?.get(path) ?? []) {
+      const key = line.trim();
+      replayCounts.set(key, (replayCounts.get(key) ?? 0) + 1);
+    }
     for (const [index, line] of change.added.entries()) {
-      if (marked.has(index + 1)) {
-        const region = hooks.find(
-          (hook) => hook.kind === "jsx" && index + 1 > hook.startLine && index + 1 < hook.endLine,
-        );
-        if (region !== undefined && !FORK_HOOK_JSX_END.test(line) && JSX_HOOK_FLOW.test(line))
-          constructViolations.push(line);
+      const replayCount = replayCounts.get(line.trim()) ?? 0;
+      if (replayCount > 0) {
+        replayCounts.set(line.trim(), replayCount - 1);
         continue;
       }
-      if (line.includes("fork-hook:")) continue; // cause (c) counts the marker
-      unmarked.push(line);
+      if (upstream !== undefined && upstream.has(line.trim())) continue;
+      if (line.includes("fork-hook:")) continue;
+      if (isFragmentScaffold(change.added, index)) continue;
+      unmarked.push({ line, index });
     }
-    // Each marked line-marker line is itself the whole hook: it must be one
-    // construct, and a property/spread must name a fork identifier.
-    for (const line of change.added) {
-      if (!FORK_HOOK_LINE_SUFFIX.test(line)) continue;
-      const code = stripForkHookLineMarker(line);
-      if (code.trim().length === 0) continue;
-      if (HOOK_IMPORT.test(code)) continue;
-      if (HOOK_SINGLE_CALL.test(code)) continue;
-      if (HOOK_CONST_FROM_CALL.test(code)) continue;
-      if (HOOK_PROPERTY.test(code) && HOOK_FORK_NAMED.test(code)) continue;
-      constructViolations.push(line);
+    let code = unmarked.filter(
+      ({ line }) => !isForkHookSuffixLine(line) && line.trim() !== "" && /[A-Za-z_$]/.test(line),
+    );
+    if (code.length > 0) {
+      // The committed blob is authoritative: added lines alone miss a marker on an unchanged
+      // line, and an edited JSX opener whose end marker is unchanged spans every later hunk.
+      const committed = change.addedAt === undefined ? undefined : input.readCommittedText?.(path);
+      const covered = markedLines(committed ?? change.added.join("\n"));
+      code = code.filter(
+        ({ index }) =>
+          !covered.has(committed === undefined ? index + 1 : (change.addedAt?.[index] ?? 0)),
+      );
     }
-
-    if (unmarked.length > 0)
-      details.push(
-        `${path}: adds ${unmarked.length} line(s) outside a marked fork-hook; mark each hook line with ` +
-          "`// fork-hook: <domain>/<name>`" +
-          " or move the logic to a fork-owned file",
-      );
-
-    // A removed line that the target tree still carries is an upstream line
-    // being deleted or rewritten; a line only the fork ever added is not.
-    const upstream = input.upstreamLines.get(path);
-    const removedUpstream =
-      upstream === undefined
-        ? change.removed
-        : change.removed.filter((line) => upstream.has(line.trim()));
-    if (removedUpstream.length > 0)
-      details.push(
-        `${path}: removes or rewrites ${removedUpstream.length} upstream line(s); a fork-hook never deletes upstream code — record the deletion as reshape debt instead`,
-      );
-
-    const unmanifested = [
-      ...new Set(hooks.map((hook) => hook.key).filter((key) => !input.forkHooks.has(key))),
-    ];
-    if (unmanifested.length > 0)
-      details.push(
-        `${path}: fork-hook marker(s) ${unmanifested.map((key) => `\`${key}\``).join(", ")} missing from FORK_HOOKS in scripts/lib/fork-hooks.ts`,
-      );
-
-    if (constructViolations.length > 0)
-      details.push(
-        `${path}: marked hook is more than one construct (${constructViolations.length} line(s)); a hook is one import, one call, one const from a single fork call, one JSX element, or one fork-named property/spread`,
-      );
+    if (code.length === 0) continue;
+    const sample = code.slice(0, 3).map(({ line }) => line.trim());
+    // A comment-only line ends a trailing marker's backward walk, so marking
+    // more cannot cover it; only moving or dropping the comment can.
+    const remedy = code.every(({ line }) => COMMENT_LINE.test(line.trim()))
+      ? "a comment-only line stops the marker's walk, so move the comment inside the statement or drop it"
+      : "wrap the insertion in a fork-hook marker";
+    details.push(
+      `${path}: ${code.length} added line(s) outside a marked hook (first: ${sample.join(" / ")}); ${remedy}`,
+    );
   }
   return details;
 };
