@@ -1431,7 +1431,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
-  followExternalWorkspaceSymlinks: Schema.optionalKey(Schema.Boolean),
+  followExternalWorkspaceSymlinks: Schema.optionalKey(Schema.Boolean), // fork-hook: upstream-fixes/settings-patch-field
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),

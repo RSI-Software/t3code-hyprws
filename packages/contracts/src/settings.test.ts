@@ -12,8 +12,8 @@ import {
   ServerSettingsPatch,
 } from "./settings.ts";
 
-export const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
-export const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 export const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 export const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
