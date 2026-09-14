@@ -525,14 +525,14 @@ it("pins the tooling-repair boundary to walk tooling alone", () => {
   // In: the harness itself and the fork's own internals pages.
   assert.isTrue(isToolingRepair(["scripts/fork-sync.ts"]));
   assert.isTrue(isToolingRepair(["scripts/lib/fork-additive.ts"]));
-  assert.isTrue(isToolingRepair(["docs/internals/fork-budget.md"]));
+  assert.isTrue(isToolingRepair(["docs/internals/fork-development.md"]));
   assert.isTrue(isToolingRepair(["scripts/a.ts", "docs/internals/fork-delta.md"]));
   // Out: anything a fork reader would call product, and lookalike paths.
   assert.isFalse(isToolingRepair([]));
   assert.isFalse(isToolingRepair(["apps/web/src/a.ts"]));
   assert.isFalse(isToolingRepair(["scriptsx/a.ts"]));
   assert.isFalse(isToolingRepair(["docs/internals/other.md"]));
-  assert.isFalse(isToolingRepair(["docs/internals/fork-budget/nested.md"]));
+  assert.isFalse(isToolingRepair(["docs/internals/fork-development/nested.md"]));
   // A repair that also touches a product path is not a tooling repair.
   assert.isFalse(isToolingRepair(["scripts/a.ts", "apps/web/src/b.ts"]));
 });
@@ -662,6 +662,49 @@ it("renders elapsed time and host effort on the Walks row, absent when unrecorde
     assert.include(walks[0] ?? "", "| 93s | claude-opus-5 (high) | ");
     // The pre-#703 rows keep parsing and keep rendering; absence stays absent.
     assert.include(walks[1] ?? "", "| — | — | ");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps the delta commit count without reading a budget table", () => {
+  const root = ledgerRepository([entry("v1", [])]);
+  const internals = NodePath.join(root, "docs", "internals");
+  NodeFS.writeFileSync(
+    NodePath.join(internals, "fork-delta.md"),
+    "## fork-meta\n\n### Retirement condition\n",
+  );
+  // churnDelta spawns `node scripts/fork-delta.ts` relative to the repository root;
+  // link the real scripts directory so the fixture can run the inventory probe.
+  NodeFS.symlinkSync(
+    new URL("./", import.meta.url).pathname,
+    NodePath.join(root, "scripts"),
+    "dir",
+  );
+  const tree = runCommandText("git", ["mktree"], { cwd: root, input: "" }).trim();
+  let head = runCommandText("git", ["commit-tree", tree, "-m", "base"], { cwd: root }).trim();
+  runCommandText("git", ["update-ref", "refs/remotes/upstream/main", head], { cwd: root });
+  for (const subject of ["feat(fork): first identity", "feat(fork): second identity"]) {
+    head = runCommandText(
+      "git",
+      [
+        "commit-tree",
+        tree,
+        "-p",
+        head,
+        "-m",
+        `${subject}\n\nFork-Domain: fork-meta\nFork-Tier: qol`,
+      ],
+      { cwd: root },
+    ).trim();
+  }
+  runCommandText("git", ["update-ref", "refs/heads/hyprws", head], { cwd: root });
+  try {
+    assert.strictEqual(run(["render"], root), 0);
+    const kpis = NodeFS.readFileSync(NodePath.join(internals, "fork-churn.md"), "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("| delta commits"));
+    assert.deepStrictEqual(kpis, ["| delta commits | 2 |"]);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -999,13 +1042,10 @@ it("renders the notification KPIs from walk, seam, outcome, and delta inputs", (
       }),
     ),
   );
-  const section = renderChurnSection(entries, null, null, records, [], {
-    commits: 12,
-    overBudget: ["fork-meta"],
-  });
+  const section = renderChurnSection(entries, null, null, records, [], { commits: 12 });
   assert.include(section, "| decisions human : agent | 1 : 1 |");
   assert.include(section, "| conflict files, this walk vs last | 2 vs 1 |");
-  assert.include(section, "| delta commits, and any domain over budget | 12; fork-meta |");
+  assert.include(section, "| delta commits | 12 |");
   assert.include(
     section,
     "| repeat offenders (commits conflicting in 3+ notifications) | `abcdef1` |",
@@ -1017,7 +1057,7 @@ it("renders the notification KPIs from walk, seam, outcome, and delta inputs", (
 it("renders KPI fallbacks for a first walk", () => {
   const section = renderChurnSection([entry("v1", [])]);
   assert.include(section, "| conflict files, this walk vs last | 0 vs first walk |");
-  assert.include(section, "| delta commits, and any domain over budget | unrecorded |");
+  assert.include(section, "| delta commits | unrecorded |");
   assert.include(section, "| elapsed and effort | unrecorded; unrecorded |");
   assert.include(renderMarkdown([entry("v1", [])], ""), "## KPIs");
 });

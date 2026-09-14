@@ -23,6 +23,8 @@ import {
   resolveLessonSource,
 } from "./fork-lesson-guidance.ts";
 import { runCommand, SystemGit } from "./lib/fork-command.ts";
+import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
+import { FORK_HOOKS } from "./lib/fork-hooks.ts";
 import {
   readWorkflowDrift,
   WORKFLOW_REVIEWS_PATH,
@@ -624,6 +626,34 @@ const readUpstreamTestLines = (
   return lines;
 };
 
+/**
+ * The target-tree significant lines for exactly the files the fork-hook-seam rule needs: the
+ * upstream-owned, non-generated files a warned commit removes lines from. Never the whole tree —
+ * a scan stays proportional to the seams it reads. Deleting a fork-added hook line removes a line
+ * the target tree does not carry, so it is not refused as an upstream removal.
+ */
+const readUpstreamHookLines = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamFiles: ReadonlySet<string>,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const [path, change] of patch.changedLines)
+      if (change.removed.length > 0 && upstreamFiles.has(path) && !GENERATED_HOOK_PATH.test(path))
+        paths.add(path);
+  const lines = new Map<string, ReadonlySet<string>>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return lines;
+};
+
 // The guard rules read one patch per warned commit, so `--since` is what keeps
 // a pull request's run proportional to the commits it adds.
 const buildGuardInput = (
@@ -640,7 +670,15 @@ const buildGuardInput = (
   const guardCommits = commits.flatMap((commit) =>
     commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
       ? []
-      : [{ sha: commit.sha, short: commit.short, domain: commit.domain }],
+      : [
+          {
+            sha: commit.sha,
+            short: commit.short,
+            domain: commit.domain,
+            ...(commit.tier === undefined ? {} : { tier: commit.tier }),
+            ...(commit.upstreamable === undefined ? {} : { upstreamable: commit.upstreamable }),
+          },
+        ],
   );
   const patchesBySha =
     guardCommits.length === 0
@@ -654,22 +692,25 @@ const buildGuardInput = (
             git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
           ),
         );
+  const upstreamFiles =
+    guardCommits.length === 0
+      ? new Set<string>()
+      : new Set(
+          readLines(
+            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.base]),
+          ),
+        );
   return {
     commits: guardCommits,
     filesBySha,
     patchesBySha,
-    upstreamFiles:
-      guardCommits.length === 0
-        ? new Set()
-        : new Set(
-            readLines(
-              git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.base]),
-            ),
-          ),
+    upstreamFiles,
     hotSeams: churn === null ? new Map() : readHotSeams(churn),
     upstreamTestDebt: readTestDivergenceDebt(git, range.head),
     upstreamTestFiles,
     upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
+    forkHooks: new Set(Object.keys(FORK_HOOKS)),
+    upstreamHookLines: readUpstreamHookLines(git, range.target, patchesBySha, upstreamFiles),
   };
 };
 
