@@ -53,7 +53,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing";
+import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -342,7 +342,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     props.route.params,
   );
   const revealedInspectorRef = useRef(false);
-  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd);
+  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
   const entriesQuery = useEnvironmentQuery(
     environmentId !== null && workspaceFileListing !== null && !fileInspector.supported
       ? projectEnvironment.listEntries({

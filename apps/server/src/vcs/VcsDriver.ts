@@ -70,7 +70,7 @@ export class VcsDriver extends Context.Service<
     ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
     readonly listIgnoredWorkspaceFiles?: (
       cwd: string,
-    ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
+    ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>; // fork-hook: workspace-files/vcs-driver-ignored-member
     readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, VcsError>;
     readonly filterIgnoredPaths: (
       cwd: string,
