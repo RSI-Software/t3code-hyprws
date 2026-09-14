@@ -166,7 +166,7 @@ export function useNewThreadHandler() {
         return resolveDefaultStoredThreadEnvMode({
           projectSetting: project ? fromWireThreadEnvModeFields(project) : null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
           projectFile: projectFile?.defaultThreadEnvMode ?? null, // fork-hook: worktrunk-hooks/env-mode-inherit-default
-          globalDefault: fromWireThreadEnvModeFields(targetServerSettings), // fork-hook: worktrunk-hooks/env-mode-inherit-default
+          globalDefault: fromWireThreadEnvModeFields(targetServerSettings) ?? "local", // fork-hook: worktrunk-hooks/env-mode-inherit-default
         });
       };
       const logicalProjectKey = project
