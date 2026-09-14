@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 // Renders the fork ledger for `RSI-Software/t3code-hyprws` from commit trailers.
+// fork job step 5: PR CI trailer gate
+// Gate: pull-request — the Fork ledger step of the hyprws-ci Check job and the release workflow's Fork ledger step; --check refuses untagged commits.
 // Every fork commit above upstream carries `Fork-Domain` and `Fork-Tier`; this
 // script lists them by domain and, with `--check`, fails when one is missing.
-// See docs/internals/fork-delta.md for the conventions it enforces.
+// See docs/fork/internals/fork-delta.md for the conventions it enforces.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -16,33 +18,65 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { overlapPaths } from "./lib/fork-overlap.ts";
-import { FORK_PR_TEMPLATE_PATH, forkTemplateDriftProblem } from "./lib/fork-pr-template.ts";
 import {
-  commitNumstatArguments,
-  EMPTY_NUMSTAT,
-  parseCommitNumstat,
-  type CommitNumstat,
-} from "./lib/fork-numstat.ts";
-import {
+  FORK_LOG_RECORD_SEPARATOR,
   forkLogArguments,
   isForkDomain,
   isForkUpstreamable,
   parseForkLog,
   parseForkTrailers,
+  trailerBlock as squashTrailers,
 } from "./lib/fork-trailers.ts";
-import {
-  compareWireShapes,
-  parseForkWireBaseline,
-  wireFindingKey,
-  type ForkWireBaseline,
-  type WireShapeFinding,
-} from "./lib/fork-wire-shapes.ts";
-import {
-  EMPTY_RETIREMENT_LEDGER,
-  readForkRetirementLedger,
-  retirementDecision,
-  type ForkRetirementLedger,
-} from "./lib/fork-retirement-ledger.ts";
+
+/** Lines added and deleted by one commit; the inventory derives them from `git show --numstat`. */
+export interface CommitNumstat {
+  readonly files: ReadonlyArray<string>;
+  readonly added: number;
+  readonly deleted: number;
+}
+
+export const EMPTY_NUMSTAT: CommitNumstat = { files: [], added: 0, deleted: 0 };
+
+/** One numstat record per commit. `--no-renames` keeps every path a real path, so
+ * a renamed file intersects the net fork and upstream diffs — which list the new
+ * path only — exactly like fork:scan's `--name-only` commit lists do. */
+export const commitNumstatArguments = (shas: ReadonlyArray<string>) =>
+  [
+    "-c",
+    "core.quotePath=false",
+    "show",
+    "--numstat",
+    "--no-renames",
+    `--format=${FORK_LOG_RECORD_SEPARATOR}%H`,
+    ...shas,
+  ] as const;
+
+/** The `added\tdeleted\tpath` rows of one numstat block. Binary files report "-"
+ * for both counts; they still count as touched. */
+export const parseNumstatRows = (rows: ReadonlyArray<string>): CommitNumstat => {
+  let added = 0;
+  let deleted = 0;
+  const files: Array<string> = [];
+  for (const row of rows) {
+    const cells = row.split("\t");
+    const path = (cells[2] ?? "").trim();
+    if (path.length === 0) continue;
+    files.push(path);
+    added += Number.parseInt(cells[0] ?? "", 10) || 0;
+    deleted += Number.parseInt(cells[1] ?? "", 10) || 0;
+  }
+  return { files, added, deleted };
+};
+
+export const parseCommitNumstat = (raw: string): ReadonlyMap<string, CommitNumstat> => {
+  const stats = new Map<string, CommitNumstat>();
+  for (const record of raw.replace(/\r\n/g, "\n").split(FORK_LOG_RECORD_SEPARATOR)) {
+    const [sha = "", ...rows] = record.split("\n");
+    if (sha.trim().length === 0) continue;
+    stats.set(sha.trim(), parseNumstatRows(rows));
+  }
+  return stats;
+};
 
 export const ForkTier = Schema.Literals(["core", "qol", "bugfix"]);
 export type ForkTier = typeof ForkTier.Type;
@@ -54,11 +88,12 @@ const OptionalTrailer = Schema.optionalKey(Schema.String);
 export const ForkCommit = Schema.Struct({
   sha: Schema.String,
   short: Schema.String,
+  /** Strict-ISO author date (`%aI`); absent only for a synthesized squash commit. */
+  authorDate: OptionalTrailer,
   subject: Schema.String,
   domain: OptionalTrailer,
   tier: OptionalTrailer,
   upstreamable: OptionalTrailer,
-  wireReviewed: OptionalTrailer,
   repair: OptionalTrailer,
 });
 export type ForkCommit = typeof ForkCommit.Type;
@@ -102,37 +137,7 @@ export class ForkLogExitError extends Schema.TaggedError<ForkLogExitError>()("Fo
   }
 }
 
-export {
-  commitNumstatArguments,
-  parseCommitNumstat,
-  type CommitNumstat,
-} from "./lib/fork-numstat.ts";
-export { forkLogArguments, parseForkLog } from "./lib/fork-trailers.ts";
-
-// A pull request lands as one squash commit whose body is the pull-request
-// body, so the trailer block git will see is that body's last paragraph. Trailing
-// HTML comments (the landing tool's attestation) are dropped first, because the
-// landing tool strips them before composing the commit message.
-export const squashTrailers = (body: string): string => {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  while (lines.length > 0) {
-    const last = lines[lines.length - 1]?.trim() ?? "";
-    if (last.length === 0 || (last.startsWith("<!--") && last.endsWith("-->"))) {
-      lines.pop();
-      continue;
-    }
-    break;
-  }
-  const paragraph: Array<string> = [];
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index] ?? "";
-    if (line.trim().length === 0) break;
-    paragraph.unshift(line);
-  }
-  return paragraph.every((line) => /^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(line))
-    ? paragraph.join("\n")
-    : "";
-};
+export { forkLogArguments, parseForkLog, squashTrailers };
 
 export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
   sha: "squash",
@@ -141,17 +146,14 @@ export const parseSquashBody = (subject: string, body: string): ForkCommit => ({
   ...parseForkTrailers(squashTrailers(body)),
 });
 
-export const isReviewedWireTrailer = (value: string | undefined): boolean =>
-  value !== undefined && /^reviewed\s+\S/i.test(value);
-
 const isForkTier = (value: string | undefined): value is ForkTier =>
   value !== undefined && (ForkTier.literals as ReadonlyArray<string>).includes(value);
 
 /**
  * Walk-authored `fixup!` commits are transient: #861 makes them trailer-free by
- * design, and the autosquash in `scripts/fork-sync.ts` folds them into their
- * owners immediately after the delta check runs, so the ledger never sees them
- * as permanent stack members and must not demand trailers from them.
+ * design, and the sync rebase autosquashes them into their owners immediately
+ * after the delta check runs, so the ledger never sees them as permanent stack
+ * members and must not demand trailers from them.
  */
 export const dropTransientFixups = (
   commits: ReadonlyArray<ForkCommit>,
@@ -182,78 +184,17 @@ export const buildLedger = (
   base: string,
   head: string,
   commits: ReadonlyArray<ForkCommit>,
-  retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
-  wireFindings: ReadonlyMap<string, ReadonlyArray<WireShapeFinding>> = new Map(),
-  wireBaseline: ForkWireBaseline = new Map(),
-): ForkLedger => {
-  const stackSubjects = new Set(commits.map((commit) => commit.subject));
-  const retired = commits.filter(
-    (commit) => retirementDecision(retirementLedger, commit.subject).decision === "retire",
-  );
-  const active = commits.filter(
-    (commit) => retirementDecision(retirementLedger, commit.subject).decision !== "retire",
-  );
-  const wireRows = active.flatMap((commit) =>
-    (wireFindings.get(commit.sha) ?? []).map((finding) => ({
-      commit,
-      finding,
-      key: wireFindingKey(commit.subject, finding),
-    })),
-  );
-  const producedWireKeys = new Set(wireRows.map((row) => row.key));
-  return {
-    base,
-    head,
-    commits: active,
-    findings: [
-      ...collectFindings(active),
-      ...wireRows.flatMap(({ commit, finding, key }) =>
-        isReviewedWireTrailer(commit.wireReviewed) || wireBaseline.has(key)
-          ? []
-          : [
-              {
-                short: commit.short,
-                subject: commit.subject,
-                problem: `${finding.schema}: ${finding.change}; ${finding.hint}`,
-              },
-            ],
-      ),
-      ...retired.map((commit) => ({
-        short: commit.short,
-        subject: commit.subject,
-        problem: "retired but present",
-      })),
-      // The mirror of "retired but present" (#916): a Kept row names a fork
-      // commit the stack must carry, so a subject that walks away without a
-      // Retired row fails the check instead of staying green forever.
-      ...[...retirementLedger.kept.keys()]
-        .filter((subject) => !stackSubjects.has(subject))
-        .map((subject) => ({
-          short: "ledger",
-          subject,
-          problem: "kept but absent",
-        })),
-    ],
-    warnings: [...wireBaseline.keys()]
-      .filter((key) => !producedWireKeys.has(key))
-      .map((key) => `stale wire baseline: ${key}`),
-  };
-};
+): ForkLedger => ({
+  base,
+  head,
+  commits,
+  findings: collectFindings(commits),
+  warnings: [],
+});
 
-export const buildSquashLedger = (
-  base: string,
-  head: string,
-  body: string,
-  wireFindings: ReadonlyArray<WireShapeFinding>,
-): ForkLedger => {
+export const buildSquashLedger = (base: string, head: string, body: string): ForkLedger => {
   const commit = parseSquashBody("pull-request body", body);
-  return buildLedger(
-    base,
-    head,
-    [commit],
-    EMPTY_RETIREMENT_LEDGER,
-    new Map([[commit.sha, wireFindings]]),
-  );
+  return buildLedger(base, head, [commit]);
 };
 
 // Narrows the ledger to one domain so its commits can be extracted as a unit.
@@ -296,11 +237,11 @@ export const renderMarkdown = (ledger: ForkLedger): string => {
       .filter((c) => c.domain === domain)
       .toSorted((left, right) => tierRank(left.tier) - tierRank(right.tier));
     lines.push(`## ${domain}`, "");
-    lines.push("| Tier | Commit | Change | Upstreamable | Wire review |");
+    lines.push("| Tier | Commit | Change | Upstreamable |");
     lines.push("| --- | --- | --- | --- | --- |");
     for (const row of rows) {
       lines.push(
-        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} | ${row.wireReviewed ?? ""} |`,
+        `| ${row.tier ?? "?"} | \`${row.short}\` | ${escapeCell(row.subject)} | ${row.upstreamable ?? ""} |`,
       );
     }
     lines.push("");
@@ -361,36 +302,6 @@ export const ForkInventory = Schema.Struct({
 export type ForkInventory = typeof ForkInventory.Type;
 
 const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
-
-// Pre-#861 backlog. Remove this list when the host's leased flatten lands; no new entry is ever added.
-export const GRANDFATHERED_WALK_REPAIR_SHAS = new Set([
-  "a6f5968317bea1df22d9111d0fe749fbeb093510",
-  "cdf36f34e7e075ade1917f3048dbb8264f6b3eda",
-  "5388030d8599f0d542b634c687040256538117d8",
-  "9f2cdce4a1a5a95202ec521bb806e27f8cc170aa",
-  "eacdcc238cfc99c7b74a7de422b57371702a2d20",
-  "4dfe7908e443c85b328c632eb16fb1cf50b1d53f",
-  "70c9be4d0e2d768220969dec065f7c3551e93c1c",
-  "eb29187aa8e152b5a6f7ebee98845ac49d8ab892",
-  "3a2d7ca89eabcbde75440aa6539a67d2b7d9d33f",
-  "7454aab1398215f0f7e6440fa193ad752700b416",
-]);
-
-export const legacyWalkRepairFindings = (
-  commits: ReadonlyArray<ForkCommit>,
-  grandfathered = GRANDFATHERED_WALK_REPAIR_SHAS,
-): ReadonlyArray<ForkFinding> =>
-  commits.flatMap((commit) =>
-    /^chore\(fork-sync\): repair\b/.test(commit.subject) && !grandfathered.has(commit.sha)
-      ? [
-          {
-            short: commit.short,
-            subject: commit.subject,
-            problem: "legacy walk repair must be folded",
-          },
-        ]
-      : [],
-  );
 
 // Per-domain and per-commit views of the same stack. A commit's overlap count
 // uses its own files against both net diffs; a domain aggregates its commits'
@@ -583,7 +494,7 @@ const collectInventory = Effect.fn("collectForkInventory")(function* (
   target: string,
   head: string,
 ) {
-  const base = yield* resolveMergeBase(target, head, process.cwd());
+  const base = yield* resolveInventoryMergeBase(target, head, process.cwd());
   const commits = yield* readForkLog(base, head);
   const [forkChanged, upstreamChanged, statsBySha] = yield* Effect.all(
     [
@@ -604,20 +515,7 @@ const collectInventory = Effect.fn("collectForkInventory")(function* (
   });
 });
 
-const missingRevisionPath = (stderr: string): boolean =>
-  /(?:does not exist in|exists on disk, but not in)/.test(stderr);
-
-const readRevisionPath = Effect.fn("readForkWireRevisionPath")(function* (
-  revisionPath: string,
-  cwd: string,
-) {
-  const result = yield* runGit(["show", revisionPath], cwd);
-  if (result.exitCode === 0) return result.stdout;
-  if (missingRevisionPath(result.stderr)) return "";
-  return yield* new ForkLogExitError({ exitCode: result.exitCode, stderr: result.stderr });
-});
-
-const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
+const resolveInventoryMergeBase = Effect.fn("resolveForkInventoryMergeBase")(function* (
   base: string,
   head: string,
   cwd: string,
@@ -633,113 +531,52 @@ const resolveMergeBase = Effect.fn("resolveForkWireMergeBase")(function* (
   return mergeBase;
 });
 
-export const collectWireShapeFindingsBetween = Effect.fn("collectWireShapeFindingsBetween")(
-  function* (base: string, head: string, cwd = process.cwd()) {
-    const mergeBase = yield* resolveMergeBase(base, head, cwd);
-    const changed = yield* runGit(
-      ["diff", "--name-only", mergeBase, head, "--", "packages/contracts/src"],
-      cwd,
-    );
-    if (changed.exitCode !== 0) {
-      return yield* new ForkLogExitError({
-        exitCode: changed.exitCode,
-        stderr: changed.stderr,
-      });
-    }
-    const paths = [
-      ...new Set(
-        changed.stdout
-          .split("\n")
-          .map((path) => path.trim())
-          .filter((path) => path.startsWith("packages/contracts/src/")),
-      ),
-    ];
-    const findings = yield* Effect.forEach(
-      paths,
-      (path) =>
-        Effect.gen(function* () {
-          const [before, after] = yield* Effect.all(
-            [
-              readRevisionPath(`${mergeBase}:${path}`, cwd),
-              readRevisionPath(`${head}:${path}`, cwd),
-            ],
-            { concurrency: "unbounded" },
-          );
-          return compareWireShapes(before, after, path);
-        }),
-      { concurrency: 4 },
-    );
-    return findings.flat();
-  },
-);
-
-export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(function* (
-  commits: ReadonlyArray<ForkCommit>,
-  cwd = process.cwd(),
-) {
-  const entries = yield* Effect.forEach(
-    commits,
-    (commit) =>
-      Effect.gen(function* () {
-        if (isReviewedWireTrailer(commit.wireReviewed)) {
-          return [commit.sha, [] as ReadonlyArray<WireShapeFinding>] as const;
-        }
-        const findings = yield* collectWireShapeFindingsBetween(`${commit.sha}^`, commit.sha, cwd);
-        return [commit.sha, findings] as const;
-      }),
-    { concurrency: 4 },
-  );
-  return new Map(entries);
-});
-
 const command = Command.make(
   "fork-delta",
   {
-    base: Flag.string("base").pipe(
+    base: Flag.String("base").pipe(
       Flag.withDescription(
         "Base ref; defaults to upstream/main except --squash-body requires it explicitly.",
       ),
       Flag.optional,
     ),
-    head: Flag.string("head").pipe(
+    head: Flag.String("head").pipe(
       Flag.withDescription(
         "Head ref; defaults to HEAD except --squash-body requires it explicitly.",
       ),
       Flag.optional,
     ),
-    check: Flag.boolean("check").pipe(
-      Flag.withDescription(
-        "Exit 1 when a fork commit has invalid trailers, changes a shipped wire shape, or is still present after retirement.",
-      ),
+    check: Flag.Boolean("check").pipe(
+      Flag.withDescription("Exit 1 when a fork commit has invalid trailers."),
       Flag.withDefault(false),
     ),
-    json: Flag.boolean("json").pipe(
+    json: Flag.Boolean("json").pipe(
       Flag.withDescription("Print the ledger as JSON instead of Markdown."),
       Flag.withDefault(false),
     ),
-    domain: Flag.string("domain").pipe(
+    domain: Flag.String("domain").pipe(
       Flag.withDescription("Limit the ledger to one Fork-Domain."),
       Flag.optional,
     ),
-    shas: Flag.boolean("shas").pipe(
+    shas: Flag.Boolean("shas").pipe(
       Flag.withDescription(
         "Print one full SHA per line in stack order, for `git cherry-pick` onto upstream.",
       ),
       Flag.withDefault(false),
     ),
-    inventory: Flag.boolean("inventory").pipe(
+    inventory: Flag.Boolean("inventory").pipe(
       Flag.withDescription(
         "Print the per-domain and per-commit delta inventory instead of the ledger.",
       ),
       Flag.withDefault(false),
     ),
-    upstream: Flag.string("upstream").pipe(
+    upstream: Flag.String("upstream").pipe(
       Flag.withDescription(
         "With --inventory, the upstream target to compare against (default: upstream/main).",
       ),
       Flag.optional,
     ),
-    squashBody: Flag.string("squash-body").pipe(
+    squashBody: Flag.String("squash-body").pipe(
       Flag.withDescription(
         "With --check, verify the base-to-head squash and the pull-request body's final trailer block.",
       ),
@@ -764,19 +601,18 @@ const command = Command.make(
         const squashHead = Option.getOrThrow(head);
         const fileSystem = yield* FileSystem.FileSystem;
         const body = yield* fileSystem.readFileString(squashBody.value);
-        const wireFindings = yield* collectWireShapeFindingsBetween(squashBase, squashHead);
-        const ledger = buildSquashLedger(squashBase, squashHead, body, wireFindings);
+        const ledger = buildSquashLedger(squashBase, squashHead, body);
         for (const finding of ledger.findings) {
           process.stderr.write(`${finding.subject}: ${finding.problem}\n`);
         }
         if (ledger.findings.length > 0) {
           process.stderr.write(
-            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier and, when reported above, Fork-Wire: reviewed <reason> (docs/internals/fork-delta.md)\n`,
+            `failed: the prospective squash is invalid; end the body with Fork-Domain and Fork-Tier (docs/fork/internals/fork-delta.md)\n`,
           );
           process.exitCode = 1;
           return;
         }
-        process.stdout.write("ok: prospective squash carries its fork trailers and wire review\n");
+        process.stdout.write("ok: prospective squash carries its fork trailers\n");
         return;
       }
       if (inventory) {
@@ -795,26 +631,13 @@ const command = Command.make(
         );
         return;
       }
-      const fileSystem = yield* FileSystem.FileSystem;
-      const retirementLedger = readForkRetirementLedger(process.cwd());
-      const wireBaseline = parseForkWireBaseline(
-        yield* fileSystem.readFileString("docs/internals/fork-wire-baseline.md"),
-      );
       const resolvedBase = Option.getOrElse(base, () => "upstream/main");
       const resolvedHead = Option.getOrElse(head, () => "HEAD");
       const read = yield* readForkLog(resolvedBase, resolvedHead);
-      // Transient walk fixups stay out of the ledger entirely: trailer rules and
-      // the legacy-repair scan all check the folded stack only.
+      // Transient walk fixups stay out of the ledger entirely: trailer rules
+      // check the folded stack only.
       const commits = dropTransientFixups(read);
-      const wireFindings = yield* collectWireShapeFindings(commits);
-      const full = buildLedger(
-        resolvedBase,
-        resolvedHead,
-        commits,
-        retirementLedger,
-        wireFindings,
-        wireBaseline,
-      );
+      const full = buildLedger(resolvedBase, resolvedHead, commits);
       const ledger = Option.isSome(domain) ? selectDomain(full, domain.value) : full;
       if (ledger === null) {
         const name = Option.getOrElse(domain, () => "");
@@ -827,23 +650,7 @@ const command = Command.make(
         return;
       }
       if (check) {
-        // A repository invariant rather than a property of the walked range: the template is the
-        // only place an author reads the domain list, so it fails the check wherever the range
-        // starts. RSI-Software/t3code-hyprws#713 records the drift that made this necessary.
-        const templateDrift = forkTemplateDriftProblem(
-          yield* fileSystem
-            .readFileString(FORK_PR_TEMPLATE_PATH)
-            .pipe(Effect.orElseSucceed(() => undefined)),
-        );
-        if (templateDrift !== undefined) {
-          process.stderr.write(`failed: ${templateDrift}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        for (const warning of ledger.warnings) {
-          process.stderr.write(`warning: ${warning}\n`);
-        }
-        const findings = [...ledger.findings, ...legacyWalkRepairFindings(commits)];
+        const findings = ledger.findings;
         for (const finding of findings) {
           process.stderr.write(`${finding.short} ${finding.subject}: ${finding.problem}\n`);
         }
