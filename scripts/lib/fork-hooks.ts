@@ -271,6 +271,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "RightPanelStoreState" },
   },
+  "custom-agents/right-panel-open-agents-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
   "custom-agents/right-panel-open-agents": {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "useRightPanelStore" },
