@@ -52,3 +52,47 @@ export const pullRequestAttachmentRpcFork = {
     WsPullRequestsUploadAttachmentRpcFork,
   ] as const,
 };
+
+// GitHub issue RPC registrations for commit `9f92309411` (feat(issues): add
+// GitHub Issues surface scoped to project windows), folded into this shared
+// sibling on RSI-Software/t3code-hyprws#959.
+import {
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueDetail,
+  GitHubIssueListInput,
+  GitHubIssueListResult,
+  GitHubIssueOperationError,
+  GitHubIssueRef,
+} from "./githubIssue.ts";
+
+const GitHubIssueRpcErrorFork = Schema.Union([
+  GitHubIssueCliMissingError,
+  GitHubIssueCliUnauthenticatedError,
+  GitHubIssueOperationError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsGitHubIssuesListRpcFork = Rpc.make("githubIssues.list", {
+  payload: GitHubIssueListInput,
+  success: GitHubIssueListResult,
+  error: GitHubIssueRpcErrorFork,
+});
+
+const WsGitHubIssuesDetailRpcFork = Rpc.make("githubIssues.detail", {
+  payload: GitHubIssueRef,
+  success: GitHubIssueDetail,
+  error: GitHubIssueRpcErrorFork,
+});
+
+/**
+ * Spread into the upstream `WS_METHODS` collection and `WsRpcGroup` through the
+ * marked hooks in `rpc.ts` (`github-issues/rpc-methods`, `github-issues/rpc-group`).
+ */
+export const githubIssuesRpcFork = {
+  methodNames: {
+    githubIssuesList: "githubIssues.list",
+    githubIssuesDetail: "githubIssues.detail",
+  } as const,
+  rpcs: [WsGitHubIssuesListRpcFork, WsGitHubIssuesDetailRpcFork] as const,
+};

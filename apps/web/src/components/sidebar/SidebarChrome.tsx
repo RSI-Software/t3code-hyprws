@@ -1,4 +1,9 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, CircleDotIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  CircleDotIcon, // fork-hook: github-issues/sidebar-issues-icon
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -12,6 +17,9 @@ import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../../projectRoutes"; // fork-hook: project-windows/sidebar-pr-list-route-import
 import { useEnvironments } from "../../state/environments";
+import { resolveSidebarGitHubIssuesPageFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-footer-page-import
+import { sidebarGitHubIssuesSupportedFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-supported-import
+import { useGitHubIssuesSidebarNavigateFork } from "./SidebarChrome.fork"; // fork-hook: github-issues/sidebar-issues-navigate-import
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -167,18 +175,14 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         : pathname === "/pull-requests" ||
             (projectRef !== null && pathname.endsWith("/pull-requests"))
           ? "pull-requests"
-          : pathname === "/issues" || (projectRef !== null && pathname.endsWith("/issues"))
-            ? "github-issues"
-            : null;
+          : resolveSidebarGitHubIssuesPageFork(pathname, projectRef); // fork-hook: github-issues/sidebar-issues-footer-page
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
-  const githubIssuesSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.githubIssues === true,
-  );
+  const githubIssuesSupported = sidebarGitHubIssuesSupportedFork(environments); // fork-hook: github-issues/sidebar-issues-supported
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -191,18 +195,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       search: readPullRequestListPreferences(),
     });
   }, [closeMobileSidebar, navigate, projectRef]);
-  const handleIssuesClick = useCallback(() => {
-    closeMobileSidebar();
-    if (projectRef !== null) {
-      void navigate({
-        to: "/project/$environmentId/$projectId/issues",
-        params: projectRef,
-        search: { state: "open" },
-      });
-      return;
-    }
-    void navigate({ to: "/issues", search: { state: "open" } });
-  }, [closeMobileSidebar, navigate, projectRef]);
+  const handleIssuesClick = useGitHubIssuesSidebarNavigateFork({
+    closeMobileSidebar,
+    navigate,
+    projectRef,
+  }); // fork-hook: github-issues/sidebar-issues-navigate
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -243,6 +240,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          {/* fork-hook: github-issues/sidebar-issues-entry */}
           {githubIssuesSupported ? (
             <SidebarUtilityItem
               icon={<CircleDotIcon />}
@@ -250,6 +248,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handleIssuesClick}
             />
           ) : null}
+          {/* fork-hook-end */}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"

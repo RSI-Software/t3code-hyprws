@@ -1,7 +1,8 @@
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildIssuesNavigationCommand, browseInputEndPaddingClass } from "./CommandPalette.logic";
+import { browseInputEndPaddingClass } from "./CommandPalette.logic";
+import { buildIssuesNavigationCommand } from "./CommandPalette.fork";
 
 describe("buildIssuesNavigationCommand", () => {
   it("defines the Issues action and preserves project-window scope", () => {
