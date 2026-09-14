@@ -11,6 +11,7 @@ import {
   FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_MARKER,
   FORK_HOOK_LINE_SUFFIX,
+  FORK_HOOK_BLOCK_SUFFIX,
   forkHookKey,
   type ForkHookEntry,
   isWellFormedForkHookKey,
@@ -79,6 +80,20 @@ it("parses a trailing line marker and strips it without touching the code", () =
     FORK_HOOK_LINE_MARKER.test("// fork-hook: project-windows/spawn-target"),
     true,
   );
+});
+
+it("parses a trailing block-comment marker (CSS) and bounds it to its line", () => {
+  const line = '@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */';
+  const hooks = parseForkHookMarkers(`@import "tailwindcss";\n${line}\n.wco {}`);
+  assert.strictEqual(hooks.length, 1);
+  assert.deepInclude(hooks[0], {
+    key: "project-windows/index-fork-css",
+    kind: "line",
+    startLine: 2,
+    endLine: 2,
+  });
+  assert.match(line, FORK_HOOK_BLOCK_SUFFIX);
+  assert.strictEqual(FORK_HOOK_BLOCK_SUFFIX.test("/* fork-hook: fork-meta/a */ .x {}"), false);
 });
 
 it("does not mark a mid-line or non-trailing comment", () => {
