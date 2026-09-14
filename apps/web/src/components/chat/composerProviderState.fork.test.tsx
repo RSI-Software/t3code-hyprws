@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
@@ -9,10 +10,27 @@ import {
   getComposerProviderState,
   renderProviderAgentMenuContent,
   renderProviderAgentPicker,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
+import { agentBlockHiddenFork } from "./composerProviderState.fork";
+import { getTraitsSectionVisibility } from "./TraitsPicker";
+
+it.each([
+  { measured: 1, upstream: 1, upstreamHidden: 1, hidden: false },
+  { measured: 2, upstream: 1, upstreamHidden: 1, hidden: true },
+  { measured: 2, upstream: 0, upstreamHidden: 0, hidden: false },
+])(
+  "overflows the agent only after every upstream block (%o)",
+  ({ measured, upstream, upstreamHidden, hidden }) => {
+    expect(
+      agentBlockHiddenFork({
+        measuredHiddenBlockCount: measured,
+        upstreamBlockCount: upstream,
+        upstreamHiddenBlockCount: upstreamHidden,
+      }),
+    ).toBe(hidden);
+  },
+);
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -58,15 +76,15 @@ function selections(
 ): ReadonlyArray<ProviderOptionSelection> {
   return entries.map(([id, value]) => ({ id, value }));
 }
-describe("getComposerProviderState legacy plan mode", () => {
+describe("getComposerProviderState plan agent", () => {
   forkSupersedes({
     upstream:
-      "apps/web/src/components/chat/composerProviderState.test.tsx > drops the plan agent from dispatch when legacy plan mode is disabled",
+      "apps/web/src/components/chat/composerProviderState.test.tsx > drops the plan agent from dispatch unless it is included",
     reason:
-      "only OpenCode hides its plan agent with legacy plan mode off; other providers keep plan as a selectable main-thread agent",
+      "only OpenCode hides its plan agent; other providers keep plan as a selectable main-thread agent",
     commit: "cfe211a818a",
   });
-  it("drops the plan agent from OpenCode dispatch when legacy plan mode is disabled", () => {
+  it("drops the plan agent from dispatch unless it is included", () => {
     const input = {
       model: MODEL,
       models: modelWith([
@@ -76,16 +94,14 @@ describe("getComposerProviderState legacy plan mode", () => {
         ]),
       ]),
       modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
     };
-    expect(
-      getComposerProviderState({ ...input, provider: OPENCODE_PROVIDER }).modelOptionsForDispatch,
-    ).toEqual(selections(["agent", "build"]));
+    const state = getComposerProviderState({ ...input, provider: OPENCODE_PROVIDER });
+    expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
     expect(
       getComposerProviderState({ ...input, provider: PROVIDER }).modelOptionsForDispatch,
     ).toEqual(selections(["agent", "plan"]));
   });
-  it("drops the OpenCode agent descriptor entirely when plan is the only option and plan mode is disabled", () => {
+  it("drops the OpenCode agent descriptor entirely when plan is the only option", () => {
     const state = getComposerProviderState({
       provider: OPENCODE_PROVIDER,
       model: MODEL,
@@ -93,7 +109,6 @@ describe("getComposerProviderState legacy plan mode", () => {
         selectDescriptor("agent", [{ id: "plan", label: "Plan", isDefault: true }]),
       ]),
       modelOptions: selections(["agent", "plan"]),
-      planModeEnabled: false,
     });
     expect(state).toEqual({
       provider: OPENCODE_PROVIDER,
@@ -116,13 +131,35 @@ describe("provider traits render guards", () => {
       model: MODEL,
       models,
       modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
-      planModeEnabled: false,
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
     };
     expect(renderProviderAgentPicker(args)).not.toBeNull();
     expect(renderProviderAgentMenuContent(args)).not.toBeNull();
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+    expect(getTraitsSectionVisibility(args).hasAnyControls).toBe(false);
+  });
+
+  // A dropped selection shows every agent as Default and rebuilds the other
+  // traits from defaults on the next pick.
+  it("hands the current selections to both agent controls", () => {
+    const args = {
+      provider: PROVIDER,
+      draftId: DraftId.make("draft-agent-selection"),
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [
+          { id: "default", label: "Default", isDefault: true },
+          { id: "fable", label: "fable" },
+        ]),
+      ]),
+      modelOptions: selections(["agent", "fable"]),
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
+    };
+    for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
+      expect(isValidElement<{ modelOptions?: unknown }>(control)).toBe(true);
+      if (!isValidElement<{ modelOptions?: unknown }>(control)) continue;
+      expect(control.props.modelOptions).toEqual(args.modelOptions);
+    }
   });
 });
