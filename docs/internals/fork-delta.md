@@ -175,11 +175,21 @@ migrations, mobile deep-link parameters, or anything outside exported `Schema.Li
 Carry cost is decided per commit, by the parent direction's levers — retire, reshape, automate,
 or accept (RSI-Software/t3code-hyprws#665) — not by a numeric cap. Accept is never "as-is": a
 kept commit must have a mechanical seam, with fork code in fork-only files and upstream files
-carrying only marked hook lines the sync walk re-applies. There is no budget table and
-no ceiling arithmetic anywhere in the gates. `vp run fork:delta --inventory` still measures
-commit counts, lines, and shared files per domain; the numbers inform a decision, they enforce
-nothing. Walk repairs (`Fork-Repair` commits) stay visible in the inventory's per-commit table
-while their lines stay out of the domain sums.
+carrying only marked hook lines the sync walk re-applies. A hook is marked in source with a
+trailing `// fork-hook: <domain>/<name>`, or with the JSX comment pair
+`{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end */}` for a multi-line construct, and
+listed in the `FORK_HOOKS` manifest in `scripts/lib/fork-hooks.ts`. A hook is exactly one
+construct — one import, one call, one `const` from a single fork call, one JSX element, one
+fork-named property/spread — and never removes or modifies an upstream line: a needed deletion
+is reshape debt with a named reason. The `fork-hook-seam` guard warns when a fork commit adds
+outside a marked hook, deletes a line the upstream tree carries, or marks a hook the manifest
+does not know; `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes` commits, and generated
+paths (`pnpm-lock.yaml`, `*.gen.ts`), are outside the rule. It ships warn-only, outside
+`ADOPTED_AUTHORING_GUARDS`, until the sweep reshapes the existing woven seams. There is no
+budget table and no ceiling arithmetic anywhere in the gates. `vp run fork:delta --inventory`
+still measures commit counts, lines, and shared files per domain; the numbers inform a
+decision, they enforce nothing. Walk repairs (`Fork-Repair` commits) stay visible in the
+inventory's per-commit table while their lines stay out of the domain sums.
 
 The same three numbers ride along with the sync: every `fork:sync` walk records the size of
 the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
