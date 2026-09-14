@@ -103,6 +103,9 @@ const isRebaseInProgress = (worktree: string): boolean => {
 export const replaySegment = (lane: FoldLane, segment: FoldSegment): FoldReplay => {
   const { worktree } = lane;
   const git = new SystemGit(worktree);
+  // Deliberately excluded from the start-empty drop (RSI-Software/t3code-hyprws#1022): the
+  // reshape fold is tree-neutral by construction and rides a lease, so changing its commit
+  // count here is out of scope.
   const args = [
     "-c",
     "core.commentChar=auto",
