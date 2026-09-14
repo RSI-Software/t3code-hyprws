@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// Gate: none — synchronous child-process runner every fork script shares; gates nothing itself.
 
 import * as NodeChildProcess from "node:child_process";
 
@@ -15,25 +16,76 @@ export interface CommandOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timeout?: number;
   readonly maxBuffer?: number;
+  /**
+   * Opt-in: capture the child's piped output, then write it through to ours on return, so it stays
+   * available for failure details. Live progress is lost until the child exits. The child's stdin
+   * stays closed, so a prompting child fails fast.
+   */
+  readonly stream?: boolean;
 }
+
+/**
+ * Bounds every command that names no timeout, so a wedged child cannot hang forever. 45 minutes
+ * clears the slowest ordinary fork-walk step (a 275-commit rebase, `vp i`, `fork:scan`); a command
+ * allowed to run longer (a CI-watch poll, a release-workflow wait) passes its own `timeout`.
+ */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 45 * 60 * 1000;
 
 export const runCommand = (
   command: string,
   args: ReadonlyArray<string>,
   options: CommandOptions = {},
 ): CommandResult => {
+  if (options.stream === true && options.input !== undefined)
+    throw new Error(
+      "runCommand: stream and input are mutually exclusive (piped stdin can't also receive piped input)",
+    );
+  if (options.stream === true) return runCommandStreaming(command, args, options);
   const result = NodeChildProcess.spawnSync(command, [...args], {
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    timeout: options.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.input === undefined ? {} : { input: options.input }),
     ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+    // stdin stays "ignore", not "inherit": a child that unexpectedly prompts (a credential
+    // helper, a pager, a rebase whose GIT_EDITOR did not take) should fail fast on a closed
+    // stdin like before, not sit on the operator's terminal until the timeout fires.
   });
   return {
     status: result.status ?? 1,
-    stdout: result.stdout,
-    stderr: result.stderr,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    ...(result.error === undefined ? {} : { error: result.error }),
+  };
+};
+
+/**
+ * `stream: true` via spawnSync with piped stdio, written through to our stdout, then stderr, on
+ * return. A synchronous poll of a live ChildProcess never observes its exit, so arrival-order
+ * interleaving is out of reach. stdin stays closed, so a prompting child still fails fast.
+ */
+const runCommandStreaming = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: CommandOptions,
+): CommandResult => {
+  const result = NodeChildProcess.spawnSync(command, [...args], {
+    encoding: "utf8",
+    maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    timeout: options.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (stdout.length > 0) process.stdout.write(stdout);
+  if (stderr.length > 0) process.stderr.write(stderr);
+  return {
+    status: result.status ?? 1,
+    stdout,
+    stderr,
     ...(result.error === undefined ? {} : { error: result.error }),
   };
 };
@@ -135,6 +187,8 @@ export interface CommandRunner {
     cwd?: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult;
 }
 
@@ -145,6 +199,8 @@ export interface CwdCommandRunner {
     cwd: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult;
 }
 
@@ -167,11 +223,15 @@ export class SystemCommandRunner implements CwdCommandRunner {
     cwd: string,
     input?: string,
     env?: NodeJS.ProcessEnv,
+    stream?: boolean,
+    timeout?: number,
   ): CommandResult {
     const result = runCommand(command, args, {
       cwd,
       ...(input === undefined ? {} : { input }),
       ...(env === undefined ? {} : { env }),
+      ...(stream === undefined ? {} : { stream }),
+      ...(timeout === undefined ? {} : { timeout }),
     });
     if (result.error !== undefined) throw result.error;
     return result;
