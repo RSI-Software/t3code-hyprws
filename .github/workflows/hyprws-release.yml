@@ -30,10 +30,16 @@ on:
 
 # Stable tag pushes and stable dispatches use the stable queue; every other run uses nightly.
 # Preflight remains the only place that resolves the requested channel.
+# No queue: max here, unlike upstream. Upstream nightlies only fire on a schedule
+# behind a six-hour gap, so its nightly lane never holds more than one pending run
+# and keeping every one of them is free. The fork also builds every hyprws landing,
+# so a burst of merges queues a build per commit and the newest waits behind builds
+# it already contains. The default single pending slot supersedes them instead:
+# the running build finishes, the newest waiting commit survives, the rest drop.
+# The stable lane resolves to its own group and only ever carries one tag at a time.
 concurrency:
   group: hyprws-release-${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || inputs.channel == 'stable') && 'stable' || 'nightly' }}
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
