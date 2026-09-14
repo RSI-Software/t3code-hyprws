@@ -513,6 +513,28 @@ const stageReapplyConflict = (
 const MARKED_HOOK = "upstream-fixes/settings-patch-field";
 const HOOK_LINE = `  restoreSymlinks: boolean; // fork-hook: ${MARKED_HOOK}\n`;
 const FORK_TAIL = `export const fsf = 1; // fork-hook: ${MARKED_HOOK}\n`;
+
+// The live FORK_HOOKS manifest carries more entries for settings.ts than this fixture stages;
+// executeConflictOutcome replays against the manifest it is given, so the fixture scopes it to
+// the entries the synthetic index actually marks.
+const fixtureManifest = {
+  [MARKED_HOOK]: {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ServerSettingsPatch" },
+  },
+} as const;
+// The "marks only a different hook" case stages two other marked lines for the same path.
+const otherHooksManifest = {
+  ...fixtureManifest,
+  "upstream-fixes/wfs-fork-import": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/settings-row-import": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "import-block" },
+  },
+} as const;
 // Upstream rewrites the base `rename` line the fork keeps, with a fork addition right beside it:
 // one conflicted hunk with base content (keep-both declines) whose direction is "upstream", plus
 // an EOF co-insertion hunk whose direction is null, so moved-deletion declines on the mixture and
@@ -542,6 +564,7 @@ it("keeps the keep-both stop when the fork hunk carries woven unmarked lines", (
       typecheckRunner({ status: 0, stdout: "", stderr: "" }),
       root,
       path,
+      fixtureManifest,
     );
     assert.isTrue(isUnresolved(outcome));
     if (!isUnresolved(outcome)) return;
@@ -570,7 +593,7 @@ it("re-applies a marked fork hook into the merged upstream text of a real confli
   const runner = typecheckRunner({ status: 0, stdout: "", stderr: "" });
   try {
     stageReapplyConflict(root, path, settingsStages(HOOK_LINE, FORK_TAIL));
-    const outcome = executeConflictOutcome(runner, root, path);
+    const outcome = executeConflictOutcome(runner, root, path, fixtureManifest);
     assert.isFalse(isUnresolved(outcome));
     if (isUnresolved(outcome)) return;
     assert.strictEqual(outcome.source, "hook-reapply");
@@ -616,6 +639,7 @@ it("keeps a conflicted stop when the fork text marks only a different hook", () 
       typecheckRunner({ status: 0, stdout: "", stderr: "" }),
       root,
       path,
+      otherHooksManifest,
     );
     assert.isTrue(isUnresolved(outcome));
     if (!isUnresolved(outcome)) return;
@@ -636,6 +660,7 @@ it("refuses the re-insertion when the lane's scoped typecheck fails afterwards",
       typecheckRunner({ status: 1, stdout: "", stderr: "TS2304: cannot find name" }),
       root,
       path,
+      fixtureManifest,
     );
     assert.isTrue(isUnresolved(outcome));
     if (!isUnresolved(outcome)) return;
