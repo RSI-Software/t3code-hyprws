@@ -1,3 +1,4 @@
+import { noteTerminalFocusIntentFork } from "../ChatView.focus.fork"; // fork-hook: upstream-fixes/terminal-focus-import
 import { msg } from "gt-react";
 import { errorDisplayMessage, thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
@@ -216,6 +217,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       setActivePreviewTab(activeThreadRef, surface.resourceId);
     }
     if (surface.kind === "terminal") {
+      noteTerminalFocusIntentFork("panel"); // fork-hook: upstream-fixes/terminal-focus-intent-panel
       focusTerminal(activeThreadRef, surface.activeTerminalId);
     }
     if (surface.kind === "thread") {
