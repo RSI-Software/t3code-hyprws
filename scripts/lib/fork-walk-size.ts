@@ -1,8 +1,8 @@
 // The size a sync walk records for the stack it replayed: total fork commits,
-// the per-domain table, and the shared-file count — the same three numbers the
-// `fork:delta --inventory` budget seeds from, captured per cycle so every walk
-// states how big the stack it moved was. Kept Effect-free; fork-sync.ts runs
-// before Effect exists.
+// the per-domain table, and the shared-file count — the same three numbers
+// `fork:delta --inventory` measures, captured per cycle so every walk states
+// how big the stack it moved was. Kept Effect-free; fork-sync.ts runs before
+// Effect exists.
 
 import { overlapPaths } from "./fork-overlap.ts";
 import type { CommitNumstat } from "./fork-numstat.ts";
