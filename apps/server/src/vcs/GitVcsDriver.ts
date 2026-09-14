@@ -37,6 +37,7 @@ import {
 } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import { makeListIgnoredWorkspaceFiles } from "./GitVcsDriver.fork.ts"; // fork-hook: workspace-files/git-driver-ignored-import
 
 export interface ExecuteGitInput {
   readonly operation: string;
@@ -519,16 +520,19 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     };
   });
 
-  const listWorkspacePaths = (
-    cwd: string,
-    operation: "GitVcsDriver.listWorkspaceFiles" | "GitVcsDriver.listIgnoredWorkspaceFiles",
-    args: ReadonlyArray<string>,
-  ) =>
+  const listWorkspaceFiles: VcsDriver.VcsDriver["Service"]["listWorkspaceFiles"] = (cwd) =>
     gitCommand(
       vcsProcess,
-      operation,
+      "GitVcsDriver.listWorkspaceFiles",
       cwd,
-      [...WORKSPACE_GIT_HARDENED_CONFIG_ARGS, "ls-files", ...args, "-z"],
+      [
+        ...WORKSPACE_GIT_HARDENED_CONFIG_ARGS,
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+      ],
       {
         allowNonZeroExit: true,
         timeoutMs: 20_000,
@@ -548,7 +552,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
             })
           : Effect.fail(
               new VcsProcessExitError({
-                operation,
+                operation: "GitVcsDriver.listWorkspaceFiles",
                 command: "git ls-files",
                 cwd,
                 exitCode: result.exitCode,
@@ -558,21 +562,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       ),
     );
 
-  const listWorkspaceFiles: VcsDriver.VcsDriver["Service"]["listWorkspaceFiles"] = (cwd) =>
-    listWorkspacePaths(cwd, "GitVcsDriver.listWorkspaceFiles", [
-      "--cached",
-      "--others",
-      "--exclude-standard",
-    ]);
-
-  const listIgnoredWorkspaceFiles: NonNullable<
-    VcsDriver.VcsDriver["Service"]["listIgnoredWorkspaceFiles"]
-  > = (cwd) =>
-    listWorkspacePaths(cwd, "GitVcsDriver.listIgnoredWorkspaceFiles", [
-      "--others",
-      "--ignored",
-      "--exclude-standard",
-    ]);
+  const listIgnoredWorkspaceFiles = makeListIgnoredWorkspaceFiles({ vcsProcess, nowFreshness }); // fork-hook: workspace-files/git-driver-ignored-listing
 
   const listRemotes: VcsDriver.VcsDriver["Service"]["listRemotes"] = Effect.fn("listRemotes")(
     function* (cwd) {
