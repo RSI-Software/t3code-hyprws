@@ -21,7 +21,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { Code2, Eye, FolderTree, Globe2, LoaderCircle, Table2, WrapTextIcon } from "lucide-react";
+import { Code2, Eye, FolderTree, Globe2, Table2, WrapTextIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -79,13 +79,17 @@ import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
-import { setMarkdownTaskChecked, shouldShowFileExplorer } from "./filePreviewMode";
+import {
+  isMarkdownPreviewFile,
+  setMarkdownTaskChecked,
+  shouldShowFileExplorer,
+} from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   RichMarkdownEditIcon,
   RichMarkdownPreviewBoundary,
   resolveRichMarkdownPreviewMode,
-} from "./RichMarkdownPreviewBoundary";
+} from "./RichMarkdownPreviewBoundary"; // fork-hook: markdown-editing/rich-preview-import
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
@@ -978,6 +982,7 @@ export default function FilePreviewPanel({
     null,
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
+  const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
   const tableDelimiter =
     relativePath && attachment === undefined ? filePreviewDelimiter({ name: relativePath }) : null;
   // A reveal still wins over the preference: the line only exists in the source.
@@ -985,14 +990,14 @@ export default function FilePreviewPanel({
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
   const richMarkdownPreview = resolveRichMarkdownPreviewMode({
+    // fork-hook: markdown-editing/rich-preview-mode
     relativePath,
     fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
     renderPreferred: renderMarkdownPreferred,
     revealHandled,
     readOnly: isHostFile,
   });
-  const isMarkdown = richMarkdownPreview.isMarkdown;
-  const renderMarkdown = richMarkdownPreview.rendered;
+  const renderMarkdown = richMarkdownPreview.rendered; // fork-hook: markdown-editing/rich-preview-rendered
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
   const renderedMode = isMarkdown
@@ -1122,9 +1127,11 @@ export default function FilePreviewPanel({
                 isMarkdown
                   ? richMarkdownPreview.tooltipLabel
                   : renderedToggleLabel(renderedMode, rendered)
-              }
+              } /* fork-hook: markdown-editing/rich-preview-toggle-label */
               pressed={rendered}
-              disabled={richMarkdownPreview.toggleDisabled}
+              disabled={
+                richMarkdownPreview.toggleDisabled
+              } /* fork-hook: markdown-editing/rich-preview-toggle-disabled */
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
@@ -1139,7 +1146,7 @@ export default function FilePreviewPanel({
                 <Code2 className="size-3.5" />
               ) : renderedMode === "table" ? (
                 <Table2 className="size-3.5" />
-              ) : richMarkdownPreview.isRichMarkdown ? (
+              ) : richMarkdownPreview.isRichMarkdown ? ( // fork-hook: markdown-editing/rich-preview-icon
                 <RichMarkdownEditIcon className="size-3.5" />
               ) : (
                 <Eye className="size-3.5" />
@@ -1247,29 +1254,33 @@ export default function FilePreviewPanel({
               // Markdown reconciles in place across text updates, so a file
               // switch needs a new key or the previous file's disclosure and
               // wrap state carries into the next document.
-              <RichMarkdownPreviewBoundary
-                key={relativePath}
-                enabled={richMarkdownPreview.richEditorEnabled}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                contents={file.data.contents}
-                theme={resolvedTheme}
-                wordWrap={wordWrap}
-                onOpenFile={onOpenFile}
-                onPendingChange={onPendingChange}
-              >
-                <RenderedMarkdownSurface
+              <>
+                {/* fork-hook: markdown-editing/rich-preview-boundary */}
+                <RichMarkdownPreviewBoundary
                   key={relativePath}
+                  enabled={richMarkdownPreview.richEditorEnabled}
                   environmentId={environmentId}
                   cwd={cwd}
                   relativePath={relativePath}
-                  threadRef={threadRef}
                   contents={file.data.contents}
-                  readOnly={isHostFile}
+                  theme={resolvedTheme}
+                  wordWrap={wordWrap}
+                  onOpenFile={onOpenFile}
                   onPendingChange={onPendingChange}
-                />
-              </RichMarkdownPreviewBoundary>
+                >
+                  <RenderedMarkdownSurface
+                    key={relativePath}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    threadRef={threadRef}
+                    contents={file.data.contents}
+                    readOnly={isHostFile}
+                    onPendingChange={onPendingChange}
+                  />
+                </RichMarkdownPreviewBoundary>
+                {/* fork-hook-end */}
+              </>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}
