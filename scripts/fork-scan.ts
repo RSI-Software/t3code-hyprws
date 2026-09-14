@@ -627,26 +627,27 @@ const readUpstreamTestLines = (
 };
 
 /**
- * The target-tree significant lines for exactly the files the fork-hook-seam rule needs: the
+ * The target-tree lines, in file order, for exactly the files the fork-hook-seam rule needs: the
  * upstream-owned, non-generated files a warned commit removes lines from. Never the whole tree —
- * a scan stays proportional to the seams it reads. Deleting a fork-added hook line removes a line
- * the target tree does not carry, so it is not refused as an upstream removal.
+ * a scan stays proportional to the seams it reads. The rule checks removals by position through
+ * the diff against this ordered blob, not by line-set membership. Deleting a fork-added hook line
+ * removes a line the target tree does not carry, so it is not refused as an upstream removal.
  */
 const readUpstreamHookLines = (
   git: GitReader,
   target: string,
   patchesBySha: ReadonlyMap<string, CommitPatch>,
   upstreamFiles: ReadonlySet<string>,
-): ReadonlyMap<string, ReadonlySet<string>> => {
+): ReadonlyMap<string, ReadonlyArray<string>> => {
   const paths = new Set<string>();
   for (const patch of patchesBySha.values())
     for (const [path, change] of patch.changedLines)
       if (change.removed.length > 0 && upstreamFiles.has(path) && !GENERATED_HOOK_PATH.test(path))
         paths.add(path);
-  const lines = new Map<string, ReadonlySet<string>>();
+  const lines = new Map<string, ReadonlyArray<string>>();
   for (const path of [...paths].toSorted()) {
     try {
-      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+      lines.set(path, git.run(["show", `${target}:${path}`]).split("\n"));
     } catch {
       // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
     }

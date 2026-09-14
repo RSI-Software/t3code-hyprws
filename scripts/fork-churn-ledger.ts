@@ -681,7 +681,9 @@ export const censusChurn = (
   current: CensusSnapshot | null = null,
   records: ReadonlyArray<SeamRecord> = [],
 ): CensusChurn => {
-  // A pending row belongs to a walk that has not applied yet; its census cannot extend a run.
+  // A snapshot describes a landed stack, and a stopped walk landed nothing: its census cannot
+  // extend a run, so census snapshots stay applied-walks-only even though the walks table and
+  // hot seams list stopped walks (RSI-Software/t3code-hyprws#1023).
   const snapshots = censusSnapshots(
     entries.filter((entry) => entry.pending !== true),
     current,
@@ -749,7 +751,10 @@ export const censusChurn = (
 };
 
 export const hotSeams = (allEntries: ReadonlyArray<ChurnEntry>): ReadonlyArray<ChurnHotSeam> =>
-  [...conflictRowsByPath(allEntries.filter((entry) => entry.pending !== true))]
+  // A seam that stops a walk repeatedly is hot by definition — the walk paid the cost even
+  // though it landed nothing — so stopped walks count here even though the tag range and
+  // census snapshots stay applied-only (RSI-Software/t3code-hyprws#1023).
+  [...conflictRowsByPath(allEntries)]
     .map(([path, values]) => {
       const conflicts = values.map(({ row }) => row);
       return {
