@@ -432,7 +432,7 @@ const DeviceLayerLive = DeviceService.layer.pipe(
 const WorkspaceEntriesLayerLive = WorkspaceEntries.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(VcsDriverRegistryLayerLive),
-);
+); // fork-hook: workspace-files/server-workspace-entries-registry
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
