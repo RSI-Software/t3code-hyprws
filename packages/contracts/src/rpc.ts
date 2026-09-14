@@ -160,15 +160,7 @@ import {
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import { pullRequestAttachmentRpcFork } from "./rpc.fork.ts"; // fork-hook: upstream-fixes/pr-attachment-rpc-import
-import {
-  GitHubIssueCliMissingError,
-  GitHubIssueCliUnauthenticatedError,
-  GitHubIssueDetail,
-  GitHubIssueListInput,
-  GitHubIssueListResult,
-  GitHubIssueOperationError,
-  GitHubIssueRef,
-} from "./githubIssue.ts";
+import { githubIssuesRpcFork } from "./rpc.fork.ts"; // fork-hook: github-issues/rpc-import
 import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
 import {
   ProviderUploadFeedbackError,
@@ -565,8 +557,7 @@ export const WS_METHODS = {
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
 
-  githubIssuesList: "githubIssues.list",
-  githubIssuesDetail: "githubIssues.detail",
+  ...githubIssuesRpcFork.methodNames, // fork-hook: github-issues/rpc-methods
   pullRequestsList: "pullRequests.list",
   pullRequestsListStats: "pullRequests.listStats",
   pullRequestsFilterOptions: "pullRequests.filterOptions",
@@ -1016,25 +1007,6 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
   payload: ClientActivityReportInput,
   error: EnvironmentAuthorizationError,
-});
-
-const GitHubIssueRpcError = Schema.Union([
-  GitHubIssueCliMissingError,
-  GitHubIssueCliUnauthenticatedError,
-  GitHubIssueOperationError,
-  EnvironmentAuthorizationError,
-]);
-
-const WsGitHubIssuesListRpc = Rpc.make(WS_METHODS.githubIssuesList, {
-  payload: GitHubIssueListInput,
-  success: GitHubIssueListResult,
-  error: GitHubIssueRpcError,
-});
-
-const WsGitHubIssuesDetailRpc = Rpc.make(WS_METHODS.githubIssuesDetail, {
-  payload: GitHubIssueRef,
-  success: GitHubIssueDetail,
-  error: GitHubIssueRpcError,
 });
 
 const PullRequestRpcError = Schema.Union([
@@ -2109,8 +2081,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerReportClientActivityRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
-  WsGitHubIssuesListRpc,
-  WsGitHubIssuesDetailRpc,
+  ...githubIssuesRpcFork.rpcs, // fork-hook: github-issues/rpc-group
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
   WsPullRequestsFilterOptionsRpc,
