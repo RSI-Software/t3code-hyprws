@@ -283,6 +283,84 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/index.css",
     anchor: { kind: "import-block" },
   },
+
+  // workspace-files — ignored workspace files reshaped behind one listing hook on RSI-Software/t3code-hyprws#955.
+  "workspace-files/file-browser-ignored-listing": {
+    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/file-browser-ignored-listing-call": {
+    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
+    anchor: { kind: "after-call", symbol: "useComposerHandleContext" },
+  },
+  "workspace-files/file-browser-ignored-git-status": {
+    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
+    anchor: { kind: "after-call", symbol: "buildFileTreePathUpdates" },
+  },
+  "workspace-files/file-browser-ignored-toggle": {
+    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
+    anchor: { kind: "jsx-parent", symbol: "FileBrowserPanel" },
+  },
+  "workspace-files/project-list-entries-input": {
+    path: "packages/contracts/src/project.ts",
+    anchor: { kind: "collection", symbol: "ProjectListEntriesInput" },
+  },
+  "workspace-files/workspace-entries-ignored-listing-import": {
+    path: "apps/server/src/workspace/WorkspaceEntries.ts",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/workspace-entries-ignored-registry-import": {
+    path: "apps/server/src/workspace/WorkspaceEntries.ts",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/workspace-entries-ignored-registry": {
+    path: "apps/server/src/workspace/WorkspaceEntries.ts",
+    anchor: { kind: "after-decl", symbol: "workspaceSearchIndexes" },
+  },
+  "workspace-files/workspace-entries-list-ignored": {
+    path: "apps/server/src/workspace/WorkspaceEntries.ts",
+    anchor: { kind: "after-call", symbol: "workspaceSearchIndexes.get" },
+  },
+  "workspace-files/git-driver-ignored-import": {
+    path: "apps/server/src/vcs/GitVcsDriver.ts",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/git-driver-ignored-listing": {
+    path: "apps/server/src/vcs/GitVcsDriver.ts",
+    anchor: { kind: "after-decl", symbol: "listWorkspaceFiles" },
+  },
+  "workspace-files/vcs-driver-ignored-member": {
+    path: "apps/server/src/vcs/VcsDriver.ts",
+    anchor: { kind: "collection", symbol: "Service" },
+  },
+  "workspace-files/server-workspace-entries-registry": {
+    path: "apps/server/src/server.ts",
+    anchor: { kind: "after-decl", symbol: "WorkspaceEntriesLayerLive" },
+  },
+  "workspace-files/workspace-entries-test-registry-import": {
+    path: "apps/server/src/workspace/WorkspaceEntries.test.ts",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/workspace-entries-test-registry-layer": {
+    path: "apps/server/src/workspace/WorkspaceEntries.test.ts",
+    anchor: { kind: "collection", symbol: "TestLayer" },
+  },
+  "workspace-files/mobile-route-ignored-listing-import": {
+    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/mobile-route-ignored-listing-call": {
+    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
+  },
+  "workspace-files/mobile-inspector-ignored-listing-import": {
+    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/mobile-inspector-ignored-listing-call": {
+    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+    anchor: { kind: "after-decl", symbol: "headerScrollEdgeEffects" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
