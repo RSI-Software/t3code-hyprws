@@ -18,6 +18,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
+import { createOpenAgents } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-import
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -343,17 +344,6 @@ const upsertSurface = (
     ? current.surfaces
     : [...current.surfaces, surface],
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
-});
-
-const replaceSurface = (
-  current: ThreadRightPanelState,
-  surface: RightPanelSurface,
-): ThreadRightPanelState => ({
-  isOpen: true,
-  surfaces: current.surfaces.some((entry) => entry.id === surface.id)
-    ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
-    : [...current.surfaces, surface],
-  activeSurfaceId: surface.id,
 });
 
 const updateThread = (
@@ -693,17 +683,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             upsertSurface(current, githubIssueSurface(target)),
           ),
         })),
-      openAgents: (ref, target) =>
-        set((state) => ({
-          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-            replaceSurface(current, {
-              id: "agents",
-              kind: "agents",
-              selectedAgentId: target?.selectedAgentId ?? null,
-              rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
-            }),
-          ),
-        })), // fork-hook: custom-agents/right-panel-open-agents
+      openAgents: createOpenAgents({ set, updateThread }), // fork-hook: custom-agents/right-panel-open-agents
       /**
        * Opening a file leaves the standalone explorer alone. It is the way back to the
        * unselected tree, so consuming it would make a file selection a one-way door and

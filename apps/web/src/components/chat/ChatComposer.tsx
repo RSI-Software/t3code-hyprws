@@ -272,6 +272,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { agentRestingBlock } from "./composerProviderState.fork"; // fork-hook: custom-agents/composer-agent-resting-block-import
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -4846,19 +4847,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     hidden: composerControlsHidden || restingHiddenBlockCount > 1,
   });
   const restingBlockDefs = [
-    ...(providerAgentPicker
-      ? [
-          {
-            id: "agent",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
-                {providerAgentPicker}
-              </>
-            ),
-          },
-        ]
-      : []), // fork-hook: custom-agents/composer-agent-resting-block
+    ...agentRestingBlock(providerAgentPicker, composerControlsInStrip), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
