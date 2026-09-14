@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
@@ -123,9 +124,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 .wco {
-  /* Native overlay geometry stays fixed while renderer content zooms. Keep its
-     hit area as the floor, then let the rem-based titlebar scale with the UI. */
-  --workspace-topbar-height: max(env(titlebar-area-height, 2.5rem), 2.5rem);
+  --workspace-topbar-height: env(titlebar-area-height, 52px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
   --workspace-controls-right: calc(
@@ -523,6 +522,23 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     opacity: 0;
     will-change: auto;
   }
+}
+
+@utility live-activity-focus-counter {
+  width: 100%;
+  animation: live-activity-focus-counter 2.2s linear infinite;
+  animation-play-state: var(--visible-animation-state, paused);
+  will-change: var(--visible-animation-will-change, auto);
+
+  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+@utility live-activity-focus-aligned {
+  width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
+  margin-left: var(--live-activity-focus-width);
 }
 
 @property --assistant-citation-highlight-opacity {
@@ -1398,9 +1414,7 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   }
 }
 
-/* Contrast stays in ordinary custom properties so both Tailwind utilities and
-   global/imperative chrome styles resolve the same adjusted role. Redeclare on
-   the sidebar because it owns a local semantic palette. */
+/* Recompute contrast wherever a subtree owns its own semantic color palette. */
 :root,
 [data-app-sidebar] {
   --contrast-toolbar-foreground: color-mix(
