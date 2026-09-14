@@ -173,7 +173,7 @@ migrations, mobile deep-link parameters, or anything outside exported `Schema.Li
 ## Carry cost
 
 Carry cost is decided per commit, by the parent direction's levers — retire, reshape, automate,
-or accept (#665) — not by a numeric cap. Accept is never "as-is": a
+or accept (RSI-Software/t3code-hyprws#665) — not by a numeric cap. Accept is never "as-is": a
 kept commit must have a mechanical seam, with fork code in fork-only files and upstream files
 carrying only marked hook lines the sync walk re-applies: at a replay stop the walk re-inserts a
 marked hook by its manifest anchor when the anchor resolves to exactly one site in the merged
