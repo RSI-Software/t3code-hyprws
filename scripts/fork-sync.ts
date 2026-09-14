@@ -6,6 +6,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { captureSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
+import { deriveFoldManifest, type FoldGit } from "./lib/fork-fold-reshape.ts";
 import {
   runRewriteBuild,
   verifyRewriteBuild,
@@ -4949,6 +4950,123 @@ const rewriteRehearse = (
   return report;
 };
 
+const foldReshape = (argv: ReadonlyArray<string>, cwd: string, runner: CommandRunner): number => {
+  try {
+    const json = argv.includes("--json");
+    let reshapes: string | undefined;
+    let base: string | undefined;
+    let out: string | undefined;
+    const attributes = new Map<string, string>();
+    const leaves = new Set<string>();
+    let seenJson = false;
+    for (let index = 0; index < argv.length; index++) {
+      const flag = argv[index];
+      if (flag === "--json" && !seenJson) {
+        seenJson = true;
+        continue;
+      }
+      const value = argv[index + 1];
+      if (
+        (flag !== "--reshape" &&
+          flag !== "--base" &&
+          flag !== "--out" &&
+          flag !== "--attribute" &&
+          flag !== "--leave") ||
+        (flag === "--reshape" && reshapes !== undefined) ||
+        (flag === "--base" && base !== undefined) ||
+        (flag === "--out" && out !== undefined) ||
+        value === undefined ||
+        value.startsWith("--")
+      )
+        throw new UsageError(
+          "fold-reshape --reshape <sha>[,<sha>…] [--base <tag>] [--out <path>] [--attribute <path>=<sha>…] [--leave <path>…] [--json]",
+        );
+      if (flag === "--reshape") reshapes = value;
+      else if (flag === "--base") base = value;
+      else if (flag === "--out") out = value;
+      else if (flag === "--leave") leaves.add(value);
+      else {
+        const equals = value.indexOf("=");
+        if (equals <= 0) throw new UsageError(`--attribute expects <path>=<sha>: ${value}`);
+        attributes.set(value.slice(0, equals), value.slice(equals + 1));
+      }
+      index += 1;
+    }
+    if (reshapes === undefined) throw new UsageError("--reshape is required");
+    const root = rootFor(runner, cwd);
+    const git: FoldGit = (args, input) => requireSuccess(runner, "git", args, root, input);
+    const source = git(["rev-parse", "refs/remotes/origin/hyprws^{commit}"]).trim();
+    // Default base = the tag pointing at the merge-base of the trunk and upstream, never the
+    // churn target list (a rehearsal target is not the tag the trunk sits on).
+    let baseTag = base;
+    if (baseTag === undefined) {
+      let mergeBase: string;
+      try {
+        mergeBase = git(["merge-base", "refs/remotes/origin/hyprws", "upstream/main"]).trim();
+      } catch {
+        throw new UsageError(
+          "--base is required (cannot resolve merge-base origin/hyprws upstream/main)",
+        );
+      }
+      const releaseTag = /^(?:v\d+\.\d+\.\d+)(?:-nightly\.[A-Za-z0-9.]+)?$/;
+      baseTag = git(["tag", "--points-at", mergeBase])
+        .trim()
+        .split("\n")
+        .filter((tag) => releaseTag.test(tag))
+        .at(-1);
+      if (baseTag === undefined)
+        throw new UsageError(
+          `--base is required (no release tag points at merge-base ${mergeBase})`,
+        );
+    }
+    const result = deriveFoldManifest({
+      git,
+      base: git(["rev-parse", `${baseTag}^{commit}`]).trim(),
+      baseTag,
+      source,
+      reshapes: reshapes.split(",").map((sha) => sha.trim()),
+      attribute: attributes,
+      leave: leaves,
+    });
+    if ("refused" in result) {
+      if (json)
+        process.stdout.write(JSON.stringify({ refused: true, reasons: result.reasons }) + "\n");
+      else
+        for (const reason of result.reasons)
+          process.stderr.write(`fold-reshape refused: ${reason}\n`);
+      return 3;
+    }
+    const manifestPath = NodePath.resolve(
+      root,
+      out ?? `.dump/runs/965-fold-${source.slice(0, 12)}.json`,
+    );
+    NodeFS.mkdirSync(NodePath.dirname(manifestPath), { recursive: true });
+    NodeFS.writeFileSync(manifestPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
+    if (json) {
+      process.stdout.write(JSON.stringify({ ...result, manifestPath }) + "\n");
+      return 0;
+    }
+    process.stdout.write(`fold manifest: ${manifestPath}\n`);
+    process.stdout.write(
+      `base ${result.baseTag} -> source ${result.source.slice(0, 12)}; ${result.slots.length} slots, ${result.expected.changedSlots} changed\n`,
+    );
+    for (const slot of result.slots) {
+      if (slot.changes.length === 0) continue;
+      process.stdout.write(`  originating commit ${slot.commit.slice(0, 12)}\n`);
+      for (const change of slot.changes)
+        process.stdout.write(`    ${change.path}: ${change.reason}\n`);
+    }
+    return 0;
+  } catch (error) {
+    if (error instanceof UsageError) {
+      process.stderr.write(`usage: ${error.message}\n`);
+      return 2;
+    }
+    process.stderr.write(`failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+};
+
 export const execute = (
   argv: ReadonlyArray<string>,
   cwd = process.cwd(),
@@ -4994,6 +5112,7 @@ export const run = (
   }
   if (argv[0] === "rewrite-build")
     return runRewriteBuild(argv.slice(1), () => rootFor(runner, cwd));
+  if (argv[0] === "fold-reshape") return foldReshape(argv.slice(1), cwd, runner);
   let completedReport: SyncReport | null = null;
   let outcomeFailure: string | undefined;
   let outcomePhase = argv[0];
