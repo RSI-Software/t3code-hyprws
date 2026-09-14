@@ -97,6 +97,10 @@ import { openTerminalLinkInPreview } from "./preview/openTerminalLinkInPreview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { preventTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import {
+  shouldFocusTerminalOnAttachFork,
+  shouldHandleTerminalFocusRequest,
+} from "./ThreadTerminalDrawer.fork"; // fork-hook: upstream-fixes/thread-terminal-focus-import
+import {
   resolveTerminalFontPreference,
   resolveTerminalFontSizePreference,
   TYPOGRAPHY_ADVANCED_STORAGE_KEY,
@@ -111,7 +115,7 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
-  "chat.focusComposer",
+  "chat.focusComposer", // fork-hook: upstream-fixes/thread-terminal-focus-command-set
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -406,18 +410,6 @@ export function shouldHandleTerminalExit(
   );
 }
 
-export function shouldHandleTerminalFocusRequest(input: {
-  focusOnRequest: boolean;
-  focusRequestId: number;
-  handledFocusRequestId: number;
-}): boolean {
-  return (
-    input.focusOnRequest &&
-    input.focusRequestId !== 0 &&
-    input.focusRequestId !== input.handledFocusRequestId
-  );
-}
-
 export function shouldRestoreTerminalFocusAfterResume(input: {
   attached: boolean;
   status: TerminalSessionState["status"];
@@ -442,8 +434,8 @@ interface TerminalViewportProps {
   onSessionExited: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   focusRequestId: number;
+  autoFocus: boolean;
   visible: boolean;
-  focusOnRequest: boolean;
   resizeEpoch: number;
   drawerHeight: number;
   keybindings: ResolvedKeybindingsConfig;
@@ -470,8 +462,8 @@ export function TerminalViewport({
   onSessionExited,
   onAddTerminalContext,
   focusRequestId,
+  autoFocus,
   visible,
-  focusOnRequest,
   resizeEpoch,
   drawerHeight,
   keybindings,
@@ -522,12 +514,10 @@ export function TerminalViewport({
   );
   const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
-  const handledFocusRequestIdRef = useRef(0);
-  const pendingFocusRequestRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
+  const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
   const restoreFocusAfterAttachRef = useRef(false);
   const wasAttachedRef = useRef(attached);
-  const focusOnRequestRef = useRef(focusOnRequest);
-  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   // Holds the request id of the selection popup currently on screen, so a
   // popup that was superseded (but whose menu promise has not settled yet)
@@ -760,16 +750,13 @@ export function TerminalViewport({
       synchronizeTerminalStatus(terminal, latestSession.status, latestSession.version);
       if (
         hasTerminalWriteAccess() &&
-        pendingFocusRequestRef.current &&
-        focusOnRequestRef.current
+        visibleRef.current &&
+        shouldFocusTerminalOnAttachFork(pendingFocusRequestRef.current) &&
+        mount.contains(document.activeElement)
       ) {
-        pendingFocusRequestRef.current = false;
-        window.requestAnimationFrame(() => {
-          if (terminalRef.current === terminal && focusOnRequestRef.current) {
-            terminal.focus();
-          }
-        });
-      }
+        terminal.focus();
+        pendingFocusRequestRef.current = false; // fork-hook: upstream-fixes/terminal-focus-attach-consume
+      } // fork-hook: upstream-fixes/terminal-focus-attach-gate
 
       const dismissSelectionAction = (supersede = false) => {
         const ownsMenu =
@@ -1225,32 +1212,23 @@ export function TerminalViewport({
   }, [attached, terminalStatus]);
 
   useEffect(() => {
-    const handledFocusRequestId = handledFocusRequestIdRef.current;
+    if (!autoFocus || !canOperateTerminal || !visible) return;
     if (
       !shouldHandleTerminalFocusRequest({
-        focusOnRequest: focusOnRequest && canOperateTerminal,
+        focusOnRequest: autoFocus,
         focusRequestId,
-        handledFocusRequestId,
+        handledFocusRequestId: handledFocusRequestIdRef.current,
       })
     ) {
-      if (!focusOnRequest) pendingFocusRequestRef.current = false;
+      if (!autoFocus) pendingFocusRequestRef.current = false;
       return;
-    }
-
+    } // fork-hook: upstream-fixes/terminal-focus-request-gate
     handledFocusRequestIdRef.current = focusRequestId;
-    pendingFocusRequestRef.current = true;
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    pendingFocusRequestRef.current = false;
-    const frame = window.requestAnimationFrame(() => {
-      if (terminalRef.current === terminal && focusOnRequestRef.current) {
-        terminal.focus();
-      }
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [canOperateTerminal, focusOnRequest, focusRequestId]);
+    pendingFocusRequestRef.current = terminalRef.current === null; // fork-hook: upstream-fixes/terminal-focus-request-consume
+    // Claim focus when requested, then hand it to the terminal once ready only
+    // if the user has not focused something else in the meantime.
+    (terminalRef.current ?? containerRef.current)?.focus();
+  }, [autoFocus, canOperateTerminal, focusRequestId, visible]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -1932,9 +1910,7 @@ export default function ThreadTerminalDrawer({
                           onSessionExited={() => onCloseTerminal(terminalId)}
                           onAddTerminalContext={onAddTerminalContext}
                           focusRequestId={focusRequestId}
-                          focusOnRequest={
-                            attachmentDemanded && terminalId === resolvedActiveTerminalId
-                          }
+                          autoFocus={attachmentDemanded && terminalId === resolvedActiveTerminalId}
                           visible={visible}
                           resizeEpoch={resizeEpoch}
                           drawerHeight={drawerHeight}
@@ -1966,7 +1942,7 @@ export default function ThreadTerminalDrawer({
                   onSessionExited={() => onCloseTerminal(resolvedActiveTerminalId)}
                   onAddTerminalContext={onAddTerminalContext}
                   focusRequestId={focusRequestId}
-                  focusOnRequest={attachmentDemanded}
+                  autoFocus={attachmentDemanded}
                   visible={visible}
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
