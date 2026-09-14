@@ -1,4 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off - the reapply fixture stages a real conflicted git index.
 import { assert, it } from "@effect/vitest";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import {
   canonicalizeOutcomeReceipts,
   requireOutcomeReceipts,
@@ -15,6 +20,8 @@ import {
 } from "./fork-churn-outcomes.ts";
 import { parseChurnState } from "./fork-churn-ledger.ts";
 import type { AutoRebaseResult } from "./fork-auto-rebase.ts";
+import { SystemCommandRunner, type CommandResult, type CommandRunner } from "./lib/fork-command.ts";
+import { executeConflictOutcome, isUnresolved } from "./lib/fork-conflict-outcomes.ts";
 import type { SyncReport } from "./fork-sync-state.ts";
 
 const A = "a".repeat(40),
@@ -462,4 +469,178 @@ it("retains explicit exclusions without removing blocked or rewritten eligible t
   ]);
   assert.strictEqual(outcomeStreak(rows).eligibleTargets, 2);
   assert.strictEqual(outcomeStreak(rows).noAgentCarry, 0);
+});
+
+// The outcome executor's fork-hook reapply stage, against a real conflicted index in a temp repo
+// (the keep-both fixture pattern from `scripts/lib/fork-conflict-outcomes.test.ts`). Git commands
+// run against the system; only the lane's scoped typecheck is stubbed, since the fixture content
+// is synthetic.
+
+/** Delegates git to the system and answers `vp` with the canned typecheck result. */
+const typecheckRunner = (typecheck: CommandResult): CommandRunner => {
+  const system = new SystemCommandRunner();
+  return {
+    run: (command, args, cwd, input, env) =>
+      command === "vp" ? typecheck : system.run(command, args, cwd ?? ".", input, env),
+  };
+};
+
+/** Stage the three rebase index stages for one path, exactly as a conflicted replay leaves them. */
+const stageReapplyConflict = (
+  root: string,
+  path: string,
+  contents: { readonly base: string; readonly ours: string; readonly theirs: string },
+): void => {
+  NodeFS.mkdirSync(NodePath.dirname(NodePath.join(root, path)), { recursive: true });
+  const entries = ([1, 2, 3] as const)
+    .map((stage) => {
+      const value = stage === 1 ? contents.base : stage === 2 ? contents.ours : contents.theirs;
+      const sha = NodeChildProcess.execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: root,
+        input: value,
+      })
+        .toString()
+        .trim();
+      return `100644 ${sha} ${stage}\t${path}`;
+    })
+    .join("\n");
+  NodeChildProcess.execFileSync("git", ["update-index", "--index-info"], {
+    cwd: root,
+    input: `${entries}\n`,
+  });
+};
+
+const MARKED_HOOK = "upstream-fixes/settings-patch-field";
+const HOOK_LINE = `  restoreSymlinks: boolean; // fork-hook: ${MARKED_HOOK}\n`;
+const FORK_TAIL = `export const fsf = 1; // fork-hook: ${MARKED_HOOK}\n`;
+// Upstream rewrites the base `rename` line the fork keeps, with a fork addition right beside it:
+// one conflicted hunk with base content (keep-both declines) whose direction is "upstream", plus
+// an EOF co-insertion hunk whose direction is null, so moved-deletion declines on the mixture and
+// the reapply stage runs.
+const settingsStages = (forkAfterRename: string, forkTail: string) => ({
+  base: "export interface ServerSettingsPatch {\n  rename: string;\n}\n\nexport const tail = 0;\n",
+  ours: "export interface ServerSettingsPatch {\n  name: string;\n  mount: boolean;\n}\n\nexport const tail = 0;\nexport const up = 1;\n",
+  theirs: `export interface ServerSettingsPatch {\n  rename: string;\n${forkAfterRename}}\n\nexport const tail = 0;\n${forkTail}`,
+});
+
+it("keeps the keep-both stop when the fork hunk carries woven unmarked lines", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // One marked hook line plus one woven, unmarked fork line in the same rewritten hunk: the
+    // reapply stage must not resolve, or the woven line would be silently dropped.
+    stageReapplyConflict(
+      root,
+      path,
+      settingsStages(
+        `  restoreSymlinks: boolean; // fork-hook: ${MARKED_HOOK}\n  wovenHelper();\n`,
+        FORK_TAIL,
+      ),
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    // The stop is keep-both's, unchanged — the walk record names the keep-both seam, not a reapply.
+    assert.include(outcome.reason, "rewrote the same lines");
+    assert.notInclude(outcome.reason, "fork-hook reapply");
+    // Nothing was written or staged.
+    assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], {
+        cwd: root,
+      })
+        .toString()
+        .trim(),
+      path,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("re-applies a marked fork hook into the merged upstream text of a real conflicted index", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  const runner = typecheckRunner({ status: 0, stdout: "", stderr: "" });
+  try {
+    stageReapplyConflict(root, path, settingsStages(HOOK_LINE, FORK_TAIL));
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.source, "hook-reapply");
+    assert.strictEqual(outcome.conflictClass, "mechanical");
+    assert.include(outcome.resolution, MARKED_HOOK);
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    // The upstream line stands and the hook line sits inside the collection, marker exactly once.
+    assert.include(resolved, "  mount: boolean;");
+    assert.strictEqual(resolved.split(`fork-hook: ${MARKED_HOOK}`).length - 1, 1);
+    // The hook line (the last marker for the key) sits inside the collection, before its brace.
+    assert.include(resolved, `  export const fsf = 1; // fork-hook: ${MARKED_HOOK}\n}\n`);
+    // Staged, so `git rebase --continue` sees a resolved path and not a dirty tree.
+    assert.strictEqual(
+      NodeChildProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], {
+        cwd: root,
+      })
+        .toString()
+        .trim(),
+      "",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a conflicted stop when the fork text marks only a different hook", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    // The fork side's addition is marked, but for another manifest entry: this path's hook has no
+    // readable marker, so the reapply refuses even though the fork-side guard let the seam through.
+    stageReapplyConflict(
+      root,
+      path,
+      settingsStages(
+        "  restoreSymlinks: boolean; // fork-hook: upstream-fixes/wfs-fork-import\n",
+        "export const probe = 1; // fork-hook: upstream-fixes/settings-row-import\n",
+      ),
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 0, stdout: "", stderr: "" }),
+      root,
+      path,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "fork-hook reapply refused");
+    assert.include(outcome.reason, MARKED_HOOK);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses the re-insertion when the lane's scoped typecheck fails afterwards", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-reapply-test-"));
+  NodeChildProcess.execFileSync("git", ["init", "--quiet"], { cwd: root });
+  const path = "packages/contracts/src/settings.ts";
+  try {
+    stageReapplyConflict(root, path, settingsStages(HOOK_LINE, FORK_TAIL));
+    const outcome = executeConflictOutcome(
+      typecheckRunner({ status: 1, stdout: "", stderr: "TS2304: cannot find name" }),
+      root,
+      path,
+    );
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, MARKED_HOOK);
+    assert.include(outcome.reason, "typecheck");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
 });
