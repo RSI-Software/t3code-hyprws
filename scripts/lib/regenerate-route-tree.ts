@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Standalone route-tree regeneration runs the TanStack generator outside an Effect runtime.
 // Regenerates `apps/web/src/routeTree.gen.ts` with the same generator call the
 // TanStack vite plugin makes at `configResolved` (see apps/web/vite.config.ts),
 // so a sync walk can restore HEAD and regenerate instead of resolving the file
