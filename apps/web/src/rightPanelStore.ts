@@ -175,7 +175,7 @@ interface RightPanelStoreState {
       readonly selectedAgentId?: string | null;
       readonly rosterFocusAgentId?: string | null;
     },
-  ) => void;
+  ) => void; // fork-hook: custom-agents/right-panel-open-agents-decl
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -703,7 +703,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
             }),
           ),
-        })),
+        })), // fork-hook: custom-agents/right-panel-open-agents
       /**
        * Opening a file leaves the standalone explorer alone. It is the way back to the
        * unselected tree, so consuming it would make a file selection a one-way door and
