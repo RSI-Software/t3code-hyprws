@@ -292,6 +292,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "useRightPanelStore" },
   },
+  // custom-agents — right-panel surface reshaped on RSI-Software/t3code-hyprws#991.
+  "custom-agents/right-panel-open-agents-decl-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "custom-agents/right-panel-agents-singleton-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-singleton": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "custom-agents/right-panel-migrate-agents-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-migrate-agents": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
+  },
   "project-windows/index-fork-css": {
     path: "apps/web/src/index.css",
     anchor: { kind: "import-block" },
@@ -713,6 +742,215 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "markdown-editing/rich-preview-boundary": {
     path: "apps/web/src/components/files/FilePreviewPanel.tsx",
     anchor: { kind: "jsx-parent", symbol: "RenderedMarkdownSurface" },
+  },
+
+  // github-issues — marked on RSI-Software/t3code-hyprws#959 (commit `9f92309411`).
+  "github-issues/rpc-import": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/rpc-methods": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "collection", symbol: "WS_METHODS" },
+  },
+  "github-issues/rpc-group": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "collection", symbol: "WsRpcGroup" },
+  },
+  "github-issues/environment-capability": {
+    path: "packages/contracts/src/environment.ts",
+    anchor: { kind: "collection", symbol: "ExecutionEnvironmentCapabilities" },
+  },
+  "github-issues/contracts-reexport": {
+    path: "packages/contracts/src/index.ts",
+    anchor: { kind: "after-decl", symbol: "ExecutionEnvironmentCapabilities" },
+  },
+  "github-issues/ws-wiring-import": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/ws-service-import": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/ws-service-yield": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "after-decl", symbol: "pullRequestSync" },
+  },
+  "github-issues/ws-rpc-handlers": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "after-decl", symbol: "observeRpcStreamEffect" },
+  },
+  "github-issues/ws-route-service-yield": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "after-decl", symbol: "sql" },
+  },
+  "github-issues/ws-route-service-provide": {
+    path: "apps/server/src/ws.ts",
+    anchor: { kind: "after-call", symbol: "PullRequestService" },
+  },
+  "github-issues/server-wiring-import": {
+    path: "apps/server/src/server.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/server-service-live": {
+    path: "apps/server/src/server.ts",
+    anchor: { kind: "after-decl", symbol: "commandReadinessLayer" },
+  },
+  "github-issues/server-service-provide": {
+    path: "apps/server/src/server.ts",
+    anchor: { kind: "after-call", symbol: "PullRequestServiceLive" },
+  },
+  "github-issues/rpc-auth-list": {
+    path: "apps/server/src/auth/RpcAuthorization.ts",
+    anchor: { kind: "collection", symbol: "RPC_REQUIRED_SCOPES" },
+  },
+  "github-issues/rpc-auth-detail": {
+    path: "apps/server/src/auth/RpcAuthorization.ts",
+    anchor: { kind: "collection", symbol: "RPC_REQUIRED_SCOPES" },
+  },
+  "github-issues/server-environment-capability": {
+    path: "apps/server/src/environment/ServerEnvironment.ts",
+    anchor: { kind: "collection", symbol: "capabilities" },
+  },
+  "github-issues/right-panel-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "github-issues/right-panel-open-github-issue-decl": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelStoreState" },
+  },
+  "github-issues/right-panel-open-github-issue-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-open-github-issue": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "useRightPanelStore" },
+  },
+  "github-issues/right-panel-migrate-github-issue-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-migrate-github-issue": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
+  },
+  "github-issues/right-panel-active-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-active-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "migratePersistedRightPanelState" },
+  },
+  "github-issues/right-panel-active-kind-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-active-kind": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "selectThreadRightPanelState" },
+  },
+  // github-issues — the hub surface marked on RSI-Software/t3code-hyprws#991.
+  "github-issues/right-panel-open-github-issue-decl-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-kind-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-kind": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RIGHT_PANEL_KINDS" },
+  },
+  "github-issues/right-panel-hub-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "github-issues/right-panel-hub-singleton-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  // The formatter keeps a switch label and its body on separate lines, so the case
+  // carries its own marker: one hook would otherwise leave the label unmarked.
+  "github-issues/right-panel-hub-singleton-case": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "github-issues/right-panel-hub-singleton": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "github-issues/command-palette-import": {
+    path: "apps/web/src/components/CommandPalette.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/command-palette-entry": {
+    path: "apps/web/src/components/CommandPalette.tsx",
+    anchor: { kind: "after-decl", symbol: "buildIssuesNavigationCommand" },
+  },
+  "github-issues/command-palette-entry-push": {
+    path: "apps/web/src/components/CommandPalette.tsx",
+    anchor: { kind: "after-decl", symbol: "githubIssuesActionItem" },
+  },
+  "github-issues/sidebar-issues-icon": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "collection", symbol: "lucide-react" },
+  },
+  "github-issues/sidebar-issues-supported-import": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/sidebar-issues-supported": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "after-decl", symbol: "pullRequestsSupported" },
+  },
+  "github-issues/sidebar-issues-footer-page-import": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/sidebar-issues-footer-page": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "after-decl", symbol: "currentFooterPage" },
+  },
+  "github-issues/sidebar-issues-navigate-import": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/sidebar-issues-navigate": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "after-decl", symbol: "handlePullRequestsClick" },
+  },
+  "github-issues/sidebar-issues-entry": {
+    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    anchor: { kind: "jsx-parent", symbol: "SidebarUtilityMenu" },
+  },
+  "github-issues/chat-view-detail-import": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/chat-view-detail-surface": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "jsx-parent", symbol: "GitHubIssueDetailSurfaceFork" },
+  },
+  "github-issues/panel-tab-title": {
+    path: "apps/web/src/components/RightPanelTabs.tsx",
+    anchor: { kind: "after-decl", symbol: "pull-requests" },
+  },
+  "github-issues/panel-tab-status-icon": {
+    path: "apps/web/src/components/RightPanelTabs.tsx",
+    anchor: { kind: "after-decl", symbol: "pull-requests" },
   },
 };
 
