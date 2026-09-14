@@ -251,6 +251,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/chat/ChatComposer.tsx",
     anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
   },
+  "custom-agents/composer-agent-resting-block-import": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "import-block" },
+  },
   "custom-agents/composer-agent-resting-block": {
     path: "apps/web/src/components/chat/ChatComposer.tsx",
     anchor: { kind: "collection", symbol: "restingBlockDefs" },
