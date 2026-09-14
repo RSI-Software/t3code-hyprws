@@ -79,7 +79,7 @@ export function buildUnavailableModelOptionDescriptors(
   );
 }
 
-export type TraitsPersistence =
+type TraitsPersistence =
   | {
       threadRef?: ScopedThreadRef;
       draftId?: DraftId;
@@ -89,10 +89,11 @@ export type TraitsPersistence =
       threadRef?: undefined;
       onModelOptionsChange: (nextOptions: ProviderOptions | undefined) => void;
     };
+export type { TraitsPersistence }; // fork-hook: custom-agents/traits-persistence-export
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
-export function DefaultBadge() {
+function DefaultBadge() {
   return (
     <Badge
       variant="outline"
@@ -102,8 +103,9 @@ export function DefaultBadge() {
     </Badge>
   );
 }
+export { DefaultBadge }; // fork-hook: custom-agents/traits-default-badge-export
 
-export function replaceDescriptorCurrentValue(
+function replaceDescriptorCurrentValue(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
   descriptorId: string,
   currentValue: string | boolean | undefined,
@@ -122,6 +124,7 @@ export function replaceDescriptorCurrentValue(
           },
   );
 }
+export { replaceDescriptorCurrentValue }; // fork-hook: custom-agents/traits-replace-descriptor-export
 
 function getDescriptorStringValue(
   descriptor: Extract<ProviderOptionDescriptor, { type: "select" }> | null,
