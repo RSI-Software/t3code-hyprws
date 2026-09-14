@@ -20,14 +20,6 @@ import {
   saveRerereCache,
 } from "./lib/fork-bot-refs.ts";
 import { appendChurnRow } from "./fork-churn.ts";
-import {
-  budgetFindings,
-  FORK_BUDGET_PATH,
-  parseForkBudget,
-  raiseForkBudget,
-  type ForkBudgetFinding,
-  type ForkBudgetMeasured,
-} from "./lib/fork-budget.ts";
 import { UsageError } from "./lib/fork-cli.ts";
 import {
   FORK_RETIREMENT_LEDGER_PATH,
@@ -1570,8 +1562,6 @@ const commitWalkRepairs = (
     readonly ran: ReadonlyArray<{ readonly command: string }>;
     readonly dirtiedBy?: string;
   },
-  /** A budget reconciliation names its own kind and owes the raise trailer the gate reads. */
-  overrides?: { readonly kind?: RepairKind; readonly budgetRaise?: string },
 ): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
   const tag = report.target?.tag;
   const base = report.target?.sha;
@@ -1581,7 +1571,7 @@ const commitWalkRepairs = (
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
   // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
-  // inside the conflict, before the verify battery, the additive fixes and the budget raise exist;
+  // inside the conflict, before the verify battery and the additive fixes exist;
   // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
   // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
   // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
@@ -1631,11 +1621,10 @@ const commitWalkRepairs = (
   }
   if (standalone.length > 0) {
     const message = repairCommitMessage({
-      kind: overrides?.kind ?? repairKind(command),
+      kind: repairKind(command),
       tag,
       domain: repairDomain(runner, worktree, base, standalone),
       command,
-      ...(overrides?.budgetRaise === undefined ? {} : { budgetRaise: overrides.budgetRaise }),
     });
     commit(message, standalone);
   }
@@ -1648,70 +1637,6 @@ const jsonPayload = (raw: string): string => {
   if (start === -1)
     throw new Error(`fork:delta --inventory --json printed no JSON object:\n${raw}`);
   return raw.slice(start);
-};
-
-export interface ForkBudgetReconciliation {
-  readonly findings: ReadonlyArray<ForkBudgetFinding>;
-  readonly commit?: { readonly sha: string; readonly subject: string };
-}
-
-/** The `Fork-Budget: raise <reason>` text, naming the walk and every ceiling it moved. */
-export const budgetRaiseReason = (
-  tag: string,
-  findings: ReadonlyArray<ForkBudgetFinding>,
-): string =>
-  `the ${tag} replay widened ${findings
-    .map(
-      (finding) => `${finding.domain} ${finding.measure} ${finding.ceiling} -> ${finding.actual}`,
-    )
-    .join(", ")}`;
-
-/**
- * Reconcile the budget with the stack the replay produced (RSI-Software/t3code-hyprws#745). A
- * kept-both resolution grows the domain it lands in, so a ceiling the fork measured before the
- * replay can be genuinely too low the moment the replay ends. The gate names the whole fix in its
- * refusal — raise the exceeded ceiling and carry `Fork-Budget: raise <reason>` on the commit that
- * does — and none of it is a judgement, so the walk takes that route itself instead of crashing on
- * a refusal whose repair it already knows. Only an exceeded ceiling moves, and only up to the
- * number now measured: a re-render would ratchet every untouched domain down to today's numbers
- * and spend headroom nobody decided to spend. The raise rides in the walk's own `Fork-Repair`
- * commit, whose lines the inventory already excludes, so writing it cannot widen a domain again.
- */
-const reconcileForkBudget = (
-  report: SyncReport,
-  runner: CommandRunner,
-  worktree: string,
-  verificationEnv: NodeJS.ProcessEnv,
-): ForkBudgetReconciliation => {
-  const tag = report.target?.tag;
-  const budgetFile = NodePath.join(worktree, FORK_BUDGET_PATH);
-  if (tag === undefined || !NodeFS.existsSync(budgetFile)) return { findings: [] };
-  const inventory = JSON.parse(
-    jsonPayload(
-      requireSuccess(
-        runner,
-        "vp",
-        ["run", "--no-cache", "fork:delta", "--inventory", "--json"],
-        worktree,
-        undefined,
-        verificationEnv,
-      ),
-    ),
-  ) as { readonly domains: ReadonlyArray<ForkBudgetMeasured> };
-  const markdown = NodeFS.readFileSync(budgetFile, "utf8");
-  const findings = budgetFindings(inventory.domains, parseForkBudget(markdown));
-  if (findings.length === 0) return { findings: [] };
-  NodeFS.writeFileSync(budgetFile, raiseForkBudget(markdown, findings, inventory.domains));
-  const [commit] = commitWalkRepairs(
-    report,
-    runner,
-    worktree,
-    verificationEnv,
-    { ran: [], dirtiedBy: "fork:delta --inventory" },
-    { kind: "budget", budgetRaise: budgetRaiseReason(tag, findings) },
-  );
-  if (commit === undefined) throw new Error("the budget raise wrote no commit");
-  return { findings, commit };
 };
 
 /**
@@ -1886,38 +1811,11 @@ const unblockCheck = (
           (report.rewrite as NonNullable<typeof report.rewrite>).base,
         ))
       : (report.target as NonNullable<typeof report.target>).tag;
-  // Before the gate, not after its refusal: the replay's own resolutions can put a domain over a
-  // ceiling measured before them, and that raise is the walk's to take (see reconcileForkBudget).
-  // The rewrite lane is excluded — its head is a constructed manifest result its reviewer signed,
-  // so the walk appends nothing to it.
-  const budget =
-    report.kind === "rewrite"
-      ? { findings: [] as ReadonlyArray<ForkBudgetFinding> }
-      : reconcileForkBudget(report, runner, worktree, verificationEnv);
-  if (budget.commit !== undefined) {
-    installedHead = budget.commit.sha;
-    report = {
-      ...report,
-      walk: {
-        ...(report.walk ?? {}),
-        repairCommits: [...(report.walk?.repairCommits ?? []), budget.commit],
-      },
-    };
-    writeReport(report);
-  }
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
     { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
     { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
   ];
   const verification: Array<{ command: string; result: string }> = [];
-  // A raise widens what the fork may hold, so it is named in the record rather than left to the
-  // commit body alone.
-  if (budget.commit !== undefined) {
-    verification.push({
-      command: `fork budget raise: ${budgetRaiseReason(report.target?.tag ?? "", budget.findings)}`,
-      result: "recorded",
-    });
-  }
   for (const command of commands) {
     requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
@@ -2085,7 +1983,7 @@ const unblockCheck = (
     // A repair moves the lane head the apply publishes, so the record's head and stack size bind
     // that head. The gate compares them against the checkout, and the fork series is still
     // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommit === undefined && budget.commit === undefined
+    ...(repaired.length === 0 && additiveCommit === undefined
       ? {}
       : {
           rebasedHead: checkedHead,
