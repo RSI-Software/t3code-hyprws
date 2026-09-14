@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
 import { FORK_HOOKS, parseForkHookMarkers, type ForkHookEntry } from "./fork-hooks.ts";
+import { unexplainedRemoval } from "./fork-hook-alignment.ts";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
 import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
 import * as NodeCrypto from "node:crypto";
@@ -36,6 +37,8 @@ export interface ConflictOutcome {
   readonly resolution: string;
   /** Hook keys re-inserted by a `hook-reapply`; set only on that source (RSI-Software/t3code-hyprws#953). */
   readonly reinsertedHooks?: readonly string[];
+  /** `false` when a `hook-reapply` skipped its scoped typecheck, so the re-insertion is unverified. */
+  readonly verified?: boolean;
 }
 
 export interface ConflictStages {
@@ -136,7 +139,18 @@ export interface ExecutedOutcome extends ConflictOutcome {
 
 export interface UnresolvedOutcome {
   readonly path: string;
+  /**
+   * Why the executor declined, in text that two machines walking the same seam both produce. A
+   * census records this on its evidence row, and a stored seam record is re-digested from that
+   * row, so a compiler message, a path, a timing or a pid here would mint a different record id
+   * for the same seam on every machine. Machine-dependent text belongs in `detail`.
+   */
   readonly reason: string;
+  /**
+   * The captured output behind `reason`, for the operator reading the stop. Never recorded, never
+   * digested; a caller that persists an outcome keeps `reason` alone.
+   */
+  readonly detail?: string;
 }
 
 export type OutcomeResult = ExecutedOutcome | UnresolvedOutcome;
@@ -362,23 +376,31 @@ const manifestHooksFor = (
  * The stage after keep-both: re-apply the path's marked fork hooks into the merged upstream text.
  * Returns the resolution only when at least one hook was re-inserted and every hook is intact or
  * re-inserted — an all-intact result would mean dropping the fork's non-hook lines, which stays a
- * maintainer's call. Any refusal, unverifiability, or a failing scoped typecheck returns `null`
- * with the reason the walk stop carries instead.
+ * maintainer's call. Any refusal, unverifiability, or a failing scoped typecheck returns the stop
+ * the walk carries instead, naming the gate that declined; only a path outside the manifest
+ * returns `null`, because the re-applier never looked at it.
+ *
+ * `verify` is the walk's scoped typecheck of each re-inserted hook. Only a caller that cannot run
+ * it — the stop census rehearses in a bare worktree with no installed modules, where the check
+ * would fail for a reason that has nothing to do with the seam — turns it off, and the outcome it
+ * gets back carries `verified: false` so nothing downstream reads it as a checked resolution.
  */
 /**
  * Whether the fork side of a conflicted merge adds nothing but marked hook lines and removes no
- * base line. A fork hunk carrying woven, unmarked lines must not reach the re-apply stage: its
+ * base line except inside a marked hook span, where the removal is a declared substitution: the
+ * replacing line carries the marker, and the removed upstream line needs none (no new marker
+ * syntax). A fork hunk carrying woven, unmarked lines must not reach the re-apply stage: its
  * re-insertions resolve the hunks to the upstream side, which would silently drop those lines —
- * exactly the gutting the fork forbids. Such a seam keeps keep-both's stop.
+ * exactly the gutting the fork forbids. Such a seam keeps keep-both's stop. Returns the refusing
+ * cause so the stop names the case that actually refused, or `null` when the side is hook-only.
  */
-const forkSideIsHookOnly = (stages: ConflictStages): boolean => {
+const forkSideHookOnlyRefusal = (stages: ConflictStages): string | null => {
   const hooks = parseForkHookMarkers(stages.theirs);
   const marked = new Set<number>();
   for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  const removed = unexplainedRemoval(stages.base, stages.theirs, marked);
+  if (removed !== null) return `removes base line ${removed} outside every marked hook`;
   const baseCounts = significantLineCounts(stages.base);
-  const forkCounts = significantLineCounts(stages.theirs);
-  // A base line the fork side no longer carries is a fork removal, which a hook never does.
-  for (const [line, count] of baseCounts) if ((forkCounts.get(line) ?? 0) < count) return false;
   // Every other fork line must be marked or occurrence-matched to a base line that survived.
   const seen = new Map<string, number>();
   for (const [index, raw] of stages.theirs.split("\n").entries()) {
@@ -387,10 +409,30 @@ const forkSideIsHookOnly = (stages: ConflictStages): boolean => {
     seen.set(raw, nth);
     if (marked.has(index + 1)) continue;
     if (nth <= (baseCounts.get(raw) ?? 0)) continue;
-    return false;
+    return "adds lines beyond its marked hooks";
   }
-  return true;
+  return null;
 };
+
+/**
+ * Every hook re-apply decline names the gate that turned the path away, and keeps keep-both's
+ * reason after it: that stop is still why the path is unresolved, and the re-applier only says
+ * what it tried on top of it (RSI-Software/t3code-hyprws#1012). A path the manifest does not cover
+ * never reaches here, so its stop stays keep-both's alone.
+ *
+ * `detail` carries captured process output, which a recorded reason must not; see
+ * `UnresolvedOutcome`.
+ */
+const hookDeclined = (
+  path: string,
+  gate: string,
+  keepBothReason: string,
+  detail?: string,
+): UnresolvedOutcome => ({
+  path,
+  reason: `${gate} (keep-both declined: ${keepBothReason})`,
+  ...(detail === undefined || detail === "" ? {} : { detail }),
+});
 
 const hookReapply = (
   runner: CommandRunner,
@@ -399,39 +441,66 @@ const hookReapply = (
   stages: ConflictStages,
   keepBothReason: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
+  verify = true,
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
   const entries = manifestHooksFor(path, manifest);
   if (entries.length === 0) return null;
+  const keys = entries.map(({ key }) => `\`${key}\``).join(", ");
   if (!isVerifiablePath(path))
-    return {
+    return hookDeclined(
       path,
-      reason: `fork-hook reapply of ${entries.map(({ key }) => `\`${key}\``).join(", ")} refused: the path is outside the lane's scoped typecheck, so a re-inserted hook would carry no verification`,
-    };
+      `fork-hook reapply of ${keys} refused: the path is outside the lane's scoped typecheck, so a re-inserted hook would carry no verification`,
+      keepBothReason,
+    );
   const merged = mergeFile(runner, worktree, stages, "--diff3");
-  if (merged === null || merged.conflicts === 0) return null;
-  if (!forkSideIsHookOnly(stages)) return null; // woven fork lines in the hunks: keep-both's stop stands, unchanged
+  if (merged === null || merged.conflicts === 0)
+    return hookDeclined(
+      path,
+      `fork-hook reapply of ${keys} skipped: the three-way merge of this seam produced no conflict to re-apply into`,
+      keepBothReason,
+    );
+  const refusal = forkSideHookOnlyRefusal(stages);
+  if (refusal !== null)
+    return hookDeclined(
+      path,
+      `fork-hook reapply of ${keys} refused: the fork side of this seam ${refusal}, so there is no mechanical seam to lift`,
+      keepBothReason,
+    );
   const upstream = resolveConflictsToUpstream(merged.text);
-  if (upstream === null) return null;
+  if (upstream === null)
+    return hookDeclined(
+      path,
+      `fork-hook reapply of ${keys} refused: the merged text could not be resolved to upstream's side`,
+      keepBothReason,
+    );
   const reapply = reapplyForkHooks(upstream, stages.theirs, entries, matchingDelimiter);
   const refused = reapply.results.filter(({ outcome }) => outcome.status === "refuse");
   if (refused.length > 0)
-    return {
+    return hookDeclined(
       path,
-      reason: `fork-hook reapply refused: ${refused
+      `fork-hook reapply refused: ${refused
         .map(
           ({ key, outcome }) => `\`${key}\` (${outcome.status === "refuse" ? outcome.reason : ""})`,
         )
         .join("; ")}`,
-    };
-  if (reapply.reinserted.length === 0) return null;
-  const workspaces = touchedWorkspaces([path]);
+      keepBothReason,
+    );
+  if (reapply.reinserted.length === 0)
+    return hookDeclined(
+      path,
+      `fork-hook reapply of ${keys} re-inserted nothing: every marked hook already survived the merge intact`,
+      keepBothReason,
+    );
+  const workspaces = verify ? touchedWorkspaces([path]) : [];
   for (const workspace of workspaces) {
     const checked = runner.run("vp", ["run", "--filter", `./${workspace}`, "typecheck"], worktree);
     if (checked.status !== 0)
-      return {
+      return hookDeclined(
         path,
-        reason: `fork-hook reapply of ${reapply.reinserted.map((key) => `\`${key}\``).join(", ")} refused: the scoped typecheck of ${workspace} failed after re-insertion${checked.stderr.trim() === "" ? "" : `: ${checked.stderr.trim().split("\n")[0]}`}`,
-      };
+        `fork-hook reapply of ${reapply.reinserted.map((key) => `\`${key}\``).join(", ")} refused: the scoped typecheck of ${workspace} failed after re-insertion`,
+        keepBothReason,
+        checked.stderr.trim().split("\n")[0],
+      );
   }
   return {
     text: reapply.text,
@@ -440,7 +509,8 @@ const hookReapply = (
       conflictClass: "mechanical",
       source: "hook-reapply",
       reinsertedHooks: reapply.reinserted,
-      resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason})`,
+      verified: verify,
+      resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason}${verify ? "" : "; scoped typecheck not run"})`,
     },
   };
 };
@@ -808,12 +878,15 @@ const keepBoth = (
  * Resolve one conflicted path in the rehearsal lane and stage it, or say why it cannot be resolved.
  * A declined path is the walk's legal conflict stop; nothing here guesses past a missing stage,
  * a binary blob, a rewritten seam, or a resolution that would drop upstream work.
+ *
+ * `verifyHookReapply` is passed through to the hook re-apply stage; see `hookReapply`.
  */
 export const executeConflictOutcome = (
   runner: CommandRunner,
   worktree: string,
   path: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
+  verifyHookReapply = true,
 ): OutcomeResult => {
   const base = readStage(runner, worktree, path, 1);
   const ours = readStage(runner, worktree, path, 2);
@@ -844,7 +917,15 @@ export const executeConflictOutcome = (
       } else {
         const kept = keepBoth(runner, worktree, path, stages);
         if ("reason" in kept) {
-          const reapplied = hookReapply(runner, worktree, path, stages, kept.reason, manifest);
+          const reapplied = hookReapply(
+            runner,
+            worktree,
+            path,
+            stages,
+            kept.reason,
+            manifest,
+            verifyHookReapply,
+          );
           if (reapplied === null) return kept;
           if ("reason" in reapplied) return reapplied;
           resolved = reapplied.text;
@@ -863,6 +944,10 @@ export const executeConflictOutcome = (
   NodeFS.writeFileSync(NodePath.join(worktree, path), resolved);
   const staged = runner.run("git", ["add", "--", path], worktree);
   if (staged.status !== 0 || staged.error !== undefined)
-    return { path, reason: `git add refused the resolution: ${staged.stderr.trim()}` };
+    return {
+      path,
+      reason: "git add refused the resolution",
+      ...(staged.stderr.trim() === "" ? {} : { detail: staged.stderr.trim() }),
+    };
   return { ...outcome, path };
 };
