@@ -173,7 +173,6 @@ const silentSeams = (entries: ReadonlyArray<ChurnEntry>): ReadonlyArray<string> 
 
 export interface ChurnDelta {
   readonly commits: number;
-  readonly overBudget: ReadonlyArray<string>;
 }
 
 export const renderChurnKpiTable = (
@@ -212,7 +211,7 @@ export const renderChurnKpiTable = (
     "| --- | --- |",
     `| decisions human : agent | ${human} : ${agent} |`,
     `| conflict files, this walk vs last | ${files(walk)} vs ${previous === undefined ? "first walk" : files(previous)} |`,
-    `| delta commits, and any domain over budget | ${delta === null ? "unrecorded" : `${delta.commits}; ${delta.overBudget.length === 0 ? "none" : delta.overBudget.join(", ")}`} |`,
+    `| delta commits | ${delta === null ? "unrecorded" : delta.commits} |`,
     `| repeat offenders (commits conflicting in 3+ notifications) | ${repeatOffenders.length === 0 ? "none" : repeatOffenders.join(", ")} |`,
     `| noAgentCarry streak / 5 | ${outcomeStreak(outcomes).noAgentCarry} / 5 |`,
     `| elapsed and effort | ${elapsed}; ${effort} |`,
