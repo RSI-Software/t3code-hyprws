@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { FORK_HOOKS, parseForkHookMarkers } from "./fork-hooks.ts";
+import { FORK_HOOKS, parseForkHookMarkers, type ForkHookEntry } from "./fork-hooks.ts";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
 import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
 import * as NodeCrypto from "node:crypto";
@@ -343,14 +343,18 @@ const resolveConflictsToUpstream = (diff3: string): string | null => {
   return resolved + diff3.slice(position);
 };
 
+/** The manifest the walk replays against; tests may scope it to their fixture's entries. */
+type ForkHooksManifest = typeof FORK_HOOKS;
+
 /** The manifest entries whose upstream-owned file is this path, in manifest order. */
 const manifestHooksFor = (
   path: string,
+  manifest: ForkHooksManifest = FORK_HOOKS,
 ): ReadonlyArray<{
   readonly key: string;
-  readonly anchor: (typeof FORK_HOOKS)[string]["anchor"];
+  readonly anchor: ForkHookEntry["anchor"];
 }> =>
-  Object.entries(FORK_HOOKS)
+  Object.entries(manifest)
     .filter(([, entry]) => entry.path === path)
     .map(([key, entry]) => ({ key, anchor: entry.anchor }));
 
@@ -394,8 +398,9 @@ const hookReapply = (
   path: string,
   stages: ConflictStages,
   keepBothReason: string,
+  manifest: ForkHooksManifest = FORK_HOOKS,
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
-  const entries = manifestHooksFor(path);
+  const entries = manifestHooksFor(path, manifest);
   if (entries.length === 0) return null;
   if (!isVerifiablePath(path))
     return {
@@ -808,6 +813,7 @@ export const executeConflictOutcome = (
   runner: CommandRunner,
   worktree: string,
   path: string,
+  manifest: ForkHooksManifest = FORK_HOOKS,
 ): OutcomeResult => {
   const base = readStage(runner, worktree, path, 1);
   const ours = readStage(runner, worktree, path, 2);
@@ -838,7 +844,7 @@ export const executeConflictOutcome = (
       } else {
         const kept = keepBoth(runner, worktree, path, stages);
         if ("reason" in kept) {
-          const reapplied = hookReapply(runner, worktree, path, stages, kept.reason);
+          const reapplied = hookReapply(runner, worktree, path, stages, kept.reason, manifest);
           if (reapplied === null) return kept;
           if ("reason" in reapplied) return reapplied;
           resolved = reapplied.text;
