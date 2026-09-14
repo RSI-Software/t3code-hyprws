@@ -240,19 +240,40 @@ export const autoOutcomeReceipts = (
   return requireOutcomeReceipts(receipts);
 };
 
+/** The sync walk's executor from the environment, shared by the declaration and the receipt. */
+const syncExecutor = (): OutcomeAttempt["executor"] =>
+  process.env.FORK_OUTCOME_EXECUTOR === "agent"
+    ? "agent"
+    : process.env.FORK_OUTCOME_EXECUTOR === "human"
+      ? "human"
+      : "unknown";
+
+/**
+ * The sync path's `prepareAutoOutcome` (RSI-Software/t3code-hyprws#1023): declare the attempt the
+ * moment the walk binds its target and source, before the phases that can fail — orient, retire
+ * evidence, verdict resolution — so a thrown walk still leaves an attempt identity instead of
+ * vanishing at the `!report.target || !report.source` guards, which stay strict.
+ */
+export const declareSyncOutcome = (
+  report: SyncReport,
+  target: { readonly sha: string; readonly tag: string },
+  sourceSha: string,
+): void => {
+  const path = `${report.reportPath}.outcome.json`;
+  const previous = NodeFS.existsSync(path) ? readBundle(path) : [];
+  saveBundle(path, [
+    ...previous,
+    ...declareOutcomeAttempt(target, sourceSha, report.bot?.mode ?? "unknown", syncExecutor()),
+  ]);
+};
+
 export const syncOutcomeReceipts = (
   report: SyncReport,
   id = attemptId(),
   failure?: { readonly phase: string; readonly detail: string },
 ): ReadonlyArray<OutcomeReceipt> => {
   if (!report.target || !report.source) return [];
-  const executor = report.botCarried
-    ? "bot"
-    : process.env.FORK_OUTCOME_EXECUTOR === "agent"
-      ? "agent"
-      : process.env.FORK_OUTCOME_EXECUTOR === "human"
-        ? "human"
-        : "unknown";
+  const executor = report.botCarried ? "bot" : syncExecutor();
   const receipts = [
     ...declareOutcomeAttempt(
       report.target,
@@ -724,6 +745,17 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
     }
   } else {
     const path = options.get("--auto-report")!;
+    const declarations = `${path}.outcome.json`;
+    // The rebase writes its declarations before it executes, so their absence means it
+    // died before selecting any target: there is no attempt identity to retain, and the
+    // step that actually failed owns the error (RSI-Software/t3code-hyprws#1009). This
+    // post-step runs on `always()` and must not become the run's last red step.
+    if (!NodeFS.existsSync(declarations)) {
+      process.stderr.write(
+        `churn: no auto-rebase outcome declarations at ${declarations}; nothing to retain\n`,
+      );
+      return 0;
+    }
     const result = NodeFS.existsSync(path)
       ? (JSON.parse(NodeFS.readFileSync(path, "utf8")) as AutoRebaseResult)
       : null;
@@ -732,7 +764,7 @@ export const runOutcome = (argv: ReadonlyArray<string>, root: string): number =>
       reportingPath && NodeFS.existsSync(reportingPath)
         ? JSON.parse(NodeFS.readFileSync(reportingPath, "utf8"))
         : undefined;
-    receipts = autoOutcomeReceipts(readBundle(`${path}.outcome.json`), result, reporting);
+    receipts = autoOutcomeReceipts(readBundle(declarations), result, reporting);
   }
   if (process.env.FORK_OUTCOME_EXPORT)
     saveBundle(process.env.FORK_OUTCOME_EXPORT, [...readChurnState(root).outcomes, ...receipts]);
