@@ -5,7 +5,9 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { isVerifiablePath } from "./fork-repairs.ts";
+import { FORK_HOOKS, parseForkHookMarkers } from "./fork-hooks.ts";
+import { reapplyForkHooks } from "./fork-hook-reapply.ts";
+import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
 import * as NodeCrypto from "node:crypto";
 
 /**
@@ -22,7 +24,7 @@ import * as NodeCrypto from "node:crypto";
  * would keep the commit and gut its content, which is the one outcome the fork forbids. Retiring a
  * fork commit stays a human decision in `docs/internals/fork-delta.md`.
  */
-export type OutcomeSource = "upstream-only" | "fork-only" | "keep-both";
+export type OutcomeSource = "upstream-only" | "fork-only" | "keep-both" | "hook-reapply";
 
 export type OutcomeTake = "ours" | "theirs" | "merge" | "union";
 
@@ -320,6 +322,122 @@ const mergeFile = (
 };
 
 /**
+ * Resolve the diff3 conflict hunks of a merged text to the upstream side of each, giving the merged
+ * upstream text the re-apply stage inserts fork hooks into. `null` when the hunks cannot be read.
+ */
+const resolveConflictsToUpstream = (diff3: string): string | null => {
+  const regions = diff3ConflictRegions(diff3);
+  if (regions === null) return null;
+  let position = 0;
+  let resolved = "";
+  for (const region of regions) {
+    const start = diff3.indexOf("<<<<<<<", position);
+    const end = diff3.indexOf(">>>>>>>", start);
+    if (start === -1 || end === -1) return null;
+    const lineEnd = diff3.indexOf("\n", end);
+    resolved += diff3.slice(position, start) + region.upstream;
+    position = lineEnd === -1 ? diff3.length : lineEnd + 1;
+  }
+  return resolved + diff3.slice(position);
+};
+
+/** The manifest entries whose upstream-owned file is this path, in manifest order. */
+const manifestHooksFor = (
+  path: string,
+): ReadonlyArray<{
+  readonly key: string;
+  readonly anchor: (typeof FORK_HOOKS)[string]["anchor"];
+}> =>
+  Object.entries(FORK_HOOKS)
+    .filter(([, entry]) => entry.path === path)
+    .map(([key, entry]) => ({ key, anchor: entry.anchor }));
+
+/**
+ * The stage after keep-both: re-apply the path's marked fork hooks into the merged upstream text.
+ * Returns the resolution only when at least one hook was re-inserted and every hook is intact or
+ * re-inserted — an all-intact result would mean dropping the fork's non-hook lines, which stays a
+ * maintainer's call. Any refusal, unverifiability, or a failing scoped typecheck returns `null`
+ * with the reason the walk stop carries instead.
+ */
+/**
+ * Whether the fork side of a conflicted merge adds nothing but marked hook lines and removes no
+ * base line. A fork hunk carrying woven, unmarked lines must not reach the re-apply stage: its
+ * re-insertions resolve the hunks to the upstream side, which would silently drop those lines —
+ * exactly the gutting the fork forbids. Such a seam keeps keep-both's stop.
+ */
+const forkSideIsHookOnly = (stages: ConflictStages): boolean => {
+  const hooks = parseForkHookMarkers(stages.theirs);
+  const marked = new Set<number>();
+  for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  const baseCounts = significantLineCounts(stages.base);
+  const forkCounts = significantLineCounts(stages.theirs);
+  // A base line the fork side no longer carries is a fork removal, which a hook never does.
+  for (const [line, count] of baseCounts) if ((forkCounts.get(line) ?? 0) < count) return false;
+  // Every other fork line must be marked or occurrence-matched to a base line that survived.
+  const seen = new Map<string, number>();
+  for (const [index, raw] of stages.theirs.split("\n").entries()) {
+    if (raw.trim() === "") continue;
+    const nth = (seen.get(raw) ?? 0) + 1;
+    seen.set(raw, nth);
+    if (marked.has(index + 1)) continue;
+    if (nth <= (baseCounts.get(raw) ?? 0)) continue;
+    return false;
+  }
+  return true;
+};
+
+const hookReapply = (
+  runner: CommandRunner,
+  worktree: string,
+  path: string,
+  stages: ConflictStages,
+  keepBothReason: string,
+): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
+  const entries = manifestHooksFor(path);
+  if (entries.length === 0) return null;
+  if (!isVerifiablePath(path))
+    return {
+      path,
+      reason: `fork-hook reapply of ${entries.map(({ key }) => `\`${key}\``).join(", ")} refused: the path is outside the lane's scoped typecheck, so a re-inserted hook would carry no verification`,
+    };
+  const merged = mergeFile(runner, worktree, stages, "--diff3");
+  if (merged === null || merged.conflicts === 0) return null;
+  if (!forkSideIsHookOnly(stages)) return null; // woven fork lines in the hunks: keep-both's stop stands, unchanged
+  const upstream = resolveConflictsToUpstream(merged.text);
+  if (upstream === null) return null;
+  const reapply = reapplyForkHooks(upstream, stages.theirs, entries, matchingDelimiter);
+  const refused = reapply.results.filter(({ outcome }) => outcome.status === "refuse");
+  if (refused.length > 0)
+    return {
+      path,
+      reason: `fork-hook reapply refused: ${refused
+        .map(
+          ({ key, outcome }) => `\`${key}\` (${outcome.status === "refuse" ? outcome.reason : ""})`,
+        )
+        .join("; ")}`,
+    };
+  if (reapply.reinserted.length === 0) return null;
+  const workspaces = touchedWorkspaces([path]);
+  for (const workspace of workspaces) {
+    const checked = runner.run("vp", ["run", "--filter", `./${workspace}`, "typecheck"], worktree);
+    if (checked.status !== 0)
+      return {
+        path,
+        reason: `fork-hook reapply of ${reapply.reinserted.map((key) => `\`${key}\``).join(", ")} refused: the scoped typecheck of ${workspace} failed after re-insertion${checked.stderr.trim() === "" ? "" : `: ${checked.stderr.trim().split("\n")[0]}`}`,
+      };
+  }
+  return {
+    text: reapply.text,
+    outcome: {
+      take: "union",
+      conflictClass: "mechanical",
+      source: "hook-reapply",
+      resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason})`,
+    },
+  };
+};
+
+/**
  * Keep both sides of a seam both sides moved, when that is addition rather than invention. A clean
  * three-way merge is taken as it stands. A conflicted one is kept only when every hunk is a pure
  * co-insertion, and only on a path the lane can verify afterwards.
@@ -396,7 +514,7 @@ const movedDeletion = (
 };
 
 /** Match delimiters locally; uncertain syntax is a declined conflict, not a guessed resolution. */
-const matchingDelimiter = (
+export const matchingDelimiter = (
   text: string,
   start: number,
   open: string,
@@ -716,9 +834,16 @@ export const executeConflictOutcome = (
         outcome = dependencies.outcome;
       } else {
         const kept = keepBoth(runner, worktree, path, stages);
-        if ("reason" in kept) return kept;
-        resolved = kept.text;
-        outcome = kept.outcome;
+        if ("reason" in kept) {
+          const reapplied = hookReapply(runner, worktree, path, stages, kept.reason);
+          if (reapplied === null) return kept;
+          if ("reason" in reapplied) return reapplied;
+          resolved = reapplied.text;
+          outcome = reapplied.outcome;
+        } else {
+          resolved = kept.text;
+          outcome = kept.outcome;
+        }
       }
     }
   }
