@@ -85,3 +85,38 @@ export function fromWireThreadEnvModeFields(fields: {
 }): StoredThreadEnvMode | null | undefined {
   return fields.defaultThreadEnvModeFork ?? fields.defaultThreadEnvMode;
 }
+
+/**
+ * Fork: the wire field pair for a settings patch that names the
+ * thread-env-mode pair. `null` clears the mode and must stay `null` rather
+ * than coerce to a stored mode.
+ */
+export function replaceWireThreadEnvModeFields(fields: {
+  readonly defaultThreadEnvMode: ThreadEnvMode | null;
+  readonly defaultThreadEnvModeFork?: ForkThreadEnvMode | undefined;
+}) {
+  return toWireThreadEnvModeOverrideFields(fromWireThreadEnvModeFields(fields) ?? null);
+}
+
+/**
+ * Fork: applies a project-scope patch's thread-env-mode fields onto a
+ * project settings override object in place. The pair replaces wholesale so
+ * a stale `...Fork` sibling never survives, and a resolved null (the
+ * "Inherit" picker) removes the override pair rather than storing a bare
+ * null, matching how every other project-scoped key drops on a null patch.
+ */
+export function patchProjectThreadEnvModeOverride(
+  next: Record<string, unknown>,
+  serverPatch: {
+    readonly defaultThreadEnvMode?: ThreadEnvMode | null | undefined;
+    readonly defaultThreadEnvModeFork?: ForkThreadEnvMode | undefined;
+  },
+): void {
+  if (serverPatch.defaultThreadEnvMode === undefined) return;
+  delete next.defaultThreadEnvMode;
+  delete next.defaultThreadEnvModeFork;
+  const resolved = fromWireThreadEnvModeFields(serverPatch);
+  if (resolved !== null && resolved !== undefined) {
+    Object.assign(next, toWireThreadEnvModeFields(resolved));
+  }
+}
