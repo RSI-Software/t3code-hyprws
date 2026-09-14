@@ -15,7 +15,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   query as claudeQuery,
-  type AgentInfo as ClaudeAgentInfo,
+  type AgentInfo as ClaudeAgentInfo, // fork-hook: custom-agents/claude-agent-info-type
   type Options as ClaudeQueryOptions,
   type SlashCommand as ClaudeSlashCommand,
   type SDKControlGetUsageResponse,
@@ -51,7 +51,7 @@ import {
 import {
   parseClaudeInitializationAgents,
   withClaudeAgentOptions,
-} from "./ClaudeAgentOptions.fork.ts";
+} from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-options-import
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -239,7 +239,7 @@ type ClaudeCapabilitiesProbe = {
    * the subscription/token fields are absent and auth is external AWS creds.
    */
   readonly apiProvider: string | undefined;
-  readonly agents?: ReadonlyArray<ClaudeAgentInfo>;
+  readonly agents?: ReadonlyArray<ClaudeAgentInfo>; // fork-hook: custom-agents/claude-probe-agents-field
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   /**
    * Subscription windows from the SDK's `get_usage` control request, or
@@ -391,7 +391,7 @@ const probeClaudeCapabilities = (
           subscriptionType: account?.subscriptionType,
           tokenSource: account?.tokenSource,
           apiProvider: account?.apiProvider,
-          agents: parseClaudeInitializationAgents(init.agents),
+          agents: parseClaudeInitializationAgents(init.agents), // fork-hook: custom-agents/claude-probe-agents-parse
           slashCommands: parseClaudeInitializationCommands(init.commands),
           ...(usage ? { usage } : {}),
         } satisfies ClaudeCapabilitiesProbe;
@@ -540,7 +540,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   const capabilities = resolveCapabilities
     ? yield* resolveCapabilities(claudeSettings).pipe(Effect.orElseSucceed(() => undefined))
     : undefined;
-  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []);
+  const models = withClaudeAgentOptions(baseModels, capabilities?.agents ?? []); // fork-hook: custom-agents/claude-model-agent-options
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
@@ -643,4 +643,4 @@ export const makePendingClaudeProvider = (
     });
   });
 
-export { dedupeSlashCommands, probeClaudeCapabilities };
+export { dedupeSlashCommands, probeClaudeCapabilities }; // fork-hook: custom-agents/claude-dedupe-export
