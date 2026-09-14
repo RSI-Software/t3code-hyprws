@@ -5,7 +5,7 @@ import {
   githubLinkLabel,
   parseGitHubLinkTarget,
   preferredGitHubLinkDestination,
-} from "./githubLinkDestinations";
+} from "./GitHubDestinationLink.fork";
 
 describe("GitHub link destinations", () => {
   it.each([
