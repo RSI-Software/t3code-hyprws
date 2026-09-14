@@ -107,6 +107,26 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/server/src/provider/Layers/CodexAdapter.ts",
     anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
   },
+  "custom-agents/claude-child-snapshot-import": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/claude-child-snapshot-emit": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "handleAssistantMessage" },
+  },
+  "custom-agents/claude-child-snapshot-assistant": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "rememberPendingTaskModel" },
+  },
+  "custom-agents/claude-child-snapshot-task-started": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "offerRuntimeEvent" },
+  },
+  "custom-agents/claude-child-detail-denied": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "completedStamp" },
+  },
   "custom-agents/claude-child-detail-import": {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "import-block" },
