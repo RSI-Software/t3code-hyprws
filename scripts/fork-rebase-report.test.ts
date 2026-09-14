@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
 
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -7,6 +8,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
+import { parseFeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
   MergeTreeError,
@@ -270,6 +272,7 @@ it("parses cron and manual output options and rejects ambiguous argv", () => {
       markdownOut: "state.md",
       fetch: true,
       check: true,
+      feasibilityOut: null,
     },
   );
   assert.throws(() => parseArgs(["--fetch", "--fetch"]), UsageError);
@@ -543,6 +546,42 @@ it("writes the report once and reports unchanged outputs on a rerun", () => {
   }
 });
 
+it("writes a carryable feasibility walk beside the report", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    const args = [
+      "--json-out",
+      "report.json",
+      "--markdown-out",
+      "report.md",
+      "--feasibility-out",
+      "walk.json",
+    ];
+    const output = captureStdout(() => {
+      assert.strictEqual(run(args, fixtureRepo.root), 0);
+    });
+    assert.include(output, "feasibility: walk.json");
+    const artifact = parseFeasibilityArtifact(
+      NodeFS.readFileSync(NodePath.join(fixtureRepo.root, "walk.json"), "utf8"),
+    );
+    const report = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(fixtureRepo.root, "report.json"), "utf8"),
+    ) as ForkRebaseReport;
+    assert.strictEqual(artifact.sourceSha, report.hyprws.sha);
+    assert.strictEqual(artifact.targetSha, report.upstream.sha);
+    assert.strictEqual(artifact.baseSha, report.sharedBase.sha);
+    assert.deepStrictEqual(artifact.feasibility, report.feasibility);
+    assert.ok(artifact.mergeTree.length > 0);
+    assert.strictEqual(
+      run([...args, "--check"], fixtureRepo.root),
+      2,
+      "a run artifact cannot be checked like a tracked output",
+    );
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
+});
+
 it("checks schema v3 output for default and explicit targets and detects a moved ref", () => {
   const fixtureRepo = makeGitFixture();
   try {
@@ -565,6 +604,43 @@ it("checks schema v3 output for default and explicit targets and detects a moved
     git(fixtureRepo.root, ["commit", "-m", "docs: later upstream change"]);
     git(fixtureRepo.root, ["update-ref", "refs/remotes/upstream/main", "HEAD"]);
     assert.strictEqual(run([...args, "--check"], fixtureRepo.root), 1);
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
+});
+
+it("reports a commit that starts empty as empty-commit, never as already-upstream", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    git(fixtureRepo.root, ["switch", "fork-stack"]);
+    git(fixtureRepo.root, [
+      "commit",
+      "--allow-empty",
+      "-m",
+      "chore(fork): empty replay",
+      "-m",
+      "Fork-Domain: distribution\nFork-Tier: qol",
+    ]);
+    const emptySha = git(fixtureRepo.root, ["rev-parse", "HEAD"]);
+    const report = buildReport(
+      new SystemGit(fixtureRepo.root),
+      emptySha,
+      fixtureRepo.cleanTargetSha,
+    );
+    assert.deepStrictEqual(
+      report.retireCandidates.map((candidate) => [
+        candidate.commit,
+        candidate.signals.map((signal) => signal.kind),
+      ]),
+      [
+        [fixtureRepo.introducingSha, ["behaviour-overlap"]],
+        [fixtureRepo.alreadyUpstreamSha, ["already-upstream", "behaviour-overlap"]],
+        [emptySha, ["empty-commit"]],
+      ],
+    );
+    const evidence = report.retireCandidates[2]?.signals[0]?.evidence ?? "";
+    assert.include(evidence, "no file changes");
+    assert.include(evidence, "vacuous");
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }

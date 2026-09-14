@@ -8,6 +8,8 @@ import { assert, it } from "@effect/vitest";
 
 import {
   isTransientCommandFailure,
+  requireCommandSuccess,
+  runCommand,
   runCommandTextWithRetry,
   type CommandResult,
 } from "./fork-command.ts";
@@ -126,6 +128,22 @@ it("exhausts transient retries and throws with the original text", () => {
   const message = (thrown as Error).message;
   assert.include(message, "HTTP 503: Service Unavailable");
   assert.include(message, "(after 3 attempts)");
+});
+
+it("streams a command's real exit status without capturing its output", () => {
+  const result = runCommand(
+    "node",
+    ["-e", "console.log('to stdout'); console.error('to stderr'); process.exit(3)"],
+    { stream: true },
+  );
+  assert.strictEqual(result.status, 3);
+  assert.strictEqual(result.stdout, "");
+  assert.strictEqual(result.stderr, "");
+});
+
+it("a short timeout override kills a slow command and names it in the error", () => {
+  const result = runCommand("sleep", ["5"], { timeout: 100 });
+  assert.throws(() => requireCommandSuccess(result, "sleep", ["5"]), /sleep 5 failed.*ETIMEDOUT/s);
 });
 
 it("throws immediately on a 404 with zero retries", () => {
