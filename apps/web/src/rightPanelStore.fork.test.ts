@@ -2,14 +2,13 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
-  githubIssueSurface,
   migratePersistedRightPanelState,
   selectActiveRightPanelSurface,
   selectSelectedRightPanelSurface,
   selectThreadRightPanelState,
-  updatePullRequestTabStatus,
   useRightPanelStore,
 } from "./rightPanelStore";
+import { githubIssueSurface, updatePullRequestTabStatus } from "./rightPanelStore.fork";
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
