@@ -36,6 +36,7 @@ function renderAgentControl(
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
+      modelOptions={modelOptions}
       planModeEnabled={planModeEnabled}
     />
   );
