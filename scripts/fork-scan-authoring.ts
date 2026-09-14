@@ -1,0 +1,463 @@
+// @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+
+// Authoring guards for `vp run fork:scan`, each naming a shape a later rebase pays for:
+// upstream-test (a fork block added to an upstream test file instead of its `*.fork.test.ts`
+// sibling, or an upstream assertion rewritten in place) and replaced-export (an upstream export
+// deleted and re-declared). `--since` range warnings fail the scan; the historical range is advisory.
+
+import {
+  caseSourceLines,
+  enclosedSupersededTitles,
+  forkTestSibling,
+  isForkTestFile,
+  supersededTitlesByPath,
+} from "./lib/fork-supersedes.ts";
+
+export type ScanAuthoringRule = "upstream-test" | "replaced-export";
+
+export interface ScanAuthoringWarning {
+  readonly rule: ScanAuthoringRule;
+  readonly commit: string;
+  readonly domain: string;
+  readonly detail: string;
+}
+
+export interface ExportDeclaration {
+  readonly path: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly line: string;
+}
+
+export interface TestBlockHunk {
+  readonly path: string;
+  // Trimmed, so the block rule can tell a restored upstream opener from a fork one.
+  readonly addedOpeners: ReadonlyArray<string>;
+  readonly removed: number;
+}
+
+export interface CommitPatch {
+  readonly removedExports: ReadonlyArray<ExportDeclaration>;
+  readonly addedExports: ReadonlyArray<ExportDeclaration>;
+  // `it`/`test`/`describe` block openers stay grouped by zero-context diff
+  // hunk, so only a nearby removal can identify an addition as a replacement.
+  readonly testBlockHunks: ReadonlyArray<TestBlockHunk>;
+  // Significant lines the commit takes out of a `*.test.*` file, keyed by that
+  // file's path. A rewrite deletes the old assertion and adds the new one, so
+  // the removed side is the whole shape: a same-size swap nets to zero added
+  // blocks and the counting rule below misses it entirely.
+  readonly removedTestLines: ReadonlyMap<string, ReadonlyArray<string>>;
+  // Every added/removed content line a commit's patch carries, keyed by path,
+  // so the hook guard can classify the seam without parsing diffs again.
+  // `addedAt` holds each added line's 1-based line in the committed file.
+  readonly changedLines: ReadonlyMap<string, ChangedLines>;
+}
+
+export interface ChangedLines {
+  readonly added: ReadonlyArray<string>;
+  readonly addedAt: ReadonlyArray<number>;
+  readonly removed: ReadonlyArray<string>;
+}
+
+export interface AuthoringGuardCommit {
+  readonly sha: string;
+  readonly short: string;
+  readonly domain: string;
+  readonly tier?: string;
+  readonly upstreamable?: string;
+}
+
+export interface AuthoringGuardInput {
+  // Only the commits the caller wants warned about: `--since` narrows a walk
+  // of the whole stack to the commits one change introduces.
+  readonly commits: ReadonlyArray<AuthoringGuardCommit>;
+  readonly filesBySha: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly patchesBySha: ReadonlyMap<string, CommitPatch>;
+  // Paths that exist in the upstream base tree. A fork-created file is the
+  // repair every one of these rules points at, so it never triggers them.
+  readonly upstreamFiles: ReadonlySet<string>;
+  // Test ownership follows the selected target, including independent
+  // same-path additions.
+  readonly upstreamTestFiles: ReadonlySet<string>;
+  // The significant lines each touched upstream test file carries in the target tree. Deleting a
+  // line the fork added itself removes nothing upstream wrote, so only lines here count. An absent
+  // entry refuses every removal: an unread tree is not evidence the line was the fork's.
+  readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
+  // The significant lines each touched upstream file carries in the target tree, for the hook
+  // guard: an added line the target already has is a revert. Absent on inputs built before the map
+  // existed; the guard then behaves as it always has.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  readonly replayAddedLines?:
+    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
+    | undefined;
+  // A commit's own blob for a path, read only when the hook guard would
+  // refuse: a marker on an unchanged line still covers the lines it marks.
+  readonly readCommittedText?: ((sha: string, path: string) => string | undefined) | undefined;
+  // The target-tree text of each touched upstream test file plus the head-tree text of every fork
+  // sibling, so the rule exempts a declared-superseded case by its own lines, not by whole-file
+  // membership, which cannot tell a shared body line from an upstream one.
+  readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  // Head-tree text for count-aware removal checks: duplicate upstream text
+  // survives when the fork only removes its own appended copy.
+  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
+  readonly siblingTexts: ReadonlyMap<string, string>;
+  // Commit shas live upstream already carries patch-for-patch: an exact backport removes only what
+  // upstream removed, so its test-line removals are not fork loss.
+  readonly backports?: ReadonlySet<string> | undefined;
+}
+
+const PATCH_RECORD_SEPARATOR = "\x1e";
+
+export const commitPatchArguments = (shas: ReadonlyArray<string>): ReadonlyArray<string> =>
+  [
+    "-c",
+    "core.quotePath=false",
+    "show",
+    "--no-ext-diff",
+    "--unified=0",
+    `--format=${PATCH_RECORD_SEPARATOR}%H`,
+    ...shas,
+  ] as const;
+
+// A declaration line, not a re-export: `export { x } from "./y"` carries no
+// body upstream can extend, so it is not the shape that loses upstream work.
+const EXPORT_DECLARATION =
+  /^export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(const|let|var|function|class|type|interface|enum|namespace)\s+([A-Za-z_$][\w$]*)/;
+
+// effectIt is the repository's @effect/vitest alias beside vite-plus/test's it.
+const TEST_BLOCK = /^\s*(?:it|test|describe|effectIt)\s*(?:\.[\w$]+)*\s*(?:<[^>]*>)?\s*[(`]/;
+
+const diffPath = (value: string): string | null => {
+  const target = value.trim();
+  return target === "/dev/null" ? null : target.replace(/^[ab]\//, "");
+};
+
+// Blank lines and comment-only lines carry no assertion, so removing one is
+// not a rewrite of upstream intent. Everything else in a test file is.
+const isSignificant = (content: string): boolean => {
+  const trimmed = content.trim();
+  return (
+    trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*") && trimmed !== "/*"
+  );
+};
+
+/** The lines of an upstream test file that a removal can be measured against. */
+export const significantTestLines = (text: string): ReadonlySet<string> =>
+  new Set(
+    text
+      .split("\n")
+      .filter(isSignificant)
+      .map((line) => line.trim()),
+  );
+
+/**
+ * Every non-blank line of an upstream source file, comments included: the hook
+ * guard reads a restored upstream comment as the revert it is, not a fork insertion.
+ */
+export const upstreamSourceLines = (text: string): ReadonlySet<string> =>
+  new Set(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== ""),
+  );
+
+// `@@ -a,b +c,d @@`: `c` is the committed file's line of the hunk's first addition.
+const HUNK_TARGET_START = /^@@ -\d+(?:,\d+)? \+(\d+)/;
+
+export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch> => {
+  const patches = new Map<string, CommitPatch>();
+  for (const record of raw.replace(/\r\n/g, "\n").split(PATCH_RECORD_SEPARATOR)) {
+    const [header = "", ...lines] = record.split("\n");
+    const sha = header.trim();
+    if (sha.length === 0) continue;
+    const removedExports: Array<ExportDeclaration> = [];
+    const addedExports: Array<ExportDeclaration> = [];
+    const testBlockHunks: Array<TestBlockHunk> = [];
+    const removedTestLines = new Map<string, Array<string>>();
+    const addedLines = new Map<string, Array<string>>();
+    const addedAt = new Map<string, Array<number>>();
+    let nextAddedLine = 0;
+    const removedLines = new Map<string, Array<string>>();
+    // A deletion writes `+++ /dev/null`, so removals are attributed to the
+    // source side and additions to the target side rather than to one path.
+    let sourcePath: string | null = null;
+    let targetPath: string | null = null;
+    let hunkAddedOpeners: Array<string> = [];
+    let hunkRemovedTestBlocks = 0;
+    const flushTestBlockHunk = () => {
+      const path = targetPath ?? sourcePath;
+      if (path !== null && (hunkAddedOpeners.length > 0 || hunkRemovedTestBlocks > 0)) {
+        testBlockHunks.push({
+          path,
+          addedOpeners: hunkAddedOpeners,
+          removed: hunkRemovedTestBlocks,
+        });
+      }
+      hunkAddedOpeners = [];
+      hunkRemovedTestBlocks = 0;
+    };
+    for (const line of lines) {
+      if (line.startsWith("--- ")) {
+        flushTestBlockHunk();
+        sourcePath = diffPath(line.slice(4));
+        continue;
+      }
+      if (line.startsWith("+++ ")) {
+        targetPath = diffPath(line.slice(4));
+        continue;
+      }
+      if (line.startsWith("@@")) {
+        flushTestBlockHunk();
+        nextAddedLine = Number(HUNK_TARGET_START.exec(line)?.[1] ?? 0);
+        continue;
+      }
+      const added = line.startsWith("+");
+      const removed = !added && line.startsWith("-");
+      if (!added && !removed) continue;
+      const path = added ? targetPath : sourcePath;
+      if (path === null) continue;
+      const content = line.slice(1);
+      const side = added ? addedLines : removedLines;
+      const held = side.get(path);
+      if (held === undefined) side.set(path, [content]);
+      else held.push(content);
+      if (added) {
+        const positions = addedAt.get(path) ?? [];
+        positions.push(nextAddedLine);
+        addedAt.set(path, positions);
+        nextAddedLine += 1;
+      }
+      if (!added && TEST_FILE.test(path) && !isForkTestFile(path) && isSignificant(content)) {
+        const heldLines = removedTestLines.get(path) ?? [];
+        heldLines.push(content.trim());
+        removedTestLines.set(path, heldLines);
+      }
+      const declaration = EXPORT_DECLARATION.exec(content);
+      if (declaration !== null) {
+        (added ? addedExports : removedExports).push({
+          path,
+          kind: declaration[1] ?? "",
+          name: declaration[2] ?? "",
+          line: content.trim(),
+        });
+      }
+      if (TEST_BLOCK.test(content)) {
+        if (added) hunkAddedOpeners.push(content.trim());
+        else hunkRemovedTestBlocks += 1;
+      }
+    }
+    flushTestBlockHunk();
+    const changedLines = new Map<string, ChangedLines>();
+    for (const path of new Set([...addedLines.keys(), ...removedLines.keys()]))
+      changedLines.set(path, {
+        added: addedLines.get(path) ?? [],
+        addedAt: addedAt.get(path) ?? [],
+        removed: removedLines.get(path) ?? [],
+      });
+    patches.set(sha, {
+      removedExports,
+      addedExports,
+      testBlockHunks,
+      removedTestLines,
+      changedLines,
+    });
+  }
+  return patches;
+};
+
+export const TEST_FILE = /\.test\.tsx?$/;
+
+/** The paths whose target-tree text the upstream-test rule measures this patch against. */
+export const upstreamTestPaths = (patch: CommitPatch): ReadonlyArray<string> => [
+  ...patch.removedTestLines.keys(),
+  ...patch.testBlockHunks.filter((hunk) => hunk.addedOpeners.length > 0).map((hunk) => hunk.path),
+];
+
+/** Trimmed, without blank and comment-only lines: the case-body lines the rule counts. */
+const significant = (content: string): boolean => {
+  const trimmed = content.trim();
+  return (
+    trimmed !== "" && !trimmed.startsWith("//") && !trimmed.startsWith("*") && trimmed !== "/*"
+  );
+};
+
+const significantLines = (text: string): ReadonlyArray<string> =>
+  text
+    .split("\n")
+    .filter((line) => significant(line))
+    .map((line) => line.trim());
+
+/**
+ * The significant lines of one named case in the target-tree text: the
+ * opener line through the next case opener. Structural, so a fork case
+ * that kept the body of the case it replaced exempts by its own case,
+ * never by whole-file line membership (RSI-Software/t3code-hyprws#1208).
+ */
+const caseLines = (text: string, title: string): ReadonlySet<string> =>
+  new Set(significantLines(caseSourceLines(text, title).join("\n")));
+
+/**
+ * The target-tree lines of every case the scanned head's sibling declares
+ * as superseded for one upstream path. Empty unless the sibling both
+ * declares the case and carries a replacement test case — a bare
+ * declaration exempts nothing (RSI-Software/t3code-hyprws#1208).
+ */
+const declaredSupersededLines = (input: AuthoringGuardInput, path: string): ReadonlySet<string> => {
+  const upstreamText = input.upstreamTestTexts.get(path);
+  if (upstreamText === undefined) return new Set();
+  const siblingText = input.siblingTexts.get(forkTestSibling(path));
+  if (siblingText === undefined) return new Set();
+  const lines = new Set<string>();
+  // One excusal per documented sibling case, mirroring the additive gate:
+  // five declarations stacked before one case strip one case's lines.
+  // A declaration after the last case strips nothing (RSI-Software/t3code-hyprws#1208).
+  const enclosed = enclosedSupersededTitles(siblingText, path);
+  const declared = new Set(
+    supersededTitlesByPath(siblingText, path)
+      .filter((entry) => entry.hasReplacement)
+      .map((entry) => entry.title),
+  );
+  for (const title of enclosed) {
+    if (!declared.has(title)) continue;
+    for (const line of caseLines(upstreamText, title)) lines.add(line);
+  }
+  return lines;
+};
+
+const EMPTY_PATCH: CommitPatch = {
+  removedExports: [],
+  addedExports: [],
+  testBlockHunks: [],
+  removedTestLines: new Map(),
+  changedLines: new Map(),
+};
+
+export const collectAuthoringWarnings = (
+  input: AuthoringGuardInput,
+): ReadonlyArray<ScanAuthoringWarning> => {
+  const warnings: Array<ScanAuthoringWarning> = [];
+
+  for (const commit of input.commits) {
+    const patch = input.patchesBySha.get(commit.sha) ?? EMPTY_PATCH;
+    const found: Array<ScanAuthoringWarning> = [];
+    const warn = (rule: ScanAuthoringRule, detail: string) => {
+      found.push({ rule, commit: commit.short, domain: commit.domain, detail });
+    };
+
+    const occurrences = (text: string, line: string) =>
+      significantLines(text).filter((candidate) => candidate === line).length;
+    // An added opener the target already carries restores an upstream case
+    // rather than gaining a fork block, unless the head holds more copies of
+    // that line than the target: a fork block that reuses an upstream title
+    // still counts.
+    const restoresUpstreamOpener = (path: string, line: string): boolean => {
+      if (input.upstreamTestLines.get(path)?.has(line) !== true) return false;
+      const targetText = input.upstreamTestTexts.get(path);
+      const headText = input.headTestTexts?.get(path);
+      return (
+        targetText === undefined ||
+        headText === undefined ||
+        occurrences(headText, line) <= occurrences(targetText, line)
+      );
+    };
+    const appendedTestBlocks = new Map<string, number>();
+    for (const hunk of patch.testBlockHunks) {
+      const forkOpeners = hunk.addedOpeners.filter(
+        (line) => !restoresUpstreamOpener(hunk.path, line),
+      ).length;
+      const count = Math.min(forkOpeners, Math.max(0, hunk.addedOpeners.length - hunk.removed));
+      if (count === 0) continue;
+      appendedTestBlocks.set(hunk.path, (appendedTestBlocks.get(hunk.path) ?? 0) + count);
+    }
+    for (const [path, count] of [...appendedTestBlocks].toSorted(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      if (!input.upstreamTestFiles.has(path)) continue;
+      if (!TEST_FILE.test(path) || isForkTestFile(path)) continue;
+      warn(
+        "upstream-test",
+        `${path} gains ${count} fork test block(s); move them to ${forkTestSibling(path)}`,
+      );
+    }
+    // A fork commit may only append to an upstream test file. An in-place rewrite is a same-size
+    // removal plus addition the block count misses, so refuse on the removed side. Lines of each case
+    // the sibling declares superseded are stripped first, but the declaration alone buys nothing: the
+    // sibling must carry a replacement case.
+    const removedTestLines =
+      input.backports?.has(commit.sha) === true ? [] : patch.removedTestLines;
+    for (const [path, lines] of [...removedTestLines].toSorted(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      if (!input.upstreamTestFiles.has(path)) continue;
+      if (!TEST_FILE.test(path) || isForkTestFile(path)) continue;
+      const upstreamLines = input.upstreamTestLines.get(path);
+      const targetText = input.upstreamTestTexts.get(path);
+      const headText = input.headTestTexts?.get(path);
+      const upstream =
+        upstreamLines === undefined
+          ? lines
+          : lines.filter(
+              (line) =>
+                upstreamLines.has(line) &&
+                (targetText === undefined ||
+                  headText === undefined ||
+                  occurrences(headText, line) < occurrences(targetText, line)),
+            );
+      const declared = declaredSupersededLines(input, path);
+      const undeclared =
+        declared.size === 0 ? upstream : upstream.filter((line) => !declared.has(line));
+      if (undeclared.length === 0) continue;
+      const first = undeclared[0] ?? "";
+      warn(
+        "upstream-test",
+        `${path} changes or removes ${undeclared.length} upstream test line(s) (first: ${first}); a fork commit may only append to an upstream test file, so move the changed case to ${forkTestSibling(path)} and restore the upstream one`,
+      );
+    }
+
+    // The re-declaration is matched by name across the whole commit: moving
+    // an upstream declaration into a fork-owned file is the common form of
+    // this loss, and it leaves the upstream declaration deleted just the same.
+    const reported = new Set<string>();
+    for (const removed of patch.removedExports) {
+      if (!input.upstreamFiles.has(removed.path)) continue;
+      const targetLines = input.upstreamLines?.get(removed.path);
+      if (targetLines !== undefined && !targetLines.has(removed.line)) continue;
+      const key = `${removed.path}${removed.name}`;
+      if (reported.has(key)) continue;
+      const readded = patch.addedExports.find((added) => added.name === removed.name);
+      if (readded === undefined) continue;
+      // The same line back in the same file is a move, such as a restore to upstream's order;
+      // the declaration stays upstream's own text where upstream edits it.
+      if (readded.path === removed.path && readded.line === removed.line) continue;
+      reported.add(key);
+      warn(
+        "replaced-export",
+        `${removed.kind} ${removed.name} is deleted from ${removed.path} and re-declared in ${readded.path}; extend it from a fork-owned sibling and leave the upstream declaration in place`,
+      );
+    }
+
+    warnings.push(...found.toSorted((left, right) => left.rule.localeCompare(right.rule)));
+  }
+
+  return warnings;
+};
+
+export const renderAuthoringWarnings = (
+  warnings: ReadonlyArray<ScanAuthoringWarning>,
+): ReadonlyArray<string> => {
+  if (warnings.length === 0) return [];
+  const counts = (["upstream-test", "replaced-export"] as const)
+    .map((rule) => [rule, warnings.filter((warning) => warning.rule === rule).length] as const)
+    .filter(([, count]) => count > 0)
+    .map(([rule, count]) => `${rule}: ${count}`)
+    .join(", ");
+  return [
+    "",
+    `Authoring guards, ${warnings.length} refusal(s) (${counts}):`,
+    ...warnings.map(
+      (warning) =>
+        `  REFUSE  ${warning.rule}  ${warning.commit}  ${warning.domain}  ${warning.detail}`,
+    ),
+  ];
+};
