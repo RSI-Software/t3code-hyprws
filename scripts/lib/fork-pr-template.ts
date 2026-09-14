@@ -1,9 +1,9 @@
 // The pull-request template is the authority an author actually reads when choosing a
 // `Fork-Domain`, because the repository is squash-merge only and the body becomes the squash
 // commit message. `fork:delta --check` can only prove that a trailer's value is *a* known domain,
-// never that it is the *right* one, so a template that omits a domain silently pushes the change
-// onto another domain's ceiling and surfaces later as an unexplained over-budget on a domain
-// nobody touched. A hand-maintained copy of the list drifted once already, so it is compared
+// never that it is the *right* one, so a template that omits a domain silently mis-attributes
+// the change to a domain nobody touched. A hand-maintained copy of the list drifted once
+// already, so it is compared
 // against `FORK_DOMAINS` on every check rather than trusted (RSI-Software/t3code-hyprws#713).
 
 import { FORK_DOMAINS } from "./fork-trailers.ts";
