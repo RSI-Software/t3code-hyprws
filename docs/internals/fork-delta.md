@@ -195,6 +195,9 @@ budget table and no ceiling arithmetic anywhere in the gates. `vp run fork:delta
 still measures commit counts, lines, and shared files per domain; the numbers inform a
 decision, they enforce nothing. Walk repairs (`Fork-Repair` commits) stay visible in the
 inventory's per-commit table while their lines stay out of the domain sums.
+A reshape's census is read after its fold, never per PR: `vp run fork:sync
+fold-reshape` derives the fold manifest that lands it into the originating fork
+commit (see [Scripts](./scripts.md)).
 
 The same three numbers ride along with the sync: every `fork:sync` walk records the size of
 the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
