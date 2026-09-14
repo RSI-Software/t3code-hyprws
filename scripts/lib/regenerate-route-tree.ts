@@ -22,7 +22,9 @@ const pluginPackagePath = NodeModule.createRequire(import.meta.url).resolve(
 );
 // Resolving from inside the installed plugin is what makes the transitive
 // generator package visible under pnpm's layout.
-const generatorModule = NodeModule.createRequire(pluginPackagePath)("@tanstack/router-generator") as {
+const generatorModule = NodeModule.createRequire(pluginPackagePath)(
+  "@tanstack/router-generator",
+) as {
   Generator: new (options: { config: unknown; root: string }) => { run: () => Promise<void> };
   getConfig: (inlineConfig: Record<string, never>, root: string) => unknown;
 };
