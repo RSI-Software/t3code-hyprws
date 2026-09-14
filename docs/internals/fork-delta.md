@@ -173,7 +173,7 @@ migrations, mobile deep-link parameters, or anything outside exported `Schema.Li
 ## Carry cost
 
 Carry cost is decided per commit, by the parent direction's levers — retire, reshape, automate,
-or accept (RSI-Software/t3code-hyprws#665) — not by a numeric cap. Accept is never "as-is": a
+or accept (#665) — not by a numeric cap. Accept is never "as-is": a
 kept commit must have a mechanical seam, with fork code in fork-only files and upstream files
 carrying only marked hook lines the sync walk re-applies: at a replay stop the walk re-inserts a
 marked hook by its manifest anchor when the anchor resolves to exactly one site in the merged
@@ -195,6 +195,9 @@ budget table and no ceiling arithmetic anywhere in the gates. `vp run fork:delta
 still measures commit counts, lines, and shared files per domain; the numbers inform a
 decision, they enforce nothing. Walk repairs (`Fork-Repair` commits) stay visible in the
 inventory's per-commit table while their lines stay out of the domain sums.
+A reshape's census is read after its fold, never per PR: `vp run fork:sync
+fold-reshape` derives the fold manifest that lands it into the originating fork
+commit (see [Scripts](./scripts.md)).
 
 The same three numbers ride along with the sync: every `fork:sync` walk records the size of
 the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
