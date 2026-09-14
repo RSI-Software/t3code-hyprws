@@ -935,7 +935,7 @@ function AgentInstallTerminal({
             advancedTypography={advancedTypography}
             onSessionExited={onClose}
             focusRequestId={1}
-            focusOnRequest
+            autoFocus
             visible
             resizeEpoch={0}
             drawerHeight={256}
