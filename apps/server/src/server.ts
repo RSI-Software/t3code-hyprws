@@ -37,7 +37,7 @@ import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestAttachmentStore from "./pullRequest/PullRequestAttachmentStore.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueServiceLiveFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -712,10 +712,7 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
-const GitHubIssueServiceLive = GitHubIssueService.layer.pipe(
-  Layer.provide(GitHubCli.layer),
-  Layer.provide(VcsProcess.layer),
-);
+const GitHubIssueServiceLive = gitHubIssueServiceLiveFork; // fork-hook: github-issues/server-service-live
 
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
@@ -751,7 +748,7 @@ const layerMakeRoutes = Layer.mergeAll(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(layerPullRequestService),
-  Layer.provide(GitHubIssueServiceLive),
+  Layer.provide(GitHubIssueServiceLive), // fork-hook: github-issues/server-service-provide
   // The stream route and the WebSocket RPCs share one browser.
   Layer.provide(ServerBrowser.layer.pipe(Layer.provide(DesktopBrowserChannel.layer))),
   // Server browser tabs and HTML render previews install and run the same headless browser.
