@@ -73,6 +73,17 @@ export interface TerminalFocusGateForkResult {
   panelRequestId: number;
 }
 
+// The gate must re-reduce whenever the thread key moves, even without a
+// request bump: pane requests do not survive a thread change, so revisiting a
+// thread (away and back) must present the remounted drawer the zero
+// no-request sentinel instead of the stale pre-navigation request id.
+export function shouldAdvanceTerminalFocusGateFork(
+  state: TerminalFocusGateStateFork,
+  input: { requestId: number; threadKey: string | null; lastSeenRequestId: number },
+): boolean {
+  return input.lastSeenRequestId !== input.requestId || state.threadKey !== input.threadKey;
+}
+
 export function useTerminalFocusGateFork(input: {
   requestId: number;
   threadKey: string | null;
@@ -84,13 +95,20 @@ export function useTerminalFocusGateFork(input: {
   });
   const lastSeenRequestIdRef = useRef(input.requestId);
 
-  if (lastSeenRequestIdRef.current !== input.requestId) {
+  if (
+    shouldAdvanceTerminalFocusGateFork(state, {
+      requestId: input.requestId,
+      threadKey: input.threadKey,
+      lastSeenRequestId: lastSeenRequestIdRef.current,
+    })
+  ) {
+    const bumped = lastSeenRequestIdRef.current !== input.requestId;
     lastSeenRequestIdRef.current = input.requestId;
     setState(
       reduceTerminalFocusGateFork(state, {
         requestId: input.requestId,
         threadKey: input.threadKey,
-        intent: takeTerminalFocusIntentFork(),
+        intent: bumped ? takeTerminalFocusIntentFork() : null,
       }),
     );
   }

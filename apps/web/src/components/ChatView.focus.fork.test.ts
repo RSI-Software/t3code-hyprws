@@ -4,7 +4,9 @@ import {
   handleComposerFocusCommandFork,
   reduceTerminalFocusGateFork,
   shouldAutoFocusComposerOnThreadChange,
+  shouldAdvanceTerminalFocusGateFork,
 } from "./ChatView.focus.fork";
+import { shouldHandleTerminalFocusRequest } from "./ThreadTerminalDrawer.fork";
 
 function element(
   tagName: string,
@@ -86,6 +88,56 @@ describe("reduceTerminalFocusGateFork", () => {
     expect(
       reduceTerminalFocusGateFork(held, { requestId: 5, threadKey: "thread-1", intent: null }),
     ).toBe(held);
+  });
+
+  it("a thread revisited after navigating away replays no pane request", () => {
+    const held = reduceTerminalFocusGateFork(IDLE, {
+      requestId: 5,
+      threadKey: "thread-1",
+      intent: "drawer",
+    });
+    const away = reduceTerminalFocusGateFork(held, {
+      requestId: 5,
+      threadKey: null,
+      intent: null,
+    });
+    const back = reduceTerminalFocusGateFork(away, {
+      requestId: 5,
+      threadKey: "thread-1",
+      intent: null,
+    });
+    expect(back.drawerRequestId).toBe(0);
+    // The viewport gate rejects the zero sentinel, so the remounted drawer
+    // never claims focus and the composer keeps it.
+    expect(
+      shouldHandleTerminalFocusRequest({
+        focusOnRequest: true,
+        focusRequestId: back.drawerRequestId,
+        handledFocusRequestId: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("the gate advances on a thread-key move even without a request bump", () => {
+    const held: TerminalFocusGateStateFork = {
+      threadKey: "thread-1",
+      drawerRequestId: 5,
+      panelRequestId: 0,
+    };
+    expect(
+      shouldAdvanceTerminalFocusGateFork(held, {
+        requestId: 5,
+        threadKey: "thread-2",
+        lastSeenRequestId: 5,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAdvanceTerminalFocusGateFork(held, {
+        requestId: 5,
+        threadKey: "thread-1",
+        lastSeenRequestId: 5,
+      }),
+    ).toBe(false);
   });
 
   it("never assigns the zero no-request sentinel", () => {
