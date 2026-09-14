@@ -219,11 +219,11 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
     anchor: { kind: "jsx-parent", symbol: "MenuPopup" },
   },
-  "custom-agents/composer-state-agent-import": {
-    path: "apps/web/src/components/chat/composerProviderState.tsx",
-    anchor: { kind: "import-block" },
-  },
   "custom-agents/composer-state-agent-menu-content": {
+    path: "apps/web/src/components/chat/composerProviderState.tsx",
+    anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
+  },
+  "custom-agents/composer-state-agent-picker": {
     path: "apps/web/src/components/chat/composerProviderState.tsx",
     anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
   },
