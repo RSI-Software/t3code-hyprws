@@ -58,15 +58,10 @@ we may close it without merging it, or never review it.
      This list is FORK_DOMAINS in scripts/lib/fork-trailers.ts, and hyprws CI
      refuses a disagreement between the two. The check cannot tell a wrong domain
      from a right one, only a known value from an unknown one, so a plausible
-     wrong pick quietly charges another domain's budget ceiling.
+     wrong pick quietly mis-attributes the change to a domain nobody touched.
 
      Valid Fork-Tier values: core, qol, bugfix.
      Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
-
-     Add Fork-Budget: raise <reason> when the squash pushes a domain past a
-     ceiling in docs/internals/fork-budget.md. The budget is a ratchet, so most
-     fork pull requests raise one; fork:delta --check names the domain and the
-     numbers when it is missing.
 
      Do not copy Base branch or Head branch prompt context into the PR body.
      Do not add prose, metadata, mentions, or headings after the trailers.
