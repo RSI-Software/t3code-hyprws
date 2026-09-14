@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { truncateAgentDescription } from "./AgentPicker";
+import { truncateAgentDescription } from "./AgentPicker.fork";
 
 describe("truncateAgentDescription", () => {
   it("keeps only the first sentence", () => {
