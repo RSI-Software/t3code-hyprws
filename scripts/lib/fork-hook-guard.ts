@@ -26,7 +26,9 @@
 
 import {
   FORK_HOOK_JSX_END,
+  FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_SUFFIX,
+  HOOK_REEXPORT,
   parseForkHookMarkers,
   stripForkHookLineMarker,
 } from "./fork-hooks.ts";
@@ -39,6 +41,9 @@ export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
 const HOOK_SINGLE_CALL =
   /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
+// A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
+// the fork, so the whole statement is still one fork construct.
+const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
 const HOOK_CONST_FROM_CALL =
   /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
@@ -64,14 +69,16 @@ export interface ForkHookSeamInput {
   readonly commit: ForkHookSeamCommit;
   readonly files: ReadonlyArray<string>;
   readonly changedLines: ReadonlyMap<string, ForkHookSeamChange>;
+  /** Pre-image line numbers per path, index-aligned with `changedLines`' `removed`. */
+  readonly removedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
   readonly upstreamFiles: ReadonlySet<string>;
   readonly forkHooks: ReadonlySet<string>;
   /**
-   * The target-tree lines of the touched upstream-owned files, the same read
+   * The target-tree lines, in file order, of the touched upstream-owned files, the same read
    * the upstream-test append-only rule makes. A file with no entry refuses
    * every removal in it: an unread tree is not evidence the line was the fork's.
    */
-  readonly upstreamLines: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly upstreamLines: ReadonlyMap<string, ReadonlyArray<string>>;
 }
 
 export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<string> => {
@@ -103,17 +110,29 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
       if (line.includes("fork-hook:")) continue; // cause (c) counts the marker
       unmarked.push(line);
     }
-    // Each marked line-marker line is itself the whole hook: it must be one
-    // construct, and a property/spread must name a fork identifier.
-    for (const line of change.added) {
-      if (!FORK_HOOK_LINE_SUFFIX.test(line)) continue;
-      const code = stripForkHookLineMarker(line);
+    // Each line marker is itself the whole hook — the statement its span covers — so a
+    // multi-line hook is classified by its first line (`import {`), and a property/spread must
+    // name a fork identifier.
+    for (const hook of hooks) {
+      if (hook.kind !== "line") continue;
+      const markerLine = change.added[hook.endLine - 1];
+      if (markerLine === undefined || !FORK_HOOK_LINE_SUFFIX.test(markerLine)) continue;
+      const classified =
+        hook.startLine === hook.endLine
+          ? markerLine
+          : (change.added[hook.startLine - 1] ?? markerLine);
+      const code = stripForkHookLineMarker(classified);
       if (code.trim().length === 0) continue;
       if (HOOK_IMPORT.test(code)) continue;
       if (HOOK_SINGLE_CALL.test(code)) continue;
       if (HOOK_CONST_FROM_CALL.test(code)) continue;
+      if (HOOK_REEXPORT.test(code)) continue;
+      // A branch opener is one construct only when the marker closes a multi-line block; a
+      // one-line control-flow statement is still a second construct smuggled into the hook.
+      if (hook.startLine !== hook.endLine && HOOK_BRANCH.test(code) && HOOK_FORK_NAMED.test(code))
+        continue;
       if (HOOK_PROPERTY.test(code) && HOOK_FORK_NAMED.test(code)) continue;
-      constructViolations.push(line);
+      constructViolations.push(markerLine);
     }
 
     if (unmarked.length > 0)
@@ -123,13 +142,41 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
           " or move the logic to a fork-owned file",
       );
 
-    // A removed line that the target tree still carries is an upstream line
-    // being deleted or rewritten; a line only the fork ever added is not.
+    // A removed line is an upstream removal only when the target blob carries it at the
+    // hunk's pre-image position — line-set membership once counted a fork `});` as a
+    // deletion of every upstream `});`. Earlier fork commits in the stack can shift the
+    // file off the target blob elsewhere, so a miss falls back to a bounded window of
+    // ±3 lines before the line counts as the fork's own. A removal paired with an
+    // addition equal to it plus a trailing `// fork-hook:` marker (line or JSX pair
+    // form) is a marker attach, never a rewrite.
     const upstream = input.upstreamLines.get(path);
+    const positions = input.removedPositions.get(path);
+    const markerStripped = new Set(
+      change.added
+        .filter(
+          (line) =>
+            FORK_HOOK_LINE_SUFFIX.test(line) ||
+            FORK_HOOK_JSX_OPEN.test(line) ||
+            FORK_HOOK_JSX_END.test(line),
+        )
+        .map((line) =>
+          stripForkHookLineMarker(line)
+            .replace(/\s*\{\/\*\s*fork-hook(?:-end)?[^*]*\*\/\}\s*/g, "")
+            .trim(),
+        ),
+    );
     const removedUpstream =
       upstream === undefined
         ? change.removed
-        : change.removed.filter((line) => upstream.has(line.trim()));
+        : change.removed.filter((line, index) => {
+            const at = positions?.[index];
+            if (at === undefined) return false;
+            const matched = [0, -1, 1, -2, 2, -3, 3].some(
+              (offset) => upstream[at - 1 + offset]?.trim() === line.trim(),
+            );
+            if (!matched) return false;
+            return !markerStripped.has(line.trim());
+          });
     if (removedUpstream.length > 0)
       details.push(
         `${path}: removes or rewrites ${removedUpstream.length} upstream line(s); a fork-hook never deletes upstream code — record the deletion as reshape debt instead`,
