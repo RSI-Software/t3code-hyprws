@@ -205,7 +205,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
           Effect.zipWith(
             withCodexAgentSelection(
               checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
-            ), // fork-hook: custom-agents/codex-agent-selection-wrap
+            ),
             modelManifest.current,
             (draft, manifest) =>
               stampIdentity(ModelManifest.applyModelManifest(draft, manifest, DRIVER_KIND)),

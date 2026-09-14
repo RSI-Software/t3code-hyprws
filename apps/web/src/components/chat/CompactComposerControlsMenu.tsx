@@ -47,13 +47,14 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
+        {/* fork-hook: custom-agents/compact-menu-agent-render */}
         {props.agentMenuContent ? (
           <>
             {props.agentMenuContent}
             <MenuDivider />
           </>
-        ) : null}{" "}
-        {/* fork-hook: custom-agents/compact-menu-agent-render */}
+        ) : null}
+        {/* fork-hook-end */}
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}

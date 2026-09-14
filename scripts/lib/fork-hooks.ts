@@ -38,7 +38,133 @@ export interface ForkHookEntry {
  * Keyed `<domain>/<name>`. Empty until the sweep lands the first marked hook;
  * the schema test passes on an empty manifest and tightens as entries arrive.
  */
-export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {};
+export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
+  // custom-agents — marked on RSI-Software/t3code-hyprws#963.
+  "custom-agents/claude-child-detail-import": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/claude-agent-launch-args-import": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/claude-child-detail-updated": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "inFlightTools.set" },
+  },
+  "custom-agents/claude-child-detail-started": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "inFlightTools.set" },
+  },
+  "custom-agents/claude-child-detail-completed": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-decl", symbol: "toolUseResult" },
+  },
+  "custom-agents/claude-launch-args": {
+    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
+    anchor: { kind: "after-call", symbol: "getModelSelectionStringOptionValue" },
+  },
+  "custom-agents/claude-agent-info-type": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "collection", symbol: "ClaudeCapabilitiesProbe" },
+  },
+  "custom-agents/claude-agent-options-import": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/claude-probe-agents-field": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "collection", symbol: "ClaudeCapabilitiesProbe" },
+  },
+  "custom-agents/claude-probe-agents-parse": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "collection", symbol: "probeClaudeCapabilities" },
+  },
+  "custom-agents/claude-model-agent-options": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "after-decl", symbol: "capabilities" },
+  },
+  "custom-agents/claude-dedupe-export": {
+    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
+    anchor: { kind: "after-decl", symbol: "probeClaudeCapabilities" },
+  },
+  "custom-agents/codex-agent-options-import": {
+    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/codex-agent-options-decorator": {
+    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
+    anchor: { kind: "after-call", symbol: "makeCodexAdapter" },
+  },
+  "custom-agents/spawn-navigation-import": {
+    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/spawn-open-handler": {
+    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+    anchor: { kind: "after-decl", symbol: "onToggleSpawnRow" },
+  },
+  "custom-agents/compact-menu-agent-prop": {
+    path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
+    anchor: { kind: "collection", symbol: "CompactComposerControlsMenu" },
+  },
+  "custom-agents/compact-menu-agent-render": {
+    path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
+    anchor: { kind: "jsx-parent", symbol: "MenuPopup" },
+  },
+  "custom-agents/composer-state-agent-import": {
+    path: "apps/web/src/components/chat/composerProviderState.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/composer-state-agent-menu-content": {
+    path: "apps/web/src/components/chat/composerProviderState.tsx",
+    anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
+  },
+  "custom-agents/traits-persistence-export": {
+    path: "apps/web/src/components/chat/TraitsPicker.tsx",
+    anchor: { kind: "after-decl", symbol: "TraitsPersistence" },
+  },
+  "custom-agents/traits-default-badge-export": {
+    path: "apps/web/src/components/chat/TraitsPicker.tsx",
+    anchor: { kind: "after-decl", symbol: "DefaultBadge" },
+  },
+  "custom-agents/traits-replace-descriptor-export": {
+    path: "apps/web/src/components/chat/TraitsPicker.tsx",
+    anchor: { kind: "after-decl", symbol: "replaceDescriptorCurrentValue" },
+  },
+  "custom-agents/composer-agent-render-import": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/composer-agent-menu-content": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
+  },
+  "custom-agents/composer-agent-picker": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
+  },
+  "custom-agents/composer-agent-resting-block": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "collection", symbol: "restingBlockDefs" },
+  },
+  "custom-agents/composer-agent-menu-prop": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "jsx-parent", symbol: "CompactComposerControlsMenu" },
+  },
+  "custom-agents/composer-agent-compact-menu-prop": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "jsx-parent", symbol: "CompactComposerControlsMenu" },
+  },
+  "custom-agents/right-panel-open-agents-decl": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelStoreState" },
+  },
+  "custom-agents/right-panel-open-agents": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "useRightPanelStore" },
+  },
+};
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
 
