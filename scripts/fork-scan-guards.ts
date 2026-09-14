@@ -476,10 +476,10 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       const path = added ? targetPath : sourcePath;
       if (path === null) continue;
       const content = line.slice(1);
-      (added ? addedLines : removedLines).set(path, [
-        ...((added ? addedLines : removedLines).get(path) ?? []),
-        content,
-      ]);
+      const side = added ? addedLines : removedLines;
+      const lines = side.get(path);
+      if (lines === undefined) side.set(path, [content]);
+      else lines.push(content);
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const lines = removedTestLines.get(path) ?? [];
         lines.push(content.trim());

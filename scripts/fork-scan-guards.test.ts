@@ -1342,6 +1342,22 @@ it("keeps generated paths and fork-owned files outside the rule", () => {
   }
 });
 
+it("warns on a marked control-flow line: it is not a single call", () => {
+  for (const line of [
+    "+if (x) forkThing(); // fork-hook: project-windows/spawn-target",
+    "+while (ready) forkThing(); // fork-hook: project-windows/spawn-target",
+    "+return forkThing(); // fork-hook: project-windows/spawn-target",
+    "+catch (error) forkThing(); // fork-hook: project-windows/spawn-target",
+  ]) {
+    const warnings = hookWarnings(hookPatch(`${line}\n`));
+    assert.strictEqual(
+      warnings.filter((warning) => /more than one construct/.test(warning.detail)).length,
+      1,
+      line,
+    );
+  }
+});
+
 it("warns when a marked hook carries more than one construct", () => {
   const warnings = hookWarnings(
     hookPatch(

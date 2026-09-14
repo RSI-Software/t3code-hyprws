@@ -37,7 +37,8 @@ export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 // A marked line hook must be exactly one of these shapes. The property/spread
 // shape additionally names a fork identifier; the others are structural.
 const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
-const HOOK_SINGLE_CALL = /^\s*[A-Za-z_$][\w$.]*\s*\(/;
+const HOOK_SINGLE_CALL =
+  /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_CONST_FROM_CALL =
   /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
