@@ -41,7 +41,23 @@ export interface ForkHookEntry {
  * the schema test passes on an empty manifest and tightens as entries arrive.
  */
 export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
-  // custom-agents — marked on RSI-Software/t3code-hyprws#963.
+  // custom-agents — marked on RSI-Software/t3code-hyprws#963; test seams marked on #674 PR 2.
+  "custom-agents/codex-test-env-split": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/codex-test-env-thread-id": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-decl", symbol: "decodeCodexSettings" },
+  },
+  "custom-agents/codex-test-env-project-id": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-decl", symbol: "decodeCodexSettings" },
+  },
+  "custom-agents/codex-test-start-options": {
+    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
+    anchor: { kind: "after-call", symbol: "startSession" },
+  },
   "custom-agents/claude-child-detail-import": {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "import-block" },
