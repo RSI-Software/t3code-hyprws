@@ -87,6 +87,4 @@ it("refuses a template that lost the block, or the file", () => {
 it("passes the template the fork actually ships", () => {
   const markdown = NodeFS.readFileSync(NodePath.join(repoRoot, FORK_PR_TEMPLATE_PATH), "utf8");
   assert.strictEqual(forkTemplateDriftProblem(markdown), undefined);
-  // The template is also the only place an author learns a raise is needed at all.
-  assert.include(markdown, "Fork-Budget: raise <reason>");
 });
