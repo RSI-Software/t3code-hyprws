@@ -576,8 +576,10 @@ export const requireSuccess = (
   cwd: string,
   input?: string,
   env?: NodeJS.ProcessEnv,
+  stream?: boolean,
+  timeout?: number,
 ): string => {
-  const result = runner.run(command, args, cwd, input, env);
+  const result = runner.run(command, args, cwd, input, env, stream, timeout);
   return requireCommandSuccess(result, command, args);
 };
 
