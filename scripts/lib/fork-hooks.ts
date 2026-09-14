@@ -337,6 +337,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "packages/contracts/src/settings.ts",
     anchor: { kind: "collection", symbol: "ServerSettingsPatch" },
   },
+  // upstream-fixes — pull-request media upload marked on RSI-Software/t3code-hyprws#957.
+  "upstream-fixes/pr-editor-attachment-import": {
+    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/pr-editor-attachment": {
+    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
+    anchor: { kind: "after-decl", symbol: "seed" },
+  },
+  "upstream-fixes/pr-editor-attachment-textarea": {
+    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
+    anchor: { kind: "jsx-parent", symbol: "Textarea" },
+  },
+  "upstream-fixes/pr-editor-attachment-bar": {
+    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
+    anchor: { kind: "jsx-parent", symbol: "PullRequestMarkdownEditor" },
+  },
+  "upstream-fixes/pr-attachment-rpc-import": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/pr-attachment-rpc-methods": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "collection", symbol: "WS_METHODS" },
+  },
+  "upstream-fixes/pr-attachment-rpc-group": {
+    path: "packages/contracts/src/rpc.ts",
+    anchor: { kind: "collection", symbol: "WsRpcGroup" },
+  },
 
   // workspace-files — ignored workspace files reshaped behind one listing hook on RSI-Software/t3code-hyprws#955.
   "workspace-files/file-browser-ignored-listing": {
