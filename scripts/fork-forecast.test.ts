@@ -70,11 +70,6 @@ it("forecasts only the pull request range and renders the exact clean string", (
     git(root, ["init", "-b", "main"]);
     git(root, ["config", "user.name", "test"]);
     git(root, ["config", "user.email", "test@example.com"]);
-    NodeFS.mkdirSync(NodePath.join(root, "docs/internals"), { recursive: true });
-    NodeFS.writeFileSync(
-      NodePath.join(root, "docs/internals/fork-budget.md"),
-      "# Fork budget\n\n| Domain | Commits | Added | Deleted | Shared |\n| --- | --- | --- | --- | --- |\n| fork-meta | 2 | 10 | 10 | 0 |\n",
-    );
     NodeFS.writeFileSync(NodePath.join(root, "seam.txt"), "base\n");
     commit(root, "base");
     git(root, ["remote", "add", "origin", root]);
@@ -92,16 +87,13 @@ it("forecasts only the pull request range and renders the exact clean string", (
     git(root, ["update-ref", "refs/heads/main", main]);
     git(root, ["switch", "feature"]);
 
-    const result = forecastPullRequest(root, feature, () => new Set());
+    const result = forecastPullRequest(root, feature);
     assert.deepStrictEqual(
       result.conflicts.map((row) => row.commit),
       [feature],
     );
     assert.deepStrictEqual(result.conflicts[0]?.files, ["seam.txt"]);
-    assert.include(
-      renderPullRequestForecast({ ...result, conflicts: [], overBudgetDomains: new Set() }),
-      `clean at ${main}`,
-    );
+    assert.include(renderPullRequestForecast({ ...result, conflicts: [] }), `clean at ${main}`);
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
@@ -161,7 +153,7 @@ it("reports a fork-only pull-request commit as clean on top of a colliding stack
       "feat: edit the stack's fork-only file\n\nFork-Domain: fork-meta\nFork-Tier: qol",
     );
 
-    const result = forecastPullRequest(root, "fork-only", () => new Set());
+    const result = forecastPullRequest(root, "fork-only");
     assert.deepStrictEqual(
       result.conflicts.map((row) => row.commit),
       [prCommit],
@@ -185,7 +177,7 @@ it("attributes a seam the pull request shares with upstream to the pull-request 
       "fix: collision\n\nFork-Domain: fork-meta\nFork-Tier: bugfix\nFork-Upstreamable: no",
     );
 
-    const result = forecastPullRequest(root, "collision", () => new Set());
+    const result = forecastPullRequest(root, "collision");
     assert.deepStrictEqual(
       result.conflicts.map((row) => row.commit),
       [prCommit],

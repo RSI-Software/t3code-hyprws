@@ -452,7 +452,7 @@ export interface SyncReport {
 export type WalkStopReason = "environment" | "conflict";
 
 /** The per-domain half of a walk's size record (RSI-Software/t3code-hyprws#672): the same
- * numbers the `fork:delta --inventory` budget seeds from, captured per cycle. */
+ * numbers `fork:delta --inventory` measures, captured per cycle. */
 export interface WalkSizeDomain {
   readonly domain: string;
   readonly commits: number;
