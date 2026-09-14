@@ -52,7 +52,8 @@ export function mergeGitHubIssueLists(
     .flatMap(([environmentId, result]) =>
       result.entries.map((entry) => ({ ...entry, environmentId })),
     )
-    .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+    // Hermes lacks Array#toSorted; flatMap already yields a fresh array, so in-place sort is safe.
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   const errors = values.flatMap(([environmentId, result]) =>
     result.errors.map((error) => ({ ...error, environmentId })),
   );
