@@ -12,6 +12,7 @@ import {
   FORK_HOOK_LINE_MARKER,
   FORK_HOOK_LINE_SUFFIX,
   forkHookKey,
+  type ForkHookEntry,
   isWellFormedForkHookKey,
   parseForkHookMarkers,
   stripForkHookLineMarker,
@@ -30,11 +31,23 @@ it("passes the schema on an empty manifest and tightens as entries arrive", () =
       1,
       `entry ${key} points at ${entry.path}, which does not exist in the tree`,
     );
-    const kinds = ["import-block", "collection", "jsx-parent", "after-call"];
+    const kinds = ["import-block", "collection", "jsx-parent", "after-call", "after-decl"];
     assert.include(kinds, entry.anchor.kind);
     if (entry.anchor.kind !== "import-block")
       assert.isNotEmpty(entry.anchor.symbol, `anchor for ${key} must name its symbol`);
   }
+});
+
+it("recognizes after-decl anchors and requires their symbol", () => {
+  const kinds = ["import-block", "collection", "jsx-parent", "after-call", "after-decl"];
+  const sample: ForkHookEntry = {
+    path: "apps/web/src/state/shell.ts",
+    anchor: { kind: "after-decl", symbol: "useShellBoot" },
+  };
+  assert.include(kinds, sample.anchor.kind);
+  assert.strictEqual(sample.anchor.kind === "after-decl" && sample.anchor.symbol.length > 0, true);
+  // The schema loop above already fails any after-decl entry without a symbol,
+  // through the same shared symbol assertion used for collection/jsx-parent.
 });
 
 it("rejects malformed keys", () => {

@@ -12,7 +12,11 @@
 //
 // The manifest starts empty: the sweep issues fill it as each recurring commit
 // is reshaped into marked hooks. A hook is exactly one construct and never
-// removes or modifies an upstream line.
+// removes or modifies an upstream line. Anchor notes: `collection <symbol>`
+// also covers a member of a type/interface/props/object named `symbol` (object
+// properties and store members included), and `after-decl <symbol>` marks a
+// hook placed immediately after the declaration of `symbol` — an export, const,
+// or function that must sit next to a named upstream declaration.
 
 import { FORK_DOMAINS } from "./fork-trailers.ts";
 
@@ -21,7 +25,8 @@ export type ForkHookAnchor =
   | { readonly kind: "import-block" }
   | { readonly kind: "collection"; readonly symbol: string }
   | { readonly kind: "jsx-parent"; readonly symbol: string }
-  | { readonly kind: "after-call"; readonly symbol: string };
+  | { readonly kind: "after-call"; readonly symbol: string }
+  | { readonly kind: "after-decl"; readonly symbol: string };
 
 export interface ForkHookEntry {
   /** The upstream-owned file the hook lives in. */
