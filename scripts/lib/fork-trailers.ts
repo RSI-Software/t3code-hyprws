@@ -61,6 +61,64 @@ export const forkLogArguments = (base: string, head: string) =>
 class DuplicateForkTrailerError extends Error {}
 
 /**
+ * The commit's trailer block, read from the body's final paragraph only.
+ *
+ * A "tail material" line is one of — each entry is here because a real trunk commit has that
+ * shape at the end of its message, in or after the trailer block:
+ *
+ * - blank line (message padding);
+ * - a whole-line HTML comment (the landing tool's `<!-- gh-bot:attest ... -->` / stack marker);
+ * - `Co-authored-by:` (GitHub UI squashes append the co-author after the real trailer block);
+ * - `(cherry picked from commit <sha>)` (git appends it after the block on cherry-pick -x;
+ *   see c324f9bab0, where it sits inside the block directly after the co-author line);
+ * - a `---`-or-more separator (see 8778853f80);
+ * - a `Closes|Fixes|Resolves|Refs ... #<n>` reference line (see 47852a62a9).
+ *
+ * Trailing paragraphs made up entirely of tail material are dropped; the last remaining paragraph
+ * is the trailer block iff every line is `Key: value` or tail material and at least one line is
+ * `Key: value` (tail noise inside the block is tolerated but never parsed). Prose paragraphs are
+ * never walked across, so a prose sentence above the block that mentions `Fork-Tier:` (see
+ * 1c2f9d5628) stays out; a body whose final paragraph is not trailer-shaped has no trailers.
+ */
+const TAIL_LINE = [
+  /^\s*$/,
+  /^<!--[\s\S]*-->$/,
+  /^Co-authored-by:\s*\S/i,
+  /^\(cherry picked from commit [0-9a-f]{7,40}\)$/,
+  /^-{3,}$/,
+  /^(?:Closes|Fixes|Resolves|Refs)\b[^:]*#\d+\s*$/i,
+] as const;
+
+const TRAILER_LINE = /^[A-Za-z][A-Za-z0-9-]*:\s*\S/;
+
+const isTailLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  return (
+    (trimmed.startsWith("<!--") && trimmed.endsWith("-->")) ||
+    TAIL_LINE.some((pattern) => pattern.test(trimmed))
+  );
+};
+
+export const trailerBlock = (body: string): string => {
+  const paragraphs: Array<Array<string>> = [[]];
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.trim().length === 0 && (paragraphs.at(-1)?.length ?? 0) > 0) {
+      paragraphs.push([]);
+      continue;
+    }
+    if (line.trim().length === 0) continue;
+    paragraphs.at(-1)?.push(line);
+  }
+  while (paragraphs.length > 0 && (paragraphs.at(-1) ?? []).every(isTailLine)) {
+    paragraphs.pop();
+  }
+  const paragraph = paragraphs.at(-1) ?? [];
+  if (!paragraph.some((line) => TRAILER_LINE.test(line))) return "";
+  if (!paragraph.every((line) => TRAILER_LINE.test(line) || isTailLine(line))) return "";
+  return paragraph.filter((line) => TRAILER_LINE.test(line)).join("\n");
+};
+
+/**
  * A repeated trailer whose copies disagree is a parse failure. One copy parses exactly as before;
  * several copies that all agree on the value return that value; several copies that disagree throw,
  * naming the key, the copy count, and every distinct value in message order so the stale clause is
@@ -94,12 +152,13 @@ const readTrailer = (body: string, key: string): string | undefined => {
 };
 
 export const parseForkTrailers = (body: string): ForkTrailers => {
-  const read = readTrailer;
-  const domain = read(body, "Fork-Domain");
-  const tier = read(body, "Fork-Tier");
-  const upstreamable = read(body, "Fork-Upstreamable");
-  const wireReviewed = read(body, "Fork-Wire");
-  const repair = read(body, "Fork-Repair");
+  const block = trailerBlock(body);
+  const read = (key: string) => readTrailer(block, key);
+  const domain = read("Fork-Domain");
+  const tier = read("Fork-Tier");
+  const upstreamable = read("Fork-Upstreamable");
+  const wireReviewed = read("Fork-Wire");
+  const repair = read("Fork-Repair");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
