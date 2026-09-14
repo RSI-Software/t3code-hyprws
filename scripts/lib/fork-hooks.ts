@@ -366,6 +366,75 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "packages/contracts/src/rpc.ts",
     anchor: { kind: "collection", symbol: "WsRpcGroup" },
   },
+  // upstream-fixes — composer refocus folded into the window-focus predicate on RSI-Software/t3code-hyprws#956.
+  "upstream-fixes/composer-refocus-import": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/composer-refocus-predicate": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-decl", symbol: "focusComposer" },
+  },
+  "upstream-fixes/terminal-focus-gate": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "useThreadShell" },
+  },
+  "upstream-fixes/terminal-focus-gate-request": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "useTerminalFocusGateFork" },
+  },
+  "upstream-fixes/terminal-focus-intent-drawer": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "setTerminalFocusRequestId" },
+  },
+  "upstream-fixes/terminal-focus-intent-panel": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "setTerminalFocusRequestId" },
+  },
+  "upstream-fixes/terminal-focus-command": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "pinThread" },
+  },
+  "upstream-fixes/drawer-open-focus-request": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-call", symbol: "setTerminalOpen" },
+  },
+  "upstream-fixes/drawer-focus-reset": {
+    path: "apps/web/src/components/ChatView.tsx",
+    anchor: { kind: "after-decl", symbol: "localFocusRequestId" },
+  },
+  "upstream-fixes/thread-terminal-focus-import": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "upstream-fixes/thread-terminal-focus-command-set": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "collection", symbol: "THREAD_TERMINAL_WINDOW_COMMANDS" },
+  },
+  "upstream-fixes/terminal-focus-handled-ref": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-decl", symbol: "hasHandledExitRef" },
+  },
+  "upstream-fixes/terminal-focus-pending-ref": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-decl", symbol: "hasHandledExitRef" },
+  },
+  "upstream-fixes/terminal-focus-attach-gate": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-call", symbol: "synchronizeTerminalStatus" },
+  },
+  "upstream-fixes/terminal-focus-attach-consume": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-call", symbol: "synchronizeTerminalStatus" },
+  },
+  "upstream-fixes/terminal-focus-request-gate": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-call", symbol: "shouldHandleTerminalFocusRequest" },
+  },
+  "upstream-fixes/terminal-focus-request-consume": {
+    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
+    anchor: { kind: "after-call", symbol: "shouldHandleTerminalFocusRequest" },
+  },
 
   // workspace-files — ignored workspace files reshaped behind one listing hook on RSI-Software/t3code-hyprws#955.
   "workspace-files/file-browser-ignored-listing": {

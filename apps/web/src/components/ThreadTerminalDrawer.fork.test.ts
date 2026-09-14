@@ -10,10 +10,13 @@ import {
   isTerminalAttachmentDemanded,
   resolveTerminalWindowDemand,
   shouldForwardThreadTerminalShortcut,
-  shouldHandleTerminalFocusRequest,
   shouldRestoreTerminalFocusAfterResume,
   terminalOutputCursorForLifecycle,
 } from "./ThreadTerminalDrawer";
+import {
+  shouldFocusTerminalOnAttachFork,
+  shouldHandleTerminalFocusRequest,
+} from "./ThreadTerminalDrawer.fork";
 function shortcutEvent(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
     key: "x",
@@ -132,6 +135,10 @@ describe("terminal focus requests", () => {
         handledFocusRequestId: 4,
       }),
     ).toBe(false);
+  });
+  it("focuses on attach only when a request is pending", () => {
+    expect(shouldFocusTerminalOnAttachFork(false)).toBe(false);
+    expect(shouldFocusTerminalOnAttachFork(true)).toBe(true);
   });
   it("never focuses for the zero no-request sentinel", () => {
     expect(
