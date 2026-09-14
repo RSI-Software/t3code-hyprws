@@ -2,7 +2,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation";
+import { createAgentSpawnOpenHandler } from "./AgentSpawnNavigation.fork";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "~/rightPanelStore";
 
 const threadRef = scopeThreadRef(
