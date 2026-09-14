@@ -59,7 +59,7 @@ import * as IssueService from "./issue/IssueService.ts";
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueTrackerBindings from "./persistence/IssueTrackerBindings.ts";
 import * as IssueTrackerRegistry from "./issue/IssueTrackerRegistry.ts";
-import * as GitHubIssueService from "./githubIssue/GitHubIssueService.ts";
+import { gitHubIssueServiceLiveFork } from "./githubIssue/githubIssueWiring.fork.ts"; // fork-hook: github-issues/server-wiring-import
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
@@ -867,10 +867,7 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
-const GitHubIssueServiceLive = GitHubIssueService.layer.pipe(
-  Layer.provide(GitHubCli.layer),
-  Layer.provide(VcsProcess.layer),
-);
+const GitHubIssueServiceLive = gitHubIssueServiceLiveFork; // fork-hook: github-issues/server-service-live
 
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
@@ -918,7 +915,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(layerPullRequestService),
   Layer.provide(layerThreadIssueService),
   Layer.provide(layerIssueService),
-  Layer.provide(GitHubIssueServiceLive),
+  Layer.provide(GitHubIssueServiceLive), // fork-hook: github-issues/server-service-provide
   // The same activity instance RunExecutionService reports to, by layer memoization.
   Layer.provide(
     ServerBrowser.layer.pipe(
