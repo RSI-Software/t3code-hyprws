@@ -24,7 +24,6 @@ import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
-import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -48,7 +47,11 @@ import {
 import { fromWireThreadEnvModeFields } from "@t3tools/shared/threadEnvMode.fork";
 import { projectEvent } from "./projector.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
-import { decideCheckoutMoveComplete, decideCheckoutMovePrepare } from "./CheckoutMoveState.ts";
+import {
+  decideCheckoutMoveFork,
+  isCheckoutMoveCommand,
+  refuseTurnStartDuringCheckoutMoveFork,
+} from "./decider.fork.ts"; // fork-hook: zmux-estate/decider-checkout-move-import
 
 const isScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
 
@@ -222,6 +225,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   OrchestrationCommandRejection | PlatformError.PlatformError,
   Crypto.Crypto
 > {
+  if (isCheckoutMoveCommand(command)) {
+    // fork-hook: zmux-estate/decider-checkout-move-dispatch
+    return yield* decideCheckoutMoveFork({ command, readModel, withEventBase });
+  }
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -1144,92 +1151,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.checkout-move.request":
-      return yield* new OrchestrationCommandInvariantError({
-        commandType: command.type,
-        detail: "checkout move requests must be enriched with server-owned identities",
-      });
-
-    case "thread.checkout-move.prepare": {
-      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
-      if (thread.checkoutMove?.status === "queued" || thread.checkoutMove?.status === "preparing") {
-        const decision = decideCheckoutMovePrepare({
-          command,
-          projection: { effective: thread.checkoutMove.source, move: thread.checkoutMove },
-        });
-        if (decision.status !== "accepted") {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: decision.status === "rejected" ? decision.reason : "duplicate preparation",
-          });
-        }
-        return {
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: decision.event.type,
-          payload: { threadId: decision.event.threadId, move: decision.event.move },
-        };
-      }
-      if (
-        thread.branch !== command.sourceThreadBranch ||
-        thread.worktreePath !== command.sourceThreadWorktreePath
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "checkout move context changed before command commit",
-        });
-      }
-      if (command.reverseOfRequestId !== undefined) {
-        const prior = thread.checkoutMove;
-        if (
-          prior?.requestId !== command.reverseOfRequestId ||
-          prior.status !== "committed" ||
-          prior.destination === null ||
-          !Equal.equals(prior.destination, command.source) ||
-          !Equal.equals(prior.source, command.destination)
-        ) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "reverse move no longer matches the effective checkout",
-          });
-        }
-      }
-      const occurredAt = command.createdAt;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.checkout-move-updated",
-        payload: {
-          threadId: command.threadId,
-          move: {
-            requestId: command.requestId,
-            source: command.source,
-            sourceThreadBranch: command.sourceThreadBranch,
-            sourceThreadWorktreePath: command.sourceThreadWorktreePath,
-            requestedPath: command.destination.checkoutRoot,
-            destination: command.destination,
-            expectedCheckoutRoot: command.source.checkoutRoot,
-            status: command.queued || thread.session?.activeTurnId != null ? "queued" : "preparing",
-            ...(command.reverseOfRequestId
-              ? { reverseOfRequestId: command.reverseOfRequestId }
-              : {}),
-            completedSteps: [],
-            effectiveProvider: null,
-            requestedAt: occurredAt,
-            updatedAt: occurredAt,
-          },
-        },
-      };
-    }
-
     case "thread.pull-request.sync": {
       const thread = yield* requireThreadNotArchived({
         readModel,
@@ -1284,47 +1205,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           updatedAt: thread.updatedAt,
         },
-      };
-    }
-
-    case "thread.checkout-move.complete": {
-      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
-      if (!thread.checkoutMove) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "checkout move request is missing",
-        });
-      }
-      if (
-        (thread.checkoutMove.sourceThreadBranch !== undefined &&
-          thread.branch !== thread.checkoutMove.sourceThreadBranch) ||
-        (thread.checkoutMove.sourceThreadWorktreePath !== undefined &&
-          thread.worktreePath !== thread.checkoutMove.sourceThreadWorktreePath)
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "thread metadata changed during move preparation",
-        });
-      }
-      const decision = decideCheckoutMoveComplete({
-        command,
-        projection: { effective: thread.checkoutMove.source, move: thread.checkoutMove },
-      });
-      if (decision.status !== "accepted") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: decision.status === "rejected" ? decision.reason : "duplicate completion",
-        });
-      }
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: decision.event.type,
-        payload: { threadId: decision.event.threadId, move: decision.event.move },
       };
     }
 
@@ -1411,15 +1291,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (
-        targetThread.checkoutMove?.status === "queued" ||
-        targetThread.checkoutMove?.status === "preparing"
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `thread ${command.threadId} has a checkout move in progress`,
-        });
-      }
+      yield* refuseTurnStartDuringCheckoutMoveFork(targetThread, command); // fork-hook: zmux-estate/decider-turn-start-checkout-move-guard
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({
