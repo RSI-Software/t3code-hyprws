@@ -118,7 +118,7 @@ const THREAD_TERMINAL_WINDOW_COMMANDS: ReadonlySet<KeybindingCommand> = new Set(
   "terminal.splitVertical",
   "terminal.close",
   "diff.toggle",
-  "chat.focusComposer",
+  "chat.focusComposer", // fork-hook: upstream-fixes/thread-terminal-focus-command-set
   "thread.previous",
   "thread.next",
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -550,18 +550,6 @@ export function shouldHandleTerminalExit(
   );
 }
 
-export function shouldHandleTerminalFocusRequest(input: {
-  focusOnRequest: boolean;
-  focusRequestId: number;
-  handledFocusRequestId: number;
-}): boolean {
-  return (
-    input.focusOnRequest &&
-    input.focusRequestId !== 0 &&
-    input.focusRequestId !== input.handledFocusRequestId
-  );
-}
-
 export function shouldRestoreTerminalFocusAfterResume(input: {
   attached: boolean;
   status: TerminalSessionState["status"];
@@ -674,12 +662,10 @@ function TerminalSessionViewport({
   );
   const launchIdentityRef = useRef(launchIdentity);
   const hasHandledExitRef = useRef(false);
-  const handledFocusRequestIdRef = useRef(0);
-  const pendingFocusRequestRef = useRef(false);
+  const handledFocusRequestIdRef = useRef(0); // fork-hook: upstream-fixes/terminal-focus-handled-ref
+  const pendingFocusRequestRef = useRef(false); // fork-hook: upstream-fixes/terminal-focus-pending-ref
   const restoreFocusAfterAttachRef = useRef(false);
   const wasAttachedRef = useRef(attached);
-  const focusOnRequestRef = useRef(focusOnRequest);
-  focusOnRequestRef.current = focusOnRequest;
   const selectionActionRequestIdRef = useRef(0);
   const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const readKeybindings = useEffectEvent(() => keybindings);
