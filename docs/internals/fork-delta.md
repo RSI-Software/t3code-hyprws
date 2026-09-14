@@ -18,7 +18,7 @@ vp run fork:delta --inventory --upstream vX.Y.Z # overlap stats per domain and c
 
 It reads `upstream/main..HEAD` by default; pass `--base` and `--head` to inventory another range.
 
-The pull-request conflict forecast comment is the pre-merge evidence: it reports each proposed fork commit that conflicts with the current `origin/main` tip, its domain, files, and whether that domain is already over its fork budget ceiling.
+The pull-request conflict forecast comment is the pre-merge evidence: it reports each proposed fork commit that conflicts with the current `origin/main` tip, its domain, and its files. It is informational — it reports conflicts against that one upstream tip and carries no completeness or freshness guarantee.
 
 Each domain's **Rebase scan** table is checked the same way.
 
@@ -114,14 +114,17 @@ Fork-Tier: bugfix
 Fork-Upstreamable: yes
 ```
 
-| Trailer             | Values                        | Required on                                                                                                 |
-| ------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `Fork-Domain`       | A domain from the index below | Every fork commit                                                                                           |
-| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit                                                                                           |
-| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`                                                                                              |
-| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions                                                                                    |
-| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair                                                                                      |
-| `Fork-Budget`       | `raise <reason>`              | Every commit that raises a budget ceiling; a squashing PR carries it in the body when the squash raises one |
+| Trailer             | Values                        | Required on              |
+| ------------------- | ----------------------------- | ------------------------ |
+| `Fork-Domain`       | A domain from the index below | Every fork commit        |
+| `Fork-Tier`         | `core`, `qol`, `bugfix`       | Every fork commit        |
+| `Fork-Upstreamable` | `yes`, `no`                   | Every `bugfix`           |
+| `Fork-Wire`         | `reviewed <reason>`           | Reviewed wire exceptions |
+| `Fork-Repair`       | The upstream tag of the walk  | Every sync walk repair   |
+
+A commit may carry other trailers, and historical ones still parse: `Fork-Budget` rows on trunk
+commits are inert history (RSI-Software/t3code-hyprws#672, retired by
+RSI-Software/t3code-hyprws#941) and are not rewritten.
 
 `Fork-Repair` marks a commit the sync walk wrote itself for what its repair pass rewrote after
 replaying the fork stack onto that tag, and it is what keeps such a commit out of the fork series
@@ -167,45 +170,16 @@ The check is textual rather than a TypeScript AST pass. It cannot see type widen
 migrations, mobile deep-link parameters, or anything outside exported `Schema.Literals` and
 `Schema.Struct` bindings. Review those compatibility boundaries separately.
 
-## Fork budget
+## Carry cost
 
-The stack carries a per-domain budget in `docs/internals/fork-budget.md`: a ceiling on each
-domain's added lines and deleted lines, measured by `vp run fork:delta --inventory`. Commit
-counts and shared-file attributions ride in the table but gate nothing — a commit count is not
-a cost, and a shared attribution is a union of the net fork and upstream diffs that moves with
-every upstream tag even when the fork does not, so gating it would red trunk on the next
-upstream movement. `vp run fork:delta --check` re-measures the same inventory against the
-upstream target and fails, naming the domain and both numbers, when a gated measurement
-exceeds its ceiling. The budget is a stack property, never a per-commit trailer: a commit adds
-none and a squash carries none. Walk repairs (`Fork-Repair` commits) are the walk's own
-bookkeeping, so they stay visible in the inventory's per-commit table but their lines never
-count toward the budget sums.
-
-Ceilings ratchet down only. Lowering one is a normal commit; raising one requires the raising
-commit to carry `Fork-Budget: raise <reason>` in its own message — `--check` compares every
-budget-touching commit's file version against its parent's and refuses an unexplained raise,
-naming the domain and the numbers it pushed up. Because a PR squash lands as one commit, the
-squash-body check applies the same rule to the pull request's body: when the squash changes
-the baseline, its final trailer paragraph must carry `Fork-Budget: raise <reason>`. The
-initial seed is not a raise — there is no prior baseline to raise from — so the commit that
-adds the file carries no trailer. `vp run fork:delta --seed-budget` writes the table from the
-live inventory for that commit, with fork-meta's Added ceiling carrying the table's own lines
-so the seed → commit → check workflow lands green. A domain without a row has every ceiling
-at zero, so a new domain fails the check until a commit adds its row. Until the file exists
-at all — on the stack and at the merge base alike — the budget is not enforced and the check
-skips it; a baseline the merge base has but the stack does not is a removed baseline, and the
-check refuses that outright in both gates — ceilings ratchet down, they never disappear, and
-no trailer excuses the deletion, so lower the ceilings instead.
-
-The unblock walk raises its own ceilings. A kept-both conflict resolution grows the domain it
-lands in, so the numbers measured before a replay can be genuinely too low the moment it ends,
-and the refusal above names the whole fix rather than asking for a judgement. `unblock-check`
-therefore re-measures the inventory before the gate runs, raises only the exceeded ceilings and
-only to the number it just measured, and lands that edit in the walk's own `Fork-Repair` commit
-carrying `Fork-Budget: raise <reason>` naming the tag and every ceiling it moved. It never
-re-renders the table: a re-render would ratchet every untouched domain down to today's stack and
-spend headroom nobody decided to spend. A raise the walk takes is still a raise in the record —
-it lands in the checked report's verification lines.
+Carry cost is decided per commit, by the parent direction's levers — retire, reshape, automate,
+or accept (RSI-Software/t3code-hyprws#665) — not by a numeric cap. Accept is never "as-is": a
+kept commit must have a mechanical seam, with fork code in fork-only files and upstream files
+carrying only marked hook lines the sync walk re-applies. There is no budget table and
+no ceiling arithmetic anywhere in the gates. `vp run fork:delta --inventory` still measures
+commit counts, lines, and shared files per domain; the numbers inform a decision, they enforce
+nothing. Walk repairs (`Fork-Repair` commits) stay visible in the inventory's per-commit table
+while their lines stay out of the domain sums.
 
 The same three numbers ride along with the sync: every `fork:sync` walk records the size of
 the stack it replayed — total fork commits, the per-domain table, and the shared-file count —
