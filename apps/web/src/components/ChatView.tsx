@@ -273,6 +273,7 @@ import {
 } from "../previewMiniPlayerStore";
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { GitHubIssueDetailSurfaceFork } from "./githubIssue/GitHubIssueDetailSurface.fork"; // fork-hook: github-issues/chat-view-detail-import
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { useDeviceState } from "~/state/device";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
@@ -2340,13 +2341,6 @@ export default function ChatView(props: ChatViewProps) {
     : EMPTY_AUTO_UPDATE_ENVIRONMENTS;
   const autoBalanceUpdateBanner = useAutoBalanceUpdateBanner(autoUpdateEnvironments);
 
-  const issueServerConfig =
-    renderedRightPanelSurface?.kind === "github-issue"
-      ? (environmentById.get(renderedRightPanelSurface.environmentId as EnvironmentId)
-          ?.serverConfig ?? null)
-      : null;
-  const githubIssuesCapabilityKnown = issueServerConfig !== null;
-  const supportsGitHubIssues = issueServerConfig?.environment.capabilities.githubIssues === true;
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchDismissKey =
     versionMismatch && activeThread
