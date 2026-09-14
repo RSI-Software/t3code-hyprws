@@ -219,11 +219,11 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
     anchor: { kind: "jsx-parent", symbol: "MenuPopup" },
   },
-  "custom-agents/composer-state-agent-import": {
-    path: "apps/web/src/components/chat/composerProviderState.tsx",
-    anchor: { kind: "import-block" },
-  },
   "custom-agents/composer-state-agent-menu-content": {
+    path: "apps/web/src/components/chat/composerProviderState.tsx",
+    anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
+  },
+  "custom-agents/composer-state-agent-picker": {
     path: "apps/web/src/components/chat/composerProviderState.tsx",
     anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
   },
@@ -251,6 +251,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/components/chat/ChatComposer.tsx",
     anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
   },
+  "custom-agents/composer-agent-resting-block-import": {
+    path: "apps/web/src/components/chat/ChatComposer.tsx",
+    anchor: { kind: "import-block" },
+  },
   "custom-agents/composer-agent-resting-block": {
     path: "apps/web/src/components/chat/ChatComposer.tsx",
     anchor: { kind: "collection", symbol: "restingBlockDefs" },
@@ -266,6 +270,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "custom-agents/right-panel-open-agents-decl": {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "RightPanelStoreState" },
+  },
+  "custom-agents/right-panel-open-agents-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
   },
   "custom-agents/right-panel-open-agents": {
     path: "apps/web/src/rightPanelStore.ts",
