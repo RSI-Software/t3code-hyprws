@@ -32,11 +32,6 @@ export interface ForkTrailers {
    * marker that keeps a walk repair out of the replayed fork series the replay proofs compare.
    */
   readonly repair?: string;
-  /**
-   * The audit of a budget raise: the raising commit declares `raise <reason>` (RSI-Software/
-   * t3code-hyprws#672). Lowering a ceiling is a normal commit and carries nothing.
-   */
-  readonly budget?: string;
 }
 
 export interface ParsedForkCommit extends ForkTrailers {
@@ -98,42 +93,19 @@ const readTrailer = (body: string, key: string): string | undefined => {
   return only === "" ? undefined : only;
 };
 
-// A tolerant read for the one grandfathered commit below: among disagreeing copies, the later copy
-// is the corrected clause, so it is the one kept.
-const readLastTrailer = (body: string, key: string): string | undefined => {
-  const values = readTrailerValues(body, key).filter((value) => value !== undefined);
-  return values[values.length - 1];
-};
-
-/**
- * Exemption for exactly one trunk commit that cannot be amended. 8778853f80 carries `Fork-Budget`
- * twice and the copies disagree: line 107 ("the five walk-friction fixes ... 69149 ... 5489") is
- * the true clause and matches the landed ledger row; line 88 ("the four ... 68792 ... 5409") is
- * the stale leftover from an earlier revision of the same squash. The disagreement must not
- * silently pass for any other commit, so this is a one-sha exemption, never a rule.
- */
-export const GRANDFATHERED_DUPLICATE_TRAILER_SHAS = new Set([
-  "8778853f805664e3a1ccf6f6086753ca1695b446",
-]);
-
-export const parseForkTrailers = (
-  body: string,
-  options: { tolerateDuplicateTrailers?: boolean } = {},
-): ForkTrailers => {
-  const read = options.tolerateDuplicateTrailers === true ? readLastTrailer : readTrailer;
+export const parseForkTrailers = (body: string): ForkTrailers => {
+  const read = readTrailer;
   const domain = read(body, "Fork-Domain");
   const tier = read(body, "Fork-Tier");
   const upstreamable = read(body, "Fork-Upstreamable");
   const wireReviewed = read(body, "Fork-Wire");
   const repair = read(body, "Fork-Repair");
-  const budget = read(body, "Fork-Budget");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
     ...(upstreamable === undefined ? {} : { upstreamable }),
     ...(wireReviewed === undefined ? {} : { wireReviewed }),
     ...(repair === undefined ? {} : { repair }),
-    ...(budget === undefined ? {} : { budget }),
   };
 };
 
@@ -145,14 +117,6 @@ export const parseForkLog = (raw: string): ReadonlyArray<ParsedForkCommit> =>
     .map((record) => {
       const [sha = "", short = "", subject = "", body = ""] =
         record.split(FORK_LOG_FIELD_SEPARATOR);
-      if (GRANDFATHERED_DUPLICATE_TRAILER_SHAS.has(sha)) {
-        return {
-          sha,
-          short,
-          subject,
-          ...parseForkTrailers(body, { tolerateDuplicateTrailers: true }),
-        };
-      }
       try {
         return { sha, short, subject, ...parseForkTrailers(body) };
       } catch (error) {
@@ -170,7 +134,3 @@ export const isForkDomain = (value: string | undefined): value is ForkDomain =>
 
 export const isForkUpstreamable = (value: string | undefined): value is "yes" | "no" =>
   value === "yes" || value === "no";
-
-// A budget raise names its reason, exactly like a wire review does.
-export const isForkBudgetRaise = (value: string | undefined): boolean =>
-  value !== undefined && /^raise\s+\S/i.test(value);
