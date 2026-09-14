@@ -548,6 +548,7 @@ Unblock verbs:
   record-decisions --report <json> --tag <release-tag>       (stopped lane, human resolutions in the index)
   rewrite-rehearse --from <branch-or-sha> [--manifest <reviewed-json>] [--issue N] [--dry-run]
   rewrite-build --manifest <reviewed-json> [--json]
+  fold-reshape --reshape <sha>[,<sha>…] [--base <tag>] [--out <path>] [--attribute <path>=<sha>…] [--leave <path>…] [--json]
 
 Rewrite publication requires rewrite-rehearse --manifest <reviewed-json>.
 Build writes unreferenced objects and <manifest>.receipt.json, never refs or an index.
