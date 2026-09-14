@@ -21,7 +21,7 @@ import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
 import { shouldRenderTraitsControls, TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
-import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker";
+import { AgentMenuContent, AgentPicker, shouldRenderAgentControl } from "./AgentPicker"; // fork-hook: custom-agents/composer-state-agent-import
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -266,7 +266,7 @@ function renderAgentControl(
 
 export function renderProviderAgentMenuContent(input: TraitsRenderInput): ReactNode {
   return renderAgentControl(AgentMenuContent, input);
-}
+} // fork-hook: custom-agents/composer-state-agent-menu-content
 
 export function renderProviderAgentPicker(input: TraitsRenderInput): ReactNode {
   return renderAgentControl(AgentPicker, input);

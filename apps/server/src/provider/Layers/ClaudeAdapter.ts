@@ -115,8 +115,8 @@ import {
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { spawnAndCollect } from "../providerSnapshot.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { claudeChildItemRenderDetail } from "./ClaudeChildItemDetail.fork.ts";
-import { withClaudeAgentLaunchArgs } from "./ClaudeAgentOptions.fork.ts";
+import { claudeChildItemRenderDetail } from "./ClaudeChildItemDetail.fork.ts"; // fork-hook: custom-agents/claude-child-detail-import
+import { withClaudeAgentLaunchArgs } from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-launch-args-import
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 const encodeHistoryArgs = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -2848,7 +2848,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
         const renderDetail = nextTool.agentId
           ? claudeChildItemRenderDetail(nextTool, context.session.cwd)
-          : undefined;
+          : undefined; // fork-hook: custom-agents/claude-child-detail-updated
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
           type: "item.updated",
@@ -2963,7 +2963,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const renderDetail = tool.agentId
         ? claudeChildItemRenderDetail(tool, context.session.cwd)
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-started
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.started",
@@ -3051,7 +3051,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             toolResult.block.content,
             toolUseResult,
           )
-        : undefined;
+        : undefined; // fork-hook: custom-agents/claude-child-detail-completed
 
       const updatedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -4779,7 +4779,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }
         : undefined;
       const selectedAgent = getModelSelectionStringOptionValue(modelSelection, "agent");
-      const extraArgs = withClaudeAgentLaunchArgs(extraArgsWithHonoredRemoved, selectedAgent);
+      const extraArgs = withClaudeAgentLaunchArgs(extraArgsWithHonoredRemoved, selectedAgent); // fork-hook: custom-agents/claude-launch-args
       const caps = getClaudeCatalogModelCapabilities(modelCatalog, modelSelection?.model);
       const descriptors = getProviderOptionDescriptors({ caps });
       const apiModelId = modelSelection

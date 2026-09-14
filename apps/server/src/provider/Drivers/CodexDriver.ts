@@ -47,7 +47,7 @@ import {
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
 } from "../Layers/CodexProvider.ts";
-import { makeCodexAgentOptionsDecorator } from "../Layers/CodexAgentOptions.fork.ts";
+import { makeCodexAgentOptionsDecorator } from "../Layers/CodexAgentOptions.fork.ts"; // fork-hook: custom-agents/codex-agent-options-import
 import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -191,7 +191,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const withCodexAgentSelection = yield* makeCodexAgentOptionsDecorator({
         homePath: effectiveConfig.homePath,
         environment: processEnv,
-      });
+      }); // fork-hook: custom-agents/codex-agent-options-decorator
 
       // Build a managed snapshot whose settings never change — mutations come
       // in as instance rebuilds from the registry rather than in-place

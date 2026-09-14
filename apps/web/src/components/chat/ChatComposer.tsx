@@ -266,7 +266,7 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderAgentMenuContent,
-  renderProviderAgentPicker,
+  renderProviderAgentPicker, // fork-hook: custom-agents/composer-agent-render-import
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
@@ -2584,8 +2584,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput);
-  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput);
+  const providerAgentMenuContent = renderProviderAgentMenuContent(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-menu-content
+  const providerAgentPicker = renderProviderAgentPicker(providerTraitsPickerInput); // fork-hook: custom-agents/composer-agent-picker
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
     controlsRef: restingComposerControlsRef,
@@ -4844,7 +4844,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ),
           },
         ]
-      : []),
+      : []), // fork-hook: custom-agents/composer-agent-resting-block
     ...(providerTraitsPicker
       ? [
           {
@@ -4953,7 +4953,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           interactionMode={interactionMode}
           runtimeMode={runtimeMode}
           showInteractionModeToggle={planModeUiEnabled}
-          agentMenuContent={providerAgentMenuContent}
+          agentMenuContent={providerAgentMenuContent} // fork-hook: custom-agents/composer-agent-menu-prop
           traitsMenuContent={providerTraitsMenuContent}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
@@ -5000,7 +5000,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 }
                 agentMenuContent={
                   hiddenRestingBlockIds.includes("agent") ? providerAgentMenuContent : undefined
-                }
+                } // fork-hook: custom-agents/composer-agent-compact-menu-prop
                 traitsMenuContent={
                   hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
                 }
