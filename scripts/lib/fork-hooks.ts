@@ -512,6 +512,71 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/composerDraftStore.ts",
     anchor: { kind: "after-decl", symbol: "DraftThreadEnvModeSchema" },
   },
+  // github-issues — marked on RSI-Software/t3code-hyprws#954.
+  "github-issues/chat-markdown-github-destination-import": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/chat-markdown-github-destination": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "after-decl", symbol: "openExternalLinkInPreview" },
+  },
+  "github-issues/chat-markdown-github-destination-state": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "collection", symbol: "componentState" },
+  },
+  "github-issues/chat-markdown-github-destination-deps": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "collection", symbol: "componentState" },
+  },
+  "github-issues/chat-markdown-github-destination-value": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "collection", symbol: "ChatMarkdownRendererContext" },
+  },
+  "github-issues/chat-markdown-github-destination-return": {
+    path: "apps/web/src/components/ChatMarkdown.tsx",
+    anchor: { kind: "after-decl", symbol: "linkChildren" },
+  },
+  "github-issues/open-pull-request-link-fork-import": {
+    path: "apps/web/src/lib/openPullRequestLink.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/issue-link-claim": {
+    path: "apps/web/src/lib/openPullRequestLink.ts",
+    anchor: { kind: "after-decl", symbol: "resolvedPanelRef" },
+  },
+  "github-issues/change-request-preferred-project": {
+    path: "apps/web/src/lib/openPullRequestLink.ts",
+    anchor: { kind: "after-decl", symbol: "preferredProjectId" },
+  },
+  "github-issues/settings-open-mode-import": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/settings-link-open-mode-export": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+  },
+  "github-issues/settings-change-request-open-mode-export": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+  },
+  "github-issues/settings-link-open-mode-field": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ClientSettingsSchema" },
+  },
+  "github-issues/settings-change-request-open-mode-field": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ClientSettingsSchema" },
+  },
+  "github-issues/settings-link-open-mode-patch": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
+  },
+  "github-issues/settings-change-request-open-mode-patch": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
+  },
 };
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
