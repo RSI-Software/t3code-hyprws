@@ -127,6 +127,26 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "after-decl", symbol: "completedStamp" },
   },
+  "custom-agents/ingestion-child-lifecycle-import": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/ingestion-child-lifecycle-guard": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "after-decl", symbol: "isPersistableItemLifecycle" },
+  },
+  "custom-agents/ingestion-child-lifecycle-detail": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "collection", symbol: "payload" },
+  },
+  "custom-agents/ingestion-timeline-bypass": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "collection", symbol: "payload" },
+  },
+  "custom-agents/ingestion-provider-linkage": {
+    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+    anchor: { kind: "after-decl", symbol: "taskLinkageActivityFields" },
+  },
   "custom-agents/claude-child-detail-import": {
     path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
     anchor: { kind: "import-block" },
