@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
@@ -77,5 +78,30 @@ describe("provider traits render guards", () => {
     expect(renderProviderAgentMenuContent(args)).not.toBeNull();
     expect(renderProviderTraitsPicker(args)).toBeNull();
     expect(renderProviderTraitsMenuContent(args)).toBeNull();
+  });
+
+  // A dropped selection shows every agent as Default and rebuilds the other
+  // traits from defaults on the next pick.
+  it("hands the current selections to both agent controls", () => {
+    const args = {
+      provider: PROVIDER,
+      draftId: DraftId.make("draft-agent-selection"),
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [
+          { id: "default", label: "Default", isDefault: true },
+          { id: "fable", label: "fable" },
+        ]),
+      ]),
+      modelOptions: selections(["agent", "fable"]),
+      prompt: "",
+      onPromptChange: () => {},
+      planModeEnabled: false,
+    };
+    for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
+      expect(isValidElement<{ modelOptions?: unknown }>(control)).toBe(true);
+      if (!isValidElement<{ modelOptions?: unknown }>(control)) continue;
+      expect(control.props.modelOptions).toEqual(args.modelOptions);
+    }
   });
 });
