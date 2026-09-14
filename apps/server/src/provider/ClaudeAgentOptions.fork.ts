@@ -61,6 +61,13 @@ export function withClaudeAgentOptions(
   }));
 }
 
+export function claudeAgentModelsFieldFork(
+  models: ReadonlyArray<ServerProviderModel>,
+  agents: ReadonlyArray<ClaudeAgentInfo> = [],
+): { readonly models?: ReadonlyArray<ServerProviderModel> } {
+  return { models: withClaudeAgentOptions(models, agents) };
+}
+
 /**
  * Applies the thread's agent selection in place to the launch args a query is
  * built from: a selected agent overrides a configured `--agent` and "default"
