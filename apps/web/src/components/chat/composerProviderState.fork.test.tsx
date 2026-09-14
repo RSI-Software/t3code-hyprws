@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
@@ -9,10 +10,27 @@ import {
   getComposerProviderState,
   renderProviderAgentMenuContent,
   renderProviderAgentPicker,
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { DraftId } from "../../composerDraftStore";
+import { agentBlockHiddenFork } from "./composerProviderState.fork";
+import { getTraitsSectionVisibility } from "./TraitsPicker";
+
+it.each([
+  { measured: 1, upstream: 1, upstreamHidden: 1, hidden: false },
+  { measured: 2, upstream: 1, upstreamHidden: 1, hidden: true },
+  { measured: 2, upstream: 0, upstreamHidden: 0, hidden: false },
+])(
+  "overflows the agent only after every upstream block (%o)",
+  ({ measured, upstream, upstreamHidden, hidden }) => {
+    expect(
+      agentBlockHiddenFork({
+        measuredHiddenBlockCount: measured,
+        upstreamBlockCount: upstream,
+        upstreamHiddenBlockCount: upstreamHidden,
+      }),
+    ).toBe(hidden);
+  },
+);
 import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 // Everything in composerProviderState is now data-driven by the model's
 // optionDescriptors, so these tests use a single synthetic provider/model and
@@ -116,13 +134,37 @@ describe("provider traits render guards", () => {
       model: MODEL,
       models,
       modelOptions: selections(["agent", "fable"]),
-      prompt: "",
-      onPromptChange: () => {},
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
       planModeEnabled: false,
     };
     expect(renderProviderAgentPicker(args)).not.toBeNull();
     expect(renderProviderAgentMenuContent(args)).not.toBeNull();
-    expect(renderProviderTraitsPicker(args)).toBeNull();
-    expect(renderProviderTraitsMenuContent(args)).toBeNull();
+    expect(getTraitsSectionVisibility(args).hasAnyControls).toBe(false);
+  });
+
+  // A dropped selection shows every agent as Default and rebuilds the other
+  // traits from defaults on the next pick.
+  it("hands the current selections to both agent controls", () => {
+    const args = {
+      provider: PROVIDER,
+      draftId: DraftId.make("draft-agent-selection"),
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("agent", [
+          { id: "default", label: "Default", isDefault: true },
+          { id: "fable", label: "fable" },
+        ]),
+      ]),
+      modelOptions: selections(["agent", "fable"]),
+      promptUltrathink: "none" as const,
+      onPromptEdit: () => {},
+      planModeEnabled: false,
+    };
+    for (const control of [renderProviderAgentPicker(args), renderProviderAgentMenuContent(args)]) {
+      expect(isValidElement<{ modelOptions?: unknown }>(control)).toBe(true);
+      if (!isValidElement<{ modelOptions?: unknown }>(control)) continue;
+      expect(control.props.modelOptions).toEqual(args.modelOptions);
+    }
   });
 });
