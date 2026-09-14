@@ -180,7 +180,7 @@ trailing `// fork-hook: <domain>/<name>`, or with the JSX comment pair
 `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end */}` for a multi-line construct, and
 listed in the `FORK_HOOKS` manifest in `scripts/lib/fork-hooks.ts`. A hook is exactly one
 construct — one import, one call, one `const` from a single fork call, one JSX element, one
-fork-named property/spread — and never removes or modifies an upstream line: a needed deletion
+fork-named property/spread, one re-export (`export { X };`, optionally `export type { X };`) — and never removes or modifies an upstream line: a needed deletion
 is reshape debt with a named reason. The `fork-hook-seam` guard warns when a fork commit adds
 outside a marked hook, deletes a line the upstream tree carries, or marks a hook the manifest
 does not know; `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes` commits, and generated
