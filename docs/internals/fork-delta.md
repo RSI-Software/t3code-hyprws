@@ -183,9 +183,22 @@ trailing `// fork-hook: <domain>/<name>`, or with the JSX comment pair
 `{/* fork-hook: <domain>/<name> */}` … `{/* fork-hook-end */}` for a multi-line construct, and
 listed in the `FORK_HOOKS` manifest in `scripts/lib/fork-hooks.ts`. A hook is exactly one
 construct — one import, one call, one `const` from a single fork call, one JSX element, one
-fork-named property/spread, one re-export (`export { X };`, optionally `export type { X };`) — and never removes or modifies an upstream line: a needed deletion
-is reshape debt with a named reason. The `fork-hook-seam` guard warns when a fork commit adds
-outside a marked hook, deletes a line the upstream tree carries, or marks a hook the manifest
+fork-named property/spread, one re-export (`export { X };`, optionally `export type { X };`) — and never removes or modifies an upstream line, except that a marked JSX region may
+re-indent the lines it wraps, because a wrap is the only way one JSX element is expressible at
+all, and that an in-place substitution may remove the upstream line it replaces: the replacing
+line carries the marker, and the removed line needs none. The removal rule is one positional
+rule, and both ends of it run the same alignment (`unexplainedRemoval` in
+`scripts/lib/fork-hook-alignment.ts`): align the base side against the fork side over
+significant lines, and accept a removed base line only when the position it was removed from
+falls inside a marked span. A marked hook elsewhere in the file absorbs nothing, a removal
+outside every marked span is refused by the walk and charged by the `fork-hook-seam` guard
+alike, and a needed deletion with no marked replacement is still reshape debt with a named
+reason. The guard judges the same rule on the fork side it rebuilds from the upstream blob and
+the diff's own positions, and charges — never exempts — anything it cannot reconstruct; on top
+of the alignment it also requires that every addition in the removal gap be a line-kind marked
+hook, so it charges some seams the walk accepts and never the reverse. The
+`fork-hook-seam` guard warns when a fork commit adds outside a
+marked hook, deletes a line the upstream tree carries outside that rule, or marks a hook the manifest
 does not know; `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes` commits, and generated
 paths (`pnpm-lock.yaml`, `*.gen.ts`), are outside the rule: generated and dependency files are
 never scored as reshape debt — the sync walk restores HEAD and regenerates them instead of
@@ -204,6 +217,21 @@ the stack it replayed — total fork commits, the per-domain table, and the shar
 in its report's walk record, measured at replay completion against the pinned target tag,
 where the shared count has signal, and before any repair commit is appended. Repairs are
 excluded from the recorded size the same way.
+
+A `.fork.` in a filename is a reader signal and nothing else. It marks a fork-owned module for a
+human reading a tree; no guard decides on it, and renaming a file changes no scan result. It is
+applied by convention rather than enforced, so its absence proves nothing about a file: a
+fork-only file without it is an accepted shape. The one placement rule it carries is for test
+files, in
+[Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
+
+So a per-file diff against the base tag says nothing about seam growth until the path is known to
+exist upstream: every line of a fork-only file is an added line, and its residual is its own size.
+Establish which kind of file it is first.
+
+```bash
+git cat-file -e origin/main:<path>   # exit 128: fork-only, so its residual carries no signal
+```
 
 ## Domain index
 
@@ -796,6 +824,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
 - The fork trailer section of `.github/pull_request_template.md`, and `scripts/lib/fork-pr-template.ts`, the guard that keeps its domain list equal to `FORK_DOMAINS`.
+- `scripts/lib/fork-progress.ts`, the throttled stderr reporter every long fork gate shares, and `scripts/lib/fork-test-quiet.ts`, which the fork's own test files import to silence it.
 
 ### Retirement condition
 
