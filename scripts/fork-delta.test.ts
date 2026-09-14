@@ -237,6 +237,18 @@ it("reads trailers a GitHub UI squash left above the co-author paragraph", () =>
   assert.strictEqual(commit?.upstreamable, "no");
 });
 
+it("reads trailers a stack comment and co-author paragraph sit below (134a11855d)", () => {
+  const [commit] = parseForkLog(
+    record(
+      "888888888",
+      "feat(zmux-estate): checkout moves",
+      'Fork-Domain: zmux-estate\nFork-Tier: core\n\n<!-- gh-bot:stack {"v":1,"parent":609,"root":"hyprws"} -->\n\nCo-authored-by: donjor <38745786+donjor@users.noreply.github.com>\n',
+    ),
+  );
+  assert.strictEqual(commit?.domain, "zmux-estate");
+  assert.strictEqual(commit?.tier, "core");
+});
+
 it("renders one table per domain with tiers ordered core, qol, bugfix", () => {
   const markdown = renderMarkdown(buildLedger("upstream/main", "HEAD", parseForkLog(fixture)));
   const lines = markdown.split("\n");
