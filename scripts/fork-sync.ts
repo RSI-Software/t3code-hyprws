@@ -26,6 +26,7 @@ import {
   readForkRetirementLedger,
 } from "./lib/fork-retirement-ledger.ts";
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
+import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import {
   executeConflictOutcome,
   isUnresolved,
@@ -837,8 +838,28 @@ const rerereResolvedPaths = (
     lines(git(runner, cwd, ["-c", "rerere.enabled=true", "rerere", "remaining"], true)),
   );
 
-/** unblock-rehearse owns these paths end to end: it restores HEAD and regenerates them itself. */
-const isGeneratedPath = (path: string): boolean => path === "pnpm-lock.yaml";
+/** unblock-rehearse owns these paths end to end: it restores HEAD and regenerates them itself.
+ * Classification is the scanner's `GENERATED_HOOK_PATH`, not a second generated list. */
+const isGeneratedPath = (path: string): boolean => GENERATED_HOOK_PATH.test(path);
+
+/** One generator command per regenerated path (the lockfile keeps its inline install path). */
+const GENERATED_REGENERATION: Readonly<Record<string, readonly [string, ...string[]]>> = {
+  "apps/web/src/routeTree.gen.ts": ["vp", "run", "fork:regenerate-route-tree"],
+};
+
+/** Restore each generated path to HEAD, run its declared generator, and stage the result. */
+export const regenerateGeneratedConflicts = (
+  runner: CommandRunner,
+  worktree: string,
+  paths: ReadonlyArray<string>,
+): void => {
+  for (const [path, command] of Object.entries(GENERATED_REGENERATION)) {
+    if (!paths.includes(path)) continue;
+    git(runner, worktree, ["restore", "--source=HEAD", "--staged", "--worktree", "--", path], true);
+    requireSuccess(runner, command[0], command.slice(1), worktree);
+    git(runner, worktree, ["add", path], true);
+  }
+};
 
 export const rehearsalConflictRows = (
   commit: { readonly sha: string; readonly subject: string; readonly domain: string },
@@ -1283,21 +1304,28 @@ const unblockRehearse = (
     // A finished rebase already carries the regenerated lockfile in its commits; regenerating it
     // again would only dirty the lane.
     if (rebasing && pending.some(({ path }) => isGeneratedPath(path))) {
-      git(
+      if (pending.some(({ path }) => path === "pnpm-lock.yaml")) {
+        git(
+          runner,
+          lane.worktree,
+          ["restore", "--source=HEAD", "--staged", "--worktree", "--", "pnpm-lock.yaml"],
+          true,
+        );
+        requireSuccess(
+          runner,
+          "vp",
+          ["install", "--lockfile-only"],
+          lane.worktree,
+          undefined,
+          laneEnv(lane.worktree),
+        );
+        git(runner, lane.worktree, ["add", "pnpm-lock.yaml"], true);
+      }
+      regenerateGeneratedConflicts(
         runner,
         lane.worktree,
-        ["restore", "--source=HEAD", "--staged", "--worktree", "--", "pnpm-lock.yaml"],
-        true,
+        pending.map(({ path }) => path),
       );
-      requireSuccess(
-        runner,
-        "vp",
-        ["install", "--lockfile-only"],
-        lane.worktree,
-        undefined,
-        laneEnv(lane.worktree),
-      );
-      git(runner, lane.worktree, ["add", "pnpm-lock.yaml"], true);
     }
     report = {
       ...report,
