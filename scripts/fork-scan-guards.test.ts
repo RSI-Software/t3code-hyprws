@@ -1222,8 +1222,20 @@ const hookPatch = (body: string) =>
     ),
     upstreamFiles: new Set([hookPath]),
     forkHooks: new Set(["project-windows/spawn-target", "project-windows/preview-pane"]),
+    // The hunk header in `hookPatch` is `@@ -10,4 +10,7 @@`, so a removed line's
+    // pre-image position is 10; the blob is padded so `return base;` sits exactly
+    // there and the filler lines around it never match a removed line.
     upstreamHookLines: new Map([
-      [hookPath, significantTestLines("  return base;\n  const summary = summarize(input);\n")],
+      [
+        hookPath,
+        [
+          ...Array.from({ length: 9 }, (_, n) => `const filler${n} = ${n};`),
+          "  return base;",
+          "  const summary = summarize(input);",
+          "const filler9 = 9;",
+          "const filler10 = 10;",
+        ],
+      ],
     ]),
   });
 
@@ -1387,6 +1399,46 @@ it("does not refuse the deletion of a hook line the fork added itself", () => {
   assert.deepStrictEqual(warnings, []);
 });
 
+it("ignores a marker attached to a fork closing line the target tree carries elsewhere (966)", () => {
+  // The removed `});` is the fork's own closer: the target blob carries `});`
+  // in other methods but not at the hunk's pre-image position, so set-membership
+  // used to count it as an upstream rewrite. The attach draws no removal or
+  // adds-outside warning; the bare closer still reads as not-a-construct, which
+  // is the landed multi-construct behaviour and stays.
+  const warnings = hookWarnings(
+    hookPatch(["-});", "+}); // fork-hook: project-windows/spawn-target", ""].join("\n")),
+  );
+  assert.deepStrictEqual(
+    warnings.filter((warning) =>
+      /removes or rewrites|outside a marked fork-hook/.test(warning.detail),
+    ),
+    [],
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
+it("accepts a re-export hook placed after its declaration without a warning (966)", () => {
+  const warnings = hookWarnings(
+    hookPatch("+export { PreviewPane }; // fork-hook: project-windows/preview-pane\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still warns when a genuine upstream line is deleted (966)", () => {
+  const warnings = hookWarnings(hookPatch("-  const summary = summarize(input);\n"));
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+});
+
+it("still warns when an upstream line is rewritten, not just marker-suffixed (966)", () => {
+  const warnings = hookWarnings(hookPatch("-  return base;\n+  return base.result;\n"));
+  assert.strictEqual(
+    warnings.filter((warning) => /removes or rewrites/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
 it("refuses every removal in an upstream file whose target-tree lines could not be read", () => {
   const input = hookPatch("-  return base;\n");
   const warnings = collectScanWarnings({
@@ -1466,7 +1518,7 @@ it("reads a real temp-repo commit: marked hooks pass, woven edits draw exactly t
     ),
     forkHooks: new Set(["project-windows/spawn-target", "project-windows/preview-pane"]),
     upstreamHookLines: new Map([
-      [path, significantTestLines(NodeFS.readFileSync(NodePath.join(root, path), "utf8"))],
+      [path, NodeFS.readFileSync(NodePath.join(root, path), "utf8").split("\n")],
     ]),
   });
   const commit = input.commits[0];
