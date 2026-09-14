@@ -17,7 +17,7 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { listRouteTarget, resolveProjectRefFromPathname } from "../projectRoutes";
-import { findProjectPreferredFork, linkedRepositoryFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
+import { findProjectPreferredFork, openGitHubIssueLinkFork } from "./openPullRequestLink.fork"; // fork-hook: github-issues/open-pull-request-link-fork-import
 
 export {
   parseChangeRequestUrl,
@@ -27,35 +27,6 @@ export {
   matchesLinkedPullRequestUrl,
   changeRequestRepositoryUrl,
 } from "@t3tools/shared/changeRequestUrl";
-
-export interface GitHubIssueLink {
-  readonly host: string;
-  readonly repository: string;
-  readonly number: number;
-}
-
-export function parseGitHubIssueUrl(targetUrl: string): GitHubIssueLink | null {
-  let url: URL;
-  try {
-    url = new URL(targetUrl);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  const host = url.hostname.toLowerCase();
-  // GitHub Enterprise hosts are arbitrary. The workspace project match in the click handler is
-  // the safety gate that keeps an ordinary link from being claimed by the issue surface.
-  const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  return claim(host, match);
-}
-
-function claim(host: string, match: RegExpExecArray | null): GitHubIssueLink | null {
-  const repository = match?.[1];
-  const number = Number(match?.[2]);
-  return repository && Number.isSafeInteger(number) && number > 0
-    ? { host, repository: repository.toLowerCase(), number }
-    : null;
-}
 
 /**
  * Returns a click handler that opens a pull request URL in the system browser.
@@ -167,61 +138,19 @@ export function useOpenChangeRequestLink(
       if (shouldOpenPullRequestExternally(event)) return false;
       const resolvedThreadRef = targetThreadRef ?? threadRef;
       const resolvedPanelRef = panelRef ?? resolvedThreadRef;
-      const parsedIssue = parseGitHubIssueUrl(targetUrl);
-      if (parsedIssue !== null) {
-        const readsIssues = (environmentId: EnvironmentId) =>
-          serverConfigs.get(environmentId)?.environment.capabilities.githubIssues === true;
-        const projects = resolvedThreadRef
-          ? allProjects.filter(
-              (project) => project.environmentId === resolvedThreadRef.environmentId,
-            )
-          : allProjects
-              .filter((project) => readsIssues(project.environmentId))
-              .toSorted(
-                (left, right) =>
-                  Number(right.environmentId === primaryEnvironmentId) -
-                  Number(left.environmentId === primaryEnvironmentId),
-              );
-        const preferredProjectId = resolvedThreadRef
-          ? readThreadShell(resolvedThreadRef)?.projectId
-          : undefined;
-        const issueProject = findProjectPreferredFork(projects, parsedIssue, preferredProjectId); // fork-hook: github-issues/issue-link-project
-        if (issueProject === undefined || !readsIssues(issueProject.environmentId)) return false;
-        event.preventDefault();
-        event.stopPropagation();
-        const repository = linkedRepositoryFork(issueProject, parsedIssue.repository); // fork-hook: github-issues/issue-link-repository
-        if (resolvedThreadRef) {
-          useRightPanelStore.getState().openGitHubIssue(resolvedThreadRef, {
-            environmentId: issueProject.environmentId,
-            projectId: issueProject.id,
-            repository,
-            number: parsedIssue.number,
-          });
-          return true;
-        }
-        const search = {
-          state: "all" as const,
-          selectedEnvironmentId: issueProject.environmentId,
-          selectedProjectId: issueProject.id,
-          repository,
-          number: parsedIssue.number,
-        };
-        const windowProjectRef = resolveProjectRefFromPathname(
-          typeof window === "undefined" ? "/" : window.location.pathname,
-        );
-        void navigate({
-          ...listRouteTarget("issues", windowProjectRef),
-          search: {
-            ...search,
-            ...(windowProjectRef !== null &&
-            (windowProjectRef.environmentId !== issueProject.environmentId ||
-              windowProjectRef.projectId !== issueProject.id)
-              ? { scope: "all" as const }
-              : {}),
-          },
-        });
+      if (
+        openGitHubIssueLinkFork({
+          event,
+          targetUrl,
+          resolvedThreadRef,
+          allProjects,
+          serverConfigs,
+          primaryEnvironmentId,
+          navigate,
+        })
+      ) {
         return true;
-      }
+      } // fork-hook: github-issues/issue-link-claim
       const parsed = parseChangeRequestUrl(targetUrl);
       if (parsed === null) return false;
       const reads = (environmentId: string) =>

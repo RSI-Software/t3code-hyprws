@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { parseGitHubIssueUrl } from "./openPullRequestLink";
-import { findProjectPreferredFork, linkedRepositoryFork } from "./openPullRequestLink.fork";
+import {
+  findProjectPreferredFork,
+  linkedRepositoryFork,
+  openGitHubIssueLinkFork,
+  parseGitHubIssueUrl,
+} from "./openPullRequestLink.fork";
 
 describe("parseGitHubIssueUrl", () => {
   it("reads public and Enterprise GitHub issue URLs", () => {
@@ -89,5 +93,64 @@ describe("linkedRepositoryFork", () => {
     } as never;
     expect(linkedRepositoryFork(project, "acme/repo")).toBe("Acme/Repo");
     expect(linkedRepositoryFork(project, "acme/other")).toBe("acme/other");
+  });
+});
+
+describe("openGitHubIssueLinkFork", () => {
+  const capabilities = (githubIssues: boolean) => ({
+    environment: { capabilities: { githubIssues } },
+  });
+  const claimEvent = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      event: {
+        metaKey: false,
+        ctrlKey: false,
+        preventDefault: () => calls.push("preventDefault"),
+        stopPropagation: () => calls.push("stopPropagation"),
+      },
+    };
+  };
+
+  it("claims an issue link and stops the default navigation", () => {
+    const { event, calls } = claimEvent();
+    const claimed = openGitHubIssueLinkFork({
+      event,
+      targetUrl: "https://github.com/acme/checked-out/issues/9",
+      resolvedThreadRef: undefined,
+      allProjects: [
+        {
+          id: "p1",
+          environmentId: "env-1",
+          repositoryIdentity: {
+            provider: "github",
+            owner: "acme",
+            name: "checked-out",
+            canonicalKey: "github.com/acme/checked-out",
+          },
+        } as never,
+      ],
+      serverConfigs: new Map([["env-1", capabilities(true)]]) as never,
+      primaryEnvironmentId: "env-1" as never,
+      navigate: (() => undefined) as never,
+    });
+    expect(claimed).toBe(true);
+    expect(calls).toEqual(["preventDefault", "stopPropagation"]);
+  });
+
+  it("leaves links alone when no project with the issue capability matches", () => {
+    const { event } = claimEvent();
+    expect(
+      openGitHubIssueLinkFork({
+        event,
+        targetUrl: "https://github.com/acme/unknown/issues/9",
+        resolvedThreadRef: undefined,
+        allProjects: [],
+        serverConfigs: new Map(),
+        primaryEnvironmentId: "env-1" as never,
+        navigate: (() => undefined) as never,
+      }),
+    ).toBe(false);
   });
 });

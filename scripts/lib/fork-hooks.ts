@@ -541,13 +541,9 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/lib/openPullRequestLink.ts",
     anchor: { kind: "import-block" },
   },
-  "github-issues/issue-link-project": {
+  "github-issues/issue-link-claim": {
     path: "apps/web/src/lib/openPullRequestLink.ts",
-    anchor: { kind: "after-decl", symbol: "preferredProjectId" },
-  },
-  "github-issues/issue-link-repository": {
-    path: "apps/web/src/lib/openPullRequestLink.ts",
-    anchor: { kind: "after-decl", symbol: "issueProject" },
+    anchor: { kind: "after-decl", symbol: "resolvedPanelRef" },
   },
   "github-issues/change-request-preferred-project": {
     path: "apps/web/src/lib/openPullRequestLink.ts",
