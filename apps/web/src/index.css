@@ -1,6 +1,7 @@
 /* Clerk injects its component styles into the clerk layer (clerkAppearance.cssLayerName). */
 @layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
+@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
@@ -1595,9 +1596,7 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   }
 }
 
-/* Contrast stays in ordinary custom properties so both Tailwind utilities and
-   global/imperative chrome styles resolve the same adjusted role. Redeclare on
-   the sidebar because it owns a local semantic palette. */
+/* Recompute contrast wherever a subtree owns its own semantic color palette. */
 :root,
 [data-app-sidebar] {
   --contrast-toolbar-foreground: color-mix(
