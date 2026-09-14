@@ -69,7 +69,7 @@ import {
 } from "./ClaudeModelCatalog.ts";
 import {
   claudeInitializationAgentsField, // fork-hook: custom-agents/claude-probe-agents-parse
-  withClaudeAgentOptions,
+  claudeAgentModelsFieldFork,
 } from "./ClaudeAgentOptions.fork.ts"; // fork-hook: custom-agents/claude-agent-options-import
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
@@ -692,6 +692,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
+      ...claudeAgentModelsFieldFork(models, capabilities.agents), // fork-hook: custom-agents/claude-model-agent-options
       updateRequiredModels,
       slashCommands: dedupedSlashCommands,
       skills,
@@ -740,6 +741,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     enabled: claudeSettings.enabled,
     checkedAt,
     models,
+    ...claudeAgentModelsFieldFork(models, capabilities.agents), // fork-hook: custom-agents/claude-model-agent-options
     updateRequiredModels,
     slashCommands: dedupedSlashCommands,
     skills,
