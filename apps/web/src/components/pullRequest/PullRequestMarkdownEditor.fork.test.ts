@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { pullRequestAttachmentMimeType } from "~/lib/pullRequestAttachmentUpload";
 
-import { insertPullRequestAttachment } from "./PullRequestMarkdownEditor";
+import { insertPullRequestAttachment } from "./PullRequestMarkdownEditor.fork";
 
 describe("insertPullRequestAttachment", () => {
   it("replaces the selected text and keeps markdown on its own line", () => {
