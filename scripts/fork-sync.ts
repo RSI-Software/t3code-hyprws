@@ -2322,20 +2322,45 @@ const unblockCheck = (
     [...seamCommits, ...additiveCommits, ...repaired].some(({ subject }) =>
       subject.startsWith("fixup! "),
     );
+  // The lane head the autosquash must restore on conflict, read from the lane: the seam, additive,
+  // and repair commits have all moved HEAD by now, so an inferred value could restore the wrong
+  // head and leave the lane somewhere the checked report does not name.
+  const preAutosquashHead = git(runner, worktree, ["rev-parse", "HEAD"], true);
   const folds = report.folds ?? [];
   if (hasFixups) {
     // Autosquash always runs from the target: a fixup may target a fork commit below the newest
     // fold's `onto`, and a todo that starts at the fold would never reach it. This rewrites SHAs
     // inside the proved prefix, which is why the segments are re-proved below instead of guarded.
-    requireSuccess(
-      runner,
-      "git",
-      rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", report.target!.sha]),
-      worktree,
-      undefined,
-      { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
-      true,
-    );
+    // Autosquash permutes history, never the final tree — the invariant below pins that.
+    const testedTree = git(runner, worktree, ["rev-parse", "HEAD^{tree}"], true);
+    try {
+      requireSuccess(
+        runner,
+        "git",
+        rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", report.target!.sha]),
+        worktree,
+        undefined,
+        { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+        true,
+      );
+    } catch (error) {
+      // Never leave a mid-rebase lane: abort, restore the recorded head, and name the paths.
+      const dirty = git(runner, worktree, ["diff", "--name-only", "--diff-filter=U"], true)
+        .split("\n")
+        .filter(Boolean)
+        .join(", ");
+      git(runner, worktree, ["rebase", "--abort"], true);
+      git(runner, worktree, ["reset", "--hard", preAutosquashHead], true);
+      throw new Error(
+        `the autosquash rebase conflicted${dirty === "" ? "" : ` on ${dirty}`}; the lane was restored to ${preAutosquashHead}`,
+        { cause: error },
+      );
+    }
+    const landedTree = git(runner, worktree, ["rev-parse", "HEAD^{tree}"], true);
+    if (landedTree !== testedTree)
+      throw new Error(
+        `the autosquashed lane's tree changed: tested ${testedTree}, landed ${landedTree}; the landed tree must equal the tested tree`,
+      );
     // A fixup that survives autosquash would sit at `checked` invisible to every proof.
     const remaining = git(
       runner,
@@ -2349,6 +2374,8 @@ const unblockCheck = (
       throw new Error(
         `autosquash left fixup commits on the lane: ${remaining.map((s) => `"${s}"`).join(", ")}`,
       );
+    // The rewrite moved history under the proof: re-prove the replay over the rewritten stack.
+    verifyReplay(report, runner);
   }
   let foldsWithRepairs = folds;
   if (hasFixups && folds.length > 0) {
