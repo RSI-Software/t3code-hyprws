@@ -24,7 +24,7 @@ import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: gi
 import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
 import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
 import { normalizeAgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-migrate-agents-import
-import { normalizeGitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
+import { normalizeGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
 import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
 import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
 import type { AgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-agents-surface-import
@@ -422,8 +422,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
-                    if (surface.kind === "github-issue")
-                      return normalizeGitHubIssueSurfaceFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
+                    if (surface.kind === "github-issue") return normalizeGitHubIssueFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
                     if (surface.kind === "agents") return normalizeAgentsSurfaceFork(surface); // fork-hook: custom-agents/right-panel-migrate-agents
                     if (surface.kind !== "terminal") return [surface];
                     if (

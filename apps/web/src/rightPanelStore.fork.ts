@@ -161,7 +161,7 @@ export function updatePullRequestTabStatus<Status extends { state: unknown; isDr
 }
 
 /** Persisted-state migration for a `github-issue` surface: keep it only when every field is valid. */
-export const normalizeGitHubIssueSurfaceFork = (surface: GitHubIssueSurfaceFork) => {
+export const normalizeGitHubIssueFork = (surface: GitHubIssueSurfaceFork) => {
   if (
     typeof surface.environmentId !== "string" ||
     surface.environmentId.length === 0 ||
