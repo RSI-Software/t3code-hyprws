@@ -25,8 +25,10 @@ export {
   renderStateGraph,
 } from "./fork-rebase-report-render.ts";
 export { SystemGit } from "./lib/fork-command.ts";
+import { encodeFeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
 import {
   buildFeasibility,
+  MergeTreeMemo,
   parseMergeTreeResult,
   readForkStack,
   type FeasibilityGit,
@@ -113,6 +115,7 @@ export interface ReportOptions {
   readonly markdownOut: string;
   readonly fetch: boolean;
   readonly check: boolean;
+  readonly feasibilityOut: string | null;
 }
 
 export interface GitReader extends FeasibilityGit {}
@@ -128,6 +131,9 @@ Options:
   --markdown-out <path>  Markdown path relative to repo root
   --fetch                Fetch both remote refs and tags first
   --check                Exit 1 instead of writing when outputs are stale
+  --feasibility-out <path>
+                         Also write the feasibility walk and its merge-tree memo
+                         for another job to carry (path relative to repo root)
   -h, --help             Show help
   -V, --version          Show schema version
 
@@ -142,6 +148,7 @@ const defaultOptions = (): ReportOptions => ({
   markdownOut: DEFAULT_MARKDOWN_PATH,
   fetch: false,
   check: false,
+  feasibilityOut: null,
 });
 
 const updateCommand = (options: ReportOptions): string => {
@@ -164,7 +171,13 @@ export { UsageError } from "./lib/fork-cli.ts";
 export const parseReportArgs = (argv: ReadonlyArray<string>): ReportOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set(["--source", "--target", "--json-out", "--markdown-out"]);
+  const valueFlags = new Set([
+    "--source",
+    "--target",
+    "--json-out",
+    "--markdown-out",
+    "--feasibility-out",
+  ]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
@@ -194,6 +207,7 @@ export const parseReportArgs = (argv: ReadonlyArray<string>): ReportOptions => {
     if (argument === "--source") options.source = value;
     else if (argument === "--target") options.target = value;
     else if (argument === "--json-out") options.jsonOut = value;
+    else if (argument === "--feasibility-out") options.feasibilityOut = value;
     else options.markdownOut = value;
   }
 
@@ -201,6 +215,12 @@ export const parseReportArgs = (argv: ReadonlyArray<string>): ReportOptions => {
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
   if (options.jsonOut === options.markdownOut) {
     throw new UsageError("--json-out and --markdown-out must be different paths");
+  }
+  if (options.feasibilityOut !== null && options.feasibilityOut.length === 0) {
+    throw new UsageError("--feasibility-out cannot be empty");
+  }
+  if (options.feasibilityOut !== null && options.check) {
+    throw new UsageError("--feasibility-out is a run artifact and cannot be checked");
   }
   return options;
 };
@@ -520,6 +540,7 @@ export const buildReport = (
   source: string,
   target: string,
   retirementLedger: ForkRetirementLedger = EMPTY_RETIREMENT_LEDGER,
+  memo: MergeTreeMemo = new MergeTreeMemo(),
 ): ForkRebaseReport => {
   const sourceSha = git.run(["rev-parse", `${source}^{commit}`]).trim();
   const targetSha = git.run(["rev-parse", `${target}^{commit}`]).trim();
@@ -529,7 +550,7 @@ export const buildReport = (
   const isForkRelease = (tag: string) => /^v\d+\.\d+\.\d+-hyprws\.\d+$/.test(tag);
   const upstream = buildLane(git, baseSha, target, targetSha, isUpstreamRelease);
   const hyprws = buildLane(git, baseSha, source, sourceSha, isForkRelease);
-  const feasibility = buildFeasibility(git, sourceSha, targetSha, baseSha);
+  const feasibility = buildFeasibility(git, sourceSha, targetSha, baseSha, memo);
 
   return {
     schemaVersion: 3,
@@ -607,7 +628,8 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       fetchRef(git, options.target);
     }
     const retirementLedger = readForkRetirementLedger(root);
-    const report = buildReport(git, options.source, options.target, retirementLedger);
+    const memo = new MergeTreeMemo();
+    const report = buildReport(git, options.source, options.target, retirementLedger, memo);
     const outputs: ReadonlyArray<ReportOutput> = [
       {
         relative: options.jsonOut,
@@ -630,6 +652,27 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
       }
       process.stdout.write("current: fork rebase report\n");
       return 0;
+    }
+
+    // The artifact is run evidence, not a tracked output: it is written every run,
+    // never compared, and carries the memo so the auto-rebase job skips the merges
+    // this walk already ran.
+    if (options.feasibilityOut !== null) {
+      const path = resolveOutput(root, options.feasibilityOut);
+      writeAtomically(
+        path,
+        encodeFeasibilityArtifact(
+          "vp run fork:rebase-report",
+          {
+            sourceSha: report.hyprws.sha,
+            targetSha: report.upstream.sha,
+            baseSha: report.sharedBase.sha,
+          },
+          report.feasibility,
+          memo,
+        ),
+      );
+      process.stdout.write(`feasibility: ${options.feasibilityOut}\n`);
     }
 
     for (const output of outputs) {
