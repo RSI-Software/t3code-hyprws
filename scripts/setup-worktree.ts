@@ -12,8 +12,9 @@ Usage: node scripts/setup-worktree.ts
 Options:
   -h, --help  Show this help before making changes.
 
-Output: setup progress and concise link notices on stdout; errors on stderr.
+Output: setup progress, trunk-base check notices on stdout; errors on stderr.
 Writes: installs dependencies, updates generated .env symlinks, and warms the web cache.
+Refuses: a worktree HEAD contained in no remote-tracking ref (a branch cut from stale trunk history).
 Exits: 0 on success, 1 on Git/filesystem/child-command failure, 2 on invalid usage.
 `;
 
@@ -39,6 +40,24 @@ export type SetupCommand = {
   readonly shell: boolean;
 };
 
+export type GitCapture = {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+};
+
+export type CaptureGit = (cwd: string, args: readonly string[]) => GitCapture;
+
+export type TrunkBaseAssessment =
+  | {
+      readonly kind: "assessed";
+      readonly contained: boolean;
+      readonly headSha: string;
+      readonly publishedSha: string;
+      readonly localTrunkSha: string | undefined;
+    }
+  | { readonly kind: "skipped"; readonly reason: string };
+
 export type SetupWorktreeDependencies = {
   readonly cwd: string;
   readonly nodeExecutable: string;
@@ -46,6 +65,7 @@ export type SetupWorktreeDependencies = {
   readonly resolveVpInstallCommand: () => SetupCommand;
   readonly reconcileLinks: (links: readonly EnvironmentLink[]) => readonly LinkResult[];
   readonly runCommand: (command: SetupCommand, cwd: string) => void;
+  readonly captureGit: CaptureGit;
   readonly writeStdout: (value: string) => void;
   readonly writeStderr: (value: string) => void;
 };
@@ -123,6 +143,62 @@ function runGitRevParse(
     const detail = String(stderr ?? (error instanceof Error ? error.message : error)).trim();
     throw new Error(`could not resolve Git ${argument} from '${cwd}': ${detail}`, { cause: error });
   }
+}
+
+export function captureGit(cwd: string, args: readonly string[]): GitCapture {
+  const result = NodeChildProcess.spawnSync("git", [...args], {
+    cwd,
+    encoding: "utf8",
+    env: resolveGitDiscoveryEnvironment(cwd),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return {
+    code: result.status ?? -1,
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
+  };
+}
+
+function lastErrorLine(value: string): string {
+  const lines = value.trim().split(/\r?\n/u);
+  return lines[lines.length - 1] ?? "";
+}
+
+function shortSha(sha: string): string {
+  return sha.slice(0, 12);
+}
+
+export function assessTrunkBase(capture: CaptureGit, worktreeRoot: string): TrunkBaseAssessment {
+  const fetch = capture(worktreeRoot, ["fetch", "origin", "hyprws"]);
+  if (fetch.code !== 0) {
+    return {
+      kind: "skipped",
+      reason: `could not fetch origin hyprws: ${lastErrorLine(fetch.stderr) || "unknown error"}`,
+    };
+  }
+  const published = capture(worktreeRoot, ["rev-parse", "--verify", "refs/remotes/origin/hyprws"]);
+  if (published.code !== 0) {
+    return { kind: "skipped", reason: "origin/hyprws not found after the fetch" };
+  }
+  const head = capture(worktreeRoot, ["rev-parse", "HEAD"]);
+  if (head.code !== 0) {
+    return { kind: "skipped", reason: "the worktree HEAD does not resolve" };
+  }
+  const reachability = capture(worktreeRoot, ["branch", "-r", "--contains", head.stdout.trim()]);
+  if (reachability.code !== 0) {
+    return {
+      kind: "skipped",
+      reason: `could not list remote refs containing HEAD: ${lastErrorLine(reachability.stderr) || "unknown error"}`,
+    };
+  }
+  const localTrunk = capture(worktreeRoot, ["rev-parse", "--verify", "refs/heads/hyprws"]);
+  return {
+    kind: "assessed",
+    contained: reachability.stdout.trim().length > 0,
+    headSha: head.stdout.trim(),
+    publishedSha: published.stdout.trim(),
+    localTrunkSha: localTrunk.code === 0 ? localTrunk.stdout.trim() : undefined,
+  };
 }
 
 function normalizedPath(value: string): string {
@@ -246,6 +322,7 @@ const defaultDependencies: SetupWorktreeDependencies = {
   resolveVpInstallCommand: () => resolveVpInstallCommand(process.env, process.platform),
   reconcileLinks: reconcileEnvironmentLinks,
   runCommand: runChildCommand,
+  captureGit,
   writeStdout: (value) => process.stdout.write(value),
   writeStderr: (value) => process.stderr.write(value),
 };
@@ -270,6 +347,30 @@ export async function runSetupWorktree(
 
   try {
     const { canonicalRoot, worktreeRoot } = dependencies.resolveRepositoryRoots(dependencies.cwd);
+    const assessment = assessTrunkBase(dependencies.captureGit, worktreeRoot);
+    if (assessment.kind === "skipped") {
+      dependencies.writeStdout(
+        `[setup-worktree] skipped the trunk-base check: ${assessment.reason}\n`,
+      );
+    } else {
+      if (!assessment.contained) {
+        throw new Error(
+          `this worktree's HEAD (${shortSha(assessment.headSha)}) is contained in no remote-tracking ref: ` +
+            "the branch was cut from stale trunk history. " +
+            "Fix it here with 'git reset --hard origin/hyprws', or recreate it from a fresh remote base with " +
+            "'wt switch --create <branch> --base origin/hyprws', then rerun setup.",
+        );
+      }
+      if (
+        assessment.localTrunkSha !== undefined &&
+        assessment.localTrunkSha !== assessment.publishedSha
+      ) {
+        dependencies.writeStdout(
+          `[setup-worktree] notice: local 'hyprws' (${shortSha(assessment.localTrunkSha)}) is behind or diverged from origin/hyprws (${shortSha(assessment.publishedSha)}); ` +
+            `reset it in the canonical checkout: git -C ${canonicalRoot} reset --hard origin/hyprws\n`,
+        );
+      }
+    }
     dependencies.runCommand(dependencies.resolveVpInstallCommand(), worktreeRoot);
 
     const links = LINK_SPECS.map((relativePath) => ({
