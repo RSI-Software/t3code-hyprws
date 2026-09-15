@@ -46,7 +46,7 @@ const HOOK_SINGLE_CALL =
 // the fork, so the whole statement is still one fork construct.
 const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
 const HOOK_CONST_FROM_CALL =
-  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
+  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
 const HOOK_PROPERTY = /^\s*(?:\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
 // Inside a JSX hook only an in-scope element is allowed — no derived rows, no

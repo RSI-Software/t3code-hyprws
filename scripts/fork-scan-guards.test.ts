@@ -1418,6 +1418,15 @@ it("warns when a marked hook carries more than one construct", () => {
   );
 });
 
+it("classifies a const from a fork call in its prettier spelling as one construct (1013)", () => {
+  // `const mode = resolveModeFork(…)` is the only spelling prettier emits; the shape used to
+  // demand a type annotation, which the house style tells the author not to write.
+  const warnings = hookWarnings(
+    hookPatch("+const mode = resolveModeFork(input); // fork-hook: project-windows/spawn-target\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
   // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
   // line, so gating on the line form alone left every hook inside a JSX attribute list, an
