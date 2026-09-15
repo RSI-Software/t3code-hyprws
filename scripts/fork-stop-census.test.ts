@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
-import { rehearseStopCensus } from "./fork-stop-census.ts";
+import { rehearseStopCensus, CENSUS_EMPTY_COMMIT_ARGS } from "./fork-stop-census.ts";
 import { autoResolveConflicts } from "./fork-sync.ts";
 import {
   SystemCommandRunner,
@@ -497,4 +497,41 @@ it("keeps an unverified hook re-apply out of both the mechanical and the human t
       humanStopCount: 1,
     },
   );
+});
+
+it("carries both empty-commit drops on the census startup rebase, and neither on skip", () => {
+  // --empty=drop alone is not enough: it only removes commits that become empty during the
+  // replay, while --no-keep-empty removes commits that start empty. Both are startup-only
+  // flags — invalid on `rebase --skip`/`--continue` — so they must stay a startup-only tuple.
+  assert.deepStrictEqual([...CENSUS_EMPTY_COMMIT_ARGS], ["--empty=drop", "--no-keep-empty"]);
+});
+
+it("drops a commit that starts empty from the census replay without moving the census", () => {
+  const fixture = stackFixture();
+  try {
+    git(fixture.root, ["commit", "--allow-empty", "-m", "chore(fork): empty replay"]);
+    const head = git(fixture.root, ["rev-parse", "HEAD"]);
+    const census = rehearseStopCensus(fixture.root, head, fixture.base, {
+      tag: "v2.0.0",
+      sha: fixture.target,
+      position: 1,
+      stable: true,
+    });
+    // The empty commit adds no stop and survives nowhere: the rows still attribute both
+    // conflicts to the two real fork commits, and the totals are the two-commit measure.
+    const rows = census.evidence?.rows ?? [];
+    assert.deepStrictEqual(
+      rows.map(({ stop, path, stage, commit: sha }) => ({ stop, path, stage, sha })),
+      [
+        { stop: 1, path: VERIFIABLE, stage: "keep-both", sha: fixture.mechanical },
+        { stop: 2, path: "apps/web/src/other.ts", stage: "unresolved", sha: fixture.human },
+      ],
+    );
+    assert.deepStrictEqual(censusTotals(rows), {
+      conflictingForkCommitCount: 2,
+      conflictingFileCount: 2,
+    });
+  } finally {
+    NodeFS.rmSync(fixture.root, { recursive: true, force: true });
+  }
 });
