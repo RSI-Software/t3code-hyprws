@@ -4194,80 +4194,6 @@ export const autoGateFour = (report: SyncReport): SyncReport => {
   };
 };
 
-interface WorkflowDispatchRun {
-  readonly databaseId: number;
-  readonly url: string;
-}
-
-const workflowDispatchRuns = (
-  report: SyncReport,
-  runner: CommandRunner,
-): ReadonlyArray<WorkflowDispatchRun> =>
-  JSON.parse(
-    requireSuccess(
-      runner,
-      "gh",
-      [
-        "run",
-        "list",
-        "--workflow",
-        BOT_WORKFLOW,
-        "--event",
-        "workflow_dispatch",
-        "-L",
-        "10",
-        "--json",
-        "databaseId,url",
-        "--repo",
-        REPOSITORY,
-      ],
-      report.repositoryRoot,
-    ),
-  ) as ReadonlyArray<WorkflowDispatchRun>;
-
-const RECONCILIATION_POLL_LIMIT = 6;
-const RECONCILIATION_POLL_SECONDS = 2;
-
-export const reconcileAfterApply = (report: SyncReport, runner: CommandRunner): SyncReport => {
-  if (report.reconciliation?.state === "dispatched") return report;
-  let baselineRunId = report.reconciliation?.baselineRunId;
-  if (baselineRunId === undefined) {
-    baselineRunId = Math.max(
-      0,
-      ...workflowDispatchRuns(report, runner).map(({ databaseId }) => databaseId),
-    );
-    report = { ...report, reconciliation: { state: "ambiguous", baselineRunId } };
-    writeReport(report);
-    requireSuccess(
-      runner,
-      "gh",
-      ["workflow", "run", BOT_WORKFLOW, "--ref", "hyprws", "--repo", REPOSITORY],
-      report.repositoryRoot,
-    );
-  }
-
-  for (let poll = 0; poll < RECONCILIATION_POLL_LIMIT; poll += 1) {
-    const run = workflowDispatchRuns(report, runner)
-      .filter(({ databaseId }) => databaseId > baselineRunId)
-      .toSorted((left, right) => right.databaseId - left.databaseId)[0];
-    if (run !== undefined) {
-      const next: SyncReport = {
-        ...report,
-        reconciliation: {
-          state: "dispatched",
-          baselineRunId,
-          runUrl: run.url,
-        },
-      };
-      writeReport(next);
-      return next;
-    }
-    if (poll + 1 < RECONCILIATION_POLL_LIMIT)
-      requireSuccess(runner, "sleep", [String(RECONCILIATION_POLL_SECONDS)], report.repositoryRoot);
-  }
-  throw new Error(`reconciliation dispatch is ambiguous after run ${baselineRunId}`);
-};
-
 /**
  * The unattended walk: one invocation carries an eligible tag from selection to trunk.
  *
@@ -4496,16 +4422,19 @@ const walkOnce = (
     )
       report = resumeAppliedPublication(report, runner);
 
-    // The carrier's own apply pushes `hyprws`, and that push is the workflow's
-    // trigger, so dispatching a second run would only duplicate the reconciliation
-    // the push already queues behind this run.
+    // Every apply — carried or operator — pushes `hyprws` under lease, and that push is the
+    // workflow's trigger, so the push itself is the reconciliation: no second run is dispatched
+    // or waited for. The report records the trigger for the announcement surface.
     if (
       report.botCarried !== true &&
       report.stage === "applied" &&
-      report.reconciliation?.state !== "dispatched"
+      report.reconciliation === undefined
     ) {
-      report = reconcileAfterApply(report, runner);
-      process.stdout.write(`workflow: ${report.reconciliation?.runUrl ?? "unknown"}\n`);
+      if (report.installedHead === undefined)
+        throw new Error("applied report has no installed head to record the push trigger against");
+      const reconciliation = { trigger: "push", sha: report.installedHead } as const;
+      report = { ...report, reconciliation };
+      process.stdout.write(`workflow: push ${reconciliation.sha}\n`);
     }
 
     report = { ...report, walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started } };

@@ -528,8 +528,8 @@ requiring it: the same run pushed the mirror minutes earlier, and upstream can a
 the carry reads it.
 
 A carried walk mints its rehearsal lane with `git worktree` rather than Worktrunk, which a runner
-cannot install, and skips the post-apply reconciliation dispatch because its own leased push to
-`hyprws` already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
+cannot install, and records its own leased push to `hyprws` as the reconciliation because that push
+already starts the next run. The rerere cache is written back to `refs/fork/rerere` after
 every carried walk, applied or stopped, and after every leased apply.
 
 After a leased apply, the report records trunk as `applied` separately from
@@ -553,13 +553,9 @@ series ends:
 gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-hyprws
 ```
 
-After each apply, dispatch one reconciliation run from the new `hyprws` head:
-
-```bash
-gh workflow run hyprws-upstream-sync.yml --repo RSI-Software/t3code-hyprws
-```
-
-Confirm the blocked issue closes with `Resolved by hyprws <sha>` and the next block opens, or no block
+No second run is needed after an apply: the leased push to `hyprws` is the workflow's trigger, so
+the push itself starts the reconciliation run. Confirm the blocked issue closes with `Resolved by
+hyprws <sha>` and the next block opens, or no block
 remains. Restore `on` only when the ladder or walk series is complete.
 
 ### Block issue lifecycle
@@ -774,8 +770,9 @@ reported the next operator task. It does not mean the entire upstream lane was c
 `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]` walks one eligible tag to the
 end in a single invocation. It selects the open walk target (or the newest offered tag), accepts a
 coherent orientation, resolves every conflict, repairs the lane, runs the guards, applies under the
-existing expected-old lease, appends the churn row, dispatches one reconciliation run, identifies
-its URL, and does not wait for completion. It asks for nothing on the way, and it takes no
+existing expected-old lease, appends the churn row, and records the apply's push as the
+reconciliation trigger — the push to `hyprws` starts the next run, which the walk does not wait
+for. It asks for nothing on the way, and it takes no
 `--resume`: a report already on disk is a walk in flight, and the walk picks it up from the stage it
 reached. If `origin/hyprws` moves under it, the walk re-lists from the moved trunk once by itself.
 
