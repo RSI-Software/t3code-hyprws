@@ -104,6 +104,38 @@ describe("rich Markdown preview boundary", () => {
     ).toBe("Rendered preview is unavailable for truncated files");
   });
 
+  it("overrides the upstream toggle label for Markdown only", () => {
+    // The panel spreads `toggleProps` after upstream's own `label`, so an absent
+    // `label` here is what leaves a non-Markdown file on upstream's wording.
+    expect(
+      resolveRichMarkdownPreviewMode({
+        relativePath: "docs/guide.md",
+        fileState: "ready",
+        renderPreferred: false,
+        revealHandled: true,
+        readOnly: false,
+      }).toggleProps,
+    ).toEqual({ label: "Edit as rich markdown", disabled: false });
+    expect(
+      resolveRichMarkdownPreviewMode({
+        relativePath: "README.md",
+        fileState: "truncated",
+        renderPreferred: true,
+        revealHandled: true,
+        readOnly: false,
+      }).toggleProps,
+    ).toEqual({ label: "Rich editing is unavailable for truncated files", disabled: true });
+    expect(
+      resolveRichMarkdownPreviewMode({
+        relativePath: "src/index.ts",
+        fileState: "loading",
+        renderPreferred: true,
+        revealHandled: true,
+        readOnly: false,
+      }).toggleProps,
+    ).toEqual({ disabled: false });
+  });
+
   it("publishes changed Markdown through the optimistic save boundary", () => {
     const setOptimistic = vi.fn();
     const save = vi.fn();
