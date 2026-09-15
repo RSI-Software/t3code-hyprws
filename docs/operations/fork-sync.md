@@ -536,7 +536,8 @@ After a leased apply, the report records trunk as `applied` separately from
 `rererePublication`. Cache publication combines independent additions with the current remote
 cache and uses at most three explicit expected-old leases. A different resolution at the same
 cache path refuses publication without replacing either resolution; transient `thisimage` files
-are excluded from the shared cache.
+are excluded from the shared cache, and so is the regenerated lockfile, whose postimage is walk-specific
+and never enters the shared rerere ref.
 
 A failed cache publication exits nonzero with the immutable snapshot and error retained in the
 report. Rerun `vp run fork:sync unblock-auto --report <report>`: an in-flight report on disk is
