@@ -803,9 +803,10 @@ resolved paths, then `typecheck` for each touched workspace and the focused test
 touched sources. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
-resolutions the walk staged do not hold. Whatever a repair rewrites is committed on top of the
-replayed stack as the walk's own bot commit carrying `Fork-Repair: <tag>`, never folded into a
-replayed fork commit, so the record and the churn row name the exact SHA that changed the tree.
+resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit
+to its owning fork commit and is autosquashed from the target during the check (an ownerless path
+needs `--seam-owner '<path>=<full owner sha>'`), and the check only reports `checked` after proving
+the landed tree equals the tested tree and re-proving the replay and the fold segments.
 
 Before any of that, the walk proves the replayed tree purely additive over the target — no target
 file deleted, no migration deleted or renumbered into a collision, no upstream test shrunk, no
