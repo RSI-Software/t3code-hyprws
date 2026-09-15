@@ -178,6 +178,21 @@ it("keeps absent and returned observations unresolved without inventing a repair
   );
 });
 
+it("excludes stopped walks from the census snapshot set, which describes a landed stack", () => {
+  // Two stopped walks observe the same path; the applied walk's census is empty. If the stopped
+  // observations reached the snapshot set, the path would read as a run across two tags — a run
+  // over censuses of walks that landed nothing.
+  const stopped = (tag: string): ChurnEntry => ({
+    ...walk(tag, snapshot(B, [file("only-stopped.ts")])),
+    pending: true as const,
+  });
+  const churn = censusChurn([walk("v1", snapshot(A, [])), stopped("v2"), stopped("v3")]);
+  assert.deepStrictEqual(
+    churn.hotPaths.map(({ path }) => path),
+    [],
+  );
+});
+
 it("keeps a verified repair resolved when a complete census moves the base", () => {
   const E = "e".repeat(40),
     F = "f".repeat(40);
