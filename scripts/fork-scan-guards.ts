@@ -198,6 +198,11 @@ export interface CommitPatch {
   // membership, so a fork `});` elsewhere upstream no longer reads as a
   // deletion of the upstream `});`.
   readonly removedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
+  // Post-image (new-file) line numbers of the added content lines, keyed by
+  // path and index-aligned with `changedLines`' `added` arrays. fork-hook-seam
+  // reconstructs the fork side of the diff from these plus `removedPositions`
+  // so its substitution rule judges real positions, not flattened arrays.
+  readonly addedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
   readonly terminalAttachmentStateAdded?: boolean;
   readonly providerAgentImplementationAdded?: boolean;
   readonly threadRouteNavigationAdded?: boolean;
@@ -430,7 +435,9 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
     const addedLines = new Map<string, Array<string>>();
     const removedLines = new Map<string, Array<string>>();
     const removedPositions = new Map<string, Array<number>>();
+    const addedPositions = new Map<string, Array<number>>();
     let preImageLine = 0;
+    let postImageLine = 0;
     let terminalAttachmentStateAdded = false;
     let providerAgentImplementationAdded = false;
     let sidebarPhysicalScopeAdded = false;
@@ -478,14 +485,19 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       if (line.startsWith("@@")) {
         flushTestBlockHunk();
         // `--unified=0` keeps hunks context-free, so the header carries the
-        // exact pre-image position the removal side starts counting from.
+        // exact pre-image position the removal side starts counting from — and
+        // the post-image position the addition side starts counting from.
         preImageLine = Number.parseInt(/^@@ -(\d+)/.exec(line)?.[1] ?? "0", 10);
+        postImageLine = Number.parseInt(/^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line)?.[1] ?? "0", 10);
         continue;
       }
       const added = line.startsWith("+");
       const removed = !added && line.startsWith("-");
       if (!added && !removed) {
-        if (line.startsWith(" ") || line === "") preImageLine += 1;
+        if (line.startsWith(" ") || line === "") {
+          preImageLine += 1;
+          postImageLine += 1;
+        }
         continue;
       }
       const path = added ? targetPath : sourcePath;
@@ -500,6 +512,12 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
         positions.push(preImageLine);
         removedPositions.set(path, positions);
         preImageLine += 1;
+      }
+      if (added) {
+        const positions = addedPositions.get(path) ?? [];
+        positions.push(postImageLine);
+        addedPositions.set(path, positions);
+        postImageLine += 1;
       }
       if (!added && TEST_FILE.test(path) && !FORK_TEST_FILE.test(path) && isSignificant(content)) {
         const lines = removedTestLines.get(path) ?? [];
@@ -610,6 +628,7 @@ export const parseCommitPatches = (raw: string): ReadonlyMap<string, CommitPatch
       removedTestLines,
       changedLines,
       removedPositions,
+      addedPositions,
       ...(terminalAttachmentStateAdded ? { terminalAttachmentStateAdded: true } : {}),
       ...(providerAgentImplementationAdded ? { providerAgentImplementationAdded: true } : {}),
       ...(sidebarPhysicalScopeAdded ? { sidebarPhysicalScopeAdded } : {}),
@@ -667,6 +686,7 @@ const EMPTY_PATCH: CommitPatch = {
   removedTestLines: new Map(),
   changedLines: new Map(),
   removedPositions: new Map(),
+  addedPositions: new Map(),
 };
 
 export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarning> => {
@@ -844,6 +864,7 @@ export const collectScanWarnings = (input: GuardInput): ReadonlyArray<ScanWarnin
       files,
       changedLines: patch.changedLines,
       removedPositions: patch.removedPositions,
+      addedPositions: patch.addedPositions,
       upstreamFiles: input.upstreamFiles,
       forkHooks: input.forkHooks,
       upstreamLines: input.upstreamHookLines ?? new Map(),

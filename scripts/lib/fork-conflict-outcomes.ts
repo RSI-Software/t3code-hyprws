@@ -5,13 +5,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import {
-  FORK_HOOKS,
-  FORK_HOOK_BLOCK_SUFFIX,
-  parseForkHookMarkers,
-  stripForkHookLineMarker,
-  type ForkHookEntry,
-} from "./fork-hooks.ts";
+import { FORK_HOOKS, parseForkHookMarkers, type ForkHookEntry } from "./fork-hooks.ts";
+import { unexplainedRemoval } from "./fork-hook-alignment.ts";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
 import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
 import * as NodeCrypto from "node:crypto";
@@ -390,91 +385,6 @@ const manifestHooksFor = (
  * would fail for a reason that has nothing to do with the seam — turns it off, and the outcome it
  * gets back carries `verified: false` so nothing downstream reads it as a checked resolution.
  */
-/** The non-blank lines of a stage, paired with their 1-based source line numbers. */
-const significantEntries = (
-  text: string,
-): ReadonlyArray<{ readonly line: number; readonly text: string }> =>
-  text
-    .split("\n")
-    .map((text, index) => ({ line: index + 1, text }))
-    .filter(({ text }) => text.trim() !== "");
-
-/** The line a fork-side alignment is judged on: the code with any trailing hook marker removed. */
-const alignmentKey = (line: string): string =>
-  stripForkHookLineMarker(line).replace(FORK_HOOK_BLOCK_SUFFIX, "");
-
-/**
- * The first base line the alignment shows as removed from a fork-side position no marked hook
- * span covers, or `null` when every removal — if any — is explained by a marked span. The check
- * is positional, not a budget: a marked hook elsewhere in the file does not absorb a deletion.
- * An LCS over the significant lines (trimmed to the differing middle) decides, for each base line
- * that survives nowhere, the fork-side gap it was removed from; that gap is explained when a
- * maximal run of marked fork lines contains it.
- */
-const unexplainedRemoval = (
-  base: string,
-  fork: string,
-  marked: ReadonlySet<number>,
-): number | null => {
-  const baseLines = significantEntries(base);
-  const forkLines = significantEntries(fork);
-  const baseKeys = baseLines.map(({ text }) => alignmentKey(text));
-  const forkKeys = forkLines.map(({ text }) => alignmentKey(text));
-  // Trim the common prefix and suffix so the table covers only the differing middle.
-  let start = 0;
-  while (start < baseKeys.length && start < forkKeys.length && baseKeys[start] === forkKeys[start])
-    start += 1;
-  let baseEnd = baseKeys.length;
-  let forkEnd = forkKeys.length;
-  while (baseEnd > start && forkEnd > start && baseKeys[baseEnd - 1] === forkKeys[forkEnd - 1]) {
-    baseEnd -= 1;
-    forkEnd -= 1;
-  }
-  const bKeys = baseKeys.slice(start, baseEnd);
-  const fKeys = forkKeys.slice(start, forkEnd);
-  const width = fKeys.length + 1;
-  // dp[i * width + j]: LCS length of bKeys[i..] against fKeys[j..].
-  const dp = new Uint32Array((bKeys.length + 1) * width);
-  const at = (i: number, j: number): number => dp[i * width + j] ?? 0;
-  for (let i = bKeys.length - 1; i >= 0; i -= 1) {
-    const bKey = baseKeys[start + i];
-    for (let j = fKeys.length - 1; j >= 0; j -= 1)
-      dp[i * width + j] =
-        bKey === forkKeys[start + j] ? at(i + 1, j + 1) + 1 : Math.max(at(i + 1, j), at(i, j + 1));
-  }
-  // Maximal runs of marked fork lines, as significant-index spans [start, end].
-  const spans: Array<{ readonly start: number; readonly end: number }> = [];
-  for (const [index, { line }] of forkLines.entries()) {
-    if (!marked.has(line)) continue;
-    const last = spans.at(-1);
-    if (last !== undefined && last.end === index - 1)
-      spans[spans.length - 1] = { ...last, end: index };
-    else spans.push({ start: index, end: index });
-  }
-  const insideMarkedSpan = (gap: number): boolean =>
-    spans.some(({ start: a, end: b }) => a <= gap && gap <= b);
-  let i = 0;
-  let j = 0;
-  while (i < bKeys.length && j < fKeys.length) {
-    const bKey = bKeys[i];
-    const fKey = fKeys[j];
-    if (bKey === undefined || fKey === undefined) break;
-    if (bKey === fKey) {
-      i += 1;
-      j += 1;
-    } else if (at(i + 1, j) >= at(i, j + 1)) {
-      if (!insideMarkedSpan(j)) return baseLines[start + i]?.line ?? null;
-      i += 1;
-    } else {
-      j += 1;
-    }
-  }
-  // Base lines past every fork line were removed at the end-of-file gap; that gap is outside
-  // every marked span by construction.
-  for (; i < bKeys.length; i += 1) return baseLines[start + i]?.line ?? null;
-  return null;
-};
-
 /**
  * Whether the fork side of a conflicted merge adds nothing but marked hook lines and removes no
  * base line except inside a marked hook span, where the removal is a declared substitution: the
