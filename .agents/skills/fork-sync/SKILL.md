@@ -208,14 +208,19 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
    workspace's typecheck, and the focused test files beside the touched sources plus every
-   fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. What a repair rewrites
+   fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. The repair-scope formatter runs first — it
+   covers every repair commit the lane carries (`Fork-Repair` commits, `fixup!`s, and the walk's own
+   repair commits), so the additive proof and the battery judge the formatted tree — and if the
+   commit-time formatter rewrites anything after the battery, the battery reruns once on the
+   formatted tree. What a repair rewrites
    becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
-   ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the additive proof runs before any
-   repair, and the formatter covers every repair commit the lane carries. After the autosquash the
+   ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the check discovers every `fixup!`
+   on the lane, recorded or not. After the autosquash the
    check proves the landed tree equals the tested tree, re-proves the
-   replay, and re-proves the fold segments. Before repairs, the walk proves the replayed tree purely additive
+   replay, and re-proves the fold segments; a conflicted autosquash is aborted and the lane head
+   restored. Before repairs, the walk proves the replayed tree purely additive
    (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
-   upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure
+   upstream-deleted lines) and repairs a failure once as a `fixup!` to its owner; a failure
    the fix refuses is the `conflict` stop. Only a series
    rewrite pushes the disposable lane and polls every 30 seconds for the CI verdict on the pushed
    head, with a 45-minute ceiling; a timeout fails that gate. Record a repaired seam with

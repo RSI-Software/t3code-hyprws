@@ -796,16 +796,20 @@ says two things at once. So are the shapes with no common ancestor on both sides
 delete/modify, rename) and binary files. A refused row is the walk's `conflict` stop.
 
 Repair runs inside the same invocation, scoped to what the replay touched: the formatter over the
-resolved paths, then `typecheck` for each touched workspace, the focused test files beside the
-touched sources, and every fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. There is no full battery in the lane and no wait on a remote verdict — trunk CI
+resolved paths and every repair commit the lane carries (`Fork-Repair` commits, `fixup!`s, and the
+walk's own repairs) runs before the proofs, then `typecheck` for each touched workspace, the focused
+test files beside the touched sources, and every fork-owned `*.fork.test.{ts,tsx}` tracked in the
+lane; if the commit-time formatter rewrites anything after the battery, the battery reruns once on
+the formatted tree. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
 resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit
 to its owning fork commit and is autosquashed from the target during the check (an ownerless path
-needs `--seam-owner '<path>=<full owner sha>'`), and the formatter covers every repair commit the
-lane carries — a hand-applied repair's paths never sat in a conflict resolution. The check only
+needs `--seam-owner '<path>=<full owner sha>'`; the check discovers every `fixup!` on the lane,
+recorded or not). The check only
 reports `checked` after proving
-the landed tree equals the tested tree and re-proving the replay and the fold segments.
+the landed tree equals the tested tree and re-proving the replay and the fold segments; a
+conflicted autosquash is aborted and the lane head restored.
 
 Before any of that, the walk proves the replayed tree purely additive over the target — no target
 file deleted, no migration deleted or renumbered into a collision, no upstream test shrunk, no

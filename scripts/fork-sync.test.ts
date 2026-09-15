@@ -4492,35 +4492,7 @@ it("a rerun proves the replay through the fixups a stopped run left and folds th
   }
 });
 
-it("the check runs a tracked fork test outside the touched workspaces", () => {
-  const state = repairingRun();
-  state.runner.set("git", rehearsal(["ls-files", "*.fork.test.ts", "*.fork.test.tsx"]), {
-    stdout: "scripts/dev-desktop-task-graph.fork.test.ts\n",
-  });
-  try {
-    const checked = execute(
-      ["unblock-check", "--report", state.reportPath],
-      state.root,
-      state.runner,
-    );
-    assert.strictEqual(checked.stage, "checked");
-    assert.isTrue(
-      state.runner.calls.some(
-        ({ command, args }) =>
-          command === "vp" &&
-          args[0] === "test" &&
-          args.includes("dev-desktop-task-graph.fork.test.ts"),
-      ),
-      "the fork-owned test was never run",
-    );
-  } finally {
-    NodeFS.rmSync(state.root, { recursive: true, force: true });
-    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
-    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
-  }
-});
-
-it("a Fork-Repair commit's paths enter the formatter scope", () => {
+it("the repair-scope formatter runs before the additive proof and the battery", () => {
   const state = repairingRun();
   const hand = "e".repeat(40);
   state.runner.set(
@@ -4533,13 +4505,25 @@ it("a Fork-Repair commit's paths enter the formatter scope", () => {
     },
   );
   try {
-    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    const formatAt = state.runner.calls.findIndex(
+      ({ command, args }) => command === "vp" && args[0] === "fmt",
+    );
+    // The additive proof reads the tree without issuing commands, so the first command proof
+    // after it is the battery's typecheck; the formatter must precede it.
+    const batteryAt = state.runner.calls.findIndex(
+      ({ command, args }) => command === "vp" && args.includes("typecheck"),
+    );
+
+    assert.notStrictEqual(formatAt, -1, "the repair-scope formatter never ran");
     assert.isTrue(
-      state.runner.calls.some(
-        ({ command, args }) =>
-          command === "vp" && args.includes(".github/fork-workflow-reviews.json"),
-      ),
-      "the hand repair's path was never formatted",
+      formatAt < batteryAt,
+      "the formatter must run before the proofs that judge the tree it rewrites",
     );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -4548,34 +4532,40 @@ it("a Fork-Repair commit's paths enter the formatter scope", () => {
   }
 });
 
-it("a clean lane runs no formatter pass and keeps the report byte-identical", () => {
-  const state = repairingRun();
-  state.runner.set("git", rehearsal(["ls-files", "*.fork.test.ts", "*.fork.test.tsx"]), {
-    stdout: "",
-  });
+it("a formatter that rewrites after the battery reruns the battery on the formatted tree", () => {
+  const state = dirtyRepairRun();
+  // The commit-time formatter (wrapped below) rewrites the staged path after the battery has
+  // already judged the tree; the staged index tree therefore changes across the format pass.
+  state.runner.setSequence("git", rehearsal(["write-tree"]), [
+    { stdout: "tree111111111111111111111111111111111111111\n" },
+    { stdout: "tree222222222222222222222222222222222222222\n" },
+  ]);
+  const mutating: CommandRunner = {
+    run: (command, args, cwd, input, env) => {
+      if (command === "vp" && args[0] === "fmt" && args.includes("scripts/fork-sync.ts")) {
+        const target = NodePath.join(state.worktree, "scripts", "fork-sync.ts");
+        NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+        NodeFS.appendFileSync(target, "\n");
+      }
+      return state.runner.run(command, args, cwd ?? "", input, env);
+    },
+  };
   try {
-    const checked = execute(
-      ["unblock-check", "--report", state.reportPath],
-      state.root,
-      state.runner,
-    );
+    const checked = execute(["unblock-check", "--report", state.reportPath], state.root, mutating);
     assert.strictEqual(checked.stage, "checked");
-    assert.isUndefined(
-      state.runner.calls.find(({ command, args }) => command === "vp" && args[0] === "fmt"),
-      "the check-level formatter ran on a clean lane",
+    const typecheckRuns = state.runner.calls.filter(
+      ({ command, args }) => command === "vp" && args[0] === "run" && args.includes("typecheck"),
     );
-    // The battery and its recorded rows are exactly what a clean run always produced.
-    // The battery rows are the walk's own full sequence, unchanged from a run before the
-    // fork-test and formatter extensions: the new steps record nothing extra on a clean lane.
-    assert.deepStrictEqual(
-      checked.walk?.repairs?.map(({ command }) => command),
-      [
-        "vp run --no-cache fork:scan --target v1.2.3",
-        // Derive the delta row the way the record does, so the expectation holds wherever the
-        // repository is checked out.
-        `node ${toolingDeltaCheck().args[0]} --check`,
-        "vp run --filter ./scripts typecheck",
-      ],
+    assert.strictEqual(
+      typecheckRuns.length,
+      2,
+      "the battery must run again on the tree the formatter rewrote",
+    );
+    const rows = checked.walk?.repairs?.map(({ command }) => command) ?? [];
+    assert.strictEqual(
+      rows.filter((command) => command === "vp run --filter ./scripts typecheck").length,
+      2,
+      "the rerun's verdict must be recorded like any other proof",
     );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });

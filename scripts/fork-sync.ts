@@ -1715,6 +1715,8 @@ const commitWalkRepairs = (
   worktree: string,
   verificationEnv: NodeJS.ProcessEnv,
   declaredOwners: ReadonlyMap<string, string>,
+  /** Invoked when the commit-time format changed the staged tree; reruns the proof it invalidates. */
+  rerunBattery?: (formattedPaths: ReadonlyArray<string>) => void,
 ): ReadonlyArray<{ readonly sha: string; readonly subject: string }> => {
   const base = report.target?.sha;
   if (base === undefined) throw new Error("repair commit has no target tag");
@@ -1722,16 +1724,18 @@ const commitWalkRepairs = (
   botGit(runner, worktree, ["add", "-A"]);
   const paths = lines(git(runner, worktree, ["diff", "--cached", "--name-only"], true));
   if (paths.length === 0) return [];
-  // Format what the repair rewrote, not just what the conflict resolved. `formatCommand` runs
-  // inside the conflict, before the verify battery and the additive fixes exist;
-  // everything they rewrite afterwards reaches this commit exactly as the tool left it. Commit that
-  // raw and trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every
-  // downstream pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755).
+  const stagedTree = git(runner, worktree, ["write-tree"], true);
+  // Format what the repair rewrote, not just what the conflict resolved; commit that raw and
+  // trunk lands unformatted, `vp check` goes red on a seam nobody authored, and every downstream
+  // pull request inherits a failure it cannot fix (RSI-Software/t3code-hyprws#755). When the
+  // formatter rewrites anything, the caller's `rerunBattery` re-proves the formatted tree: the
+  // proof that ran before the format no longer describes the tree being committed.
   const format = formatCommand(paths);
   if (format !== null) {
     const formatted = runRepairs(runner, worktree, [format], verificationEnv);
     if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
     botGit(runner, worktree, ["add", "-A"]);
+    if (git(runner, worktree, ["write-tree"], true) !== stagedTree) rerunBattery?.(paths);
   }
   const owners = repairOwners(runner, worktree, base);
   const resolve = (
@@ -2211,44 +2215,10 @@ const unblockCheck = (
       installedHead = seamCommits[seamCommits.length - 1]!.sha;
     }
   }
-  // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
-  // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
-  // repairs what it can make additive again as its own `additive` repair commit, and re-checks
-  // exactly once. A check the machine cannot make pass stops the walk.
   let additiveCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
-  if (report.kind !== "rewrite" && report.target !== undefined && report.source !== undefined) {
-    const phase = runAdditivePhase(report, runner, worktree, verificationEnv, seamOwners);
-    additiveCommits = phase.repairCommits;
-    report = {
-      ...report,
-      walk: {
-        ...(report.walk ?? {}),
-        additive: phase.additive,
-        ...(additiveCommits.length === 0
-          ? {}
-          : {
-              repairCommits: mergeRepairCommits(report.walk?.repairCommits, additiveCommits),
-            }),
-      },
-    };
-    writeReport(report);
-    // The additive commits are the lane head now; the installed-tree binding must follow them or
-    // the head guard below refuses the tree the walk itself just repaired.
-    if (additiveCommits.length > 0)
-      installedHead = additiveCommits[additiveCommits.length - 1]!.sha;
-    if (!phase.additive.pass) throw new AdditiveStop(phase.additive.findings, report.reportPath);
-  }
-  // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
-  // conflicts it resolved. This is the walk's verification. Trunk CI runs the full battery after
-  // the apply, where its verdict is a confirmation rather than a round trip the walk waits on.
-  const repairPaths = [
-    ...new Set([
-      ...(report.touchedPaths ?? []),
-      ...report.conflicts
-        .filter(({ class: klass }) => klass !== "generated")
-        .map(({ path }) => path),
-    ]),
-  ].sort();
+  // The repair-scope formatter runs before every proof: the additive gate and the test battery
+  // must both judge the tree the lane will actually commit, not a tree a later format pass
+  // silently changed.
   // One walk over the replayed range feeds two consumers: fixup discovery (every `fixup!` on the
   // lane must reach the autosquash, even one a run interrupted before `writeReport` left behind)
   // and the formatter scope (every path a `Fork-Repair` commit, a `fixup!`, or a repair commit the
@@ -2302,6 +2272,43 @@ const unblockCheck = (
     const formatted = runRepairs(runner, worktree, [repairScopeFormat], verificationEnv);
     if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
   }
+  // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
+  // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
+  // repairs what it can make additive again as its own `additive` repair commit, and re-checks
+  // exactly once. A check the machine cannot make pass stops the walk.
+  if (report.kind !== "rewrite" && report.target !== undefined && report.source !== undefined) {
+    const phase = runAdditivePhase(report, runner, worktree, verificationEnv, seamOwners);
+    additiveCommits = phase.repairCommits;
+    report = {
+      ...report,
+      walk: {
+        ...(report.walk ?? {}),
+        additive: phase.additive,
+        ...(additiveCommits.length === 0
+          ? {}
+          : {
+              repairCommits: mergeRepairCommits(report.walk?.repairCommits, additiveCommits),
+            }),
+      },
+    };
+    writeReport(report);
+    // The additive commits are the lane head now; the installed-tree binding must follow them or
+    // the head guard below refuses the tree the walk itself just repaired.
+    if (additiveCommits.length > 0)
+      installedHead = additiveCommits[additiveCommits.length - 1]!.sha;
+    if (!phase.additive.pass) throw new AdditiveStop(phase.additive.findings, report.reportPath);
+  }
+  // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
+  // conflicts it resolved. This is the walk's verification. Trunk CI runs the full battery after
+  // the apply, where its verdict is a confirmation rather than a round trip the walk waits on.
+  const repairPaths = [
+    ...new Set([
+      ...(report.touchedPaths ?? []),
+      ...report.conflicts
+        .filter(({ class: klass }) => klass !== "generated")
+        .map(({ path }) => path),
+    ]),
+  ].sort();
   // Fork-owned tests are the fork's own guards: every tracked `*.fork.test.{ts,tsx}` runs even
   // when the replay never touched its workspace, grouped by workspace like the focused suites.
   const forkTests = lines(
@@ -2326,7 +2333,37 @@ const unblockCheck = (
   const repaired =
     report.kind === "rewrite"
       ? []
-      : commitWalkRepairs(report, runner, worktree, verificationEnv, seamOwners);
+      : commitWalkRepairs(
+          report,
+          runner,
+          worktree,
+          verificationEnv,
+          seamOwners,
+          (formattedPaths) => {
+            // The commit-time formatter rewrote a repair-owned path after the battery ran; the
+            // battery's verdict no longer describes the tree being committed, so rerun it once
+            // on the formatted tree and record the rerun like any other proof.
+            const rerun = runRepairs(
+              runner,
+              worktree,
+              verifyPlan(
+                worktree,
+                [...new Set([...repairPaths, ...formattedPaths])],
+                undefined,
+                forkTests,
+              ),
+              verificationEnv,
+              () => git(runner, worktree, ["status", "--porcelain"], true).length > 0,
+            );
+            for (const run of rerun.ran)
+              verification.push({ command: run.command, result: run.result });
+            if (rerun.failure !== undefined) {
+              report = { ...report, walk: { ...(report.walk ?? {}), repairs: verification } };
+              writeReport(report);
+              throw new RepairStop(rerun.failure, report.reportPath);
+            }
+          },
+        );
   let repairCommits = mergeRepairCommits(report.walk?.repairCommits, repaired);
   if (repaired.length > 0) {
     // Prove the repair in the lane before folding it into its declared owner.
