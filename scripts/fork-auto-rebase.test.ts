@@ -767,7 +767,7 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
     });
     assert.deepStrictEqual(evidence, {
       version: 1,
-      method: "sequential-rebase-stage3-provisional",
+      method: "sequential-rebase-walk-resolution",
       sourceSha: fixture.fork,
       baseSha: fixture.base,
       targetSha: fixture.conflict,
@@ -779,6 +779,7 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
           commit: fixture.fork,
           subject: "feat(test): fork stack change",
           domain: "fork-meta",
+          stage: "unresolved",
           path: "shared.txt",
           kind: "content",
         },
@@ -948,6 +949,7 @@ it("keeps sequential totals and overlap totals bound to their own rows", () => {
         domain: "fork-meta",
         path: index < 29 ? "repeated.ts" : `other-${index}.ts`,
         kind: index === 0 ? "add/add" : index === 1 ? "modify/delete" : "content",
+        stage: "unresolved",
       })).toSorted((a, b) => a.stop - b.stop),
     };
     for (const complete of [true, false]) {
