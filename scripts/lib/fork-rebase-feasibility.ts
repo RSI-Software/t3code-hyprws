@@ -60,9 +60,14 @@ export interface ForkRebaseFeasibility {
   };
 }
 
-interface MergeTreeResult {
+export interface MergeTreeResult {
   readonly tree: string;
   readonly conflicts: ReadonlyArray<string>;
+}
+
+export interface MergeTreeMemoEntry extends MergeTreeResult {
+  readonly left: string;
+  readonly right: string;
 }
 
 export interface ForkStackCommit {
@@ -130,6 +135,66 @@ export const runMergeTree = (
     right,
     git.runResult(["-c", "core.quotePath=false", "merge-tree", "--write-tree", left, right]),
   );
+
+const memoKey = (left: string, right: string): string => `${left}\0${right}`;
+
+/**
+ * Memoizes `git merge-tree` by commit pair, inside one walk and across processes.
+ * A pair of commit object ids fixes its merge result for good, so an entry seeded
+ * from another job's walk cannot go stale the way a derived report can; see
+ * `readFeasibilityArtifact` for how the fork sync workflow carries one.
+ */
+export class MergeTreeMemo {
+  private readonly results = new Map<string, MergeTreeResult>();
+  private readonly seeded = new Set<string>();
+  private carriedHits = 0;
+  private walkRepeats = 0;
+  private computedCount = 0;
+
+  constructor(seed: ReadonlyArray<MergeTreeMemoEntry> = []) {
+    for (const entry of seed) {
+      const key = memoKey(entry.left, entry.right);
+      this.results.set(key, { tree: entry.tree, conflicts: entry.conflicts });
+      this.seeded.add(key);
+    }
+  }
+
+  /** Merges reused from a seeded entry rather than run. */
+  get carried(): number {
+    return this.carriedHits;
+  }
+
+  /** Merges this walk asked for twice, which cost nothing either way. */
+  get repeats(): number {
+    return this.walkRepeats;
+  }
+
+  /** Merges this walk actually ran. */
+  get computed(): number {
+    return this.computedCount;
+  }
+
+  resolve(git: Pick<FeasibilityGit, "runResult">, left: string, right: string): MergeTreeResult {
+    const key = memoKey(left, right);
+    const cached = this.results.get(key);
+    if (cached !== undefined) {
+      if (this.seeded.has(key)) this.carriedHits += 1;
+      else this.walkRepeats += 1;
+      return cached;
+    }
+    this.computedCount += 1;
+    const result = runMergeTree(git, left, right);
+    this.results.set(key, result);
+    return result;
+  }
+
+  entries(): ReadonlyArray<MergeTreeMemoEntry> {
+    return [...this.results].map(([key, result]) => {
+      const [left = "", right = ""] = key.split("\0");
+      return { left, right, tree: result.tree, conflicts: result.conflicts };
+    });
+  }
+}
 
 const parseFirstParentCommits = (raw: string): ReadonlyArray<Omit<FeasibilityCommit, "tags">> =>
   raw
@@ -213,16 +278,10 @@ export const buildFeasibility = (
   sourceSha: string,
   targetSha: string,
   baseSha: string,
+  memo: MergeTreeMemo = new MergeTreeMemo(),
 ): ForkRebaseFeasibility => {
-  const cache = new Map<string, MergeTreeResult>();
-  const mergeTree = (left: string, right: string): MergeTreeResult => {
-    const key = `${left}\0${right}`;
-    const cached = cache.get(key);
-    if (cached !== undefined) return cached;
-    const result = runMergeTree(git, left, right);
-    cache.set(key, result);
-    return result;
-  };
+  const mergeTree = (left: string, right: string): MergeTreeResult =>
+    memo.resolve(git, left, right);
 
   const upstreamCommits = readUpstreamCommits(git, baseSha, targetSha);
   const changes: Array<FeasibilityBoundaryChange> = [];

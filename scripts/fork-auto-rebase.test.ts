@@ -48,6 +48,11 @@ import {
   type SequentialCensusEvidence,
 } from "./lib/fork-rebase-issues.ts";
 import { parseCensusFiles, parseLedger, censusChurn } from "./fork-churn-ledger.ts";
+import {
+  encodeFeasibilityArtifact,
+  parseFeasibilityArtifact,
+} from "./lib/fork-feasibility-artifact.ts";
+import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import {
   buildAutoRebasePlan,
@@ -91,6 +96,7 @@ it("parses bot modes and output flags", () => {
       githubOutput: true,
       summary: "summary.md",
       issueJson: "issues.json",
+      feasibility: null,
     },
   );
   assert.throws(() => parseArgs(["--mode", "maybe"]), UsageError);
@@ -331,6 +337,7 @@ const dryRunOptions = {
   githubOutput: false,
   summary: null,
   issueJson: null,
+  feasibility: null,
 };
 
 it("selects dependency setup from shared-base-to-target manifest changes", () => {
@@ -368,6 +375,71 @@ it("plans a no-op at the base and rejects an override beyond the clean window", 
       UsageError,
     );
     assert.throws(() => buildAutoRebasePlan(reader, fixture.fork, fixture.stable), UsageError);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+// The report job walks the same source and base an hour before the rebase job does;
+// these two cover what the rebase job may take from it and what it must redo.
+const carriedArtifactFor = (fixture: Fixture, targetSha: string) => {
+  const reader = new SystemGit(fixture.root);
+  const baseSha = reader.run(["merge-base", fixture.fork, "upstream/main"]).trim();
+  const memo = new MergeTreeMemo();
+  const feasibility = buildFeasibility(reader, fixture.fork, targetSha, baseSha, memo);
+  return parseFeasibilityArtifact(
+    encodeFeasibilityArtifact(
+      "vp run fork:rebase-report",
+      { sourceSha: fixture.fork, targetSha, baseSha },
+      feasibility,
+      memo,
+    ),
+  );
+};
+
+it("carries a feasibility walk computed against the same three shas", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    const walked = buildAutoRebasePlan(reader, fixture.fork, null);
+    const carried = buildAutoRebasePlan(
+      reader,
+      fixture.fork,
+      null,
+      carriedArtifactFor(fixture, walked.horizon?.sha ?? walked.baseSha),
+    );
+    assert.deepStrictEqual(carried.feasibility, walked.feasibility);
+    assert.deepStrictEqual(carried.target, walked.target);
+    assert.strictEqual(carried.feasibilitySource.carried, true);
+    assert.strictEqual(carried.feasibilitySource.refusal, null);
+    assert.strictEqual(carried.feasibilitySource.mergesComputed, 0);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("refuses a feasibility walk whose target moved and recomputes the same result", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    const walked = buildAutoRebasePlan(reader, fixture.fork, null);
+    // The stable tag is a real upstream commit, just not the one the plan targets.
+    const stale = buildAutoRebasePlan(
+      reader,
+      fixture.fork,
+      null,
+      carriedArtifactFor(fixture, fixture.stable),
+    );
+    assert.strictEqual(stale.feasibilitySource.carried, false);
+    assert.match(
+      stale.feasibilitySource.refusal ?? "",
+      /^targetSha [0-9a-f]{12} is now [0-9a-f]{12}$/,
+    );
+    assert.deepStrictEqual(stale.feasibility, walked.feasibility);
+    assert.deepStrictEqual(stale.target, walked.target);
+    // Every merge is addressed by its two commits, so the refused artifact still pays
+    // for the merges both walks share.
+    assert.ok(stale.feasibilitySource.mergesCarried > 0);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

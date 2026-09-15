@@ -18,6 +18,7 @@ import {
   verifyReplay,
   type AutoRebasePlan,
   type PositionedTag,
+  type FeasibilitySource,
   type ReplayVerifier,
   type VerificationDependencySetup,
 } from "./fork-auto-rebase-plan.ts";
@@ -44,6 +45,10 @@ import {
   type FeasibilityGit,
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
+import {
+  readFeasibilityArtifact,
+  type FeasibilityArtifact,
+} from "./lib/fork-feasibility-artifact.ts";
 import { pushResult, remoteBranchSha, restoreRemoteBranch } from "./lib/fork-rebase-push.ts";
 import {
   buildBlockedIssue,
@@ -72,6 +77,7 @@ export interface AutoRebaseOptions {
   readonly githubOutput: boolean;
   readonly summary: string | null;
   readonly issueJson: string | null;
+  readonly feasibility: string | null;
 }
 
 export interface AutoRebaseResult {
@@ -111,6 +117,7 @@ Options:
   --github-output            Write result fields to $GITHUB_OUTPUT
   --summary <path>           Write a Markdown run summary
   --issue-json <path>        Write blocked and stable-candidate issue data
+  --feasibility <path>       Carry a feasibility artifact from the report job
   -h, --help                 Show help
 `;
 
@@ -122,13 +129,14 @@ const defaultOptions = (): AutoRebaseOptions => ({
   githubOutput: false,
   summary: null,
   issueJson: null,
+  feasibility: null,
 });
 
 export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const booleans = new Set(["--fetch", "--dry-run", "--github-output"]);
-  const values = new Set(["--mode", "--target", "--summary", "--issue-json"]);
+  const values = new Set(["--mode", "--target", "--summary", "--issue-json", "--feasibility"]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
@@ -154,6 +162,7 @@ export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOpti
       options.mode = value;
     } else if (argument === "--target") options.target = value;
     else if (argument === "--summary") options.summary = value;
+    else if (argument === "--feasibility") options.feasibility = value;
     else options.issueJson = value;
   }
   return options;
@@ -344,6 +353,33 @@ export const rehearseStopCensus = (
     NodeFS.rmSync(worktree, { recursive: true, force: true });
     NodeFS.rmSync(cemetery, { recursive: true, force: true });
   }
+};
+
+/**
+ * A carried artifact is an optimization, never a dependency: a missing or malformed
+ * one is reported and the walk runs, because recomputing is always correct.
+ */
+const carriedArtifact = (path: string | null): FeasibilityArtifact | null => {
+  if (path === null) return null;
+  try {
+    return readFeasibilityArtifact(path);
+  } catch (error) {
+    if (process.env.FORK_QUIET !== "1") {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`auto-rebase: carried feasibility unusable (${message})\n`);
+    }
+    return null;
+  }
+};
+
+const reportFeasibilitySource = (source: FeasibilitySource): void => {
+  if (process.env.FORK_QUIET === "1") return;
+  const merges = `${String(source.mergesCarried)} merges carried, ${String(source.mergesComputed)} computed`;
+  process.stderr.write(
+    source.carried
+      ? `auto-rebase: feasibility carried from the report job (${merges})\n`
+      : `auto-rebase: feasibility walked${source.refusal === null ? "" : ` (carried walk refused: ${source.refusal})`} (${merges})\n`,
+  );
 };
 
 const censusUnavailableReason = (root: string, error: unknown): string => {
@@ -658,7 +694,13 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     if (options.fetch) fetchRefs(git);
     // Read exactly once. Every later hyprws mutation uses this expected old SHA.
     const oldSha = git.run(["rev-parse", "origin/hyprws^{commit}"]).trim();
-    const plan = buildAutoRebasePlan(git, oldSha, options.target);
+    const plan = buildAutoRebasePlan(
+      git,
+      oldSha,
+      options.target,
+      carriedArtifact(options.feasibility),
+    );
+    reportFeasibilitySource(plan.feasibilitySource);
     if (options.issueJson !== null)
       prepareAutoOutcome(
         NodePath.resolve(root, `${options.issueJson}.outcome.json`),

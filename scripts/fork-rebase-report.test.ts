@@ -7,6 +7,7 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 
+import { parseFeasibilityArtifact } from "./lib/fork-feasibility-artifact.ts";
 import { parseForkRetirementLedger } from "./lib/fork-retirement-ledger.ts";
 import {
   MergeTreeError,
@@ -270,6 +271,7 @@ it("parses cron and manual output options and rejects ambiguous argv", () => {
       markdownOut: "state.md",
       fetch: true,
       check: true,
+      feasibilityOut: null,
     },
   );
   assert.throws(() => parseArgs(["--fetch", "--fetch"]), UsageError);
@@ -538,6 +540,42 @@ it("writes the report once and reports unchanged outputs on a rerun", () => {
       "unchanged: report.md",
     ]);
     assert.strictEqual(NodeFS.statSync(markdownPath).mtimeMs, writtenAt);
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
+});
+
+it("writes a carryable feasibility walk beside the report", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    const args = [
+      "--json-out",
+      "report.json",
+      "--markdown-out",
+      "report.md",
+      "--feasibility-out",
+      "walk.json",
+    ];
+    const output = captureStdout(() => {
+      assert.strictEqual(run(args, fixtureRepo.root), 0);
+    });
+    assert.include(output, "feasibility: walk.json");
+    const artifact = parseFeasibilityArtifact(
+      NodeFS.readFileSync(NodePath.join(fixtureRepo.root, "walk.json"), "utf8"),
+    );
+    const report = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(fixtureRepo.root, "report.json"), "utf8"),
+    ) as ForkRebaseReport;
+    assert.strictEqual(artifact.sourceSha, report.hyprws.sha);
+    assert.strictEqual(artifact.targetSha, report.upstream.sha);
+    assert.strictEqual(artifact.baseSha, report.sharedBase.sha);
+    assert.deepStrictEqual(artifact.feasibility, report.feasibility);
+    assert.ok(artifact.mergeTree.length > 0);
+    assert.strictEqual(
+      run([...args, "--check"], fixtureRepo.root),
+      2,
+      "a run artifact cannot be checked like a tracked output",
+    );
   } finally {
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
