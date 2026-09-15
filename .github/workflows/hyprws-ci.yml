@@ -2,9 +2,9 @@ name: hyprws CI
 
 # Fork-only CI for RSI-Software/t3code-hyprws. Upstream's ci.yml targets
 # Blacksmith runners the fork does not have, so it stays disabled on the fork
-# (docs/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
+# (docs/fork/operations/fork-sync.md). Jobs run on GitHub-hosted runners, which are
 # free for a public repository. Mirror upstream ci.yml step changes here on
-# every rebase (docs/internals/fork-delta.md, distribution).
+# every rebase (docs/fork/internals/fork-delta.md, distribution).
 
 on:
   # No `ready_for_review`: GitHub already runs `pull_request` on a draft, so the
@@ -23,8 +23,6 @@ on:
   push:
     branches:
       - hyprws
-      - hyprws-next
-      - "rehearse/**"
       - "release/**"
 
 concurrency:
@@ -58,7 +56,10 @@ jobs:
 
       # The ledger compares against upstream, which the fork checkout does not
       # carry. On a pull request, inspect the branch head rather than the
-      # synthetic merge commit, which has no trailers.
+      # synthetic merge commit, which has no trailers. The flag derivation is
+      # not restated here: scripts/lib/fork-ci-flags.ts owns it, and
+      # `vp run fork:ci` calls the same helper locally; this step only
+      # provisions the remotes the derivation reads.
       - name: Fork ledger
         id: fork_ledger
         env:
@@ -67,76 +68,21 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch --no-tags upstream main
           vp run fork:delta --check --head "$HEAD_SHA"
-          BASE=$(git merge-base upstream/main "$HEAD_SHA")
-          SINCE=$(git merge-base origin/hyprws "$HEAD_SHA" 2>/dev/null || echo "")
-          if [ -z "$SINCE" ] || [ "$SINCE" = "$(git rev-parse "$HEAD_SHA")" ]; then
-            SINCE="$HEAD_SHA^"
-          fi
-          echo "base=$BASE" >> "$GITHUB_OUTPUT"
-          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          node scripts/lib/fork-ci-flags.ts ledger --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-      # Pin to the fork's own base: enforce adopted authoring boundaries without
-      # blaming this head for unrelated changes landing on live upstream/main.
-      - name: Fork authoring guards
+      # Pin to the fork's own base: the rebase-scan table check judges this
+      # head against the upstream base it sits on, not live upstream/main.
+      # The argv comes from the shared helper; this step only replays it.
+      - name: Fork rebase scan
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          BASE: ${{ steps.fork_ledger.outputs.base }}
-          SINCE: ${{ steps.fork_ledger.outputs.since }}
         run: |
-          args=(--head "$HEAD_SHA" --target "$BASE" --since "$SINCE" --no-typecheck)
-          if [[ "$GITHUB_REF" == refs/heads/rehearse/rewrite-* ]]; then
-            # A history-only rewrite has no newly authored content. The scan
-            # itself refuses this scope unless every tree entry still matches
-            # the live fork source exactly.
-            args+=(--same-tree-rewrite-of origin/hyprws)
-          elif git rev-parse --verify --quiet origin/hyprws >/dev/null; then
-            # A rebase rehearsal replays the trunk onto a newer upstream release,
-            # so every fork commit is newly authored against `$SINCE` and the
-            # adopted guards would block the whole stack; the scan refuses this
-            # scope unless the head really left the trunk for a newer tagged base.
-            args+=(--replay-of origin/hyprws)
+          mapfile -t SCAN_ARGS < <(node scripts/lib/fork-ci-flags.ts scan --head "$HEAD_SHA")
+          if [ "${#SCAN_ARGS[@]}" -eq 0 ]; then
+            echo "flag derivation produced no argv" >&2
+            exit 1
           fi
-          vp run fork:scan "${args[@]}"
-
-      # A rebase scan is what the next sync reads before trusting an automerge,
-      # so a domain that changes a file upstream is changing too has to name it
-      # (docs/internals/fork-delta.md). Reuses the upstream remote the ledger
-      # step added. Advisory, not blocking: the only window with signal here is
-      # live upstream/main, and upstream landing a commit on a shared file is
-      # not the fault of the pull request under test. The blocking run is gates 3
-      # and 4 of the fork-sync skill, which scan against the new target tag while
-      # the fork still sits on the old one.
-      - name: Live upstream rebase scan (advisory)
-        id: live_scan
-        continue-on-error: true
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          SINCE: ${{ steps.fork_ledger.outputs.since }}
-        run: |
-          # Ledger guards warn about authoring shapes the whole fork stack
-          # already carries, so scope them to the commits this branch adds.
-          # `--since` only narrows the warnings; the scan verdict still covers
-          # every domain.
-          set +e
-          vp run fork:scan --head "$HEAD_SHA" --since "$SINCE" --no-typecheck \
-            2>&1 | tee "$RUNNER_TEMP/live-upstream-scan.log"
-          code=${PIPESTATUS[0]}
-          set -e
-          # Advisory, so the exit code cannot red the run — but a step that
-          # fails and reports nothing is the same silence the scan exists to
-          # remove. Surface it as an annotation and a summary section instead:
-          # upstream landing on a shared file is not the branch's fault, yet
-          # the sync lane still has to learn about it. The blocking live
-          # upstream scan runs in hyprws-upstream-sync.yml against trunk.
-          if [ "$code" -ne 0 ]; then
-            echo "::warning::live upstream rebase scan failed (exit $code): a domain's scan has no row for a shared file upstream now touches; see the step summary"
-            {
-              printf '## Live upstream rebase scan (advisory) failed\n\n```\n'
-              cat "$RUNNER_TEMP/live-upstream-scan.log"
-              printf '```\n'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit "$code"
+          vp run fork:scan "${SCAN_ARGS[@]}"
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
@@ -163,8 +109,69 @@ jobs:
           grep -nE "desktopBridge|getLocalEnvironmentBootstrap|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.cjs
           grep -n "__clerk_internal_electron_passkeys" apps/desktop/dist-electron/preload.cjs
 
-  # Everything except `t3` (apps/server); see upstream ci.yml for why
-  # `--parallel` is safe here.
+  # Merge-tree conflict gate: is this head harder to rebase than the
+  # trunk? `git merge-tree --write-tree upstream/main <ref>` lists every
+  # path whose merge back into live upstream/main conflicts. Running it
+  # for the PR head and for origin/hyprws separates conflicts the branch
+  # introduces (head-only paths red the job and land in the step summary)
+  # from conflicts the trunk already carries (base-inherited paths stay
+  # silent). Replaces the old advisory rebase scan, which blamed the
+  # branch for upstream landing on a shared file.
+  merge-tree:
+    name: merge-tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Merge-tree conflict check
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git remote add upstream https://github.com/pingdotgg/t3code.git 2>/dev/null || true
+          git fetch --no-tags upstream main
+          git fetch --no-tags origin hyprws
+          set +e
+          git merge-tree --write-tree --name-only --no-messages upstream/main "$HEAD_SHA" > "$RUNNER_TEMP/head-conflicts.txt"
+          head_code=$?
+          git merge-tree --write-tree --name-only --no-messages upstream/main origin/hyprws > "$RUNNER_TEMP/base-conflicts.txt"
+          base_code=$?
+          set -e
+          # 0 is clean, 1 is conflicts; anything else is a broken
+          # invocation that must fail loudly rather than pass silent.
+          if [ "$head_code" -ne 0 ] && [ "$head_code" -ne 1 ]; then
+            echo "merge-tree for head failed (exit $head_code)" >&2
+            exit "$head_code"
+          fi
+          if [ "$base_code" -ne 0 ] && [ "$base_code" -ne 1 ]; then
+            echo "merge-tree for origin/hyprws failed (exit $base_code)" >&2
+            exit "$base_code"
+          fi
+          tail -n +2 "$RUNNER_TEMP/head-conflicts.txt" | sort -u > "$RUNNER_TEMP/head-paths.txt"
+          tail -n +2 "$RUNNER_TEMP/base-conflicts.txt" | sort -u > "$RUNNER_TEMP/base-paths.txt"
+          comm -23 "$RUNNER_TEMP/head-paths.txt" "$RUNNER_TEMP/base-paths.txt" > "$RUNNER_TEMP/head-only.txt"
+          if [ -s "$RUNNER_TEMP/head-only.txt" ]; then
+            {
+              printf '## Merge-tree conflicts introduced by this head\n\n'
+              printf 'These paths conflict against `upstream/main` for this head but not for `origin/hyprws`:\n\n```\n'
+              cat "$RUNNER_TEMP/head-only.txt"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "head-only merge-tree conflicts:" >&2
+            cat "$RUNNER_TEMP/head-only.txt" >&2
+            exit 1
+          fi
+          echo "merge-tree clean: no head-only conflicts"
+
+  # Everything except `t3` (apps/server), `web`, and the fork's own
+  # scripts suite; see upstream ci.yml for why `--parallel` is safe here.
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -192,7 +199,67 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/web' --filter '!@t3tools/scripts' --filter '!@t3tools/monorepo' test
+
+  # `web` runs alone: its editable-file highlighting tests sit close to
+  # upstream's 15 s per-test budget on a GitHub-hosted runner, and time
+  # out whenever the pooled job is under load (fork issue 1053). Upstream
+  # tunes that budget for Blacksmith, so the fork widens it here rather
+  # than in the shared vite config.
+  test_web:
+    name: Test Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Test
+        run: vp run --filter @t3tools/web test --testTimeout=60000
+
+  # The fork's scripts suite is large and does not shrink with the
+  # product; a dedicated job keeps it from holding a pooled slot while
+  # `web` queues behind it.
+  test_scripts:
+    name: Test Scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Test
+        run: vp run --filter @t3tools/scripts test
 
   # apps/server runs its files one at a time; sharding spreads them over
   # runners instead of workers, exactly as upstream does.
