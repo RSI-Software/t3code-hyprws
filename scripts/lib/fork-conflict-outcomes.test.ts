@@ -744,3 +744,69 @@ it("lifts the file browser listing-call substitution already inside its marked s
     },
   );
 });
+
+it("refuses the settings-overrides env-mode-wire seam on its unmarked gap additions (worktrunk-hooks/settings-overrides-env-mode-wire)", () => {
+  const path = "packages/contracts/src/settings.ts";
+  seamRefuses(
+    path,
+    {
+      "worktrunk-hooks/settings-overrides-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+      },
+    },
+    {
+      base: "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown>);\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+      ours: "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown> & Record<string, unknown>);\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+      theirs:
+        "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown> & { // fork-hook: worktrunk-hooks/settings-overrides-env-mode-wire\n  // Fork: the `...Fork` sibling is deliberately NOT a standalone scopable\n  // key — it only travels with the wire slot it belongs to.\n  defaultThreadEnvModeFork?: unknown;\n});\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+    },
+    "adds lines beyond its marked hooks",
+  );
+});
+
+it("lifts the settings-restore env-mode-wire substitution (worktrunk-hooks/settings-restore-env-mode-wire)", () => {
+  const path = "apps/web/src/components/settings/SettingsPanels.tsx";
+  seamLifts(
+    path,
+    {
+      key: "worktrunk-hooks/settings-restore-env-mode-wire",
+      anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+    },
+    {
+      "worktrunk-hooks/settings-restore-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+      },
+    },
+    {
+      base: 'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+      ours: 'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(settings.defaultThreadEnvMode !== undefined\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+      theirs:
+        'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode // fork-hook: worktrunk-hooks/settings-restore-env-mode-wire\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+    },
+  );
+});
+
+it("lifts the decider env-mode-wire substitution (worktrunk-hooks/decider-thread-env-mode-wire)", () => {
+  const path = "apps/server/src/orchestration/decider.ts";
+  seamLifts(
+    path,
+    {
+      key: "worktrunk-hooks/decider-thread-env-mode-wire",
+      anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+    },
+    {
+      "worktrunk-hooks/decider-thread-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+      },
+    },
+    {
+      base: 'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: command.defaultThreadEnvMode }\n        : {}),\n    };\n  },\n);\n',
+      ours: 'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: command.defaultThreadEnvMode, locked: true }\n        : {}),\n    };\n  },\n);\n',
+      theirs:
+        'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: fromWireThreadEnvModeFields(command) } // fork-hook: worktrunk-hooks/decider-thread-env-mode-wire\n        : {}),\n    };\n  },\n);\n',
+    },
+  );
+});

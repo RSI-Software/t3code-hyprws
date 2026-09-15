@@ -668,6 +668,18 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/composerDraftStore.ts",
     anchor: { kind: "after-decl", symbol: "DraftThreadEnvModeSchema" },
   },
+  "worktrunk-hooks/settings-overrides-env-mode-wire": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+  },
+  "worktrunk-hooks/settings-restore-env-mode-wire": {
+    path: "apps/web/src/components/settings/SettingsPanels.tsx",
+    anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+  },
+  "worktrunk-hooks/decider-thread-env-mode-wire": {
+    path: "apps/server/src/orchestration/decider.ts",
+    anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+  },
   // github-issues — marked on RSI-Software/t3code-hyprws#954.
   "github-issues/chat-markdown-github-destination-import": {
     path: "apps/web/src/components/ChatMarkdown.tsx",
