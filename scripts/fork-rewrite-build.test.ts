@@ -1206,4 +1206,106 @@ catch (error) { if (!String(error).includes("GIT_CONFIG must be unset")) throw e
       assert.strictEqual(git(root, ["show-ref"]), refs);
     }),
   );
+
+  // The override record is the only part of a manifest naming a human decision, so it is bound to
+  // the slots it claims: neither half can be edited without the other refusing.
+  interface RecordedChange {
+    readonly path: string;
+    origin?: unknown;
+    readonly [field: string]: unknown;
+  }
+  interface RecordedManifest {
+    overrides?: {
+      attributed: Array<{ path: string; commit: string }>;
+      left: Array<string>;
+      unused: Array<string>;
+    };
+    readonly slots: Array<{ changes: Array<RecordedChange>; readonly [field: string]: unknown }>;
+    readonly [field: string]: unknown;
+  }
+  const copy = (value: unknown): RecordedManifest =>
+    JSON.parse(JSON.stringify(value)) as RecordedManifest;
+
+  it.effect("binds a recorded operator override to the changes and exclusions it claims", () =>
+    Effect.gen(function* () {
+      const { root, manifest } = yield* fixture();
+      // A manifest frozen before operator decisions were recorded still parses unchanged.
+      assert.strictEqual(parseRewriteManifest(copy(manifest)).overrides, undefined);
+      const folded = manifest.slots[0]!;
+      const paths = folded.changes.map((change) => change.path);
+      assert.isAtLeast(paths.length, 2);
+      // One path the operator attributed by hand, the rest derived, as a real fold mixes them.
+      const chosen = paths[0]!;
+      const derived = paths[1]!;
+      const recorded = copy(manifest);
+      recorded.overrides = {
+        attributed: [{ path: chosen, commit: folded.commit }],
+        left: ["docs/left-alone.md"],
+        unused: ["leave docs/never-touched.md"],
+      };
+      for (const change of recorded.slots[0]!.changes)
+        change.origin =
+          change.path === chosen ? { kind: "operator", commit: folded.commit } : { kind: "blame" };
+      const parsed = parseRewriteManifest(copy(recorded));
+      assert.deepStrictEqual(parsed.overrides?.left, ["docs/left-alone.md"]);
+      assert.deepStrictEqual(parsed.overrides?.attributed, [
+        { path: chosen, commit: folded.commit },
+      ]);
+      // Same rewrite, different record: the digest the receipt binds covers the decisions.
+      const built = buildRewrite(root, Buffer.from(encodeJson(recorded)));
+      assert.strictEqual(
+        built.finalTree,
+        buildRewrite(root, Buffer.from(encodeJson(manifest))).finalTree,
+      );
+      assert.notStrictEqual(
+        built.manifestSha256,
+        buildRewrite(root, Buffer.from(encodeJson(manifest))).manifestSha256,
+      );
+      const refuses = (tamper: (value: RecordedManifest) => void, message: RegExp): void => {
+        const tampered = copy(recorded);
+        tamper(tampered);
+        assert.throws(() => parseRewriteManifest(tampered), message);
+      };
+      // Provenance without the record, and the record without complete provenance.
+      refuses(
+        (value) => delete value.overrides,
+        /change provenance requires the manifest override record/,
+      );
+      refuses(
+        (value) => delete value.slots[0]!.changes[0]!.origin,
+        /recorded override set requires provenance on every change/,
+      );
+      // An attribution dropped from the record, and one that claims a path nothing folds.
+      refuses(
+        (value) => value.overrides!.attributed.splice(0, 1),
+        /operator-attributed change is absent from the override record/,
+      );
+      refuses(
+        (value) =>
+          value.overrides!.attributed.push({ path: "docs/unfolded.md", commit: folded.commit }),
+        /operator attribution folds nothing/,
+      );
+      // An exclusion the manifest folds anyway, in either list.
+      refuses((value) => value.overrides!.left.push(derived), /folds anyway/);
+      refuses((value) => value.overrides!.unused.push(`leave ${derived}`), /folds anyway/);
+      // An attribution repointed at another commit: outside the stack, or a slot that does not
+      // own the change it claims.
+      refuses(
+        (value) => value.overrides!.attributed.forEach((row) => (row.commit = "0".repeat(40))),
+        /operator attribution names a commit outside the stack/,
+      );
+      refuses(
+        (value) =>
+          value.overrides!.attributed.forEach((row) => (row.commit = manifest.slots[1]!.commit)),
+        /operator attribution disagrees with its folded change/,
+      );
+      // Moving a consistent attribution past the slot that already folds it.
+      refuses((value) => {
+        value.overrides!.attributed.forEach((row) => (row.commit = manifest.slots[1]!.commit));
+        for (const change of value.slots[0]!.changes)
+          if (change.path === chosen)
+            change.origin = { kind: "operator", commit: manifest.slots[1]!.commit };
+      }, /operator attribution is later than the first slot it folds/);
+    }),
+  );
 });
