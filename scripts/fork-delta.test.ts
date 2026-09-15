@@ -649,6 +649,128 @@ it("requires squash-body review when a schema rename hides a new literal", async
   }
 });
 
+it("drops a literal-added finding when the upstream base already ships the literal", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain", "restored"]);\n',
+    );
+    const base = commitAll(root, "fixture: base");
+    git(root, ["branch", "upstream/main", base]);
+    // The stack removes the literal, then a fork commit adds it right back: upstream ships it,
+    // so the addition is a restore.
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain"]);\n',
+    );
+    const parent = commitAll(root, "fixture: drop the literal");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain", "restored"]);\n',
+    );
+    commitAll(
+      root,
+      "refactor(contracts): restore the literal",
+      "Fork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const findings = await Effect.gen(function* () {
+      const commits = yield* readForkLog(parent, "HEAD", root);
+      return yield* collectWireShapeFindings(commits, root);
+    })
+      .pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise)
+      .then((map) => [...map.values()].flat());
+    assert.deepStrictEqual(findings, []);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps a literal-added finding when the upstream base lacks the literal", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain"]);\n',
+    );
+    const base = commitAll(root, "fixture: base");
+    // Upstream/main sits at the base, which does not ship "novel".
+    git(root, ["branch", "upstream/main", base]);
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadEnvMode = Schema.Literals(["plain", "novel"]);\n',
+    );
+    commitAll(
+      root,
+      "refactor(contracts): add a novel literal",
+      "Fork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const findings = await Effect.gen(function* () {
+      const commits = yield* readForkLog(base, "HEAD", root);
+      return yield* collectWireShapeFindings(commits, root);
+    })
+      .pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise)
+      .then((map) => [...map.values()].flat());
+    assert.deepStrictEqual(findings, [
+      {
+        schema: "ThreadEnvMode",
+        change: "literal added: novel",
+        hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+      },
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("judges a field addition against the upstream base the same way", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String, restored: Schema.String });\n',
+    );
+    const base = commitAll(root, "fixture: base");
+    git(root, ["branch", "upstream/main", base]);
+    // The stack drops both fields; the fork commit re-adds the upstream one and a novel one.
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String });\n',
+    );
+    const parent = commitAll(root, "fixture: drop the fields");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String, restored: Schema.String, novel: Schema.String });\n',
+    );
+    commitAll(
+      root,
+      "refactor(contracts): re-add the fields",
+      "Fork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const findings = await Effect.gen(function* () {
+      const commits = yield* readForkLog(parent, "HEAD", root);
+      return yield* collectWireShapeFindings(commits, root);
+    })
+      .pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise)
+      .then((map) => [...map.values()].flat());
+    assert.deepStrictEqual(findings, [
+      {
+        schema: "ThreadMode",
+        change: "required field added: novel",
+        hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+      },
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("excludes changes unique to a diverged live base", async () => {
   const { root, contracts } = createGitFixture();
   try {
