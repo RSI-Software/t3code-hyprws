@@ -642,6 +642,34 @@ it.layer(NodeServices.layer)("rewrite-build", (it) => {
       }),
   );
 
+  it.effect("buildTree rejects a path claimed as both a file and a directory within one slot", () =>
+    Effect.gen(function* () {
+      // "ordered/file" is a real nested entry at the original slot's tree; declaring a
+      // change to "ordered" itself (the directory prefix) as a blob forces the grouped
+      // tree builder to see the same name as both a file and a directory.
+      const { root, manifest, objects } = yield* fixture();
+      const stray = objects.entries(manifest.sourceTree).get("main.ts")!;
+      const clashed: RewriteManifest = {
+        ...manifest,
+        slots: [
+          {
+            ...manifest.slots[0]!,
+            readSet: [...manifest.slots[0]!.readSet, { path: "ordered", entry: null }],
+            changes: [
+              ...manifest.slots[0]!.changes,
+              { path: "ordered", before: null, after: stray, reason: "induced collision" },
+            ],
+          },
+          manifest.slots[1]!,
+        ],
+      };
+      assert.throws(
+        () => buildRewrite(root, Buffer.from(encodeJson(clashed))),
+        /file\/directory collision at ordered/,
+      );
+    }),
+  );
+
   it.effect("refuses partial/promisor indicators before object retrieval or transport", () =>
     Effect.gen(function* () {
       for (const indicator of [
