@@ -57215,6 +57215,2390 @@
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35010619865"
     },
     {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/4656f65f-9ab2-4fc6-8eaf-08a8d13c5179",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "candidate",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7bdd5860-2be3-4e33-b778-e0e54144712f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7bdd5860-2be3-4e33-b778-e0e54144712f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7bdd5860-2be3-4e33-b778-e0e54144712f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7bdd5860-2be3-4e33-b778-e0e54144712f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7a5f3f52-350e-4fbc-a4e9-6efcc3c7fd65/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7a5f3f52-350e-4fbc-a4e9-6efcc3c7fd65/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7a5f3f52-350e-4fbc-a4e9-6efcc3c7fd65/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7a5f3f52-350e-4fbc-a4e9-6efcc3c7fd65/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c8ec42c8-1377-421b-b658-6f1aa5026c75/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c8ec42c8-1377-421b-b658-6f1aa5026c75/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c8ec42c8-1377-421b-b658-6f1aa5026c75/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c8ec42c8-1377-421b-b658-6f1aa5026c75/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/26d75b42-7544-4073-b77e-5d59b0edd1ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/26d75b42-7544-4073-b77e-5d59b0edd1ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/26d75b42-7544-4073-b77e-5d59b0edd1ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/26d75b42-7544-4073-b77e-5d59b0edd1ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32210490-017c-4d25-a680-0b5272988470/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32210490-017c-4d25-a680-0b5272988470/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32210490-017c-4d25-a680-0b5272988470/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32210490-017c-4d25-a680-0b5272988470/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8bb2325f-71b3-4d19-995e-3e6d14816326/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8bb2325f-71b3-4d19-995e-3e6d14816326/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8bb2325f-71b3-4d19-995e-3e6d14816326/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8bb2325f-71b3-4d19-995e-3e6d14816326/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/73676ebe-82a8-4e18-9007-1a50a0551129/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/73676ebe-82a8-4e18-9007-1a50a0551129/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/73676ebe-82a8-4e18-9007-1a50a0551129/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/73676ebe-82a8-4e18-9007-1a50a0551129/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/0e0932cb-147c-4f56-bb97-ed7a236cd733/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/0e0932cb-147c-4f56-bb97-ed7a236cd733/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/0e0932cb-147c-4f56-bb97-ed7a236cd733/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/0e0932cb-147c-4f56-bb97-ed7a236cd733/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/d7db2584-c572-4501-8c38-e26819cd51f4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/d7db2584-c572-4501-8c38-e26819cd51f4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/d7db2584-c572-4501-8c38-e26819cd51f4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/d7db2584-c572-4501-8c38-e26819cd51f4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/99c7329f-dbc8-4b26-bde7-0ea1ff422009/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/99c7329f-dbc8-4b26-bde7-0ea1ff422009/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/99c7329f-dbc8-4b26-bde7-0ea1ff422009/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/99c7329f-dbc8-4b26-bde7-0ea1ff422009/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3d460607-c8dc-427c-9e48-b4729da1b9e5/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3d460607-c8dc-427c-9e48-b4729da1b9e5/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3d460607-c8dc-427c-9e48-b4729da1b9e5/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3d460607-c8dc-427c-9e48-b4729da1b9e5/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/003aab03-ebe9-4caf-ac73-cf70e9342503/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/003aab03-ebe9-4caf-ac73-cf70e9342503/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/003aab03-ebe9-4caf-ac73-cf70e9342503/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/003aab03-ebe9-4caf-ac73-cf70e9342503/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/253c26ba-d90b-461a-bbf7-3766937a4b79/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/253c26ba-d90b-461a-bbf7-3766937a4b79/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/253c26ba-d90b-461a-bbf7-3766937a4b79/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/253c26ba-d90b-461a-bbf7-3766937a4b79/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/48b1df3e-6575-4093-bc87-62381512dfc2/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/48b1df3e-6575-4093-bc87-62381512dfc2/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/48b1df3e-6575-4093-bc87-62381512dfc2/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/48b1df3e-6575-4093-bc87-62381512dfc2/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/4d1d37f7-e5f4-46cf-928a-50863dee7799/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/4d1d37f7-e5f4-46cf-928a-50863dee7799/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/4d1d37f7-e5f4-46cf-928a-50863dee7799/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/4d1d37f7-e5f4-46cf-928a-50863dee7799/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/68ac7cea-8536-4ca9-bccd-760c7657f3be/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/68ac7cea-8536-4ca9-bccd-760c7657f3be/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/68ac7cea-8536-4ca9-bccd-760c7657f3be/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/68ac7cea-8536-4ca9-bccd-760c7657f3be/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8c23080-3867-42b7-8211-8c039ed0adac/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8c23080-3867-42b7-8211-8c039ed0adac/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8c23080-3867-42b7-8211-8c039ed0adac/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8c23080-3867-42b7-8211-8c039ed0adac/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/50794cec-09d8-44e2-937a-713a62c885b4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/50794cec-09d8-44e2-937a-713a62c885b4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/50794cec-09d8-44e2-937a-713a62c885b4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/50794cec-09d8-44e2-937a-713a62c885b4/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/24aa3c01-991b-4a87-8cc8-3705104175ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/24aa3c01-991b-4a87-8cc8-3705104175ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/24aa3c01-991b-4a87-8cc8-3705104175ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/24aa3c01-991b-4a87-8cc8-3705104175ce/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8d183b13-2655-44c8-8363-069a4eba8216/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8d183b13-2655-44c8-8363-069a4eba8216/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8d183b13-2655-44c8-8363-069a4eba8216/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8d183b13-2655-44c8-8363-069a4eba8216/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/acd5daec-ef78-443a-8fd7-8fed9f8894b3/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/acd5daec-ef78-443a-8fd7-8fed9f8894b3/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/acd5daec-ef78-443a-8fd7-8fed9f8894b3/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/acd5daec-ef78-443a-8fd7-8fed9f8894b3/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a3faab26-06a0-4c26-8974-f3eb928eac7a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a3faab26-06a0-4c26-8974-f3eb928eac7a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a3faab26-06a0-4c26-8974-f3eb928eac7a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a3faab26-06a0-4c26-8974-f3eb928eac7a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/cdc0d477-7efc-4dea-9509-3bf89a322743/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/cdc0d477-7efc-4dea-9509-3bf89a322743/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/cdc0d477-7efc-4dea-9509-3bf89a322743/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/cdc0d477-7efc-4dea-9509-3bf89a322743/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/633da6f7-fd45-45cc-8928-36aeed8e04e9/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/633da6f7-fd45-45cc-8928-36aeed8e04e9/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/633da6f7-fd45-45cc-8928-36aeed8e04e9/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/633da6f7-fd45-45cc-8928-36aeed8e04e9/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2322f29c-d8fb-4a45-a773-0773570291fa/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2322f29c-d8fb-4a45-a773-0773570291fa/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2322f29c-d8fb-4a45-a773-0773570291fa/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2322f29c-d8fb-4a45-a773-0773570291fa/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3da3e24e-3eff-48f6-85f4-b2517291f4b1/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3da3e24e-3eff-48f6-85f4-b2517291f4b1/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3da3e24e-3eff-48f6-85f4-b2517291f4b1/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3da3e24e-3eff-48f6-85f4-b2517291f4b1/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/464316b8-9bab-4095-a18d-f6570b633bf8/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/464316b8-9bab-4095-a18d-f6570b633bf8/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/464316b8-9bab-4095-a18d-f6570b633bf8/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/464316b8-9bab-4095-a18d-f6570b633bf8/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bff1f2a6-8a6f-41e4-a73d-a1fb4f296865/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bff1f2a6-8a6f-41e4-a73d-a1fb4f296865/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bff1f2a6-8a6f-41e4-a73d-a1fb4f296865/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bff1f2a6-8a6f-41e4-a73d-a1fb4f296865/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f43f1bf9-ffb7-47b3-b8eb-aeb6fe37fc72/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f43f1bf9-ffb7-47b3-b8eb-aeb6fe37fc72/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f43f1bf9-ffb7-47b3-b8eb-aeb6fe37fc72/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f43f1bf9-ffb7-47b3-b8eb-aeb6fe37fc72/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5c039d20-5fab-4993-b4cc-09a67ebd29cb/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5c039d20-5fab-4993-b4cc-09a67ebd29cb/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5c039d20-5fab-4993-b4cc-09a67ebd29cb/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5c039d20-5fab-4993-b4cc-09a67ebd29cb/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c0917ef5-513d-4aa4-bff9-bd999ef501cd/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c0917ef5-513d-4aa4-bff9-bd999ef501cd/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c0917ef5-513d-4aa4-bff9-bd999ef501cd/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c0917ef5-513d-4aa4-bff9-bd999ef501cd/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/67eb2ce7-e59f-49d1-9036-1ccad06bd53f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/67eb2ce7-e59f-49d1-9036-1ccad06bd53f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/67eb2ce7-e59f-49d1-9036-1ccad06bd53f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/67eb2ce7-e59f-49d1-9036-1ccad06bd53f/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/56110771-3185-4539-92f8-ac6ff22aca74/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/56110771-3185-4539-92f8-ac6ff22aca74/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/56110771-3185-4539-92f8-ac6ff22aca74/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/56110771-3185-4539-92f8-ac6ff22aca74/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/860f8117-3084-485b-86f6-43591d7a1582/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/860f8117-3084-485b-86f6-43591d7a1582/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/860f8117-3084-485b-86f6-43591d7a1582/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/860f8117-3084-485b-86f6-43591d7a1582/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/03618170-2880-4072-858d-1ce46703c05a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/03618170-2880-4072-858d-1ce46703c05a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/03618170-2880-4072-858d-1ce46703c05a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/03618170-2880-4072-858d-1ce46703c05a/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c3d910d7-0277-4e9e-8c78-98eab8e13b87/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c3d910d7-0277-4e9e-8c78-98eab8e13b87/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c3d910d7-0277-4e9e-8c78-98eab8e13b87/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/c3d910d7-0277-4e9e-8c78-98eab8e13b87/unblock-rehearse/complete/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/36344383-577a-45f2-ac30-d3c6c3086ae3/unblock-rehearse/561b4fbb9a376ea3e8f8170826794297ace0e874d354d2ffc946c14c8ad74f5f/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/36344383-577a-45f2-ac30-d3c6c3086ae3/unblock-rehearse/561b4fbb9a376ea3e8f8170826794297ace0e874d354d2ffc946c14c8ad74f5f/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/36344383-577a-45f2-ac30-d3c6c3086ae3/unblock-rehearse/561b4fbb9a376ea3e8f8170826794297ace0e874d354d2ffc946c14c8ad74f5f/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/36344383-577a-45f2-ac30-d3c6c3086ae3/unblock-rehearse/561b4fbb9a376ea3e8f8170826794297ace0e874d354d2ffc946c14c8ad74f5f/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/dafb8d74-39d5-47d5-a9a3-344de14dd618/unblock-rehearse/781003fff381ae55ae46352206458acc94f0a8190ecb36eb82672e21c7c07ba5/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/dafb8d74-39d5-47d5-a9a3-344de14dd618/unblock-rehearse/781003fff381ae55ae46352206458acc94f0a8190ecb36eb82672e21c7c07ba5/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/dafb8d74-39d5-47d5-a9a3-344de14dd618/unblock-rehearse/781003fff381ae55ae46352206458acc94f0a8190ecb36eb82672e21c7c07ba5/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/dafb8d74-39d5-47d5-a9a3-344de14dd618/unblock-rehearse/781003fff381ae55ae46352206458acc94f0a8190ecb36eb82672e21c7c07ba5/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3357404b-4c43-43b1-b48f-c8a3aabbecef/unblock-fold/efe92ef17f2f015ec839d898925b2acb8eb1a148cdb5ace4ff434c16a37385dc/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3357404b-4c43-43b1-b48f-c8a3aabbecef/unblock-fold/efe92ef17f2f015ec839d898925b2acb8eb1a148cdb5ace4ff434c16a37385dc/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3357404b-4c43-43b1-b48f-c8a3aabbecef/unblock-fold/efe92ef17f2f015ec839d898925b2acb8eb1a148cdb5ace4ff434c16a37385dc/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3357404b-4c43-43b1-b48f-c8a3aabbecef/unblock-fold/efe92ef17f2f015ec839d898925b2acb8eb1a148cdb5ace4ff434c16a37385dc/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5663dbd7-187c-4d9f-b33f-db4c40676036/unblock-rehearse/8778ee537784ad64cf560af8d347a75f515d12359b671ac8dc221634aca3428c/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5663dbd7-187c-4d9f-b33f-db4c40676036/unblock-rehearse/8778ee537784ad64cf560af8d347a75f515d12359b671ac8dc221634aca3428c/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5663dbd7-187c-4d9f-b33f-db4c40676036/unblock-rehearse/8778ee537784ad64cf560af8d347a75f515d12359b671ac8dc221634aca3428c/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5663dbd7-187c-4d9f-b33f-db4c40676036/unblock-rehearse/8778ee537784ad64cf560af8d347a75f515d12359b671ac8dc221634aca3428c/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/00b93102-e6af-44b7-9927-87dc2d3ba6f7/unblock-rehearse/f4479d3f25e59da668e620b8ebe78dc9594fad2d6a28037875df9c5e8443f6b8/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/00b93102-e6af-44b7-9927-87dc2d3ba6f7/unblock-rehearse/f4479d3f25e59da668e620b8ebe78dc9594fad2d6a28037875df9c5e8443f6b8/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/00b93102-e6af-44b7-9927-87dc2d3ba6f7/unblock-rehearse/f4479d3f25e59da668e620b8ebe78dc9594fad2d6a28037875df9c5e8443f6b8/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "verification",
+      "status": "blocked",
+      "detail": "walk stopped at conflicts; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/00b93102-e6af-44b7-9927-87dc2d3ba6f7/unblock-rehearse/f4479d3f25e59da668e620b8ebe78dc9594fad2d6a28037875df9c5e8443f6b8/snapshot-e93a245a595b9fded8382ff8a38b477a2a630f402c5aa99ca5b6afa2b6dcc943",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2bc158ad-e212-48ea-8292-466a441b846c/unblock-rehearse/complete/snapshot-1d055b1a05a1d4f7671d1e7988a5bf4c88c81fe285de92dc0dbe6b304ecfc031",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "fe2c691ee099d32f045707ca5f6dee31b2b3cdf7",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2bc158ad-e212-48ea-8292-466a441b846c/unblock-rehearse/complete/snapshot-1d055b1a05a1d4f7671d1e7988a5bf4c88c81fe285de92dc0dbe6b304ecfc031",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2bc158ad-e212-48ea-8292-466a441b846c/unblock-rehearse/complete/snapshot-1d055b1a05a1d4f7671d1e7988a5bf4c88c81fe285de92dc0dbe6b304ecfc031",
+      "stage": "verification",
+      "status": "unknown",
+      "detail": "walk stopped at replayed; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2bc158ad-e212-48ea-8292-466a441b846c/unblock-rehearse/complete/snapshot-1d055b1a05a1d4f7671d1e7988a5bf4c88c81fe285de92dc0dbe6b304ecfc031",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bdca16fb-d236-4c80-8026-45d72d43ae9e/unblock-fold/complete/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bdca16fb-d236-4c80-8026-45d72d43ae9e/unblock-fold/complete/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bdca16fb-d236-4c80-8026-45d72d43ae9e/unblock-fold/complete/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "unknown",
+      "detail": "walk stopped at replayed; no matching verified-head receipt",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/bdca16fb-d236-4c80-8026-45d72d43ae9e/unblock-fold/complete/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2d0e9e5a-d1f5-47d0-81ca-7294535b2948/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2d0e9e5a-d1f5-47d0-81ca-7294535b2948/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2d0e9e5a-d1f5-47d0-81ca-7294535b2948/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:scan --target v0.0.41-nightly.20260915.1752 failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2d0e9e5a-d1f5-47d0-81ca-7294535b2948/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/ead3c83c-3d92-47df-a4aa-4799363c8dd1/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/ead3c83c-3d92-47df-a4aa-4799363c8dd1/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/ead3c83c-3d92-47df-a4aa-4799363c8dd1/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:scan --target v0.0.41-nightly.20260915.1752 failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/ead3c83c-3d92-47df-a4aa-4799363c8dd1/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8f3c4ef2-5f11-49cd-a300-7a509282d1f4/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8f3c4ef2-5f11-49cd-a300-7a509282d1f4/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8f3c4ef2-5f11-49cd-a300-7a509282d1f4/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:scan --target v0.0.41-nightly.20260915.1752 failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/8f3c4ef2-5f11-49cd-a300-7a509282d1f4/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/23c4f8ee-49de-4f13-9b14-7b1c9eb6278f/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/23c4f8ee-49de-4f13-9b14-7b1c9eb6278f/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/23c4f8ee-49de-4f13-9b14-7b1c9eb6278f/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:scan --target v0.0.41-nightly.20260915.1752 failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/23c4f8ee-49de-4f13-9b14-7b1c9eb6278f/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2de1c87b-b8ec-41d2-9f7a-2763e56fc6f3/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2de1c87b-b8ec-41d2-9f7a-2763e56fc6f3/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2de1c87b-b8ec-41d2-9f7a-2763e56fc6f3/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:scan --target v0.0.41-nightly.20260915.1752 failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/2de1c87b-b8ec-41d2-9f7a-2763e56fc6f3/unblock-check/fbb47e75096ba4c09a7e416f4646e8e123218a2b3fdd3d0cf2fc2a48fdcd3637/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98a0b08f-a2c4-49ca-a7f5-8fec85d25f96/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98a0b08f-a2c4-49ca-a7f5-8fec85d25f96/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98a0b08f-a2c4-49ca-a7f5-8fec85d25f96/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:delta --check failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98a0b08f-a2c4-49ca-a7f5-8fec85d25f96/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/906935e3-0e0d-4176-b63a-ecc6f70f3569/unblock-check/624e56ee1c3c4cc2f7019ea3c112b3317f925489b3996f0cacc3fee1d6c54af3/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/906935e3-0e0d-4176-b63a-ecc6f70f3569/unblock-check/624e56ee1c3c4cc2f7019ea3c112b3317f925489b3996f0cacc3fee1d6c54af3/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/906935e3-0e0d-4176-b63a-ecc6f70f3569/unblock-check/624e56ee1c3c4cc2f7019ea3c112b3317f925489b3996f0cacc3fee1d6c54af3/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "walk stopped at a replay that is not purely additive",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/906935e3-0e0d-4176-b63a-ecc6f70f3569/unblock-check/624e56ee1c3c4cc2f7019ea3c112b3317f925489b3996f0cacc3fee1d6c54af3/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8f8ac9a-4653-49e2-bab2-3a9b133e680f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8f8ac9a-4653-49e2-bab2-3a9b133e680f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8f8ac9a-4653-49e2-bab2-3a9b133e680f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:delta --check failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/b8f8ac9a-4653-49e2-bab2-3a9b133e680f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3e52dec1-2c06-45ca-9ae6-9b64bb415213/unblock-check/a6c4d16800ec8d2a23a49ec38eee0a6500e80a3f6b83c22256136cc6a651480a/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3e52dec1-2c06-45ca-9ae6-9b64bb415213/unblock-check/a6c4d16800ec8d2a23a49ec38eee0a6500e80a3f6b83c22256136cc6a651480a/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3e52dec1-2c06-45ca-9ae6-9b64bb415213/unblock-check/a6c4d16800ec8d2a23a49ec38eee0a6500e80a3f6b83c22256136cc6a651480a/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "repair: apps/server: vp test run src/auth/RpcAuthorization.fork.test.ts src/auth/RpcAuthorization.test.ts src/checkpointing/CheckpointDiffQuery.test.ts src/cli/pair.fork.test.ts src/cli/pair.test.ts src/cloud/pinnedRuntime.fork.test.ts src/cloud/pinnedRuntime.test.ts src/environment/ServerEnvironment.fork.test.ts src/environment/ServerEnvironment.test.ts src/git/GitManager.test.ts src/git/GitWorkflowService.fork.test.ts src/git/GitWorkflowService.test.ts src/orchestration/Layers/CheckpointReactor.fork.test.ts src/orchestration/Layers/CheckpointReactor.test.ts src/orchestration/Layers/OrchestrationEngine.test.ts src/orchestration/Layers/ProjectionPipeline.test.ts src/orchestration/Layers/ProjectionSnapshotQuery.fork.test.ts src/orchestration/Layers/ProjectionSnapshotQuery.test.ts src/orchestration/Layers/ProviderCommandReactor.fork.test.ts src/orchestration/Layers/ProviderCommandReactor.test.ts src/orchestration/Layers/ProviderRuntimeIngestion.fork.test.ts src/orchestration/Layers/ProviderRuntimeIngestion.test.ts src/orchestration/projector.test.ts src/persistence/Layers/Sqlite.test.ts src/project/AgentSessionScanner.test.ts src/project/ProjectSetupScriptRunner.fork.test.ts src/project/ProjectSetupScriptRunner.test.ts src/project/RepositoryIdentityResolver.fork.test.ts src/project/RepositoryIdentityResolver.test.ts src/provider/Layers/ClaudeAdapter.fork.test.ts src/provider/Layers/ClaudeAdapter.test.ts src/provider/Layers/GrokAdapter.test.ts src/provider/Layers/ProviderService.test.ts src/provider/Layers/ProviderSessionReaper.test.ts src/pullRequest/GitHubPullRequestCli.fork.test.ts src/pullRequest/GitHubPullRequestCli.test.ts src/pullRequest/GitHubPullRequestProvider.test.ts src/pullRequest/PullRequestService.fork.test.ts src/pullRequest/PullRequestService.test.ts src/server.test.ts src/serverRuntimeStartup.fork.test.ts src/serverRuntimeStartup.test.ts src/serverRuntimeState.test.ts src/sourceControl/GitHubCli.fork.test.ts src/sourceControl/GitHubCli.test.ts src/sourceControl/GitHubSourceControlProvider.test.ts src/vcs/GitVcsDriver.test.ts src/workspace/WorkspaceEntries.fork.test.ts src/workspace/WorkspaceEntries.test.ts src/workspace/WorkspaceSearchIndex.test.ts",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/3e52dec1-2c06-45ca-9ae6-9b64bb415213/unblock-check/a6c4d16800ec8d2a23a49ec38eee0a6500e80a3f6b83c22256136cc6a651480a/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/865088b7-1c9f-499d-aa07-207fc72a78a5/unblock-check/7c49766cb0728e77b567f9ecf8ad58dfd42402471405796bb3621ff5bec73e68/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/865088b7-1c9f-499d-aa07-207fc72a78a5/unblock-check/7c49766cb0728e77b567f9ecf8ad58dfd42402471405796bb3621ff5bec73e68/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/865088b7-1c9f-499d-aa07-207fc72a78a5/unblock-check/7c49766cb0728e77b567f9ecf8ad58dfd42402471405796bb3621ff5bec73e68/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "replay commit count changed: 276 -> 285",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/865088b7-1c9f-499d-aa07-207fc72a78a5/unblock-check/7c49766cb0728e77b567f9ecf8ad58dfd42402471405796bb3621ff5bec73e68/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/1a429d9d-06be-4f5a-8e3a-6be2bacc2cef/unblock-check/8df617d4f9643aeabcb15366c9ee6d2fc6693338eee167b77b1430f4185ba798/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/1a429d9d-06be-4f5a-8e3a-6be2bacc2cef/unblock-check/8df617d4f9643aeabcb15366c9ee6d2fc6693338eee167b77b1430f4185ba798/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/1a429d9d-06be-4f5a-8e3a-6be2bacc2cef/unblock-check/8df617d4f9643aeabcb15366c9ee6d2fc6693338eee167b77b1430f4185ba798/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "repair: apps/web: vp test run src/components/ChatMarkdown.fork.test.tsx src/components/ChatMarkdown.test.tsx src/components/ChatView.logic.test.ts src/components/Sidebar.drag.fork.test.ts src/components/Sidebar.drag.test.ts src/components/Sidebar.logic.fork.test.ts src/components/Sidebar.logic.test.ts src/components/chat/MessagesTimeline.test.tsx src/components/chat/TraitsPicker.test.ts src/components/files/projectFilesQueryState.test.ts src/components/files/projectFilesQueryState.test.tsx src/components/pullRequest/PullRequestSummaryTab.test.tsx src/components/settings/KeybindingsSettings.logic.test.ts src/components/settings/scopedSettings.test.ts src/components/settings/settingsSearch.fork.test.ts src/components/settings/settingsSearch.test.ts src/connection/platform.test.ts src/keybindings.fork.test.ts src/keybindings.test.ts src/lib/openPullRequestLink.fork.test.ts src/lib/openPullRequestLink.test.ts src/state/shell.test.ts",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/1a429d9d-06be-4f5a-8e3a-6be2bacc2cef/unblock-check/8df617d4f9643aeabcb15366c9ee6d2fc6693338eee167b77b1430f4185ba798/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fed2eaec-2d5b-478b-9233-45edb00ec22f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fed2eaec-2d5b-478b-9233-45edb00ec22f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fed2eaec-2d5b-478b-9233-45edb00ec22f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:delta --check failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fed2eaec-2d5b-478b-9233-45edb00ec22f/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98aa9520-e158-4183-8af7-2de3a2ec68a1/unblock-check/1dc7e5fd2059899309fd03ad2044072bfe00143ae8aee51e4ee145f317be8b0f/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98aa9520-e158-4183-8af7-2de3a2ec68a1/unblock-check/1dc7e5fd2059899309fd03ad2044072bfe00143ae8aee51e4ee145f317be8b0f/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98aa9520-e158-4183-8af7-2de3a2ec68a1/unblock-check/1dc7e5fd2059899309fd03ad2044072bfe00143ae8aee51e4ee145f317be8b0f/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "--seam-owner for apps/mobile/src/features/files/useFileTreeEntries.ts names 409df2ba859bfa89dc631ab4a84b6899459b7b51, which is not a fork commit in 50ff4c371eab..HEAD",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/98aa9520-e158-4183-8af7-2de3a2ec68a1/unblock-check/1dc7e5fd2059899309fd03ad2044072bfe00143ae8aee51e4ee145f317be8b0f/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fe6f7a62-4826-4df4-89f3-073875dcbaf2/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fe6f7a62-4826-4df4-89f3-073875dcbaf2/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fe6f7a62-4826-4df4-89f3-073875dcbaf2/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "vp run --no-cache fork:delta --check failed",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fe6f7a62-4826-4df4-89f3-073875dcbaf2/unblock-check/3d2d9a76a05ba0ef56814cc1f54ed7b1b2f08f2e6e24d21f0e581f540cc11096/snapshot-e0c686a499b7ed3116e9e0bf78254dfedea69a0cb94f7172668482118571e2e5",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a38a9fb1-aec8-402c-8498-a1dd192121d6/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a38a9fb1-aec8-402c-8498-a1dd192121d6/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a38a9fb1-aec8-402c-8498-a1dd192121d6/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "verification",
+      "status": "succeeded",
+      "detail": "retained checked lane head",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/a38a9fb1-aec8-402c-8498-a1dd192121d6/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f0289d05-fc3f-46a8-b448-28b4b0bfcbb3/unblock-check/ba8309603af11ba0fe71e562d05f45518e895c63f93323bed6222c41f100db69/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f0289d05-fc3f-46a8-b448-28b4b0bfcbb3/unblock-check/ba8309603af11ba0fe71e562d05f45518e895c63f93323bed6222c41f100db69/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f0289d05-fc3f-46a8-b448-28b4b0bfcbb3/unblock-check/ba8309603af11ba0fe71e562d05f45518e895c63f93323bed6222c41f100db69/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "verification",
+      "status": "failed",
+      "detail": "unblock-check requires replayed state, got checked",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/f0289d05-fc3f-46a8-b448-28b4b0bfcbb3/unblock-check/ba8309603af11ba0fe71e562d05f45518e895c63f93323bed6222c41f100db69/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fc2632ae-ab07-4c32-a7c5-49a5674936f1/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fc2632ae-ab07-4c32-a7c5-49a5674936f1/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fc2632ae-ab07-4c32-a7c5-49a5674936f1/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "verification",
+      "status": "succeeded",
+      "detail": "retained checked lane head",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/fc2632ae-ab07-4c32-a7c5-49a5674936f1/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7e2c0673-ce13-4ce3-b06f-217fc27c882d/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7e2c0673-ce13-4ce3-b06f-217fc27c882d/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7e2c0673-ce13-4ce3-b06f-217fc27c882d/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "verification",
+      "status": "succeeded",
+      "detail": "retained checked lane head",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/7e2c0673-ce13-4ce3-b06f-217fc27c882d/unblock-check/complete/snapshot-83a68477dfb550bb38a53f0338d50b5a02d3cb6c68675f7362ff40cef35f0ccf",
+      "stage": "apply",
+      "status": "not-attempted",
+      "detail": "checked/installed lane head is not trunk apply",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "stage": "verification",
+      "status": "succeeded",
+      "detail": "retained checked lane head",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "stage": "apply",
+      "status": "succeeded",
+      "detail": "durable trunk apply in retained report",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "stage": "rerere",
+      "status": "pending",
+      "detail": "rerere resolution disagreement at 15f02390570a31a2c0d97d311ca9a301ae5fb482/postimage; neither resolution was overwritten",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/32897b06-183d-41a9-9da8-5502459d3e70/unblock-apply/4e1f4699f107b323841462959027a3d1923264a2425a129f5127b447966aa543/snapshot-b284245f953616131fc44dc0c227d18da7aa97d84af50d733dd7e76812f36a2e",
+      "stage": "cache-export",
+      "status": "pending",
+      "detail": "in-lane refs/fork/rerere export pending",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "trigger": "unknown",
+      "executor": "agent",
+      "mode": "unknown",
+      "sourceSha": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "runUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "stage": "selection",
+      "status": "succeeded",
+      "detail": "target bound by the retained sync report",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "stage": "verification",
+      "status": "succeeded",
+      "detail": "retained checked lane head",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "stage": "apply",
+      "status": "succeeded",
+      "detail": "durable trunk apply in retained report",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "stage": "rerere",
+      "status": "succeeded",
+      "detail": "rerere publication published",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "local/5d93c7a3-2692-4c42-8e8a-e41e0cfecc85/report-collection/complete/snapshot-6dd8e807c581482b2f7603e0308a9662b8aac7f68e607c30dc1e24e044112690",
+      "stage": "cache-export",
+      "status": "succeeded",
+      "detail": "in-lane refs/fork/rerere export published",
+      "evidenceUrl": "local operator receipt"
+    },
+    {
       "kind": "target",
       "target": {
         "tag": "v0.0.41-nightly.20260915.1766",
