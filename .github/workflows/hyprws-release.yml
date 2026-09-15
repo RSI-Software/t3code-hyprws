@@ -1,16 +1,22 @@
 name: hyprws Release
 
 # Fork-only Linux x64 release channels for RSI-Software/t3code-hyprws.
-# Stable tags keep the v<upstream>-hyprws.<n> flow. Trunk landings publish their
-# pushed commit. Scheduled fallbacks and nightly manual dispatches publish
-# v<next>-hyprws-nightly.<date>.<run> from hyprws.
+# Stable tags keep the v<upstream>-hyprws.<n> flow. Trunk landings publish the
+# commit `hyprws CI` just finished checking, once that CI run completes (a
+# workflow_run trigger, not the push itself, so the gate's CI lookup always
+# finds a completed run instead of racing it). Scheduled fallbacks and
+# nightly manual dispatches publish v<next>-hyprws-nightly.<date>.<run> from
+# hyprws.
 # Upstream release.yml stays disabled on the fork; mirror its job shape, setup,
-# and action versions here on every rebase (docs/internals/fork-delta.md).
+# and action versions here on every rebase (docs/fork/internals/fork-delta.md).
 
 on:
-  push:
+  workflow_run:
+    workflows: ["hyprws CI"]
+    types: [completed]
     branches:
       - hyprws
+  push:
     tags:
       - "v*-hyprws.*"
       - "!v*-hyprws-nightly.*"
@@ -106,6 +112,8 @@ jobs:
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
       upstream_base: ${{ steps.upstream_base.outputs.tag }}
       delta_revision: ${{ steps.delta_revision.outputs.delta_revision }}
+      gate_proceed: ${{ steps.release_gate.outputs.gate_proceed }}
+      gate_reason: ${{ steps.release_gate.outputs.gate_reason }}
       ref: ${{ steps.release_ref.outputs.sha }}
     steps:
       - id: release_channel
@@ -120,6 +128,9 @@ jobs:
               ;;
             workflow_dispatch)
               channel="${DISPATCH_CHANNEL:-nightly}"
+              ;;
+            workflow_run)
+              channel=nightly
               ;;
             push)
               if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -148,7 +159,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ (github.event_name == 'push' || steps.release_channel.outputs.channel == 'stable') && github.sha || 'hyprws' }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || ((github.event_name == 'push' || steps.release_channel.outputs.channel == 'stable') && github.sha || 'hyprws') }}
           fetch-depth: 0
           sparse-checkout: |
             /*
@@ -158,6 +169,94 @@ jobs:
       - id: release_ref
         name: Resolve release commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The release gate: the cut runs only after the lease push that moved
+      # hyprws. The release sha must be the current tip of origin/hyprws (so
+      # it is what the lease push landed) and that sha must carry a green
+      # `hyprws CI` conclusion. A human trigger is not a reason to cut from a
+      # red trunk, so the stable tag channel passes the same gate — and a tag
+      # on an older commit, or a trunk that advanced past the tag, closes the
+      # gate: the cut stays shut and this step fails with the reason.
+      # Missing or red means no cut: the step fails and the build never runs.
+      # A workflow_run trigger, in contrast, fires for every hyprws CI
+      # conclusion including red ones; a non-success triggering run skips
+      # the cut without failing the step, since the CI run being red is the
+      # expected reason not to release, not a gate malfunction.
+      - id: release_gate
+        name: Gate the cut on the lease push and a green battery
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+        with:
+          script: |
+            const { execSync } = require('node:child_process');
+            const releaseSha = process.env.RELEASE_SHA;
+            // The checkout fetches only the ref it checks out, so origin/hyprws
+            // may not exist here (notably on stable-tag runs); fetch the trunk
+            // explicitly the way the merge-tree job does, and read FETCH_HEAD.
+            // A fetch failure closes the gate with a reason, never a throw.
+            const close = async (reason) => {
+              core.setOutput('gate_proceed', 'false');
+              core.setOutput('gate_reason', reason);
+              await core.summary.addHeading('Release gate: closed').addRaw(reason).write();
+              core.setFailed(reason);
+            };
+            // A workflow_run trigger fires for every hyprws CI conclusion,
+            // not only green ones. A red or cancelled hyprws CI is an
+            // expected reason to skip the cut, not a release-gate failure,
+            // so this branch skips without failing the step.
+            const skip = async (reason) => {
+              core.setOutput('gate_proceed', 'false');
+              core.setOutput('gate_reason', reason);
+              await core.summary.addHeading('Release gate: skipped').addRaw(reason).write();
+              core.info(reason);
+            };
+            if (context.eventName === 'workflow_run' && context.payload.workflow_run.conclusion !== 'success') {
+              await skip(
+                `skip: hyprws CI on ${context.payload.workflow_run.head_sha} concluded ` +
+                `${context.payload.workflow_run.conclusion}, not success`,
+              );
+              return;
+            }
+            let trunkTip;
+            try {
+              execSync('git fetch --no-tags origin hyprws', { stdio: ['ignore', 'pipe', 'pipe'] });
+              trunkTip = execSync('git rev-parse FETCH_HEAD', { encoding: 'utf8' }).trim();
+            } catch (error) {
+              await close(
+                `release gate closed: could not fetch the hyprws tip (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const conclusion = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { ...context.repo, head_sha: releaseSha, per_page: 100 },
+            ).then((runs) =>
+              runs.find((run) => run.name === 'hyprws CI' && run.head_sha === releaseSha)?.conclusion ?? null,
+            );
+            core.info(`release sha: ${releaseSha}; hyprws tip: ${trunkTip}; hyprws CI: ${conclusion ?? 'missing'}`);
+            let first;
+            try {
+              first = execSync(
+                `node scripts/fork-release-gate.ts --release-sha ${releaseSha} --trunk-tip ${trunkTip}` +
+                (conclusion === null ? '' : ` --ci-conclusion ${conclusion}`),
+                { encoding: 'utf8' },
+              ).trim().split('\n')[0] ?? '';
+            } catch (error) {
+              await close(
+                `release gate closed: the gate decision failed (${String(error.message || error).split('\n')[0]}); the cut stays closed`,
+              );
+              return;
+            }
+            const proceed = first.startsWith('proceed');
+            const reason = first.replace(/^(proceed|skip):\s*/, '');
+            core.setOutput('gate_proceed', proceed ? 'true' : 'false');
+            core.setOutput('gate_reason', reason);
+            if (!proceed) {
+              await close(reason);
+              return;
+            }
+            await core.summary.addHeading('Release gate: open').addRaw(reason).write();
 
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
@@ -237,6 +336,7 @@ jobs:
     needs: [preflight, check_changes]
     if: |
       !failure() && !cancelled() && needs.preflight.result == 'success' &&
+      needs.preflight.outputs.gate_proceed == 'true' &&
       (github.event_name != 'schedule' || needs.check_changes.outputs.has_changes == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -417,18 +517,6 @@ jobs:
               | grep -Fvx "$CURRENT_TAG" || true
           )"
 
-          {
-            echo "### Nightly prune"
-            echo
-            if [[ -z "$stale_tags" ]]; then
-              echo "none"
-            else
-              while IFS= read -r tag; do
-                echo "- \`$tag\`"
-              done <<< "$stale_tags"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
           if [[ -z "$stale_tags" ]]; then
             echo "No old nightly releases to prune."
             exit 0
@@ -438,57 +526,3 @@ jobs:
             echo "Deleting old nightly release and tag: $tag"
             gh release delete "$tag" --cleanup-tag --yes
           done <<< "$stale_tags"
-
-  outcome:
-    name: Retain distribution outcome
-    needs: [preflight, build, release]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      FORK_RELEASE_NEEDS: ${{ toJSON(needs) }}
-      FORK_RELEASE_OUTCOME_FILE: fork-release-outcome-receipts.json
-    steps:
-      # The push credential belongs on the checkout, not on the step that pushes.
-      # Only this job set persist-credentials: false, which moves the action's
-      # "Removing auth" block out of its post-step and into the main step. That
-      # block runs `git submodule foreach --recursive`, and the tree carries
-      # gitlinks .gitmodules does not declare, so it exited 128 and the job never
-      # reached the receipt writer.
-      - name: Checkout receipt collector
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.preflight.outputs.ref || github.sha }}
-          fetch-depth: 0
-          token: ${{ secrets.HYPRWS_MIRROR_TOKEN }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - name: Retain release outcome
-        env:
-          FORK_OUTCOME_EXPORT: ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          printf '%s\n' "$FORK_RELEASE_NEEDS" > "$RUNNER_TEMP/fork-release-needs.json"
-          git remote add upstream https://github.com/pingdotgg/t3code.git
-          git fetch --tags upstream main
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node scripts/fork-churn.ts outcome --release --push
-
-      - name: Verify retained release outcome
-        run: test -s "$RUNNER_TEMP/$FORK_RELEASE_OUTCOME_FILE"
-
-      - name: Upload distribution evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-outcomes-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/${{ env.FORK_RELEASE_OUTCOME_FILE }}
-            ${{ runner.temp }}/fork-release-needs.json
-          if-no-files-found: error
-          retention-days: 90
