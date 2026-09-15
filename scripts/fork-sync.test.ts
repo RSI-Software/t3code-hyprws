@@ -4256,7 +4256,7 @@ it("commits what a repair rewrote as the walk's own attributable commit", () => 
     const deltaChecks = state.runner.calls.filter(
       ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
     );
-    assert.strictEqual(deltaChecks.length, 2);
+    assert.strictEqual(deltaChecks.length, 3);
 
     assert.isUndefined(checked.walk?.repairCommits);
     // What the apply publishes is the repaired head, and the record binds it.
@@ -4392,7 +4392,7 @@ it("commits a hand-repaired lane as a seam fixup before the additive proof runs"
     );
     const seamProofAt = state.runner.calls.indexOf(deltaChecks[1]!);
     assert.isTrue(seamProofAt > commitAt, "the seam commit must precede its delta proof");
-    assert.strictEqual(deltaChecks.length, 2);
+    assert.strictEqual(deltaChecks.length, 3);
     // The head binding follows the seam commit — the additive proof and every later guard read
     // the head that contains the operator's repairs. The fixup itself is filtered once
     // autosquash folds it into its owner.
@@ -4469,6 +4469,45 @@ it("--seam-owner declares the owner of a path no fork commit touched", () => {
     assert.strictEqual(commits.length, 1);
     assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
     assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a fixup whose owner diff fails the delta stops the check after the autosquash", () => {
+  const state = seamRepairedRun();
+  // The gate and the seam proof pass while the repair is a transient fixup; the post-autosquash
+  // proof reads the owner diff the walk will apply, and the stubbed wire-shape failure stops it.
+  const deltaKey: ReadonlyArray<string> = ["run", "--no-cache", "fork:delta", "--check"];
+  state.runner.setSequence("vp", deltaKey, [
+    { status: 0, stdout: "", stderr: "" },
+    { status: 0, stdout: "", stderr: "" },
+    { status: 1, stdout: "", stderr: "failed: owner diff violates the wire shape\n" },
+  ]);
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.include(message, "fork:delta --check");
+    assert.include(message, "wire shape");
+    // The failing proof ran after the autosquash, on the folded stack.
+    const autosquashAt = state.runner.calls.findIndex(({ args }) => args.includes("--autosquash"));
+    const failingDelta = state.runner.calls.filter(
+      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
+    )[2]!;
+    assert.isTrue(
+      state.runner.calls.indexOf(failingDelta) > autosquashAt,
+      "the post-autosquash delta proof must follow the autosquash",
+    );
+    assert.strictEqual(
+      validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8"))).stage,
+      "replayed",
+    );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
