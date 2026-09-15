@@ -997,13 +997,12 @@ export default function FilePreviewPanel({
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
   const richMarkdownPreview = resolveRichMarkdownPreviewMode({
-    // fork-hook: markdown-editing/rich-preview-mode
     relativePath: previewPath,
     fileState: file.data === null ? "loading" : file.data.truncated ? "truncated" : "ready",
     renderPreferred: renderMarkdownPreferred,
     revealHandled,
     readOnly: isHostFile,
-  });
+  }); // fork-hook: markdown-editing/rich-preview-mode
   const renderMarkdown = richMarkdownPreview.rendered; // fork-hook: markdown-editing/rich-preview-rendered
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1134,15 +1133,9 @@ export default function FilePreviewPanel({
           ) : null}
           {canToggleRendered && renderedMode ? (
             <FileSurfaceAction
-              label={
-                isMarkdown
-                  ? richMarkdownPreview.tooltipLabel
-                  : renderedToggleLabel(renderedMode, rendered)
-              } /* fork-hook: markdown-editing/rich-preview-toggle-label */
+              label={renderedToggleLabel(renderedMode, rendered)}
               pressed={rendered}
-              disabled={
-                richMarkdownPreview.toggleDisabled
-              } /* fork-hook: markdown-editing/rich-preview-toggle-disabled */
+              {...richMarkdownPreview.toggleProps} /* fork-hook: markdown-editing/rich-preview-toggle-props */
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);

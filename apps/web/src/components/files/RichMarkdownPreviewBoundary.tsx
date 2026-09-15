@@ -23,6 +23,16 @@ const FILE_SAVE_DEBOUNCE_MS = 500;
 
 export type MarkdownPreviewFileState = "loading" | "ready" | "truncated";
 
+/**
+ * Spread over the upstream rendered-preview toggle, after its own `label`, so the fork overrides
+ * that prop instead of replacing the line that sets it. A non-Markdown file carries no `label`
+ * here and keeps upstream's.
+ */
+export interface RichMarkdownToggleProps {
+  readonly label?: string;
+  readonly disabled: boolean;
+}
+
 export interface RichMarkdownPreviewMode {
   readonly isMarkdown: boolean;
   readonly isRichMarkdown: boolean;
@@ -31,6 +41,7 @@ export interface RichMarkdownPreviewMode {
   readonly toggleDisabled: boolean;
   readonly toggleLabel: string;
   readonly tooltipLabel: string;
+  readonly toggleProps: RichMarkdownToggleProps;
 }
 
 export function resolveRichMarkdownPreviewMode(input: {
@@ -54,19 +65,25 @@ export function resolveRichMarkdownPreviewMode(input: {
       ? "Edit as rich markdown"
       : "Show rendered markdown";
 
+  const toggleDisabled = isMarkdown && input.fileState !== "ready";
+  const tooltipLabel =
+    isMarkdown && input.fileState === "truncated"
+      ? isRichMarkdown
+        ? "Rich editing is unavailable for truncated files"
+        : "Rendered preview is unavailable for truncated files"
+      : toggleLabel;
+
   return {
     isMarkdown,
     isRichMarkdown,
     rendered,
     richEditorEnabled: rendered && isRichMarkdown && !input.readOnly,
-    toggleDisabled: isMarkdown && input.fileState !== "ready",
+    toggleDisabled,
     toggleLabel,
-    tooltipLabel:
-      isMarkdown && input.fileState === "truncated"
-        ? isRichMarkdown
-          ? "Rich editing is unavailable for truncated files"
-          : "Rendered preview is unavailable for truncated files"
-        : toggleLabel,
+    tooltipLabel,
+    toggleProps: isMarkdown
+      ? { label: tooltipLabel, disabled: toggleDisabled }
+      : { disabled: false },
   };
 }
 
