@@ -608,3 +608,40 @@ it("checks schema v3 output for default and explicit targets and detects a moved
     NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
   }
 });
+
+it("reports a commit that starts empty as empty-commit, never as already-upstream", () => {
+  const fixtureRepo = makeGitFixture();
+  try {
+    git(fixtureRepo.root, ["switch", "fork-stack"]);
+    git(fixtureRepo.root, [
+      "commit",
+      "--allow-empty",
+      "-m",
+      "chore(fork): empty replay",
+      "-m",
+      "Fork-Domain: distribution\nFork-Tier: qol",
+    ]);
+    const emptySha = git(fixtureRepo.root, ["rev-parse", "HEAD"]);
+    const report = buildReport(
+      new SystemGit(fixtureRepo.root),
+      emptySha,
+      fixtureRepo.cleanTargetSha,
+    );
+    assert.deepStrictEqual(
+      report.retireCandidates.map((candidate) => [
+        candidate.commit,
+        candidate.signals.map((signal) => signal.kind),
+      ]),
+      [
+        [fixtureRepo.introducingSha, ["behaviour-overlap"]],
+        [fixtureRepo.alreadyUpstreamSha, ["already-upstream", "behaviour-overlap"]],
+        [emptySha, ["empty-commit"]],
+      ],
+    );
+    const evidence = report.retireCandidates[2]?.signals[0]?.evidence ?? "";
+    assert.include(evidence, "no file changes");
+    assert.include(evidence, "vacuous");
+  } finally {
+    NodeFS.rmSync(fixtureRepo.root, { recursive: true, force: true });
+  }
+});
