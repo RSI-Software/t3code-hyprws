@@ -31,6 +31,8 @@ export interface FeasibilitySource {
   readonly refusal: string | null;
   readonly mergesCarried: number;
   readonly mergesComputed: number;
+  /** Carried merges re-run because this object store lacked the tree the producer wrote. */
+  readonly mergesRewalked: number;
 }
 
 export interface AutoRebasePlan {
@@ -142,6 +144,7 @@ export const buildAutoRebasePlan = (
       refusal: carried.refusal,
       mergesCarried: carried.memo.carried,
       mergesComputed: carried.memo.computed,
+      mergesRewalked: carried.memo.rewalked,
     },
   };
 };

@@ -251,7 +251,9 @@ jobs:
 
       # An optimization, never a dependency: a missing or stale artifact only costs
       # the walk that `fork:auto-rebase` would have run anyway, so the download
-      # never fails the job.
+      # never fails the job. The memo it carries answers which paths conflict; the
+      # tree ids it records belong to the report job's object store, and this job
+      # re-walks any merge whose content it has to read.
       - name: Carry the feasibility walk
         id: carried_feasibility
         continue-on-error: true
@@ -323,6 +325,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/fork-churn.ts report --receipt "$RUNNER_TEMP/fork-churn-report-receipt.json"
 
+      # `outcome` skips when the rebase never wrote its outcome declarations, so a
+      # rebase that died before selecting a target leaves its own error as the last
+      # red step rather than this one.
       - name: Retain target outcomes
         if: always()
         env:
