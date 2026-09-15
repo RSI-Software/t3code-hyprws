@@ -276,7 +276,7 @@ const readBotMode = (runner: CommandRunner, root: string): BotMode => {
     if (/\b(?:HTTP 404|not found)\b/i.test(detail)) return "candidate";
     throw new Error(
       [
-        `${commandText("gh", args)} failed: ${detail}`,
+        `${commandText("gh", args)} failed${detail.length === 0 ? "" : `: ${detail}`}`,
         `a caller that cannot read repository variables sets ${BOT_VARIABLE} in the environment instead`,
       ].join("\n"),
     );
@@ -593,7 +593,7 @@ const mintLane = (
         );
   // A minted lane has no node_modules, and the first gate battery would fail
   // on module resolution before it ever reached a verdict.
-  requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree));
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, laneEnv(worktree), true);
   return worktree;
 };
 
@@ -788,6 +788,18 @@ const currentCommit = (
 
 const pendingConflicts = (runner: CommandRunner, cwd: string): ReadonlyArray<string> =>
   lines(git(runner, cwd, ["diff", "--name-only", "--diff-filter=U"], true));
+
+/**
+ * A streamed `git rebase` inherits stdio, so its stderr never reaches `CommandResult` — the
+ * operator already saw it live. A non-conflict rebase failure still needs a reason on the thrown
+ * error, so this reads the worktree's real state instead of the (now-empty) captured stderr.
+ */
+const rebaseFailureDetail = (runner: CommandRunner, cwd: string): string => {
+  const status = git(runner, cwd, ["status", "--porcelain=v1"], true);
+  return status.length > 0
+    ? `worktree state:\n${status}`
+    : "worktree is clean; see the streamed rebase output above for the failure detail";
+};
 
 /**
  * A rebase is running exactly while its state directory exists; `REBASE_HEAD` outlives the
@@ -1248,9 +1260,12 @@ const unblockRehearse = (
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+      true,
     );
     if (rebase.status !== 0 && pendingConflicts(runner, worktree).length === 0)
-      throw new Error(`git rebase failed without conflicts: ${rebase.stderr.trim()}`);
+      throw new Error(
+        `git rebase failed without conflicts: ${rebaseFailureDetail(runner, worktree)}`,
+      );
   } else if (
     report.stage === "conflicts" ||
     (report.stage === "folding" && report.activeFold !== undefined)
@@ -1363,9 +1378,12 @@ const unblockRehearse = (
         lane.worktree,
         undefined,
         { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+        true,
       );
       if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
-        throw new Error(`git rebase --skip failed without conflicts: ${continued.stderr.trim()}`);
+        throw new Error(
+          `git rebase --skip failed without conflicts: ${rebaseFailureDetail(runner, lane.worktree)}`,
+        );
     } else {
       const continued = runner.run(
         "git",
@@ -1373,10 +1391,11 @@ const unblockRehearse = (
         lane.worktree,
         undefined,
         { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
+        true,
       );
       if (continued.status !== 0 && pendingConflicts(runner, lane.worktree).length === 0)
         throw new Error(
-          `git rebase --continue failed without conflicts: ${continued.stderr.trim()}`,
+          `git rebase --continue failed without conflicts: ${rebaseFailureDetail(runner, lane.worktree)}`,
         );
     }
   } else
@@ -1703,7 +1722,7 @@ const runAdditivePhase = (
     if (repaired === undefined)
       throw new Error("additive repairs dirtied the tree but left no commit");
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
-    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     commit = repaired;
   }
   const retry = checkAdditive(runner, worktree, trees);
@@ -1821,7 +1840,7 @@ const unblockCheck = (
     );
   }
   if (drift === "snapshots") restoreSnapshotDrift(runner, worktree);
-  requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv);
+  requireSuccess(runner, "vp", ["i"], worktree, undefined, verificationEnv, true);
   const installedAfter = NodeFS.readFileSync(NodePath.join(worktree, "pnpm-lock.yaml"), "utf8");
   if (lockDriftClass(before, installedAfter) === "importers")
     throw new Error("vp i introduced importer drift after replay");
@@ -1847,7 +1866,15 @@ const unblockCheck = (
   ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
-    requireSuccess(runner, command.command, command.args, worktree, undefined, verificationEnv);
+    requireSuccess(
+      runner,
+      command.command,
+      command.args,
+      worktree,
+      undefined,
+      verificationEnv,
+      true,
+    );
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
   // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
@@ -1916,7 +1943,7 @@ const unblockCheck = (
   if (repaired.length > 0) {
     // Prove the repair in the lane before folding it into its declared owner.
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
-    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv);
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
   const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
@@ -1936,6 +1963,7 @@ const unblockCheck = (
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
+      true,
     );
     if (
       (report.folds ?? []).length > 0 &&
@@ -3263,6 +3291,15 @@ export const resolveAutoTarget = (
   return { target: newest, rule: "newest offered tag containing the block" };
 };
 
+/**
+ * Every caller keeps only `.value` and discards `.output`, so this monkeypatch's real job is
+ * suppressing subcommand chatter during the automated walk, not capturing it for later use. A
+ * streamed child (`stream: true` in fork-command.ts — `vp i`, the verification battery,
+ * `fork:delta --check`, the autosquash rebase) writes to fd 1 directly and never passes through
+ * `process.stdout.write`, so it bypasses this silencer and reaches the walk's own stdout (and
+ * whatever redirects that, e.g. `carry.log` in CI). That is intended: nothing here parses that
+ * output, and the extra lines make an operator's log more useful, not less.
+ */
 const captureStdout = <T>(effect: () => T): { readonly output: string; readonly value: T } => {
   let output = "";
   const original = process.stdout.write;
@@ -4874,12 +4911,20 @@ const rewriteRehearse = (
     const parsed = JSON.parse(laneResult) as Record<string, unknown>;
     worktree = String(parsed["worktree_path"] ?? parsed["worktreePath"] ?? parsed["path"] ?? "");
     if (!worktree) throw new Error("Worktrunk JSON omitted the worktree path");
-    requireSuccess(runner, "vp", ["i"], worktree, undefined, {
-      ...process.env,
-      PATH: [NodePath.join(worktree, "node_modules", ".bin"), process.env.PATH ?? ""].join(
-        NodePath.delimiter,
-      ),
-    } as NodeJS.ProcessEnv);
+    requireSuccess(
+      runner,
+      "vp",
+      ["i"],
+      worktree,
+      undefined,
+      {
+        ...process.env,
+        PATH: [NodePath.join(worktree, "node_modules", ".bin"), process.env.PATH ?? ""].join(
+          NodePath.delimiter,
+        ),
+      } as NodeJS.ProcessEnv,
+      true,
+    );
   } else {
     worktree = NodePath.join(root, ".tmp-rewrite-dry-run");
   }
