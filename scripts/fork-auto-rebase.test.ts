@@ -57,6 +57,7 @@ import {
 import type { CensusPartial } from "./lib/fork-census-partial.ts";
 import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
+import { createRebasedStack } from "./fork-auto-rebase-plan.ts";
 import {
   buildAutoRebasePlan,
   executeAutoRebase,
@@ -1526,5 +1527,48 @@ it("raises instead of falling back to bare vp when the replay worktree has no la
     git(fixture.root, ["worktree", "remove", "--force", worktree]);
     git(fixture.root, ["worktree", "prune"]);
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("drops a commit that starts empty from the clean-replay stack", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-empty-replay-"));
+  try {
+    git(root, ["init", "--quiet", "-b", "base"]);
+    git(root, ["config", "user.name", "Test User"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    NodeFS.writeFileSync(NodePath.join(root, "shared.txt"), "one\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "base"]);
+    const baseSha = git(root, ["rev-parse", "HEAD"]);
+
+    git(root, ["switch", "--quiet", "-c", "upstream-lane"]);
+    NodeFS.writeFileSync(NodePath.join(root, "upstream.txt"), "upstream\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "fix: upstream change"]);
+    const targetSha = git(root, ["rev-parse", "HEAD"]);
+
+    git(root, ["switch", "--quiet", "-c", "fork-stack", "base"]);
+    NodeFS.writeFileSync(NodePath.join(root, "fork.txt"), "fork\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "feat(test): fork adds its own file"]);
+    git(root, ["commit", "--allow-empty", "-m", "chore(fork): empty replay"]);
+    const withEmpty = git(root, ["rev-parse", "HEAD"]);
+    assert.strictEqual(git(root, ["rev-list", "--count", `${baseSha}..${withEmpty}`]), "2");
+
+    const replayed = createRebasedStack(
+      root,
+      withEmpty,
+      baseSha,
+      targetSha,
+      () => "shared-install",
+    );
+    // Only the real fork commit replays; the start-empty commit is gone from the result.
+    assert.strictEqual(git(root, ["rev-list", "--count", `${targetSha}..${replayed.sha}`]), "1");
+    assert.strictEqual(
+      git(root, ["log", "--format=%s", `${targetSha}..${replayed.sha}`]),
+      "feat(test): fork adds its own file",
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
   }
 });
