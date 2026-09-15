@@ -577,7 +577,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.keepAwakeWhileAgentsWork !== DEFAULT_UNIFIED_SETTINGS.keepAwakeWhileAgentsWork
       ? ["Keep awake while agents work"]
       : []),
-    ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+    ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode // fork-hook: worktrunk-hooks/settings-restore-env-mode-wire
       ? ["New thread mode"]
       : []),
     ...(settings.newWorktreesStartFromOrigin !==
