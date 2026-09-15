@@ -18,7 +18,7 @@
     "dev": "node --watch-path=src --watch-path=../../packages/contracts/src --watch-path=../../packages/effect-acp/src --watch-path=../../packages/effect-codex-app-server/src --watch-path=../../packages/provider-acp/src --watch-path=../../packages/provider-acp-registry/src --watch-path=../../packages/provider-core/src --watch-path=../../packages/provider-cursor/src --watch-path=../../packages/provider-grok/src --watch-path=../../packages/provider-muse/src --watch-path=../../packages/provider-opencode/src --watch-path=../../packages/provider-pi/src --watch-path=../../packages/provider-testing/src --watch-path=../../packages/shared/src --watch-path=../../packages/source-control-azure-devops/src --watch-path=../../packages/source-control-bitbucket/src --watch-path=../../packages/source-control-core/src --watch-path=../../packages/source-control-forgejo/src --watch-path=../../packages/source-control-github/src --watch-path=../../packages/source-control-gitlab/src --watch-path=../../packages/ssh/src --watch-path=../../packages/tailscale/src src/bin.ts",
     "build:bundle": "vp pack",
     "build:exe": "node scripts/cli.ts build-exe",
-    "build:bundle:dev": "vp pack --no-clean && vp pack src/service-launcher.ts --out-dir dist --no-clean",
+    "build:bundle:dev": "vp pack --no-clean",
     "start": "node dist/bin.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vp test run",
