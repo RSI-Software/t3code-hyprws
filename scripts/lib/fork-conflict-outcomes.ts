@@ -16,6 +16,7 @@ import {
   type ParsedForkHook,
 } from "./fork-hooks.ts";
 import { unexplainedRemoval } from "./fork-hook-alignment.ts";
+import * as TypeScript from "typescript-legacy";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
 import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
 import * as NodeCrypto from "node:crypto";
@@ -1043,6 +1044,45 @@ const dependencyArray = (
   };
 };
 
+/**
+ * Why `text` does not parse as the file `path` names it, in one line, or `null` when it parses.
+ * Sources and JSON are parsed by the walk's own dependency graph: the classic TypeScript compiler
+ * API in `typescript-legacy` (the root `typescript` package is the native compiler and exposes no
+ * parse API), `JSON.parse` for `.json`. Text that cannot be parsed is declined before the walk
+ * reaches the formatter, which would otherwise name a formatter error instead of the seam that
+ * minted it (RSI-Software/t3code-hyprws#665).
+ */
+const parseFailureMessage = (path: string, text: string): string | null => {
+  if (path.endsWith(".json")) {
+    try {
+      JSON.parse(text);
+      return null;
+    } catch (error) {
+      return (error instanceof Error ? error.message : "invalid JSON").replace(/\s+/g, " ").trim();
+    }
+  }
+  if (!/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(path)) return null;
+  const source = TypeScript.createSourceFile(path, text, {
+    languageVersion: TypeScript.ScriptTarget.Latest,
+  });
+  // `parseDiagnostics` is internal in the compiler's public surface, so it is read through a cast.
+  const diagnostics = (source as unknown as { parseDiagnostics: TypeScript.Diagnostic[] })
+    .parseDiagnostics;
+  const first = diagnostics[0];
+  if (first === undefined) return null;
+  return TypeScript.flattenDiagnosticMessageText(first.messageText, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/** The decline a keep-both resolution returns when its merged text does not parse. */
+const parseDecline = (path: string, text: string): UnresolvedOutcome | null => {
+  const message = parseFailureMessage(path, text);
+  return message === null
+    ? null
+    : { path, reason: `keep-both declined: merged text does not parse (${message})` };
+};
+
 const keepBoth = (
   runner: CommandRunner,
   worktree: string,
@@ -1051,7 +1091,9 @@ const keepBoth = (
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome => {
   const merged = mergeFile(runner, worktree, stages, "--diff3");
   if (merged === null) return { path, reason: "git merge-file could not merge this seam" };
-  if (merged.conflicts === 0 && !CONFLICT_MARKER.test(merged.text))
+  if (merged.conflicts === 0 && !CONFLICT_MARKER.test(merged.text)) {
+    const unparsed = parseDecline(path, merged.text);
+    if (unparsed !== null) return unparsed;
     return {
       text: merged.text,
       outcome: {
@@ -1061,6 +1103,7 @@ const keepBoth = (
         resolution: "outcome executor: three-way merge kept both sides",
       },
     };
+  }
   if (!everyConflictIsCoInsertion(merged.text))
     return {
       path,
@@ -1075,6 +1118,11 @@ const keepBoth = (
     };
   const union = mergeFile(runner, worktree, stages, "--union");
   if (union === null) return { path, reason: "git merge-file could not produce a union merge" };
+  // git's union merge interleaves lines the two sides share, so even a pure co-insertion can
+  // splice both sides' additions into one enclosing object or list and duplicate a property key
+  // there (RSI-Software/t3code-hyprws#665). Parse what comes out before the walk builds on it.
+  const unparsed = parseDecline(path, union.text);
+  if (unparsed !== null) return unparsed;
   return {
     text: union.text,
     outcome: {
