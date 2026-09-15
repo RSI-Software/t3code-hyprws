@@ -86,7 +86,7 @@ describe("GitHubCli.layer", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  // fork-hook: pull-requests/attachment-media-verified-host — the attachment media path
+  // fork-hook: upstream-fixes/attachment-media-verified-host — the attachment media path
   // runs host-agnostic probes and owner/name repositories through gh, which argv alone
   // cannot pin to the pinned credential's host. The caller-derived verifiedHost must
   // carry it: refused without the field, allowed only when it names the pinned host.

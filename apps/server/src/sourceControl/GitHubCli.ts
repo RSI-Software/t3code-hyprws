@@ -297,7 +297,7 @@ export class GitHubCli extends Context.Service<
        * prove where they land — host-agnostic probes and extension subcommands
        * that take an owner/name repository. The wrapper still refuses unless it
        * names exactly the pinned credential's host; anything else must carry
-       * verifiable host-bearing arguments. // fork-hook: pull-requests/attachment-media-verified-host
+       * verifiable host-bearing arguments. // fork-hook: upstream-fixes/attachment-media-verified-host
        */
       readonly verifiedHost?: string;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
@@ -420,7 +420,7 @@ export const make = Effect.gen(function* () {
       if (
         credential !== null &&
         !targetsVerifiedHost(input.args, credential.host) &&
-        input.verifiedHost !== credential.host // fork-hook: pull-requests/attachment-media-verified-host
+        input.verifiedHost !== credential.host // fork-hook: upstream-fixes/attachment-media-verified-host
       ) {
         return yield* new GitHubCliCommandError({
           command: "gh",

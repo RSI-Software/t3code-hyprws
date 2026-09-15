@@ -8,6 +8,11 @@ import * as NodePath from "node:path";
 import { afterEach, assert, describe, it } from "@effect/vitest";
 
 import {
+  assessTrunkBase,
+  captureGit,
+  checkTrunkBase,
+  type CaptureGit,
+  type GitCapture,
   resolveMainCheckoutFromGit,
   resolveSetupProjectRoot,
   shouldReplaceEnvTarget,
@@ -108,4 +113,197 @@ describe("worktree setup fork seams", () => {
     assert.isTrue(shouldReplaceEnvTarget(link));
     assert.isFalse(shouldReplaceEnvTarget(regular));
   });
+});
+
+describe("trunk-base check", () => {
+  const headSha = "a".repeat(40);
+  const publishedSha = "b".repeat(40);
+  const localTrunkSha = "c".repeat(40);
+
+  function stubCapture(responses: Record<string, Partial<GitCapture>>): CaptureGit {
+    return (_cwd, args) => {
+      const key = args.join(" ");
+      const response =
+        responses[key] ??
+        responses[args.slice(0, 3).join(" ")] ??
+        responses[args.slice(0, 2).join(" ")];
+      if (!response) throw new Error(`unexpected git invocation: git ${key}`);
+      return {
+        code: response.code ?? 0,
+        stdout: response.stdout ?? "",
+        stderr: response.stderr ?? "",
+      };
+    };
+  }
+
+  const baseResponses = {
+    "fetch origin hyprws": {},
+    "rev-parse --verify refs/remotes/origin/hyprws": { stdout: `${publishedSha}\n` },
+    "rev-parse HEAD": { stdout: `${headSha}\n` },
+    "branch -r --contains": { stdout: "  origin/hyprws\n" },
+    "rev-parse --verify refs/heads/hyprws": { stdout: `${localTrunkSha}\n` },
+  };
+
+  it("accepts a HEAD contained in a remote-tracking ref", () => {
+    const assessment = assessTrunkBase(stubCapture(baseResponses), "/worktree");
+
+    assert.deepStrictEqual(assessment, {
+      kind: "assessed",
+      contained: true,
+      headSha,
+      publishedSha,
+      localTrunkSha,
+    });
+  });
+
+  it("accepts an upstream/main base via its own remote ref", () => {
+    const assessment = assessTrunkBase(
+      stubCapture({ ...baseResponses, "branch -r --contains": { stdout: "  upstream/main\n" } }),
+      "/worktree",
+    );
+
+    assert.deepStrictEqual(assessment, {
+      kind: "assessed",
+      contained: true,
+      headSha,
+      publishedSha,
+      localTrunkSha,
+    });
+  });
+
+  it("reports a HEAD contained in no remote ref with both shas", () => {
+    const assessment = assessTrunkBase(
+      stubCapture({ ...baseResponses, "branch -r --contains": { code: 0, stdout: "" } }),
+      "/worktree",
+    );
+
+    assert.deepStrictEqual(assessment, {
+      kind: "assessed",
+      contained: false,
+      headSha,
+      publishedSha,
+      localTrunkSha,
+    });
+  });
+
+  it("skips when the fetch fails and carries the git error", () => {
+    const assessment = assessTrunkBase(
+      stubCapture({
+        "fetch origin hyprws": { code: 128, stderr: "fatal: no origin\n" },
+      }),
+      "/worktree",
+    );
+
+    assert.deepStrictEqual(assessment, {
+      kind: "skipped",
+      reason: "could not fetch origin hyprws: fatal: no origin",
+    });
+  });
+
+  it("skips when origin/hyprws is missing after the fetch", () => {
+    const assessment = assessTrunkBase(
+      stubCapture({
+        "fetch origin hyprws": {},
+        "rev-parse --verify refs/remotes/origin/hyprws": { code: 128 },
+      }),
+      "/worktree",
+    );
+
+    assert.deepStrictEqual(assessment, {
+      kind: "skipped",
+      reason: "origin/hyprws not found after the fetch",
+    });
+  });
+
+  it("reports no local trunk when the hyprws branch does not exist", () => {
+    const assessment = assessTrunkBase(
+      stubCapture({
+        ...baseResponses,
+        "rev-parse --verify refs/heads/hyprws": { code: 128 },
+      }),
+      "/worktree",
+    );
+
+    assert.deepStrictEqual(assessment, {
+      kind: "assessed",
+      contained: true,
+      headSha,
+      publishedSha,
+      localTrunkSha: undefined,
+    });
+  });
+
+  it("refuses a worktree HEAD with no containing remote ref", () => {
+    let stdout = "";
+    assert.throws(
+      () =>
+        checkTrunkBase(
+          "/worktree",
+          "/canonical",
+          stubCapture({ ...baseResponses, "branch -r --contains": { code: 0, stdout: "" } }),
+          (value) => {
+            stdout += value;
+          },
+        ),
+      /contained in no remote-tracking ref.*git reset --hard origin\/hyprws.*--base origin\/hyprws/u,
+    );
+    assert.strictEqual(stdout, "");
+  });
+
+  it("notices a stale local trunk and continues", () => {
+    let stdout = "";
+    checkTrunkBase("/worktree", "/canonical", stubCapture(baseResponses), (value) => {
+      stdout += value;
+    });
+    assert.match(
+      stdout,
+      /notice: local 'hyprws' \(cccccccccccc\).*git -C \/canonical reset --hard origin\/hyprws/u,
+    );
+  });
+
+  it("refuses a branch cut from discarded trunk history until it is reset", () => {
+    const fixture = makeTrunkFixture();
+    let stdout = "";
+    const write = (value: string) => {
+      stdout += value;
+    };
+    assert.throws(
+      () => checkTrunkBase(fixture.worktree, fixture.canonicalRoot, captureGit, write),
+      /contained in no remote-tracking ref/u,
+    );
+
+    git(fixture.worktree, ["reset", "--hard", "origin/hyprws"]);
+    NodeFS.writeFileSync(NodePath.join(fixture.worktree, "README.md"), "advanced\n");
+    git(fixture.worktree, ["commit", "-am", "advanced"]);
+    git(fixture.worktree, ["push", "origin", "HEAD:hyprws"]);
+
+    checkTrunkBase(fixture.worktree, fixture.canonicalRoot, captureGit, write);
+    assert.match(stdout, /notice: local 'hyprws'/u);
+  });
+
+  function makeTrunkFixture(): { readonly canonicalRoot: string; readonly worktree: string } {
+    const container = makeContainer();
+    const origin = NodePath.join(container, "origin.git");
+    const canonicalRoot = NodePath.join(container, "canonical");
+    const worktree = NodePath.join(container, "linked");
+    git(container, ["init", "--bare", "-b", "hyprws", origin]);
+    NodeFS.mkdirSync(canonicalRoot);
+    git(canonicalRoot, ["init", "-b", "hyprws"]);
+    git(canonicalRoot, ["config", "user.email", "test@example.com"]);
+    git(canonicalRoot, ["config", "user.name", "Test"]);
+    git(canonicalRoot, ["remote", "add", "origin", origin]);
+    NodeFS.writeFileSync(NodePath.join(canonicalRoot, "README.md"), "base\n");
+    git(canonicalRoot, ["add", "README.md"]);
+    git(canonicalRoot, ["commit", "-m", "base"]);
+    NodeFS.writeFileSync(NodePath.join(canonicalRoot, "README.md"), "discarded\n");
+    git(canonicalRoot, ["commit", "-am", "discarded"]);
+    git(canonicalRoot, ["push", "origin", "hyprws"]);
+    git(canonicalRoot, ["worktree", "add", "-b", "linked", worktree]);
+    NodeFS.mkdirSync(NodePath.join(worktree, "infra", "relay"), { recursive: true });
+    git(canonicalRoot, ["reset", "--hard", "HEAD~1"]);
+    NodeFS.writeFileSync(NodePath.join(canonicalRoot, "README.md"), "rewritten\n");
+    git(canonicalRoot, ["commit", "-am", "rewritten"]);
+    git(canonicalRoot, ["push", "--force", "origin", "hyprws"]);
+    return { canonicalRoot, worktree };
+  }
 });

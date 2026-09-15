@@ -6,53 +6,138 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import {
-  FORK_HOOKS,
+  deriveForkHooks,
+  deriveForkHooksIn,
+  forkHookConstructViolation,
+  ForkHookDeclarationError,
   FORK_HOOK_JSX_END,
   FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_MARKER,
   FORK_HOOK_LINE_SUFFIX,
   FORK_HOOK_BLOCK_SUFFIX,
   forkHookKey,
-  type ForkHookEntry,
   isWellFormedForkHookKey,
   parseForkHookMarkers,
   statementStartLine,
   stripForkHookLineMarker,
 } from "./fork-hooks.ts";
-import { FORK_DOMAINS } from "./fork-trailers.ts";
 
 const repoRoot = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
   "../..",
 );
 
-it("passes the schema on an empty manifest and tightens as entries arrive", () => {
-  for (const [key, entry] of Object.entries(FORK_HOOKS)) {
-    assert.isTrue(isWellFormedForkHookKey(key), `key ${key} must be <domain>/<name>`);
-    const domain = key.split("/")[0] ?? "";
-    assert.include([...FORK_DOMAINS], domain, `key ${key} must name a known fork domain`);
-    assert.isAtLeast(
-      NodeFS.existsSync(NodePath.join(repoRoot, entry.path)) ? 1 : 0,
-      1,
-      `entry ${key} points at ${entry.path}, which does not exist in the tree`,
-    );
-    const kinds = ["import-block", "collection", "jsx-parent", "after-call", "after-decl"];
-    assert.include(kinds, entry.anchor.kind);
-    if (entry.anchor.kind !== "import-block")
-      assert.isNotEmpty(entry.anchor.symbol, `anchor for ${key} must name its symbol`);
-  }
+it("derives a hook's anchor from the shortest unique run of unmarked lines before it", () => {
+  const content = [
+    'import { a } from "a";',
+    'import { forkThing } from "./fork.fork.ts"; // fork-hook: fork-meta/fork-thing',
+    "",
+    "export const go = () => {",
+    "  run();",
+    "  forkRun(); // fork-hook: fork-meta/fork-run",
+    "};",
+    "",
+  ].join("\n");
+  const hooks = deriveForkHooksIn("apps/web/src/go.ts", content);
+  assert.deepStrictEqual(
+    hooks.map((hook) => ({ key: hook.key, path: hook.path, context: hook.anchor.context })),
+    [
+      {
+        key: "fork-meta/fork-thing",
+        path: "apps/web/src/go.ts",
+        context: ['import { a } from "a";'],
+      },
+      { key: "fork-meta/fork-run", path: "apps/web/src/go.ts", context: ["  run();"] },
+    ],
+  );
+  // The span is the marked line itself, so the anchor's context never carries a marker.
+  assert.deepStrictEqual(
+    hooks.map((hook) => [hook.span.startLine, hook.span.endLine]),
+    [
+      [2, 2],
+      [6, 6],
+    ],
+  );
 });
 
-it("recognizes after-decl anchors and requires their symbol", () => {
-  const kinds = ["import-block", "collection", "jsx-parent", "after-call", "after-decl"];
-  const sample: ForkHookEntry = {
-    path: "apps/web/src/state/shell.ts",
-    anchor: { kind: "after-decl", symbol: "useShellBoot" },
-  };
-  assert.include(kinds, sample.anchor.kind);
-  assert.strictEqual(sample.anchor.kind === "after-decl" && sample.anchor.symbol.length > 0, true);
-  // The schema loop above already fails any after-decl entry without a symbol,
-  // through the same shared symbol assertion used for collection/jsx-parent.
+it("grows the context until it is unique, and takes the file top when there is none", () => {
+  const content = [
+    "const head = 1;",
+    "run();",
+    "forkOne(); // fork-hook: fork-meta/one",
+    "tail();",
+    "run();",
+    "",
+  ].join("\n");
+  const [hook] = deriveForkHooksIn("apps/web/src/dup.ts", content);
+  // `run();` alone occurs twice in the unmarked text, so the anchor grows to the pair above it.
+  assert.deepStrictEqual(hook?.anchor.context, ["const head = 1;", "run();"]);
+  assert.deepStrictEqual(
+    deriveForkHooksIn(
+      "apps/web/src/top.ts",
+      'import { f } from "f"; // fork-hook: fork-meta/top\n',
+    )[0]?.anchor.context,
+    [],
+  );
+});
+
+it("orders the manifest by file path, then by marker order in the file", () => {
+  const hooks = deriveForkHooks(
+    new Map([
+      ["apps/web/b.ts", "const b = 1;\nforkB(); // fork-hook: fork-meta/b\n"],
+      [
+        "apps/web/a.ts",
+        "const a = 1;\nforkA(); // fork-hook: fork-meta/a\nforkC(); // fork-hook: fork-meta/c\n",
+      ],
+    ]),
+  );
+  assert.deepStrictEqual(
+    hooks.map((hook) => hook.key),
+    ["fork-meta/a", "fork-meta/c", "fork-meta/b"],
+  );
+});
+
+it("refuses an unmatched JSX marker pair with path:line", () => {
+  assert.throws(
+    () =>
+      deriveForkHooksIn(
+        "apps/web/src/Panel.tsx",
+        ["<div>", "  {/* fork-hook: fork-meta/badge */}", "  <Badge />", "</div>", ""].join("\n"),
+      ),
+    ForkHookDeclarationError,
+    /^apps\/web\/src\/Panel\.tsx:2: unmatched fork-hook JSX marker/,
+  );
+  assert.throws(
+    () => deriveForkHooksIn("apps/web/src/Panel.tsx", "<div>\n  {/* fork-hook-end */}\n</div>\n"),
+    ForkHookDeclarationError,
+    /^apps\/web\/src\/Panel\.tsx:2: unmatched fork-hook JSX marker/,
+  );
+});
+
+it("refuses an unknown domain with path:line", () => {
+  assert.throws(
+    () =>
+      deriveForkHooksIn("apps/web/src/go.ts", "const a = 1;\nforkGo(); // fork-hook: nope/go\n"),
+    ForkHookDeclarationError,
+    /^apps\/web\/src\/go\.ts:2: unknown fork domain `nope`/,
+  );
+});
+
+it("holds the one-construct doctrine on the classifying line", () => {
+  for (const code of [
+    'import { f } from "./f.fork.ts";',
+    '@import "./index.fork.css";',
+    "registerForkPolicy(input);",
+    "const policy = resolveForkPolicy(input);",
+    "export { forkThing };",
+    "...forkProps,",
+    "forkPolicy: resolveForkPolicy,",
+  ])
+    assert.isFalse(forkHookConstructViolation(code, false), `${code} is one construct`);
+  assert.isFalse(forkHookConstructViolation("if (isFork(x)) {", true), "a marked block is one");
+  assert.isTrue(forkHookConstructViolation("if (isFork(x)) run();", false), "a one-line branch");
+  assert.isTrue(forkHookConstructViolation("const a = 1, b = 2;", false), "two declarations");
+  assert.isTrue(forkHookConstructViolation("name: upstreamThing,", false), "no fork identifier");
 });
 
 it("rejects malformed keys", () => {
@@ -146,7 +231,9 @@ it("walks a line marker back to the whole multi-line statement it closes", () =>
   assert.strictEqual(hooks.length, 1);
   assert.deepInclude(hooks[0], { key: "dom/name", kind: "line", startLine: 2, endLine: 4 });
   assert.strictEqual(statementStartLine(multilineImport.split("\n"), 4), 2);
-  assert.strictEqual(statementStartLine(multilineImport.split("\n"), 3), 2);
+  // Line 3 is inside the import's braces, so its own statement scope starts there: the walk is
+  // judged against the nesting the queried line leaves, never the file's top level.
+  assert.strictEqual(statementStartLine(multilineImport.split("\n"), 3), 3);
 });
 
 it("bounds a branch statement and template literals behind a trailing marker", () => {
