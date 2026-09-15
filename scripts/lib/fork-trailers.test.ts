@@ -14,7 +14,6 @@ const trailerBlock = [
   "Fork-Domain: fork-meta",
   "Fork-Tier: bugfix",
   "Fork-Upstreamable: no",
-  "Fork-Wire: reviewed #1",
   "Fork-Repair: none",
 ].join("\n");
 
@@ -24,7 +23,6 @@ it("one trailer per key parses unchanged", () => {
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    wireReviewed: "reviewed #1",
     repair: "none",
   });
 });
@@ -60,27 +58,24 @@ it("two disagreeing copies throw naming both values in message order", () => {
   );
 });
 
-for (const [key, first, second] of [
-  ["Fork-Domain", "fork-meta", "worktrunk-hooks"],
-  ["Fork-Tier", "bugfix", "feature"],
-  ["Fork-Upstreamable", "no", "yes"],
-  ["Fork-Wire", "reviewed #1", "reviewed #2"],
-  ["Fork-Repair", "none", "replayed"],
-] as const) {
-  it(`disagreement in ${key} throws naming both values`, () => {
-    const body = `${trailerBlock}\n${key}: ${first}\n${key}: ${second}`;
-    NodeAssert.throws(
-      () => parseForkTrailers(body),
-      (error: Error) => {
-        const firstAt = error.message.indexOf(first);
-        const secondAt = error.message.indexOf(second);
-        NodeAssert.ok(firstAt !== -1 && secondAt !== -1, error.message);
-        NodeAssert.ok(firstAt < secondAt, `values not in message order: ${error.message}`);
-        return true;
-      },
-    );
-  });
-}
+it.each([
+  { key: "Fork-Domain", first: "fork-meta", second: "worktrunk-hooks" },
+  { key: "Fork-Tier", first: "bugfix", second: "feature" },
+  { key: "Fork-Upstreamable", first: "no", second: "yes" },
+  { key: "Fork-Repair", first: "none", second: "replayed" },
+] as const)("disagreement in $key throws naming both values", ({ key, first, second }) => {
+  const body = `${trailerBlock}\n${key}: ${first}\n${key}: ${second}`;
+  NodeAssert.throws(
+    () => parseForkTrailers(body),
+    (error: Error) => {
+      const firstAt = error.message.indexOf(first);
+      const secondAt = error.message.indexOf(second);
+      NodeAssert.ok(firstAt !== -1 && secondAt !== -1, error.message);
+      NodeAssert.ok(firstAt < secondAt, `values not in message order: ${error.message}`);
+      return true;
+    },
+  );
+});
 
 it("an empty copy invalidates the block shape, so the body has no trailers", () => {
   // `Fork-Domain:` with no value is not a `Key: value` line, so the final paragraph is no longer
@@ -143,7 +138,6 @@ it("a cherry-pick line inside the block does not hide it (c324f9bab0)", () => {
   const body = [
     "Fork-Domain: worktrunk-hooks",
     "Fork-Tier: core",
-    "Fork-Wire: reviewed fork-local alias removed; wire slots and literals unchanged",
     "Co-authored-by: donjor <38745786+donjor@users.noreply.github.com>",
     "(cherry picked from commit 042c93b823229dca8aeb587d8dd8e3c72ac5123d)",
   ].join("\n");
@@ -187,7 +181,6 @@ it("a trailing comment paragraph and co-author line do not hide the real block (
     domain: "fork-meta",
     tier: "bugfix",
     upstreamable: "no",
-    wireReviewed: "reviewed #1",
     repair: "none",
   });
 });
