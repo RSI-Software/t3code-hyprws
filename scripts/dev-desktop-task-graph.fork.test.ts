@@ -69,11 +69,12 @@ describe("desktop development task graph", () => {
   it("refreshes the server bundle in place: same packs as the packaged build, without the clean", () => {
     // The dev chain must be exactly the packaged chain with the cleaning
     // disabled, whatever upstream does to `build:bundle`.
-    const bundledChain = serverPackageJson.scripts["build:bundle"]
+    const packagedChain = serverPackageJson.scripts["build:bundle"] ?? "";
+    const bundledChain = packagedChain
       .split(" && ")
       .map((step) => (step === "vp pack" ? "vp pack --no-clean" : step))
       .join(" && ");
-    expect(serverPackageJson.scripts["build:bundle"].startsWith("vp pack")).toBe(true);
+    expect(packagedChain.startsWith("vp pack")).toBe(true);
     expect(serverPackageJson.scripts["build:bundle:dev"]).toBe(bundledChain);
   });
 });
