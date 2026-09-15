@@ -4349,8 +4349,16 @@ const seamRepairedRun = (): ReturnType<typeof replayedRun> & { seamSha: string }
     stdout: "apps/web/src/Fix.tsx\n",
   });
   state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
-    stdout: `${seamSha}\x1fchore(fork-sync): repair seam after v1.2.3\n`,
+    stdout: `${seamSha}\x1ffixup! feat: fork work\n`,
   });
+  // The repaired path is owned by the replayed fork commit `feat: fork work` (sha C).
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout: `\x1e${C}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Fix.tsx\n`,
+    },
+  );
   state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
     { stdout: `${A}\n` },
     ...Array.from({ length: 5 }, () => ({ stdout: `${seamSha}\n` })),
@@ -4363,7 +4371,7 @@ const seamRepairedRun = (): ReturnType<typeof replayedRun> & { seamSha: string }
   return { ...state, seamSha };
 };
 
-it("commits a hand-repaired lane as a seam repair before the additive proof runs", () => {
+it("commits a hand-repaired lane as a seam fixup before the additive proof runs", () => {
   const state = seamRepairedRun();
   try {
     const checked = execute(
@@ -4374,11 +4382,9 @@ it("commits a hand-repaired lane as a seam repair before the additive proof runs
     const commits = state.runner.calls.filter(
       ({ command, args }) => command === "git" && args.includes("commit"),
     );
-    // Exactly one commit, the seam's, and no fork commit is amended by anything but autosquash.
+    // Exactly one commit, the seam's fixup, targeting the owning fork commit by subject.
     assert.strictEqual(commits.length, 1);
-    const message = commits[0]?.args[5] ?? "";
-    assert.match(message, /^chore\(fork-sync\): repair seam after v1\.2\.3\n/);
-    assert.include(message, "Fork-Repair: v1.2.3");
+    assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
     // The seam proof runs in the lane between the commit and the additive phase.
     const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
     const deltaChecks = state.runner.calls.filter(
@@ -4387,11 +4393,14 @@ it("commits a hand-repaired lane as a seam repair before the additive proof runs
     const seamProofAt = state.runner.calls.indexOf(deltaChecks[1]!);
     assert.isTrue(seamProofAt > commitAt, "the seam commit must precede its delta proof");
     assert.strictEqual(deltaChecks.length, 2);
-    // The seam commit is recorded on the walk, and the head binding follows it — the additive
-    // proof and every later guard read the head that contains the operator's repairs.
-    assert.deepStrictEqual(checked.walk?.repairCommits, [
-      { sha: state.seamSha, subject: "chore(fork-sync): repair seam after v1.2.3" },
-    ]);
+    // The head binding follows the seam commit — the additive proof and every later guard read
+    // the head that contains the operator's repairs. The fixup itself is filtered once
+    // autosquash folds it into its owner.
+    assert.isUndefined(checked.walk?.repairCommits);
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the seam fixup produced no autosquash",
+    );
     assert.strictEqual(checked.installedHead, state.seamSha);
     assert.strictEqual(checked.stage, "checked");
   } finally {
@@ -4401,25 +4410,92 @@ it("commits a hand-repaired lane as a seam repair before the additive proof runs
   }
 });
 
-it("a seam fixup on an owned path drives the autosquash step", () => {
+it("an ownerless seam path stops the walk and names the path", () => {
   const state = seamRepairedRun();
-  // The dirty path belongs to a fork commit on the stack, so the seam commit is a fixup.
+  // No fork commit in the stubbed stack touches the repaired path.
   state.runner.set(
     "git",
     rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
-    {
-      stdout: `\x1e${C}\x1ffeat(fork): owner\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\napps/web/src/Fix.tsx\n`,
-    },
+    { stdout: "" },
   );
+  try {
+    let detail = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      detail = String(
+        (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+      );
+    }
+    assert.include(detail, "no fork commit in the replayed stack owns apps/web/src/Fix.tsx");
+    assert.include(detail, "--seam-owner");
+    assert.isFalse(
+      state.runner.calls.some(({ args }) => args.includes("commit")),
+      "an ownerless repair must refuse before any git mutation",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("--seam-owner declares the owner of a path no fork commit touched", () => {
+  const state = seamRepairedRun();
+  // The stack's owner map is empty: the declared owner is the only resolution.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    { stdout: "" },
+  );
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%s", C]), {
+    stdout: "feat: fork work\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%B", C]), {
+    stdout: "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol\n",
+  });
   state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
-    stdout: `${state.seamSha}\x1ffixup! feat(fork): owner\n`,
+    stdout: `${state.seamSha}\x1ffixup! feat: fork work\n`,
   });
   try {
-    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
-    const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
-    const autosquashAt = state.runner.calls.findIndex(({ args }) => args.includes("--autosquash"));
-    assert.notStrictEqual(autosquashAt, -1, "the seam fixup produced no autosquash");
-    assert.isTrue(autosquashAt > commitAt, "autosquash must run after the seam commit");
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath, "--seam-owner", `apps/web/src/Fix.tsx=${C}`],
+      state.root,
+      state.runner,
+    );
+    const commits = state.runner.calls.filter(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    assert.strictEqual(commits.length, 1);
+    assert.strictEqual(commits[0]?.args[5], "fixup! feat: fork work");
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("--seam-owner naming a sha that is not a fork commit in the stack is a UsageError", () => {
+  const state = seamRepairedRun();
+  const foreign = "f".repeat(40);
+  state.runner.set("git", ["cat-file", "-e", `${foreign}^{commit}`], { status: 1 });
+  try {
+    assert.throws(
+      () =>
+        execute(
+          [
+            "unblock-check",
+            "--report",
+            state.reportPath,
+            "--seam-owner",
+            `apps/web/src/Fix.tsx=${foreign}`,
+          ],
+          state.root,
+          state.runner,
+        ),
+      /is not a fork commit in/,
+    );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
@@ -4566,9 +4642,11 @@ const additiveWalkFixture = (
   git(root, "clone", "-q", root, lane);
   const branch = `rehearse/${ADDITIVE_TAG}-from-${expectedOld.slice(0, 12)}`;
   git(lane, "checkout", "-q", "-B", branch, target);
+  git(lane, "config", "user.name", "fixture");
+  git(lane, "config", "user.email", "fixture@example.test");
   for (const [path, contents] of drift) write(lane, path, contents);
   git(lane, "add", "-A");
-  git(lane, "commit", "-m", "feat: one");
+  git(lane, "commit", "-m", "feat: one\n\nFork-Domain: fork-meta\nFork-Tier: qol");
   git(lane, "remote", "set-url", "origin", remote);
   // The carried replayed report the walk picks up.
   const reportDirectory = NodeFS.mkdtempSync(
@@ -4588,7 +4666,7 @@ const additiveWalkFixture = (
     target: { tag: ADDITIVE_TAG, sha: target },
     source: { sha: expectedOld, expectedOld, sharedBase: previous },
     lane: { branch, worktree: lane },
-    originalMessages: "feat: one\u001e",
+    originalMessages: "feat: one\n\nFork-Domain: fork-meta\nFork-Tier: qol\u001e",
     originalCount: 1,
     orientation: coherentOrientation,
     conflicts: [],
@@ -4661,6 +4739,8 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       "apps/web/src/thing.ts",
       "export const keep = 1;\nexport const stale = () => {\n  return 1;\n};\n",
     ],
+    // A fork-only file keeps the owning commit non-empty once the additive fixup folds into it.
+    ["apps/web/src/fork.ts", "export const forkOnly = 1;\n"],
   ]);
   try {
     const { output, result } = captureStdout(() =>
@@ -4683,11 +4763,12 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       additive?.findings.map(({ check, path }) => ({ check, path })),
       [{ check: "readded", path: "apps/web/src/thing.ts" }],
     );
-    const repair = report.walk?.repairCommits?.[0];
-    assert.include(repair?.subject ?? "", "chore(fork-sync): additive after");
-    assert.strictEqual(additive?.commit, repair?.sha);
+    // The additive fix was a fixup on the owning fork commit; once autosquash folds it, the
+    // fixup no longer exists and nothing remains reportable.
+    assert.isUndefined(report.walk?.repairCommits);
+    assert.isDefined(additive?.commit);
     assert.isUndefined(report.walk?.stop);
-    // The fix removed the re-add, and the commit carries the repair trailers.
+    // The fix removed the re-add, and it folded into the owner's tree.
     assert.notInclude(
       NodeFS.readFileSync(NodePath.join(state.lane, "apps/web/src/thing.ts"), "utf8"),
       "export const stale = () => {",
@@ -4699,25 +4780,23 @@ it("repairs a re-added upstream line as an additive commit and applies", () => {
       "--format=%s",
       `${state.target}..HEAD`,
     ).split("\n");
-    assert.deepStrictEqual(subjects, ["feat: one", repair?.subject ?? ""]);
-    const message = additiveGit(state.lane, "show", "-s", "--format=%B", repair?.sha ?? "HEAD");
+    assert.deepStrictEqual(subjects, ["feat: one"]);
+    const message = additiveGit(state.lane, "show", "-s", "--format=%B", "HEAD");
     assert.include(message, "Fork-Domain: fork-meta");
-    assert.include(message, "Fork-Tier: bugfix");
-    assert.include(message, "Fork-Upstreamable: no");
-    assert.include(message, `Fork-Repair: ${ADDITIVE_TAG}`);
-    // The leased trunk push published the repaired head.
+    assert.include(message, "Fork-Tier: qol");
+    // The leased trunk push published the folded head.
     assert.strictEqual(
       NodeChildProcess.execFileSync("git", ["rev-parse", "refs/heads/hyprws"], {
         cwd: state.remote,
       })
         .toString()
         .trim(),
-      repair?.sha,
+      additiveGit(state.lane, "rev-parse", "HEAD"),
     );
-    // The churn row carries the additive outcome and the repair commit.
+    // The churn row carries the additive outcome; the folded fixup leaves no repair commit.
     const [row] = parseLedger(readBotRefFile(state.remote, CHURN_REF, CHURN_LEDGER_FILE) ?? "");
     assert.deepStrictEqual(row?.additive, { pass: true, attempts: 2, findings: 1 });
-    assert.strictEqual(row?.repairCommits?.length, 1);
+    assert.strictEqual(row?.repairCommits?.length ?? 0, 0);
   } finally {
     state.restoreLedger();
     NodeFS.rmSync(state.root, { recursive: true, force: true });
@@ -8110,62 +8189,77 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     }
   });
 
-  it("autosquash with folds runs from the newest fold onto so the proved prefix survives", () => {
+  it("autosquash reaches below a fold and the segment is re-proved at its relocated onto", () => {
     const item = foldFixture();
     try {
-      // The landing shares its subject with the proved fork commit, and, as a trunk landing on
-      // the fork, carries the trailers that let it own a repair.
-      const landing = item.land(
-        "landing.txt",
-        "landing\n",
-        "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
-      );
+      item.land("up1.txt", "1\n", "upstream landing 1");
       const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      const replayedHead = folded.folds![0]!.replayedHead!;
-      // A repair for a path the newest-segment commit owns, left dirty for the repair pass.
-      NodeFS.writeFileSync(NodePath.join(item.lane, "landing.txt"), "repaired\n");
+      assert.strictEqual(folded.folds?.[0]?.onto, item.forkHead);
+      // A repair for a path the proved-prefix fork commit owns, left dirty for the repair pass.
+      // Before #922's fold-aware rule this repair went standalone; now it must reach its owner
+      // below the fold.
+      NodeFS.writeFileSync(NodePath.join(item.lane, "fork.txt"), "repaired\n");
       const runner = wrapperRunner();
       const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
       assert.strictEqual(checked.stage, "checked");
-      // The proved prefix (the onto commit) is still an ancestor of the finished head.
-      gitRun(item.lane, ["merge-base", "--is-ancestor", item.forkHead, "HEAD"]);
-      // The fixup squashed into the newest-segment owner, not the shared-subject proved commit.
-      assert.notStrictEqual(checked.folds?.[0]?.replayedHead, checked.folds?.[0]?.checkedHead);
+      // The autosquash ran from the target and folded the fixup into the owner below the fold:
+      // the finished head is the fold landing, and the repaired tree rides the rewritten owner.
       assert.strictEqual(
         gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
-        "feat: fork work",
+        "upstream landing 1",
       );
-      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:landing.txt"]), "repaired");
-      void landing;
+      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:fork.txt"]), "repaired");
+      // The fold segment relocated onto the rewritten owner and its head is the relocated landing.
+      const segment = checked.folds![0]!;
+      assert.notStrictEqual(segment.onto, item.forkHead);
+      assert.strictEqual(segment.onto, gitRun(item.lane, ["rev-parse", "HEAD~1"]));
+      assert.strictEqual(segment.checkedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
+      assert.isUndefined(segment.repairCommits);
+      // The relocated binding still proves the replay.
+      verifyReplay(checked, runner);
     } finally {
       item.cleanup();
     }
   });
 
-  it("a standalone fold repair passes verifyReplay and a same-subject landing still counts", () => {
+  it("an ownerless path in a folded lane stops, and --seam-owner folds it into the named owner", () => {
     const item = foldFixture();
     try {
       item.land("up1.txt", "1\n", "upstream landing 1");
       const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      // An unowned dirty path becomes the walk's standalone repair commit.
+      // No fork commit touched repair.txt, so the walk refuses it rather than guessing.
       NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
+      let detail = "";
+      try {
+        execute(["unblock-check", "--report", folded.reportPath], item.trunk, wrapperRunner());
+      } catch (error) {
+        detail = String(
+          (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+        );
+      }
+      assert.include(detail, "no fork commit in the replayed stack owns repair.txt");
+      // Declaring the proved-prefix owner folds the repair into it, below the fold.
       const runner = wrapperRunner();
-      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
-      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
-      assert.isDefined(repairSha);
-      // The SHA-filtered candidate keeps the stream terminator, so the proof passes.
-      verifyReplay(checked, runner);
-      // A landing sharing the repair's subject is a real landing: folding it keeps the proof.
-      const landing = item.land(
-        "up2.txt",
-        "2\n",
-        (checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "").split("\n")[0]!,
+      const checked = execute(
+        [
+          "unblock-check",
+          "--report",
+          folded.reportPath,
+          "--seam-owner",
+          `repair.txt=${item.forkHead}`,
+        ],
+        item.trunk,
+        runner,
       );
-      const refolded = execute(["unblock-fold", "--report", checked.reportPath], item.trunk);
-      assert.strictEqual(refolded.folds?.length, 2);
-      assert.strictEqual(refolded.folds?.[1]?.from, checked.source?.expectedOld);
-      assert.strictEqual(refolded.folds?.[1]?.to, landing);
-      verifyReplay(refolded, runner);
+      assert.strictEqual(checked.stage, "checked");
+      assert.strictEqual(gitRun(item.lane, ["show", "HEAD:repair.txt"]), "repair");
+      assert.strictEqual(
+        gitRun(item.lane, ["show", "-s", "--format=%s", "HEAD"]),
+        "upstream landing 1",
+      );
+      const segment = checked.folds![0]!;
+      assert.notStrictEqual(segment.onto, item.forkHead);
+      verifyReplay(checked, runner);
     } finally {
       item.cleanup();
     }
@@ -8580,42 +8674,32 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
     }
   });
 
-  it("a landing sharing the repair's subject never steals the standalone repair's identity", () => {
-    // Learn the standalone repair's subject from a first, decoy-free run.
-    const probe = foldFixture();
-    let repairSubject: string;
-    try {
-      probe.land("up1.txt", "1\n", "upstream landing 1");
-      const folded = execute(["unblock-fold", "--report", probe.report.reportPath], probe.trunk);
-      NodeFS.writeFileSync(NodePath.join(probe.lane, "repair.txt"), "repair\n");
-      const checked = execute(
-        ["unblock-check", "--report", folded.reportPath],
-        probe.trunk,
-        wrapperRunner(),
-      );
-      repairSubject = checked.folds?.[0]?.repairCommits?.[0]?.subject ?? "";
-      assert.match(repairSubject, /^chore\(fork-sync\): /);
-    } finally {
-      probe.cleanup();
-    }
+  it("refuses a repair whose owner subject appears twice in the target range", () => {
+    // Autosquash matches `fixup!` targets by SUBJECT and folds into the oldest match, so a
+    // landing that shares its subject with the proved commit makes the fixup ambiguous. The walk
+    // refuses rather than fold the repair into the wrong landing.
     const item = foldFixture();
     try {
-      item.land("up1.txt", "1\n", "upstream landing 1");
-      // The decoy landing shares the repair's subject and sits before it in history: the fold
-      // replays it below the repair the walk appends afterwards.
-      item.land("decoy.txt", "decoy\n", repairSubject);
-      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
-      NodeFS.writeFileSync(NodePath.join(item.lane, "repair.txt"), "repair\n");
-      const runner = wrapperRunner();
-      const checked = execute(["unblock-check", "--report", folded.reportPath], item.trunk, runner);
-      const repairSha = checked.folds?.[0]?.repairCommits?.[0]?.sha;
-      assert.isDefined(repairSha);
-      // The recorded SHA is the repair commit itself, never the same-subject landing.
-      assert.match(
-        gitRun(item.lane, ["show", "-s", "--format=%B", repairSha]),
-        /Fork-Repair: v1\.2\.3/,
+      item.land(
+        "landing.txt",
+        "landing\n",
+        "feat: fork work\n\nFork-Domain: fork-meta\nFork-Tier: qol",
       );
-      verifyReplay(checked, runner);
+      const folded = execute(["unblock-fold", "--report", item.report.reportPath], item.trunk);
+      NodeFS.writeFileSync(NodePath.join(item.lane, "landing.txt"), "repaired\n");
+      let detail = "";
+      try {
+        execute(["unblock-check", "--report", folded.reportPath], item.trunk, wrapperRunner());
+      } catch (error) {
+        detail = String(
+          (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+        );
+      }
+      assert.include(detail, 'duplicated subject: "feat: fork work"');
+      assert.isFalse(
+        NodeFS.existsSync(NodePath.join(item.lane, ".git", "rebase-merge")),
+        "the refusal must precede any rebase",
+      );
     } finally {
       item.cleanup();
     }

@@ -348,7 +348,7 @@ flatten. The general never-squash rule otherwise stands. See
   that needs the dependency.
 - Tag every fork commit with the trailers in [Fork delta](./fork-delta.md); `vp run fork:delta --check` must pass.
 
-When a walk repair belongs unambiguously to one replayed fork commit, write it as a trailer-free `fixup!` and autosquash it before the leased push; split repairs across owners, and leave tooling, documentation, or otherwise unattributable work as a standalone commit rather than guessing.
+When a walk repair belongs unambiguously to one replayed fork commit, write it as a trailer-free `fixup!` and autosquash it before the leased push; the autosquash runs from the target so a fixup reaches its owner even below a proved fold, the fold segments are re-proved afterwards by their landings' messages, and a path no fork commit touched needs its owner declared rather than a standalone guess.
 
 ### Ledger guards run in the scan
 
