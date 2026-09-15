@@ -22,6 +22,7 @@ import {
 } from "./lib/fork-policy.ts";
 import { linkInstalledModules } from "./lib/fork-rebase-worktree.ts";
 import { normalizeCommitMessage, normalizeReplayMessages } from "./lib/fork-replay-messages.ts";
+import { excludeStartEmpty, parseReplayMeta, replayMetaArguments } from "./lib/fork-replay-meta.ts";
 
 export type PositionedTag = PositionedReleaseTag;
 
@@ -160,6 +161,26 @@ const forkReplay = (git: SystemGit, base: string, head: string): string =>
     `${base}..${head}`,
   ]);
 
+/**
+ * The original-side series the replay is proved against. The startup rebase runs
+ * `--no-keep-empty`, so commits that start empty never reach the replayed side and the proof
+ * must not expect them (RSI-Software/t3code-hyprws#665). One extra git read per proof supplies
+ * sha/tree/parent per commit; commits that only become empty during the replay stay counted.
+ */
+const originalReplaySeries = (
+  git: SystemGit,
+  baseSha: string,
+  oldSha: string,
+): { readonly count: number; readonly log: string } => {
+  const records = parseReplayMeta(git.run(replayMetaArguments(baseSha, oldSha)), baseSha);
+  const adjusted = excludeStartEmpty(
+    forkReplay(git, baseSha, oldSha),
+    Number(git.run(["rev-list", "--count", `${baseSha}..${oldSha}`]).trim()),
+    records,
+  );
+  return { count: adjusted.count, log: adjusted.messages };
+};
+
 export const verifyReplayMetadata = (
   originalCount: number,
   replayedCount: number,
@@ -260,10 +281,11 @@ export const verifyReplayShape = (
 ): VerificationDependencySetup => {
   const original = new SystemGit(root);
   const rebased = new SystemGit(worktree);
+  const expected = originalReplaySeries(original, baseSha, oldSha);
   verifyReplayMetadata(
-    Number(original.run(["rev-list", "--count", `${baseSha}..${oldSha}`]).trim()),
+    expected.count,
     Number(rebased.run(["rev-list", "--count", `${targetSha}..${newSha}`]).trim()),
-    forkReplay(original, baseSha, oldSha),
+    expected.log,
     forkReplay(rebased, targetSha, newSha),
   );
   return selectVerificationDependencySetup(original, baseSha, targetSha);
@@ -279,16 +301,11 @@ export const verifyReplay = (
 ): VerificationDependencySetup => {
   const original = new SystemGit(root);
   const rebased = new SystemGit(worktree);
-  const originalCount = Number(
-    original.run(["rev-list", "--count", `${baseSha}..${oldSha}`]).trim(),
-  );
-  const replayedCount = Number(
-    rebased.run(["rev-list", "--count", `${targetSha}..${newSha}`]).trim(),
-  );
+  const expected = originalReplaySeries(original, baseSha, oldSha);
   verifyReplayMetadata(
-    originalCount,
-    replayedCount,
-    forkReplay(original, baseSha, oldSha),
+    expected.count,
+    Number(rebased.run(["rev-list", "--count", `${targetSha}..${newSha}`]).trim()),
+    expected.log,
     forkReplay(rebased, targetSha, newSha),
   );
 

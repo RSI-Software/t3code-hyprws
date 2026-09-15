@@ -1,3 +1,79 @@
+it("the replay proof excludes start-empty commits and still refuses became-empty drops", () => {
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-empty-proof-"));
+  try {
+    git(root, ["init", "--quiet", "-b", "base"]);
+    git(root, ["config", "user.name", "Test User"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    NodeFS.writeFileSync(NodePath.join(root, "shared.txt"), "one\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "base"]);
+    const baseSha = git(root, ["rev-parse", "HEAD"]);
+
+    git(root, ["switch", "--quiet", "-c", "upstream-lane"]);
+    NodeFS.writeFileSync(NodePath.join(root, "upstream.txt"), "upstream\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "fix: upstream change"]);
+    // dup.txt already holds this exact content upstream, so a fork commit writing it becomes
+    // empty during the replay — but on the fork stack it starts non-empty (its parent lacks it).
+    NodeFS.writeFileSync(NodePath.join(root, "dup.txt"), "same\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "fix: upstream adds dup"]);
+    const targetSha = git(root, ["rev-parse", "HEAD"]);
+
+    git(root, ["switch", "--quiet", "-c", "fork-stack", "base"]);
+    NodeFS.writeFileSync(NodePath.join(root, "fork.txt"), "fork\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "feat(test): fork adds its own file"]);
+    NodeFS.writeFileSync(NodePath.join(root, "dup.txt"), "same\n");
+    git(root, ["add", "."]);
+    git(root, ["commit", "-m", "feat(test): fork mirrors dup"]);
+    git(root, ["commit", "--allow-empty", "-m", "chore(fork): empty distribution"]);
+    const withEmpty = git(root, ["rev-parse", "HEAD"]);
+    assert.strictEqual(git(root, ["rev-list", "--count", `${baseSha}..${withEmpty}`]), "3");
+
+    // The startup rebase drops the start-empty commit (`--no-keep-empty`) but keeps the
+    // became-empty one (`--empty=keep`), so the replayed side holds two of the three commits.
+    git(root, ["worktree", "add", "--detach", NodePath.join(root, "replay"), withEmpty]);
+    const replay = NodePath.join(root, "replay");
+    git(replay, [
+      "-c",
+      "rerere.enabled=false",
+      "rebase",
+      "--no-keep-empty",
+      "--empty=keep",
+      "--onto",
+      targetSha,
+      baseSha,
+      withEmpty,
+    ]);
+    const newSha = git(replay, ["rev-parse", "HEAD"]);
+    assert.strictEqual(git(replay, ["rev-list", "--count", `${targetSha}..${newSha}`]), "2");
+
+    // The proof pairs with the rebase: expected 3 - 1 start-empty = 2, series matches.
+    assert.strictEqual(
+      verifyReplayShape(root, replay, withEmpty, baseSha, targetSha, newSha),
+      "shared-install",
+    );
+
+    // A lane that dropped the became-empty commit too would hold one commit: the proof refuses —
+    // retirement of a became-empty commit stays a human decision.
+    git(replay, ["reset", "--hard", "HEAD~1"]);
+    assert.throws(
+      () =>
+        verifyReplayShape(
+          root,
+          replay,
+          withEmpty,
+          baseSha,
+          targetSha,
+          git(replay, ["rev-parse", "HEAD"]),
+        ),
+      /replay commit count changed: 2 -> 1/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
 // @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
 
 import "./lib/fork-test-quiet.ts";
@@ -57,7 +133,7 @@ import {
 import type { CensusPartial } from "./lib/fork-census-partial.ts";
 import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
-import { createRebasedStack } from "./fork-auto-rebase-plan.ts";
+import { createRebasedStack, verifyReplayShape } from "./fork-auto-rebase-plan.ts";
 import {
   buildAutoRebasePlan,
   executeAutoRebase,
