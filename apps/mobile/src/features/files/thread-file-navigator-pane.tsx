@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProjectListEntriesResult } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { SymbolView } from "../../components/AppSymbol";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, View, type NativeSyntheticEvent } from "react-native";
@@ -10,14 +10,15 @@ import {
   SearchBar,
 } from "react-native-screens";
 
+import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { projectEnvironment } from "../../state/projects";
-import { useEnvironmentQuery } from "../../state/query";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-inspector-ignored-listing-import
+import { mobilePreferencesAtom } from "../../state/preferences"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
@@ -36,14 +37,15 @@ export function ThreadFileNavigatorPane(props: {
   const foregroundColor = theme["--color-foreground"];
   const sheetColor = theme["--color-sheet"];
   const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
-  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd); // fork-hook: workspace-files/mobile-inspector-ignored-listing-call
-  const entriesQuery = useEnvironmentQuery(
-    projectEnvironment.listEntries({
-      environmentId: props.environmentId,
-      input: workspaceFileListing,
-    }),
-  );
-  const entriesData = entriesQuery.data as ProjectListEntriesResult | null;
+  const preferences = useAtomValue(mobilePreferencesAtom); // fork-hook: workspace-files/mobile-inspector-ignored-preference
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+  const entriesQuery = useFileTreeEntries({
+    environmentId: props.environmentId,
+    cwd: props.cwd,
+    searchQuery,
+    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-inspector-ignored-listing
+  });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
       preloadWorkspaceFileContents({
@@ -84,10 +86,14 @@ export function ThreadFileNavigatorPane(props: {
 
   const fileTree = (
     <FileTreeBrowser
-      entries={entriesData?.entries ?? []}
+      key={JSON.stringify([props.environmentId, props.cwd])}
+      entries={entriesQuery.entries}
+      loadedDirectories={entriesQuery.loadedDirectories}
+      onLoadDirectory={entriesQuery.loadDirectory}
       error={entriesQuery.error}
       isPending={entriesQuery.isPending}
       searchQuery={searchQuery}
+      searchTruncated={entriesQuery.searchTruncated}
       selectedPath={props.selectedPath}
       onPreviewFile={handlePreviewFile}
       onRefresh={entriesQuery.refresh}
