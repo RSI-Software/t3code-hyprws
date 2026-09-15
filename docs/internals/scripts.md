@@ -164,10 +164,11 @@ authenticated.
   that same-base candidate into the existing check/review/apply flow. The
   [construction runbook](../operations/fork-sync.md#historical-rewrite-construction) defines its
   executable manifest and proof refusals. `fold-reshape` derives such a manifest from landed
-  reshape squashes — per-path blame attribution (`--attribute` overrides), a 3-way blob merge
-  propagated through every slot between origin and reshape as unreferenced blobs, and the
-  manifest JSON as the only ref. The script renders and
-  validates the Markdown record schema; its focused tests are the schema definition.
+  reshape squashes — per-path blame attribution (`--attribute` and `--leave` overrides, recorded in
+  the manifest so a reviewer can read them back), a 3-way blob merge propagated through every slot
+  between origin and reshape as unreferenced blobs, and the manifest JSON as the only ref. The
+  script renders and validates the Markdown record schema; its focused tests are the schema
+  definition.
 - `vp run fork:auto-rebase --fetch --mode candidate`: Reads the rebase feasibility window directly,
   selects its newest upstream stable or nightly tag, and replays the complete fork stack in a
   detached temporary worktree (`scripts/fork-auto-rebase.ts`). It snapshots each intermediate stable

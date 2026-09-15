@@ -5101,6 +5101,13 @@ const foldReshape = (argv: ReadonlyArray<string>, cwd: string, runner: CommandRu
       for (const change of slot.changes)
         process.stdout.write(`    ${change.path}: ${change.reason}\n`);
     }
+    if (result.overrides !== undefined) {
+      process.stdout.write("  operator overrides (reviewed evidence, not derivation)\n");
+      for (const entry of result.overrides.attributed)
+        process.stdout.write(`    attribute ${entry.path}=${entry.commit.slice(0, 12)}\n`);
+      for (const path of result.overrides.left) process.stdout.write(`    leave ${path}\n`);
+      for (const record of result.overrides.unused) process.stdout.write(`    unused ${record}\n`);
+    }
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
