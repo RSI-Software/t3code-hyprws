@@ -15,7 +15,12 @@ import {
   type CwdCommandRunner,
 } from "./lib/fork-command.ts";
 import { resolveConflictPath } from "./lib/fork-conflict-resolution.ts";
-import { censusResolutionSplit, censusTotals } from "./lib/fork-rebase-issues.ts";
+import {
+  censusResolutionSplit,
+  censusRowReason,
+  censusTotals,
+  requireSequentialCensusEvidence,
+} from "./lib/fork-rebase-issues.ts";
 
 const git = (cwd: string, args: ReadonlyArray<string>): string =>
   NodeChildProcess.execFileSync("git", [...args], { cwd, encoding: "utf8" }).trim();
@@ -236,6 +241,73 @@ it("separates the mechanical rows from the human stops without moving the confli
   } finally {
     NodeFS.rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+it("records why a stop reached a human, and records nothing on a row that resolved", () => {
+  const fixture = stackFixture();
+  try {
+    const rows =
+      rehearseStopCensus(fixture.root, fixture.head, fixture.base, {
+        tag: "v2.0.0",
+        sha: fixture.target,
+        position: 1,
+        stable: true,
+      }).evidence?.rows ?? [];
+    assert.deepStrictEqual(
+      rows.map((row) => ({ path: row.path, reason: censusRowReason(row) })),
+      [
+        { path: VERIFIABLE, reason: null },
+        {
+          path: "apps/web/src/other.ts",
+          reason:
+            "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam",
+        },
+      ],
+    );
+    // A mechanical row carries no key at all, so a record written from it stays byte-identical to
+    // one written before the field existed.
+    assert.notProperty(rows[0], "reason");
+  } finally {
+    NodeFS.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+it("never materialises a reason the stored evidence did not carry", () => {
+  const row = {
+    stop: 1,
+    commit: "c".repeat(40),
+    subject: "feat(test): a stored seam",
+    domain: "fork-meta",
+    kind: "content" as const,
+    path: VERIFIABLE,
+    stage: "unresolved" as const,
+  };
+  const stored = {
+    version: 1 as const,
+    method: "sequential-rebase-walk-resolution" as const,
+    sourceSha: "a".repeat(40),
+    baseSha: "b".repeat(40),
+    targetSha: "d".repeat(40),
+    targetTag: "v2.0.0",
+    complete: true,
+    rows: [row],
+  };
+  // The parser is a pure validator: a record is re-digested from what it returns, so a default
+  // here would move every id ever written (RSI-Software/t3code-hyprws#1012).
+  const parsed = requireSequentialCensusEvidence(JSON.parse(JSON.stringify(stored)));
+  assert.deepStrictEqual(parsed, stored);
+  assert.notProperty(parsed.rows[0], "reason");
+  assert.strictEqual(censusRowReason(parsed.rows[0]!), null);
+  // A stored reason survives the round trip unchanged.
+  const withReason = { ...stored, rows: [{ ...row, reason: "a recorded stop" }] };
+  assert.deepStrictEqual(
+    requireSequentialCensusEvidence(JSON.parse(JSON.stringify(withReason))),
+    withReason,
+  );
+  assert.throws(
+    () => requireSequentialCensusEvidence({ ...stored, rows: [{ ...row, reason: 7 }] }),
+    /invalid census stop row/,
+  );
 });
 
 it("counts a census that predates the resolution stages as unmeasured, never as mechanical", () => {
