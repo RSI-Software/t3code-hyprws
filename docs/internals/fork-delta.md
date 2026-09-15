@@ -205,6 +205,21 @@ in its report's walk record, measured at replay completion against the pinned ta
 where the shared count has signal, and before any repair commit is appended. Repairs are
 excluded from the recorded size the same way.
 
+A `.fork.` in a filename is a reader signal and nothing else. It marks a fork-owned module for a
+human reading a tree; no guard decides on it, and renaming a file changes no scan result. It is
+applied by convention rather than enforced, so its absence proves nothing about a file: a
+fork-only file without it is an accepted shape. The one placement rule it carries is for test
+files, in
+[Fork tests live in fork-owned files](./fork-development.md#fork-tests-live-in-fork-owned-files).
+
+So a per-file diff against the base tag says nothing about seam growth until the path is known to
+exist upstream: every line of a fork-only file is an added line, and its residual is its own size.
+Establish which kind of file it is first.
+
+```bash
+git cat-file -e origin/main:<path>   # exit 128: fork-only, so its residual carries no signal
+```
+
 ## Domain index
 
 | Domain                                  | Status | Tiers present     | Retires when                                                        |
