@@ -31,6 +31,7 @@ const evidence = (rows: number): SequentialCensusEvidence => ({
     domain: "fork-meta",
     path: `conflicted-${String(index)}.txt`,
     kind: "content" as const,
+    stage: "unresolved" as const,
   })),
 });
 
