@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// Gate: none — synchronous child-process runner every fork script shares; gates nothing itself.
 
 import * as NodeChildProcess from "node:child_process";
 
@@ -16,12 +17,9 @@ export interface CommandOptions {
   readonly timeout?: number;
   readonly maxBuffer?: number;
   /**
-   * Opt-in: the child inherits our stdout/stderr instead of having them captured, so its native
-   * progress reaches wherever ours already goes — an interactive terminal, or an operator's own
-   * `2>&1 | tee run.log`. The trade-off is real, not a bug: `stdout`/`stderr` come back empty,
-   * because spawnSync can give you live output or captured text, never both. Callers that still
-   * need the captured text after a failure must read real state instead (e.g. `git status`), not
-   * lean on the (now-empty) result text.
+   * Opt-in: capture the child's piped output, then write it through to ours on return, so it stays
+   * available for failure details. Live progress is lost until the child exits. The child's stdin
+   * stays closed, so a prompting child fails fast.
    */
   readonly stream?: boolean;
 }
@@ -40,8 +38,9 @@ export const runCommand = (
 ): CommandResult => {
   if (options.stream === true && options.input !== undefined)
     throw new Error(
-      "runCommand: stream and input are mutually exclusive (inherited stdin can't also receive piped input)",
+      "runCommand: stream and input are mutually exclusive (piped stdin can't also receive piped input)",
     );
+  if (options.stream === true) return runCommandStreaming(command, args, options);
   const result = NodeChildProcess.spawnSync(command, [...args], {
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
@@ -52,12 +51,41 @@ export const runCommand = (
     // stdin stays "ignore", not "inherit": a child that unexpectedly prompts (a credential
     // helper, a pager, a rebase whose GIT_EDITOR did not take) should fail fast on a closed
     // stdin like before, not sit on the operator's terminal until the timeout fires.
-    ...(options.stream === true ? { stdio: ["ignore", "inherit", "inherit"] } : {}),
   });
   return {
     status: result.status ?? 1,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
+    ...(result.error === undefined ? {} : { error: result.error }),
+  };
+};
+
+/**
+ * `stream: true` via spawnSync with piped stdio, written through to our stdout, then stderr, on
+ * return. A synchronous poll of a live ChildProcess never observes its exit, so arrival-order
+ * interleaving is out of reach. stdin stays closed, so a prompting child still fails fast.
+ */
+const runCommandStreaming = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: CommandOptions,
+): CommandResult => {
+  const result = NodeChildProcess.spawnSync(command, [...args], {
+    encoding: "utf8",
+    maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    timeout: options.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (stdout.length > 0) process.stdout.write(stdout);
+  if (stderr.length > 0) process.stderr.write(stderr);
+  return {
+    status: result.status ?? 1,
+    stdout,
+    stderr,
     ...(result.error === undefined ? {} : { error: result.error }),
   };
 };
