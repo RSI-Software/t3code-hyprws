@@ -208,8 +208,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
    workspace's typecheck, and the focused test files beside the touched sources. What a repair rewrites
-   becomes one bot commit appended after the replayed stack, carrying `Fork-Repair: <tag>`; no replayed
-   fork commit is ever amended. Before repairs, the walk proves the replayed tree purely additive
+   becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
+   ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the additive proof runs before any
+   repair. After the autosquash the check proves the landed tree equals the tested tree, re-proves the
+   replay, and re-proves the fold segments. Before repairs, the walk proves the replayed tree purely additive
    (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
    upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure
    the fix refuses is the `conflict` stop. Only a series
