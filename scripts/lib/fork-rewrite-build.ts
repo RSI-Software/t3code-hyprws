@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - Binary Git plumbing for an offline, object-only constructor.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Binary Git plumbing for an offline, object-only constructor; rate-limited stderr progress runs outside any Effect.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
@@ -321,30 +321,53 @@ export class RewriteObjects {
     );
   }
 }
+/** A grouped directory level: each name is either a blob entry or a nested directory. */
+type TreeChild =
+  | { readonly directory: false; readonly entry: RewriteEntry }
+  | { readonly directory: true; readonly node: TreeNode };
+interface TreeNode {
+  readonly children: Map<string, TreeChild>;
+}
+/**
+ * Groups the flat `path -> entry` map into a directory tree in one pass over `entries`
+ * (each entry costs O(path segments), not O(entries) again), for `buildTree` to fold
+ * bottom-up. Replaces an O(entries x directories) full-map rescan per directory with this
+ * single grouping pass plus one hash per directory.
+ */
+const groupTree = (entries: ReadonlyMap<string, RewriteEntry>): TreeNode => {
+  const root: TreeNode = { children: new Map() };
+  for (const [name, item] of entries) {
+    const segments = name.split("/");
+    let node = root;
+    for (let depth = 0; depth < segments.length - 1; depth++) {
+      const segment = segments[depth]!;
+      const existing = node.children.get(segment);
+      if (existing === undefined) {
+        const child: TreeNode = { children: new Map() };
+        node.children.set(segment, { directory: true, node: child });
+        node = child;
+      } else if (existing.directory) node = existing.node;
+      else fail(`file/directory collision at ${segments.slice(0, depth + 1).join("/")}`);
+    }
+    const leaf = segments[segments.length - 1]!;
+    if (node.children.has(leaf)) fail(`file/directory collision at ${name}`);
+    node.children.set(leaf, { directory: false, entry: item });
+  }
+  return root;
+};
 /** Tree ordering compares directories with their trailing slash, as Git does. */
 const buildTree = (
   objects: RewriteObjects,
   entries: ReadonlyMap<string, RewriteEntry>,
   write: boolean,
 ): string => {
-  const build = (prefix: string): string => {
-    const children = new Map<string, RewriteEntry | null>();
-    for (const [name, item] of entries) {
-      if (!name.startsWith(prefix)) continue;
-      const relative = name.slice(prefix.length),
-        slash = relative.indexOf("/");
-      const child = slash === -1 ? relative : relative.slice(0, slash);
-      const current = children.get(child);
-      if (current !== undefined && (current === null) !== (slash !== -1))
-        fail(`file/directory collision at ${prefix}${child}`);
-      children.set(child, slash === -1 ? item : null);
-    }
-    const chunks = [...children]
-      .map(([name, item]) => ({
+  const build = (node: TreeNode): string => {
+    const chunks = [...node.children]
+      .map(([name, child]) => ({
         name,
-        directory: item === null,
-        mode: item?.mode ?? "40000",
-        oid: item?.oid ?? build(`${prefix}${name}/`),
+        directory: child.directory,
+        mode: child.directory ? "40000" : child.entry.mode,
+        oid: child.directory ? build(child.node) : child.entry.oid,
       }))
       .sort((a, b) =>
         Buffer.compare(
@@ -357,7 +380,7 @@ const buildTree = (
       );
     return objects.hash("tree", Buffer.concat(chunks), write);
   };
-  return build("");
+  return build(groupTree(entries));
 };
 
 export const rebuildCommit = (raw: Buffer, tree: string, parent: string) => {
@@ -403,6 +426,22 @@ export const rebuildCommit = (raw: Buffer, tree: string, parent: string) => {
   };
 };
 
+/**
+ * Rate-limited (>= 1s apart) stderr progress, e.g. `rewrite-build: verifying 137/275`.
+ * Piping through `tee` (the normal way these gates are run) makes stderr a non-TTY pipe,
+ * so this gates only on `FORK_QUIET`, never on `isTTY`.
+ */
+const makeProgressReporter = (total: number) => {
+  let last = 0;
+  return (label: string, current: number) => {
+    if (process.env.FORK_QUIET === "1") return;
+    const now = Date.now();
+    if (now - last < 1000) return;
+    last = now;
+    process.stderr.write(`rewrite-build: ${label} ${current}/${total}\n`);
+  };
+};
+
 export const buildRewrite = (
   root: string,
   rawManifest: Buffer,
@@ -436,8 +475,9 @@ export const buildRewrite = (
     .split("\n");
   if (JSON.stringify(commits) !== JSON.stringify(manifest.slots.map((slot) => slot.commit)))
     fail("manifest must enumerate every original commit once, in order");
+  const reportProgress = makeProgressReporter(manifest.slots.length);
   let originalParent = manifest.base;
-  const prepared = manifest.slots.map((slot) => {
+  const prepared = manifest.slots.map((slot, index) => {
     const raw = objects.git(["cat-file", "commit", slot.commit]);
     const header = raw.subarray(0, raw.indexOf(Buffer.from("\n\n"))).toString("latin1");
     if (
@@ -469,18 +509,20 @@ export const buildRewrite = (
     }
     const tree = buildTree(objects, entries, false);
     if (tree !== slot.resultTree) fail(`snapshot output digest mismatch at ${slot.commit}`);
-    return { slot, entries, raw };
+    reportProgress("verifying", index + 1);
+    return { slot, entries, raw, tree };
   });
   if (prepared.at(-1)?.slot.resultTree !== manifest.sourceTree)
     fail(
       "final full tree must equal frozen source; test/harness differences also require reconciliation",
     );
   // Preview every rewritten object so census/signature expectations fail before object writes.
+  // Reuses the `tree` already built (write=false) above: same `entries`, untouched since.
   let previewParent = manifest.base;
-  const preview = prepared.map(({ slot, entries, raw }) => {
-    const tree = buildTree(objects, entries, false);
+  const preview = prepared.map(({ slot, raw, tree }, index) => {
     const rewritten = rebuildCommit(raw, tree, previewParent);
     previewParent = objects.hash("commit", rewritten.bytes, false);
+    reportProgress("previewing", index + 1);
     return { slot, tree, rebuilt: previewParent, rewritten };
   });
   for (const { slot, tree } of preview)
@@ -509,6 +551,7 @@ export const buildRewrite = (
     if (!objects.git(["cat-file", "commit", rebuilt]).equals(rewritten.bytes))
       fail("commit readback changed bytes");
     parent = rebuilt;
+    reportProgress("writing", index + 1);
     return {
       original: slot.commit,
       rebuilt,
