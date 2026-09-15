@@ -4335,6 +4335,9 @@ it("adds no commit when the repair pass rewrote nothing", () => {
     );
     assert.isUndefined(checked.walk?.repairCommits);
     assert.strictEqual(checked.installedHead, A);
+    // A clean walk binds nothing: the report and record stay byte-identical to the rehearsal's.
+    assert.isUndefined(checked.rebasedHead);
+    assert.isUndefined(checked.stackSize);
     const record = NodeFS.readFileSync(checked.recordPath, "utf8");
     assert.deepStrictEqual(parseRepairCommits(record), []);
     assert.include(record, "## Repair commits\n\nNone.");
@@ -8438,6 +8441,14 @@ describe("fold wiring (RSI-Software/t3code-hyprws#922)", () => {
       assert.strictEqual(segment.onto, gitRun(item.lane, ["rev-parse", "HEAD~1"]));
       assert.strictEqual(segment.checkedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
       assert.isUndefined(segment.repairCommits);
+      // The head-derived bindings and the rendered record header follow the head the check
+      // proved, not the pre-autosquash rehearsal head the report carried in.
+      assert.strictEqual(checked.rebasedHead, gitRun(item.lane, ["rev-parse", "HEAD"]));
+      assert.strictEqual(checked.stackSize, 3);
+      const record = NodeFS.readFileSync(checked.recordPath, "utf8");
+      assert.include(record, `- Rebased head: \`${checked.rebasedHead}\``);
+      assert.include(record, `- Final head: \`${checked.rebasedHead}\``);
+      assert.include(record, "- Stack size: `3` fork commits");
       // The relocated binding still proves the replay.
       verifyReplay(checked, runner);
     } finally {
