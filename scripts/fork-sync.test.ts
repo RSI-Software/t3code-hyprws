@@ -6361,7 +6361,29 @@ it("requires well-formed walk decisions and appends without duplicating", () => 
   );
 });
 
-it("keeps pending decision rows out of census, hot seams, and the rendered document", () => {
+it("keeps a pending stopped walk out of the census snapshot set", () => {
+  const pendingRow = {
+    tag: "t1",
+    before: A,
+    after: A,
+    recordUrl: "https://example.test/r1",
+    conflicts: [],
+    decisions: [],
+    censusFiles: [{ path: "scripts/seam.txt", hunks: 1, commit: A, domain: "fork-meta" }],
+    walkDecisions: [decision()],
+    pending: true,
+  };
+  const ledger = parseLedger(JSON.stringify([pendingRow]));
+  assert.deepStrictEqual(
+    ledger.map((row) => row.pending),
+    [true],
+  );
+  // A snapshot describes a landed stack, and a stopped walk landed nothing: its census cannot
+  // extend a run even though the document now lists the walk itself.
+  assert.deepStrictEqual(censusChurn([ledger[0]!]).hotPaths, []);
+});
+
+it("lists a pending stopped walk in hot seams and the rendered walks table", () => {
   const conflict = {
     path: "scripts/seam.txt",
     commit: A,
@@ -6391,11 +6413,13 @@ it("keeps pending decision rows out of census, hot seams, and the rendered docum
   assert.deepStrictEqual(ledger[1]?.walkDecisions?.map(walkDecisionIdentity), [
     walkDecisionIdentity(decision()),
   ]);
-  // The pending row's census cannot extend a run, and its stopped conflict is not a hot seam yet.
-  assert.deepStrictEqual(censusChurn([ledger[0]!]).hotPaths, []);
-  assert.deepStrictEqual(hotSeams([ledger[0]!]), []);
+  // A seam that stops a walk repeatedly is hot by definition, so the stopped walk's conflict
+  // counts, and the walks table renders the stop in the Range cell.
+  assert.strictEqual(hotSeams([ledger[0]!]).length, 1);
   assert.strictEqual(hotSeams([ledger[1]!]).length, 1);
-  assert.notInclude(renderMarkdown([ledger[0]!], ""), "scripts/seam.txt");
+  const document = renderMarkdown([ledger[0]!], "");
+  assert.include(document, "scripts/seam.txt");
+  assert.include(document, "\u2192 **stopped**");
 });
 
 const RECORD_SHIM = `#!${process.execPath}
