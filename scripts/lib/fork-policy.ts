@@ -1,4 +1,6 @@
 // @effect-diagnostics globalDate:off - Calendar validation must reject normalized impossible dates.
+// fork job steps 2 and 5: fork constants
+// Gate: none — repository constants every fork script reads; gates nothing itself.
 
 export const FORK_REPOSITORY = "RSI-Software/t3code-hyprws";
 export const UPSTREAM_REPOSITORY = "pingdotgg/t3code";
