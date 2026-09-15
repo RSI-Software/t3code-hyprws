@@ -50,8 +50,9 @@ or unattended success.
 `vp run fork:sync unblock-auto [--target tag@sha] [--report <path>]` walks one eligible tag to the
 end in a single invocation and asks for nothing. It selects the open walk target (or the newest
 offered tag), accepts a coherent orientation, resolves every conflict, repairs the lane, runs the
-guards, applies under the existing expected-old lease, appends the churn row, dispatches
-reconciliation, identifies its run URL, and does not wait for completion. There is no `--resume`: a
+guards, applies under the existing expected-old lease, appends the churn row, and records the
+apply's push as the reconciliation trigger — the push to `hyprws` starts the next run, which the
+walk does not wait for. There is no `--resume`: a
 report already on disk is a walk in flight and is picked up from the stage it reached, and a trunk
 that moves under the walk makes it re-list once by itself.
 
@@ -154,8 +155,8 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    gh variable set HYPRWS_AUTO_REBASE --body candidate --repo RSI-Software/t3code-hyprws
    ```
 
-   After each apply, run
-   `gh workflow run hyprws-upstream-sync.yml --repo RSI-Software/t3code-hyprws` once. Confirm the
+   After each apply, the leased push to `hyprws` starts the reconciliation run by itself; no
+   manual dispatch is needed. Confirm the
    blocked issue closes with `Resolved by hyprws <sha>` and the next block opens, or none remains.
    Restore `on` only when the ladder or walk series ends.
 
