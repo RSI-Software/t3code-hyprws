@@ -4121,6 +4121,7 @@ const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
     { stdout: `${A}\n` },
     { stdout: `${REPAIRED}\n` },
     { stdout: `${REPAIRED}\n` },
+    { stdout: `${REPAIRED}\n` },
   ]);
   // The replay proof counts the fork series from the message log; the stack size the record
   // binds counts the head.
@@ -4275,7 +4276,7 @@ const seamRepairedRun = (): ReturnType<typeof replayedRun> & { seamSha: string }
   );
   state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
     { stdout: `${A}\n` },
-    ...Array.from({ length: 5 }, () => ({ stdout: `${seamSha}\n` })),
+    ...Array.from({ length: 6 }, () => ({ stdout: `${seamSha}\n` })),
   ]);
   // The proof counts the fork series (1) and then the head with the seam commit on it (2).
   state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
@@ -4531,6 +4532,76 @@ it("an orphan fixup on the lane stops the check naming it", () => {
     assert.throws(
       () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
       /orphan fixup on the lane: "fixup! no such owner" has no owning fork commit/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an autosquash that changes the tree stops the walk naming both trees", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD^{tree}"]), [
+    { stdout: "1111111111111111111111111111111111111111\n" },
+    { stdout: "2222222222222222222222222222222222222222\n" },
+  ]);
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /the autosquashed lane's tree changed: tested 1{40}, landed 2{40}/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an autosquash conflict aborts, restores the lane head, and names the paths", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  state.runner.setSequence(
+    "git",
+    rehearsal(["rev-parse", "HEAD"]),
+    [...Array(8)].map(() => ({ stdout: `${A}\n` })),
+  );
+  state.runner.set("git", rehearsalRebaseArgs(["rebase", "--interactive", "--autosquash", B]), {
+    status: 1,
+    stderr: "could not apply abc123... feat: one\n",
+  });
+  state.runner.set("git", rehearsal(["diff", "--name-only", "--diff-filter=U"]), {
+    stdout: "scripts/fork-sync.ts\n",
+  });
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /autosquash rebase conflicted on scripts\/fork-sync\.ts; the lane was restored to/,
+    );
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--abort")),
+      "the conflicted rebase was never aborted",
+    );
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("reset") && args.includes("--hard")),
+      "the lane head was never restored",
     );
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
