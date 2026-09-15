@@ -138,8 +138,9 @@ interface WalkReportProbe {
 }
 
 /**
- * How long the applied walk ran, from the walk report the apply invocation wrote beside the
- * record (RSI-Software/t3code-hyprws#703). A record path is reused across walks, so only a
+ * How long the walk ran — applied or stopped — from the walk report the walk wrote beside the
+ * record (RSI-Software/t3code-hyprws#703); a stop writes its report before the pending row is
+ * appended, so the same probe finds the stopped walk's own number (#1023). A record path is reused across walks, so only a
  * report bound to this record whose target tag matches this walk qualifies; anything else is
  * another walk's number, and a wrong number on append-only history is worse than none. A walk
  * with no tag-matching report records a row without `elapsedMs`, never a guess.
@@ -636,20 +637,20 @@ export const appendChurnRow = (args: ReadonlyArray<string>, root: string): void 
     ? parseRepairCommits(record)
     : trunkRepairCommits(root, before, after);
   // Elapsed time comes from the walk report beside the record; effort from the host attestation
-  // (RSI-Software/t3code-hyprws#703). Either can be absent, and absence renders as absent.
-  // Effort is decoration on a history row: an unavailable or unparseable handoff (no ghb, an
-  // expired credential, CI) is recorded as absent and never fails the apply. The parser stays
-  // strict; only this call site absorbs the failure.
-  const elapsedMs = pending ? undefined : walkElapsedMs(recordPath, tag);
-  const handoff = pending
-    ? undefined
-    : (() => {
-        try {
-          return readHostHandoff(root);
-        } catch {
-          return undefined;
-        }
-      })();
+  // (RSI-Software/t3code-hyprws#703). Both paths read the same sources for the same walk — a
+  // stopped walk is a walk, and the walks that cost the most are exactly the rows that used to
+  // render absent (#1023). Either can be absent, and absence renders as absent. Effort is
+  // decoration on a history row: an unavailable or unparseable handoff (no ghb, an expired
+  // credential, CI) is recorded as absent and never fails the write. The parser stays strict;
+  // only this call site absorbs the failure.
+  const elapsedMs = walkElapsedMs(recordPath, tag);
+  const handoff = (() => {
+    try {
+      return readHostHandoff(root);
+    } catch {
+      return undefined;
+    }
+  })();
   // Every decision the walk recorded, carried from the record's own decision lines. A pending
   // row from the stop keeps its decisions — the upgrade merges rather than drops (#662).
   let walkDecisions: ReadonlyArray<WalkDecision> = parseDecisionRecords(record);
