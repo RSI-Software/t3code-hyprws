@@ -40,7 +40,7 @@ export function ThreadFileNavigatorPane(props: {
   const entriesQuery = useEnvironmentQuery(
     projectEnvironment.listEntries({
       environmentId: props.environmentId,
-      input: workspaceFileListing,
+      input: workspaceFileListing, // fork-hook: workspace-files/mobile-inspector-ignored-listing-input
     }),
   );
   const entriesData = entriesQuery.data as ProjectListEntriesResult | null;
