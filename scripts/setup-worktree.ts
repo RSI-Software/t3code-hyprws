@@ -2,7 +2,7 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
-import { resolveSetupProjectRoot, shouldReplaceEnvTarget } from "./setup-worktree.fork.ts"; // fork-hook: upstream-fixes/setup-worktree-import
+import * as SetupWorktreeFork from "./setup-worktree.fork.ts"; // fork-hook: upstream-fixes/setup-worktree-import
 
 const ENV_FILES = [".env", NodePath.join("infra", "relay", ".env")];
 
@@ -42,10 +42,11 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   });
 }
 
-const projectRoot = resolveSetupProjectRoot(process.env, NodePath.dirname(import.meta.dirname)); // fork-hook: upstream-fixes/setup-worktree-project-root
+const projectRoot = SetupWorktreeFork.resolveSetupProjectRoot(process.env, import.meta.dirname); // fork-hook: upstream-fixes/setup-worktree-project-root
 if (!projectRoot) {
   throw new Error("T3CODE_PROJECT_ROOT is not set. Run this through the t3.json setup action.");
 }
+SetupWorktreeFork.checkTrunkBase(worktree, projectRoot); // fork-hook: upstream-fixes/setup-worktree-trunk-base
 
 // Use the shell for Windows vp shims. Unattended installs need pnpm's confirmation
 // flag and closed stdin so other prompts fail. A stale lockfile must fail, not be rewritten.
