@@ -448,6 +448,32 @@ it("refuses a feasibility walk whose target moved and recomputes the same result
   }
 });
 
+// The report job writes its merge trees into its own object store, so the rebase job
+// holds those ids without the objects (RSI-Software/t3code-hyprws#1009).
+it("re-walks a carried merge whose tree this object store cannot read", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    const walked = buildAutoRebasePlan(reader, fixture.fork, null);
+    assert.ok(walked.feasibility.conflicts.length > 0, "the walk must read merged content");
+    const artifact = carriedArtifactFor(fixture, walked.horizon?.sha ?? walked.baseSha);
+    const absent = "c6344b641a87c3594d4f9ec5061775c1b649c294";
+    assert.notStrictEqual(reader.runResult(["cat-file", "-e", absent]).status, 0);
+    const unreadable = buildAutoRebasePlan(reader, fixture.fork, null, {
+      ...artifact,
+      // A moved base refuses the finished walk and leaves the memo, which is the shape
+      // the rebase job sees whenever the report job walked a different window.
+      baseSha: fixture.stable,
+      mergeTree: artifact.mergeTree.map((entry) => ({ ...entry, tree: absent })),
+    });
+    assert.strictEqual(unreadable.feasibilitySource.carried, false);
+    assert.deepStrictEqual(unreadable.feasibility, walked.feasibility);
+    assert.strictEqual(unreadable.feasibilitySource.mergesRewalked, 1);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
 it("ignores an untagged conflict beyond the newest upstream tag", () => {
   const fixture = fixtureRepository();
   try {
