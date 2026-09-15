@@ -217,8 +217,10 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    head, with a 45-minute ceiling; a timeout fails that gate. Record a repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
    `--silent-seam '<path>=<summary>:behaviour'`; the walk carries that evidence into the record, and
-   a lane repaired by hand before the check is committed by the check as its own `seam` repair (fixup
-   per owner, standalone otherwise) ahead of the additive proof.
+   a lane repaired by hand before the check is committed by the check as its own `seam` repair ahead
+   of the additive proof; repairs always fold into their owning fork commit, the fold segments are
+   re-proved after the autosquash, and `--seam-owner` names the owner of a path no fork commit
+   touched.
    Never substitute repo-wide local checks.
 
    **Stop.** On an objective nightly lane, the `checked` report already carries its proposer,

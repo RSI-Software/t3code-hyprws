@@ -5,8 +5,6 @@ import {
   focusedTests,
   formatCommand,
   isVerifiablePath,
-  repairCommitMessage,
-  repairKind,
   runRepairs,
   touchedWorkspaces,
   verifyPlan,
@@ -226,8 +224,8 @@ it("runs a scoped step in its own directory and records where it ran", () => {
     outcome.ran.map(({ command }) => command),
     ["vp run --filter ./apps/web typecheck", "apps/web: vp test run src/window.test.ts"],
   );
-  // The scoped label still reads as a test run, so the repair it owns is attributed the same way.
-  assert.strictEqual(repairKind("apps/web: vp test run src/window.test.ts"), "tests");
+  // The scoped label still reads as a test run, so the repair it owns is attributed the same way;
+  // `dirtiedBy` stays telemetry while ownership comes from the fork commit map.
 });
 
 it("names the command that dirtied the worktree in a standalone non-legacy repair commit", () => {
@@ -244,44 +242,10 @@ it("names the command that dirtied the worktree in a standalone non-legacy repai
   // the commit; the first command to leave dirt is the one named, not the last that ran.
   assert.strictEqual(outcome.dirtiedBy, "vp run --filter ./apps/web typecheck");
   assert.strictEqual(outcome.failure, undefined);
-  assert.strictEqual(repairKind(outcome.dirtiedBy ?? ""), "typecheck");
-  assert.strictEqual(repairKind("vp fmt apps/web/src/window.ts"), "fmt");
-  assert.strictEqual(repairKind("vp test run apps/web/src/window.test.ts"), "tests");
-  // The check's own seam commit renders a seam subject, not a borrowed tool name.
-  assert.strictEqual(repairKind("seam"), "seam");
-  assert.strictEqual(
-    repairCommitMessage({
-      kind: "seam",
-      tag: "v1.2.3",
-      domain: "fork-meta",
-      command: "seam",
-    }).split("\n")[0] ?? "",
-    "chore(fork-sync): repair seam after v1.2.3",
-  );
 
   // A pass that leaves the tree clean names nothing, so the walk has nothing to commit.
   assert.strictEqual(
     runRepairs(runnerFor(new Map()), "/root", plan, undefined, () => false).dirtiedBy,
     undefined,
-  );
-
-  assert.strictEqual(
-    repairCommitMessage({
-      kind: "fmt",
-      tag: "v1.2.3",
-      domain: "project-windows",
-      command: "vp fmt apps/web/src/window.ts",
-    }),
-    [
-      "chore(fork-sync): fmt after v1.2.3",
-      "",
-      "`vp fmt apps/web/src/window.ts` rewrote the worktree while replaying onto v1.2.3.",
-      "",
-      "Fork-Domain: project-windows",
-      "Fork-Tier: bugfix",
-      "Fork-Upstreamable: no",
-      "Fork-Repair: v1.2.3",
-      "",
-    ].join("\n"),
   );
 });
