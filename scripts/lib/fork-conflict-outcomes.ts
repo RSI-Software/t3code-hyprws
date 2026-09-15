@@ -36,6 +36,8 @@ export interface ConflictOutcome {
   readonly resolution: string;
   /** Hook keys re-inserted by a `hook-reapply`; set only on that source (RSI-Software/t3code-hyprws#953). */
   readonly reinsertedHooks?: readonly string[];
+  /** `false` when a `hook-reapply` skipped its scoped typecheck, so the re-insertion is unverified. */
+  readonly verified?: boolean;
 }
 
 export interface ConflictStages {
@@ -364,6 +366,11 @@ const manifestHooksFor = (
  * re-inserted — an all-intact result would mean dropping the fork's non-hook lines, which stays a
  * maintainer's call. Any refusal, unverifiability, or a failing scoped typecheck returns `null`
  * with the reason the walk stop carries instead.
+ *
+ * `verify` is the walk's scoped typecheck of each re-inserted hook. Only a caller that cannot run
+ * it — the stop census rehearses in a bare worktree with no installed modules, where the check
+ * would fail for a reason that has nothing to do with the seam — turns it off, and the outcome it
+ * gets back carries `verified: false` so nothing downstream reads it as a checked resolution.
  */
 /**
  * Whether the fork side of a conflicted merge adds nothing but marked hook lines and removes no
@@ -399,6 +406,7 @@ const hookReapply = (
   stages: ConflictStages,
   keepBothReason: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
+  verify = true,
 ): { readonly text: string; readonly outcome: ConflictOutcome } | UnresolvedOutcome | null => {
   const entries = manifestHooksFor(path, manifest);
   if (entries.length === 0) return null;
@@ -424,7 +432,7 @@ const hookReapply = (
         .join("; ")}`,
     };
   if (reapply.reinserted.length === 0) return null;
-  const workspaces = touchedWorkspaces([path]);
+  const workspaces = verify ? touchedWorkspaces([path]) : [];
   for (const workspace of workspaces) {
     const checked = runner.run("vp", ["run", "--filter", `./${workspace}`, "typecheck"], worktree);
     if (checked.status !== 0)
@@ -440,7 +448,8 @@ const hookReapply = (
       conflictClass: "mechanical",
       source: "hook-reapply",
       reinsertedHooks: reapply.reinserted,
-      resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason})`,
+      verified: verify,
+      resolution: `outcome executor: hook reapply (${reapply.reinserted.map((key) => `\`${key}\``).join(", ")}; upstream side stands, keep-both declined: ${keepBothReason}${verify ? "" : "; scoped typecheck not run"})`,
     },
   };
 };
@@ -808,12 +817,15 @@ const keepBoth = (
  * Resolve one conflicted path in the rehearsal lane and stage it, or say why it cannot be resolved.
  * A declined path is the walk's legal conflict stop; nothing here guesses past a missing stage,
  * a binary blob, a rewritten seam, or a resolution that would drop upstream work.
+ *
+ * `verifyHookReapply` is passed through to the hook re-apply stage; see `hookReapply`.
  */
 export const executeConflictOutcome = (
   runner: CommandRunner,
   worktree: string,
   path: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
+  verifyHookReapply = true,
 ): OutcomeResult => {
   const base = readStage(runner, worktree, path, 1);
   const ours = readStage(runner, worktree, path, 2);
@@ -844,7 +856,15 @@ export const executeConflictOutcome = (
       } else {
         const kept = keepBoth(runner, worktree, path, stages);
         if ("reason" in kept) {
-          const reapplied = hookReapply(runner, worktree, path, stages, kept.reason, manifest);
+          const reapplied = hookReapply(
+            runner,
+            worktree,
+            path,
+            stages,
+            kept.reason,
+            manifest,
+            verifyHookReapply,
+          );
           if (reapplied === null) return kept;
           if ("reason" in reapplied) return reapplied;
           resolved = reapplied.text;
