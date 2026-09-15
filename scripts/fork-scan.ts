@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git check runs before an Effect runtime exists.
+// fork job step 5: PR CI rebase scan
+// Gate: fork:ci — the Fork rebase scan step of the hyprws-ci Check job, carrying the additive gate, hook guard, and authoring guards inside its range.
 
 // Checks every fork domain's rebase scan against the shared files its own
 // commits touch. Shared means the fork changed the file above its upstream base
 // and upstream changed it too on the way to the target, which is where a rebase
 // silently merges two intents, so the file must be listed in that domain's
-// rebase-scan table in docs/internals/fork-delta.md. The target defaults to
+// rebase-scan table in docs/fork/internals/fork-delta.md. The target defaults to
 // live `upstream/main`; `--target <tag>` pins a release and reproduces the
 // automerged-overlap walk gate 3 of the fork-sync skill used to do by hand.
 
@@ -13,37 +15,49 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import { forkLogArguments, parseForkLog, type ForkCommit } from "./fork-delta.ts";
-import { UsageError } from "./lib/fork-cli.ts";
-import { CHURN_REF, requireBotRef } from "./lib/fork-bot-refs.ts";
-import { overlapPaths } from "./lib/fork-overlap.ts";
-import { parseTestDivergenceDebt, TEST_DIVERGENCE_REPORT } from "./lib/fork-test-debt.ts";
 import {
-  readLessonEvidence,
-  renderLessonGuidance,
-  resolveLessonSource,
-} from "./fork-lesson-guidance.ts";
-import { runCommand, SystemGit } from "./lib/fork-command.ts";
-import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
-import { FORK_HOOKS } from "./lib/fork-hooks.ts";
-import {
-  readWorkflowDrift,
-  WORKFLOW_REVIEWS_PATH,
-  type WorkflowDrift,
-} from "./lib/fork-workflow-drift.ts";
-import {
-  ADOPTED_AUTHORING_GUARDS,
-  collectScanWarnings,
+  type AuthoringGuardCommit,
+  collectAuthoringWarnings,
   commitPatchArguments,
   parseCommitPatches,
-  readHotSeams,
-  renderScanWarnings,
+  renderAuthoringWarnings,
   significantTestLines,
+  TEST_FILE,
   type CommitPatch,
-  type GuardInput,
-  type ScanWarning,
-} from "./fork-scan-guards.ts";
+  type ScanAuthoringWarning,
+} from "./fork-scan-authoring.ts";
+import { UsageError } from "./lib/fork-cli.ts";
+import {
+  hookGuardWarnings,
+  GENERATED_HOOK_PATH,
+  MARKER_CAPABLE_PATH,
+} from "./lib/fork-hook-guard.ts";
+import {
+  checkAdditive,
+  renderAdditiveFindings,
+  type AdditiveFinding,
+} from "./lib/fork-additive-gate.ts";
+import { overlapPaths } from "./lib/fork-overlap.ts";
+import {
+  assessForkSupersedes,
+  collectForkSupersedes,
+  type SituatedDeclaration,
+} from "./lib/fork-supersedes.ts";
+import {
+  runCommand,
+  SystemCommandRunner,
+  SystemGit,
+  type CwdCommandRunner,
+} from "./lib/fork-command.ts";
 
-export const LEDGER_PATH = "docs/internals/fork-delta.md";
+export const LEDGER_PATH = "docs/fork/internals/fork-delta.md";
+
+export const LIVE_SCAN_TARGET = "upstream/main";
+
+// The default scan target is a moving remote-tracking ref, not a pin: a bare
+// run watches live upstream while CI's blocking gate pins --target to the
+// merge base. A failure against the live ref is deferred rebase-time debt,
+// never a defect on this head (RSI-Software/t3code-hyprws#1129).
 
 const RECORD_SEPARATOR = "";
 
@@ -54,20 +68,10 @@ export interface ScanOptions {
   readonly head: string;
   readonly target: string;
   readonly typecheck: boolean;
-  // Ledger guards warn about commits after this ref only, so a pull request
-  // sees the shapes it introduces rather than the whole replayed stack.
+  // The CI job passes both on every run; the overlap report covers the whole
+  // range regardless of either.
   readonly since: string | null;
-  // A historical rewrite may suppress authoring warnings for the replayed
-  // stack only after proving its complete tree equals this source ref.
-  readonly sameTreeRewriteOf: string | null;
-  // A rebase rehearsal replays this trunk onto a newer upstream release, so the
-  // whole stack is re-authored and no `--since` range can exclude it. Suppresses
-  // authoring warnings only after proving the head left the trunk behind and
-  // landed on a tagged upstream commit the trunk has not reached.
   readonly replayOf: string | null;
-  readonly strict: boolean;
-  readonly ledgerRef: string;
-  readonly offline: boolean;
 }
 
 export interface ScanRange {
@@ -101,46 +105,55 @@ export interface ScanResult {
   readonly typecheckGaps: ReadonlyArray<TypecheckGap>;
   readonly undeclaredDomains: ReadonlyArray<string>;
   readonly untaggedCommits: ReadonlyArray<string>;
-  readonly warnings: ReadonlyArray<ScanWarning>;
-  readonly workflowDrift: ReadonlyArray<WorkflowDrift>;
+  // The hook guard (marked insertions only) and the `replaced-export` /
+  // `upstream-test` authoring findings, two fork:scan stages scoped by
+  // `--since` to the commits one change introduces. Historical range
+  // stays advisory.
+  readonly warnings: ReadonlyArray<ScanAuthoringWarning>;
+  readonly hookDetails: ReadonlyArray<string>;
+  // Step 1: the additive gate (files, migrations, tests intact). Read from
+  // the scan's own range so the gate runs everywhere the scan runs —
+  // including the CI `Fork rebase scan` step, which invokes `fork:scan`
+  // directly and never `fork:ci`.
+  readonly additive: ReadonlyArray<AdditiveFinding>;
+  // The forkSupersedes declarations (RSI-Software/t3code-hyprws#716):
+  // malformed calls and declarations naming an absent upstream file or
+  // title, plus the retire candidates whose upstream case adopted the fork
+  // behaviour. A named upstream case reads as superseded rather than
+  // contradictory; the additive gate consumes that reading.
+  readonly supersedes: ReadonlyArray<string>;
+  readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
+  // Whole-series rehearsal only (`--replay-of` with `--since == --target`):
+  // `upstream-test`/`replaced-export` warnings and `additive:*` findings
+  // whose normalised key already exists on `replayOf` against its own base —
+  // legacy debt, not something this replay introduced. Kept out of
+  // `warnings`/`additive` (and so out of `scanFailures`) but rendered
+  // separately, advisory-only. Empty and null outside that mode.
+  readonly historicalWarnings: ReadonlyArray<ScanAuthoringWarning>;
+  readonly historicalAdditive: ReadonlyArray<AdditiveFinding>;
+  readonly historicalBase: string | null;
+  readonly replayOf: string | null;
 }
 
 export { UsageError } from "./lib/fork-cli.ts";
 
 const HELP = `Usage: vp run fork:scan [options]
 
-Verify declared fork seams against upstream changes and retained lessons.
+Verify declared fork seams against upstream changes.
 
 Options:
   --base <ref>    Upstream base of the fork stack (default: merge base of head and target)
   --head <ref>    Fork ref to inventory (default: HEAD)
   --target <ref>  Upstream ref to compare against (default: upstream/main)
-  --since <ref>   Warn only about commits after <ref> (default: every commit in the range)
-  --same-tree-rewrite-of <ref>
-                  Treat no replayed commit as newly authored after proving head has <ref>'s tree
+  --since <ref>   Accepted for the CI job's shape; the report covers the whole range
   --replay-of <ref>
-                  Treat head as a rebase rehearsal of <ref> after proving head omits <ref> and
-                  sits on a tagged upstream commit <ref> has not reached
-  --ledger-ref <ref> Named refs/fork/... lesson ledger (default: refs/fork/churn)
-  --offline      Read retained local lesson evidence without network access or writes
-  --strict        Fail on ledger guard warnings as well as scan gaps
+                  Guard only commits whose added lines differ from the same-subject commit on this ref.
+                  When --since equals --target, upstream-test/replaced-export/additive findings already
+                  present on <ref> against its own base are advisory, not fatal.
   --no-typecheck  Skip the rehearsed-head typechecks
   -h, --help      Show help
 
-Ledger guidance reports the selected ref, exact SHA, and current/stale/offline evidence.
-Online reads check origin and fetch immutable objects without moving any local ref.
-The inventory retains original seams and all recorded census paths, including unmapped
-lessons. A named boundary or guard is guidance, not proof that a repair is verified.
-General ledger warnings are advisory unless --strict is set. With --since,
-adopted authoring guards fail without --strict; historical warnings stay advisory.
-A proven --replay-of rehearsal returns them to advisory, because replaying the
-stack re-authors every commit and no --since range can exclude it.
-Test ownership follows the selected target, including independently added same-path tests.
-
-Workflow copies require a reviewed adaptation or no-change decision in
-.github/fork-workflow-reviews.json. Changed upstream or fork blobs fail even without
---strict, including after replay. Output is read-only; exit 0 passes, 1 fails, 2 is usage.
-
+Output is read-only; exit 0 passes, 1 fails, 2 is usage.
 Typechecks run only when --head resolves to checkout HEAD; other refs report declarations.
 
 Pre-rebase overlap walk, declarations only:
@@ -153,38 +166,24 @@ Rebase rehearsal, gate 3 (silent seams, from the rehearsed worktree):
 const defaultOptions = (): ScanOptions => ({
   base: null,
   head: "HEAD",
-  target: "upstream/main",
+  target: LIVE_SCAN_TARGET,
   typecheck: true,
   since: null,
-  sameTreeRewriteOf: null,
   replayOf: null,
-  strict: false,
-  ledgerRef: CHURN_REF,
-  offline: false,
 });
 
 export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
-  const valueFlags = new Set([
-    "--base",
-    "--head",
-    "--target",
-    "--since",
-    "--same-tree-rewrite-of",
-    "--replay-of",
-    "--ledger-ref",
-  ]);
+  const valueFlags = new Set(["--base", "--head", "--target", "--since", "--replay-of"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
-    if (argument === "--no-typecheck" || argument === "--strict" || argument === "--offline") {
+    if (argument === "--no-typecheck") {
       if (seen.has(argument)) throw new UsageError(`duplicate option: ${argument}`);
       seen.add(argument);
-      if (argument === "--strict") options.strict = true;
-      else if (argument === "--offline") options.offline = true;
-      else options.typecheck = false;
+      options.typecheck = false;
       continue;
     }
     if (!valueFlags.has(argument)) throw new UsageError(`unknown option: ${argument}`);
@@ -198,9 +197,7 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
     if (argument === "--base") options.base = value;
     else if (argument === "--head") options.head = value;
     else if (argument === "--since") options.since = value;
-    else if (argument === "--same-tree-rewrite-of") options.sameTreeRewriteOf = value;
     else if (argument === "--replay-of") options.replayOf = value;
-    else if (argument === "--ledger-ref") options.ledgerRef = value;
     else options.target = value;
   }
 
@@ -210,19 +207,11 @@ export const parseScanArgs = (argv: ReadonlyArray<string>): ScanOptions => {
   if (options.since !== null && options.since.length === 0) {
     throw new UsageError("--since cannot be empty");
   }
-  if (options.sameTreeRewriteOf !== null && options.sameTreeRewriteOf.length === 0) {
-    throw new UsageError("--same-tree-rewrite-of cannot be empty");
-  }
   if (options.replayOf !== null && options.replayOf.length === 0) {
     throw new UsageError("--replay-of cannot be empty");
   }
   if (options.head.length === 0) throw new UsageError("--head cannot be empty");
   if (options.target.length === 0) throw new UsageError("--target cannot be empty");
-  try {
-    requireBotRef(options.ledgerRef);
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
   return options;
 };
 
@@ -317,8 +306,77 @@ export interface ScanInput extends ScanRange {
   readonly upstreamChanged: ReadonlySet<string>;
   // Absent when the caller only wants the rebase-scan verdict, as the unit
   // tests and the ledger-only walks do.
-  readonly guard?: GuardInput;
+  readonly guard?: AuthoringGuardInput | undefined;
+  // Step 1 findings, computed by the runner from the scan's own range so
+  // unit tests can pass them in directly without a git checkout.
+  readonly additive?: ReadonlyArray<AdditiveFinding>;
+  // Step 4 findings (RSI-Software/t3code-hyprws#716), likewise injectable:
+  // declaration refusals plus undeclared-contradiction findings.
+  readonly supersedes?: ReadonlyArray<string>;
+  readonly retireCandidates?: ReadonlyArray<SituatedDeclaration>;
+  // Whole-series rehearsal baseline, computed by the runner from a second
+  // scan of replayOf against its own base. Absent outside that mode.
+  readonly baseline?: BaselineKeys | undefined;
 }
+
+export interface BaselineKeys {
+  readonly base: string;
+  readonly replayOf: string;
+  readonly warningKeys: ReadonlySet<string>;
+  readonly additiveKeys: ReadonlySet<string>;
+}
+
+export interface AuthoringGuardInput {
+  readonly commits: ReadonlyArray<AuthoringGuardCommit>;
+  readonly filesBySha: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly patchesBySha: ReadonlyMap<string, CommitPatch>;
+  readonly upstreamFiles: ReadonlySet<string>;
+  readonly upstreamTestFiles: ReadonlySet<string>;
+  readonly upstreamTestLines: ReadonlyMap<string, ReadonlySet<string>>;
+  // Significant target-tree lines per touched upstream file, for the hook
+  // guard's mirror filter (RSI-Software/t3code-hyprws#1207). Absent on
+  // inputs built before the map existed; the guard then behaves as before.
+  readonly upstreamLines?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
+  readonly replayAddedLines?:
+    | ReadonlyMap<string, ReadonlyMap<string, ReadonlyArray<string>>>
+    | undefined;
+  readonly upstreamTestTexts: ReadonlyMap<string, string>;
+  readonly headTestTexts?: ReadonlyMap<string, string> | undefined;
+  readonly siblingTexts: ReadonlyMap<string, string>;
+}
+
+const SHA_PATTERN = /\b[0-9a-f]{7,40}\b/g;
+// A whole-word integer between spaces is a count ("gains 4 fork test
+// block(s)"). A squash sums its members' counts, so the count leaves the key
+// too; a digit inside a path sits against a non-space and survives.
+const COUNT_PATTERN = /(?<=\s)\d+(?=\s)/g;
+export const normaliseFindingDetail = (text: string): string =>
+  text.replace(SHA_PATTERN, "<sha>").replace(COUNT_PATTERN, "<n>");
+
+// One key per finding shape, sha-free and count-free so a finding rebases or
+// squashes into an identical key on both scans. `warning.detail` always
+// carries its path (the messages `fork-scan-authoring.ts` builds all open on
+// it, or name it a sentence in), so folding it into the normalised detail is
+// enough for uniqueness without a separate path field on
+// `ScanAuthoringWarning`.
+const warningKey = (warning: ScanAuthoringWarning): string =>
+  `${warning.rule}|${normaliseFindingDetail(warning.detail)}`;
+const additiveKey = (finding: AdditiveFinding): string =>
+  `${finding.check}|${finding.path}|${normaliseFindingDetail(finding.detail)}`;
+
+const partitionBaseline = <Finding>(
+  findings: ReadonlyArray<Finding>,
+  keyOf: (finding: Finding) => string,
+  baselineKeys: ReadonlySet<string> | undefined,
+): { readonly fatal: ReadonlyArray<Finding>; readonly historical: ReadonlyArray<Finding> } => {
+  if (baselineKeys === undefined) return { fatal: findings, historical: [] };
+  const fatal: Array<Finding> = [];
+  const historical: Array<Finding> = [];
+  for (const finding of findings) {
+    (baselineKeys.has(keyOf(finding)) ? historical : fatal).push(finding);
+  }
+  return { fatal, historical };
+};
 
 export const buildScanResult = (input: ScanInput): ScanResult => {
   const touched = new Map<string, Set<string>>();
@@ -365,6 +423,15 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     for (const path of shared) overlaps.push({ path, domain, covered: covers(path) });
   }
 
+  const rawWarnings = input.guard === undefined ? [] : collectAuthoringWarnings(input.guard);
+  const rawAdditive = input.additive ?? [];
+  const warningPartition = partitionBaseline(rawWarnings, warningKey, input.baseline?.warningKeys);
+  const additivePartition = partitionBaseline(
+    rawAdditive,
+    additiveKey,
+    input.baseline?.additiveKeys,
+  );
+
   return {
     range: { base: input.base, head: input.head, target: input.target },
     domains,
@@ -372,8 +439,29 @@ export const buildScanResult = (input: ScanInput): ScanResult => {
     typecheckGaps: [],
     undeclaredDomains,
     untaggedCommits,
-    warnings: input.guard === undefined ? [] : collectScanWarnings(input.guard),
-    workflowDrift: [],
+    warnings: warningPartition.fatal,
+    additive: additivePartition.fatal,
+    historicalWarnings: warningPartition.historical,
+    historicalAdditive: additivePartition.historical,
+    historicalBase: input.baseline?.base ?? null,
+    replayOf: input.baseline?.replayOf ?? null,
+    supersedes: input.supersedes ?? [],
+    retireCandidates: input.retireCandidates ?? [],
+    hookDetails:
+      input.guard === undefined
+        ? []
+        : input.guard.commits.flatMap((commit) => {
+            const patch = input.guard?.patchesBySha.get(commit.sha);
+            if (patch === undefined) return [];
+            return hookGuardWarnings({
+              commit,
+              files: input.guard?.filesBySha.get(commit.sha) ?? [],
+              changedLines: patch.changedLines,
+              upstreamFiles: input.guard?.upstreamFiles ?? new Set(),
+              upstreamLines: input.guard?.upstreamLines,
+              replayAddedLines: input.guard?.replayAddedLines?.get(commit.sha),
+            }).map((detail) => `${commit.short}  ${commit.domain}  ${detail}`);
+          }),
   };
 };
 
@@ -387,11 +475,14 @@ export const scanFailures = (result: ScanResult): ReadonlyArray<string> => [
   ...result.typecheckGaps.map(
     (gap) => `typecheck: fork-owned file fails on rehearsed head: ${gap.path}`,
   ),
-  ...result.workflowDrift.flatMap((drift) =>
-    drift.problem === undefined
-      ? []
-      : [`workflow-drift: ${drift.upstream} -> ${drift.fork}: ${drift.problem}`],
+  ...result.additive.map(
+    (finding) => `additive:${finding.check}: ${finding.path}: ${finding.detail}`,
   ),
+  ...result.supersedes.map((refusal) => `supersedes: ${refusal}`),
+  ...result.warnings.map(
+    (warning) => `${warning.rule}: ${warning.commit} ${warning.domain}: ${warning.detail}`,
+  ),
+  ...result.hookDetails.map((detail) => `hook-guard: ${detail}`),
 ];
 
 // The two gap classes need different repairs: a ledger gap is an entry the human adds, and a
@@ -403,20 +494,24 @@ export const scanFailureSummary = (result: ScanResult): ReadonlyArray<string> =>
     result.undeclaredDomains.length +
     result.domains.reduce((count, domain) => count + domain.gaps.length, 0);
   if (ledgerGaps > 0) {
-    summary.push(
-      `failed: ${ledgerGaps} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}`,
-    );
+    if (result.range.target === LIVE_SCAN_TARGET) {
+      summary.push(
+        `failed: ${ledgerGaps} rebase-scan gap(s): target ${result.range.target} is a live ref (upstream moved past base ${result.range.base.slice(0, 7)}); deferred rebase-time debt for the next rebase, not a defect on this head; record each path in its domain's Rebase scan table in ${LEDGER_PATH} at rebase time`,
+      );
+      summary.push(
+        `blocking gate pins the merge base instead: vp run fork:scan --head ${result.range.head} --target "$(git merge-base ${result.range.target} ${result.range.head})" --no-typecheck`,
+      );
+    } else {
+      summary.push(
+        `failed: ${ledgerGaps} rebase-scan gap(s); add each path to its domain's Rebase scan table in ${LEDGER_PATH}`,
+      );
+    }
   }
   if (result.typecheckGaps.length > 0) {
     summary.push(
-      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each as a silent seam in the walk's appended Fork-Repair commit, record it with unblock-check --silent-seam '<path>=<summary>:type', and rerun; never amend the replayed fork commit that owns the file`,
+      `failed: ${result.typecheckGaps.length} typecheck gap(s); fix each in the fork commit that owns the file and rerun; never amend a replayed fork commit`,
     );
   }
-  const workflowGaps = result.workflowDrift.filter(({ problem }) => problem !== undefined).length;
-  if (workflowGaps > 0)
-    summary.push(
-      `failed: ${workflowGaps} workflow drift gap(s); adapt the fork copy or justify no-change in ${WORKFLOW_REVIEWS_PATH}, then rerun`,
-    );
   return summary;
 };
 
@@ -445,15 +540,35 @@ export const renderScanReport = (result: ScanResult): string => {
     for (const gap of result.typecheckGaps)
       lines.push(`  TYPECHECK  ${gap.workspace}  ${gap.path}`);
   }
-  lines.push(...renderScanWarnings(result.warnings));
-  if (result.workflowDrift.length > 0) {
-    lines.push("", "Workflow copy reviews:");
-    for (const drift of result.workflowDrift) {
+  lines.push(...renderAuthoringWarnings(result.warnings));
+  if (result.supersedes.length > 0) {
+    lines.push("", `Supersedes, ${result.supersedes.length} finding(s):`);
+    for (const refusal of result.supersedes) lines.push(`  SUPERSEDES  ${refusal}`);
+  }
+  if (result.retireCandidates.length > 0) {
+    lines.push("", `Retire candidates, ${result.retireCandidates.length}:`);
+    for (const candidate of result.retireCandidates)
       lines.push(
-        `  ${drift.problem === undefined ? drift.review?.disposition : "MISSING"}  ${drift.upstream} -> ${drift.fork}`,
+        `  RETIRE  ${candidate.sibling}: forkSupersedes names "${candidate.upstreamTitle}" in ${candidate.upstreamPath}, which now carries the fork behaviour; delete the declaration and its sibling case in the same change`,
       );
-      lines.push(`    upstream ${drift.upstreamBlob}; fork ${drift.forkBlob}`);
-      lines.push(`    ${drift.problem ?? drift.review?.reason}`);
+  }
+  if (result.additive.length > 0) {
+    lines.push(...renderAdditiveFindings(result.additive).map((line) => `  ${line}`));
+  }
+  if (result.hookDetails.length > 0) {
+    lines.push("", `Hook guard, ${result.hookDetails.length} finding(s):`);
+    for (const detail of result.hookDetails) lines.push(`  HOOK  ${detail}`);
+  }
+  const historicalCount = result.historicalWarnings.length + result.historicalAdditive.length;
+  if (historicalCount > 0 && result.replayOf !== null && result.historicalBase !== null) {
+    lines.push(
+      "",
+      `historical: ${historicalCount} finding(s) already on ${result.replayOf} against ${result.historicalBase}, advisory`,
+      "Advisory, already on the replay baseline:",
+    );
+    lines.push(...renderAuthoringWarnings(result.historicalWarnings).map((line) => `  ${line}`));
+    if (result.historicalAdditive.length > 0) {
+      lines.push(...renderAdditiveFindings(result.historicalAdditive).map((line) => `    ${line}`));
     }
   }
   if (result.untaggedCommits.length > 0) {
@@ -552,124 +667,139 @@ export const resolveRange = (git: GitReader, options: ScanOptions): ScanRange =>
   target: options.target,
 });
 
-// A rebase rehearsal replays every fork commit onto a newer upstream release,
-// so each one is a fresh SHA with a fresh patch: no `--since` range can name a
-// smaller set than the whole stack, and adopted authoring guards would block the
-// replay for shapes the trunk already carries. Three reads, all non-throwing,
-// keep this to that one shape: the head must not contain the trunk (a pull
-// request branched off the trunk always does), the head's upstream base must be
-// a commit the trunk has not reached (a branch stale against the trunk sits on
-// the same base or older), and that base must be an exact upstream release tag
-// (the sync target), which is the only base a rehearsal is allowed to land on.
-const isRebaseReplay = (git: GitReader, options: ScanOptions): boolean => {
-  const trunk = options.replayOf;
-  if (trunk === null) return false;
-  if (git.run(["rev-list", "--count", trunk, "--not", options.head]).trim() === "0") return false;
-  const base = resolveRange(git, options).base;
-  if (git.run(["rev-list", "--count", base, "--not", trunk]).trim() === "0") return false;
-  return readLines(git.run(["tag", "--points-at", base, "--list", "v*"])).length > 0;
-};
-
-export const resolveAuthoringSince = (git: GitReader, options: ScanOptions): string | null => {
-  if (options.sameTreeRewriteOf === null) {
-    return isRebaseReplay(git, options) ? null : options.since;
-  }
-  const headTree = git.run(["rev-parse", "--verify", `${options.head}^{tree}`]).trim();
-  const sourceTree = git
-    .run(["rev-parse", "--verify", `${options.sameTreeRewriteOf}^{tree}`])
-    .trim();
-  if (headTree !== sourceTree) {
-    throw new Error(
-      `historical rewrite head ${options.head} has tree ${headTree}, expected ${options.sameTreeRewriteOf} tree ${sourceTree}`,
-    );
-  }
-  return options.head;
-};
-
-/**
- * The append-only baseline, read from the walk's own head rather than from a constant here, so the
- * sweep that records the debt is the list that grants it. A head with no report — an old commit, a
- * bare tree — has no baseline and is held to the full rule.
- */
-const readTestDivergenceDebt = (git: GitReader, head: string): ReadonlySet<string> => {
-  try {
-    return parseTestDivergenceDebt(git.run(["show", `${head}:${TEST_DIVERGENCE_REPORT}`]));
-  } catch {
-    return new Set();
-  }
-};
-
-/**
- * The target-tree text of every upstream test file a warned commit removes a line from — nothing
- * else, so a scan stays proportional to the commits it warns about. Without it the append-only
- * rule would also refuse the repair it asks for: deleting the fork's own line out of an upstream
- * test file is a removal too.
- */
-const readUpstreamTestLines = (
-  git: GitReader,
-  target: string,
-  patchesBySha: ReadonlyMap<string, CommitPatch>,
-  upstreamTestFiles: ReadonlySet<string>,
-): ReadonlyMap<string, ReadonlySet<string>> => {
-  const paths = new Set<string>();
-  for (const patch of patchesBySha.values())
-    for (const path of patch.removedTestLines.keys())
-      if (upstreamTestFiles.has(path)) paths.add(path);
-  const lines = new Map<string, ReadonlySet<string>>();
-  for (const path of [...paths].toSorted()) {
-    try {
-      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
-    } catch {
-      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+const addedLinesByPath = (patch: string): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const additions = new Map<string, Array<string>>();
+  let path = "";
+  for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.startsWith("+++ b/")) {
+      path = line.slice("+++ b/".length);
+      continue;
+    }
+    if (path.length > 0 && line.startsWith("+") && !line.startsWith("+++")) {
+      const lines = additions.get(path) ?? [];
+      lines.push(line.slice(1));
+      additions.set(path, lines);
     }
   }
-  return lines;
+  return additions;
 };
 
-/**
- * The target-tree lines, in file order, for exactly the files the fork-hook-seam rule needs: the
- * upstream-owned, non-generated files a warned commit removes lines from. Never the whole tree —
- * a scan stays proportional to the seams it reads. The rule checks removals by position through
- * the diff against this ordered blob, not by line-set membership. Deleting a fork-added hook line
- * removes a line the target tree does not carry, so it is not refused as an upstream removal.
- */
-const readUpstreamHookLines = (
+interface ReplayCounterparts {
+  readonly bySubject: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly shas: ReadonlyArray<string>;
+}
+
+const replayCounterparts = (git: GitReader, base: string, replayOf: string): ReplayCounterparts => {
+  const bySubject = new Map<string, Array<string>>();
+  const shas: Array<string> = [];
+  for (const record of git
+    .run(["log", "--reverse", "--format=%H%x1f%s%x1e", `${base}..${replayOf}`])
+    .split("\u001e")) {
+    const separator = record.indexOf("\u001f");
+    if (separator < 0) continue;
+    const sha = record.slice(0, separator).trim();
+    const subject = record.slice(separator + 1).trim();
+    if (sha.length === 0 || subject.length === 0) continue;
+    shas.push(sha);
+    const matches = bySubject.get(subject) ?? [];
+    matches.push(sha);
+    bySubject.set(subject, matches);
+  }
+  return { bySubject, shas };
+};
+
+// A squash lists the originals it replaced under `Squashes:`, one
+// `- <sha> <subject>` line per member (fork-development.md). Every member is
+// a replay counterpart; the subject alone would match only the first one.
+export const squashedMembers = (body: string): ReadonlyArray<string> => {
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "Squashes:");
+  if (start < 0) return [];
+  const members: Array<string> = [];
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const member = /^- ([0-9a-f]{7,40})\b/.exec(trimmed)?.[1];
+    if (member === undefined) break;
+    members.push(member);
+  }
+  return members;
+};
+
+const readSquashedMembers = (
   git: GitReader,
-  target: string,
-  patchesBySha: ReadonlyMap<string, CommitPatch>,
-  upstreamFiles: ReadonlySet<string>,
+  shas: ReadonlyArray<string>,
 ): ReadonlyMap<string, ReadonlyArray<string>> => {
-  const paths = new Set<string>();
-  for (const patch of patchesBySha.values())
-    for (const [path, change] of patch.changedLines)
-      if (change.removed.length > 0 && upstreamFiles.has(path) && !GENERATED_HOOK_PATH.test(path))
-        paths.add(path);
-  const lines = new Map<string, ReadonlyArray<string>>();
-  for (const path of [...paths].toSorted()) {
-    try {
-      lines.set(path, git.run(["show", `${target}:${path}`]).split("\n"));
-    } catch {
-      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
-    }
+  const members = new Map<string, ReadonlyArray<string>>();
+  if (shas.length === 0) return members;
+  for (const record of git
+    .run(["log", "--no-walk", "--format=%H%x1f%b%x1e", ...shas])
+    .split("\u001e")) {
+    const separator = record.indexOf("\u001f");
+    if (separator < 0) continue;
+    const listed = squashedMembers(record.slice(separator + 1));
+    if (listed.length > 0) members.set(record.slice(0, separator).trim(), listed);
   }
-  return lines;
+  return members;
 };
 
-// The guard rules read one patch per warned commit, so `--since` is what keeps
-// a pull request's run proportional to the commits it adds.
+export interface ReplayedCommit extends Pick<ForkCommit, "sha" | "subject"> {
+  readonly squashes?: ReadonlyArray<string> | undefined;
+}
+
+// A squash resolves every listed member by sha prefix and consumes no subject
+// ordinal; anything else matches its subject, oldest first.
+export const matchReplayCounterparts = (
+  commits: ReadonlyArray<ReplayedCommit>,
+  counterparts: ReadonlyMap<string, ReadonlyArray<string>>,
+  replayShas: ReadonlyArray<string> = [],
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+  const ordinalBySubject = new Map<string, number>();
+  const matched = new Map<string, ReadonlyArray<string>>();
+  for (const commit of commits) {
+    const squashed = (commit.squashes ?? []).flatMap((member) =>
+      replayShas.filter((sha) => sha.startsWith(member)),
+    );
+    if (squashed.length > 0) {
+      matched.set(commit.sha, squashed);
+      continue;
+    }
+    const ordinal = ordinalBySubject.get(commit.subject) ?? 0;
+    ordinalBySubject.set(commit.subject, ordinal + 1);
+    const counterpart = counterparts.get(commit.subject)?.[ordinal];
+    if (counterpart !== undefined) matched.set(commit.sha, [counterpart]);
+  }
+  return matched;
+};
+
+// `--since` is the outer guard bound. Replay-specific suppression happens at
+// line level in the hook guard, so one changed resolution cannot expose the
+// same commit's unchanged historical insertions.
+
+export const resolveGuardedCommits = (
+  git: GitReader,
+  options: ScanOptions,
+  range: ScanRange,
+  commits: ReadonlyArray<ForkCommit>,
+): ReadonlyArray<ForkCommit> => {
+  const since = options.since;
+  const warned =
+    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
+  return commits.filter(
+    (commit) => commit.domain !== undefined && (warned === null || warned.has(commit.sha)),
+  );
+};
+
 const buildGuardInput = (
   git: GitReader,
   options: ScanOptions,
   range: ScanRange,
   commits: ReadonlyArray<ForkCommit>,
   filesBySha: ReadonlyMap<string, ReadonlyArray<string>>,
-  churn: string | null,
-): GuardInput => {
-  const since = resolveAuthoringSince(git, options);
-  const warned =
-    since === null ? null : new Set(readLines(git.run(["rev-list", `${since}..${range.head}`])));
-  const guardCommits = commits.flatMap((commit) =>
-    commit.domain === undefined || (warned !== null && !warned.has(commit.sha))
+): AuthoringGuardInput | undefined => {
+  const guarded = resolveGuardedCommits(git, options, range, commits);
+  const guardCommits = guarded.flatMap((commit) =>
+    commit.domain === undefined
       ? []
       : [
           {
@@ -685,14 +815,37 @@ const buildGuardInput = (
     guardCommits.length === 0
       ? new Map<string, CommitPatch>()
       : parseCommitPatches(git.run(commitPatchArguments(guardCommits.map(({ sha }) => sha))));
-  const upstreamTestFiles =
-    guardCommits.length === 0
-      ? new Set<string>()
-      : new Set(
-          readLines(
-            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
-          ),
-        );
+  const replayAddedLines = new Map<string, ReadonlyMap<string, ReadonlyArray<string>>>();
+  if (options.replayOf !== null) {
+    const replayBase = git.run(["merge-base", range.target, options.replayOf]).trim();
+    const counterparts = replayCounterparts(git, replayBase, options.replayOf);
+    const squashes = readSquashedMembers(
+      git,
+      guarded.map(({ sha }) => sha),
+    );
+    const matches = matchReplayCounterparts(
+      guarded.map((commit) => ({
+        sha: commit.sha,
+        subject: commit.subject,
+        squashes: squashes.get(commit.sha),
+      })),
+      counterparts.bySubject,
+      counterparts.shas,
+    );
+    for (const commit of guarded) {
+      const shas = matches.get(commit.sha);
+      if (shas === undefined) continue;
+      const added = new Map<string, Array<string>>();
+      for (const sha of shas) {
+        for (const [path, lines] of addedLinesByPath(
+          git.run(["-c", "core.quotePath=false", "show", "--format=", "--unified=0", sha]),
+        )) {
+          added.set(path, [...(added.get(path) ?? []), ...lines]);
+        }
+      }
+      replayAddedLines.set(commit.sha, added);
+    }
+  }
   const upstreamFiles =
     guardCommits.length === 0
       ? new Set<string>()
@@ -701,17 +854,248 @@ const buildGuardInput = (
             git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.base]),
           ),
         );
+  const upstreamTestFiles =
+    guardCommits.length === 0
+      ? new Set<string>()
+      : new Set(
+          readLines(
+            git.run(["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", range.target]),
+          ),
+        );
+  const upstreamTestTexts =
+    guardCommits.length === 0
+      ? new Map<string, string>()
+      : readUpstreamTestTexts(git, range.target, patchesBySha, upstreamTestFiles);
   return {
     commits: guardCommits,
     filesBySha,
     patchesBySha,
     upstreamFiles,
-    hotSeams: churn === null ? new Map() : readHotSeams(churn),
-    upstreamTestDebt: readTestDivergenceDebt(git, range.head),
     upstreamTestFiles,
-    upstreamTestLines: readUpstreamTestLines(git, range.target, patchesBySha, upstreamTestFiles),
-    forkHooks: new Set(Object.keys(FORK_HOOKS)),
-    upstreamHookLines: readUpstreamHookLines(git, range.target, patchesBySha, upstreamFiles),
+    upstreamTestLines: readUpstreamLines(
+      git,
+      range.target,
+      patchesBySha,
+      upstreamTestFiles,
+      (patch) => patch.removedTestLines.keys(),
+      () => true,
+    ),
+    replayAddedLines,
+    upstreamLines: readUpstreamLines(
+      git,
+      range.target,
+      patchesBySha,
+      upstreamFiles,
+      (patch) => patch.changedLines.keys(),
+      (path) =>
+        MARKER_CAPABLE_PATH.test(path) && !GENERATED_HOOK_PATH.test(path) && !TEST_FILE.test(path),
+    ),
+    upstreamTestTexts,
+    headTestTexts:
+      guardCommits.length === 0
+        ? new Map<string, string>()
+        : readTestTexts(git, range.head, upstreamTestTexts.keys()),
+    siblingTexts:
+      guardCommits.length === 0
+        ? new Map<string, string>()
+        : readSiblingTexts(git, range.head, upstreamTestTexts),
+  };
+};
+
+/**
+ * The target-tree text of every upstream file a warned commit touches —
+ * nothing else, so a scan stays proportional to the commits it warns about.
+ * One reader serves both rules that measure a patch against the target:
+ * upstream-test selects the removed test lines, the hook guard the changed
+ * lines of marker-capable source. Without the test side the append-only
+ * rule would also refuse the repair it asks for: deleting the fork's own
+ * line out of an upstream test file is a removal too. Without the hook
+ * side the guard would refuse the repair it cannot name: restoring
+ * upstream's own text byte for byte reads as a fork insertion
+ * (RSI-Software/t3code-hyprws#1207).
+ */
+const readUpstreamLines = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamFiles: ReadonlySet<string>,
+  selectPaths: (patch: CommitPatch) => Iterable<string>,
+  keepPath: (path: string) => boolean,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const path of selectPaths(patch)) {
+      if (!upstreamFiles.has(path)) continue;
+      if (!keepPath(path)) continue;
+      paths.add(path);
+    }
+  const lines = new Map<string, ReadonlySet<string>>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      lines.set(path, significantTestLines(git.run(["show", `${target}:${path}`])));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return lines;
+};
+
+/**
+ * The target-tree text of every upstream test file a warned commit removes a
+ * test line from — the same path set `readUpstreamLines` selects for the
+ * test side, plus the full text. The declared-superseded exemption compares
+ * structurally by case, so it needs the text, not just the line set
+ * (RSI-Software/t3code-hyprws#1208).
+ */
+const readUpstreamTestTexts = (
+  git: GitReader,
+  target: string,
+  patchesBySha: ReadonlyMap<string, CommitPatch>,
+  upstreamTestFiles: ReadonlySet<string>,
+): ReadonlyMap<string, string> => {
+  const paths = new Set<string>();
+  for (const patch of patchesBySha.values())
+    for (const path of patch.removedTestLines.keys())
+      if (upstreamTestFiles.has(path)) paths.add(path);
+  const texts = new Map<string, string>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      texts.set(path, git.run(["show", `${target}:${path}`]));
+    } catch {
+      // An unreadable blob leaves no entry, and the rule then refuses every removal in that file.
+    }
+  }
+  return texts;
+};
+
+/**
+ * The head-tree (scanned-head) text of the fork sibling for every touched
+ * upstream test file. Read from the head tree, never the working tree, so
+ * the exemption cannot go stale against the commit being scanned: an
+ * uncommitted declaration excuses nothing, the same way the additive
+ * gate's reader works. A sibling unreadable at the head excuses
+ * nothing, because an unread tree is not evidence of a replacement case.
+ */
+const readTestTexts = (
+  git: GitReader,
+  tree: string,
+  paths: Iterable<string>,
+): ReadonlyMap<string, string> => {
+  const texts = new Map<string, string>();
+  for (const path of [...paths].toSorted()) {
+    try {
+      texts.set(path, git.run(["show", `${tree}:${path}`]));
+    } catch {
+      // An unreadable head blob is not evidence that upstream text survives.
+    }
+  }
+  return texts;
+};
+
+const readSiblingTexts = (
+  git: GitReader,
+  head: string,
+  upstreamTestTexts: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> => {
+  const texts = new Map<string, string>();
+  for (const path of [...upstreamTestTexts.keys()].toSorted()) {
+    const sibling = path.replace(/\.test\.(tsx?)$/, ".fork.test.$1");
+    try {
+      texts.set(sibling, git.run(["show", `${head}:${sibling}`]));
+    } catch {
+      // Absent at the head: no declarations to exempt.
+    }
+  }
+  return texts;
+};
+
+/**
+ * The supersedes declarations of every fork sibling at the scanned
+ * head, judged against the target tree. Siblings are read from the head
+ * tree (`show <head>:<path>`), never the working tree, so the check stays
+ * proportional to the scan's own refs — including the CI case where the
+ * checkout is the synthetic merge commit. A sibling whose counterpart is
+ * absent from the head tree is skipped: fork-only tests with no upstream
+ * file carry no divergence. An unreadable blob leaves the declaration
+ * refused, because an unread tree is not evidence the named case exists.
+ */
+const readSupersedesAssessment = (
+  git: GitReader,
+  range: ScanRange,
+): {
+  readonly supersedes: ReadonlyArray<string>;
+  readonly retireCandidates: ReadonlyArray<SituatedDeclaration>;
+} => {
+  let siblings: ReadonlyArray<string>;
+  try {
+    siblings = readLines(
+      git.run([
+        "-c",
+        "core.quotePath=false",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        range.head,
+        "--",
+        "apps",
+        "packages",
+        "scripts",
+      ]),
+    ).filter((path) => /\.fork\.test\.tsx?$/.test(path));
+  } catch {
+    return { supersedes: [], retireCandidates: [] };
+  }
+  if (siblings.length === 0) return { supersedes: [], retireCandidates: [] };
+  const siblingTexts = new Map<string, string>();
+  for (const sibling of siblings) {
+    try {
+      siblingTexts.set(sibling, git.run(["show", `${range.head}:${sibling}`]));
+    } catch {
+      // An unreadable sibling leaves no entry; its declarations stay unread.
+    }
+  }
+  if (siblingTexts.size === 0) return { supersedes: [], retireCandidates: [] };
+  // Candidate upstream texts: every counterpart plus every file a
+  // declaration names. A named file outside the sibling's counterpart is
+  // how a stale declaration surfaces — read it, then let the assessment
+  // refuse it.
+  const needed = new Set<string>();
+  for (const [sibling, text] of siblingTexts) {
+    needed.add(sibling.replace(/\.fork\.test\.(tsx?)$/, ".test.$1"));
+    for (const call of collectForkSupersedes(text).declarations) needed.add(call.upstreamPath);
+  }
+  const upstreamTexts = new Map<string, string>();
+  for (const path of [...needed].toSorted()) {
+    try {
+      upstreamTexts.set(path, git.run(["show", `${range.target}:${path}`]));
+    } catch {
+      // Absent from the target tree: the assessment refuses the naming
+      // declaration. No entry is the signal.
+    }
+  }
+  // Merge-base texts for the same paths: the rename check compares the
+  // base against the assessed tree, so an in-place upstream rename the
+  // sibling still carries under the base title reads as undeclared. An
+  // unreadable base blob leaves no entry; the old title-sharing rule
+  // stands for that path.
+  const baseTexts = new Map<string, string>();
+  for (const path of [...needed].toSorted()) {
+    try {
+      baseTexts.set(path, git.run(["show", `${range.base}:${path}`]));
+    } catch {
+      // Absent from the base tree: no rename baseline for this path.
+    }
+  }
+  const assessment = assessForkSupersedes(siblingTexts, upstreamTexts, baseTexts);
+  return {
+    supersedes: [
+      ...assessment.refusals,
+      ...assessment.undeclared.map(
+        ({ sibling, title }) =>
+          `${sibling}: case "${title}" contradicts its upstream counterpart with no forkSupersedes declaration; name the upstream case, why the fork differs, and the fork commit`,
+      ),
+    ],
+    retireCandidates: [...assessment.retireCandidates],
   };
 };
 
@@ -719,7 +1103,7 @@ export const readScan = (
   git: GitReader,
   options: ScanOptions,
   ledger: string,
-  churn: string | null = null,
+  additiveRunner?: AdditiveRunner,
 ): ScanResult => {
   const range = resolveRange(git, options);
   const commits = parseForkLog(git.run(forkLogArguments(range.base, range.head)));
@@ -727,17 +1111,73 @@ export const readScan = (
   const filesBySha: ReadonlyMap<string, ReadonlyArray<string>> = shas.length === 0
     ? new Map()
     : parseCommitFiles(git.run(commitFilesArguments(shas)));
-  const result = buildScanResult({
+  return buildScanResult({
     ...range,
     commits,
     filesBySha,
     scans: parseRebaseScans(ledger),
     forkChanged: new Set(readChangedPaths(git, range.base, range.head)),
     upstreamChanged: new Set(readChangedPaths(git, range.base, range.target)),
-    guard: buildGuardInput(git, options, range, commits, filesBySha, churn),
+    guard: buildGuardInput(git, options, range, commits, filesBySha),
+    // Base + since, never live upstream: files and migrations read against
+    // the pinned base, tests diff head against the since tree so only new
+    // loss fires, with upstream-target filtering so removing a fork-added
+    // line is free.
+    additive:
+      additiveRunner === undefined
+        ? []
+        : checkAdditive(
+            additiveRunner,
+            additiveRunner.worktree,
+            { base: range.base, since: options.since },
+            { head: range.head },
+          ),
+    ...readSupersedesAssessment(git, range),
+    baseline: resolveBaselineKeys(git, options, range, ledger, additiveRunner),
   });
-  return { ...result, workflowDrift: readWorkflowDrift(git, range.head, range.target) };
 };
+
+// Whole-series rehearsal only: `--replay-of` scans every replayed commit, so
+// this second scan of `replayOf` against its own base (never live upstream —
+// `range.target` may already be pinned to a merge base by the caller) finds
+// the legacy debt the replay did not introduce. `--since != --target` means
+// the caller bounded the guard to a real commit range already, so the
+// baseline diff is a no-op there (recursing with replayOf: null never loops).
+const resolveBaselineKeys = (
+  git: GitReader,
+  options: ScanOptions,
+  range: ScanRange,
+  ledger: string,
+  additiveRunner: AdditiveRunner | undefined,
+): BaselineKeys | undefined => {
+  if (options.replayOf === null) return undefined;
+  if (options.since === null || options.since !== options.target) return undefined;
+  const historicalBase = git.run(["merge-base", range.target, options.replayOf]).trim();
+  const baselineResult = readScan(
+    git,
+    {
+      base: null,
+      head: options.replayOf,
+      target: historicalBase,
+      typecheck: false,
+      since: historicalBase,
+      replayOf: null,
+    },
+    ledger,
+    additiveRunner,
+  );
+  return {
+    base: historicalBase,
+    replayOf: options.replayOf,
+    warningKeys: new Set(baselineResult.warnings.map(warningKey)),
+    additiveKeys: new Set(baselineResult.additive.map(additiveKey)),
+  };
+};
+
+/** What `checkAdditive` needs beyond the git reads: the worktree the trees resolve in. */
+export interface AdditiveRunner extends CwdCommandRunner {
+  readonly worktree: string;
+}
 
 export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
@@ -750,25 +1190,28 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     const root = new SystemGit(cwd).run(["rev-parse", "--show-toplevel"]).trim();
     const git = new SystemGit(root);
     const ledger = NodeFS.readFileSync(NodePath.join(root, LEDGER_PATH), "utf8");
-    const lessons = resolveLessonSource(root, options.ledgerRef, options.offline);
-    const evidence =
-      lessons.raw === null ? { walks: [], seamRecords: [] } : readLessonEvidence(lessons.raw);
-    const churn = lessons.raw;
-    const scanned = readScan(git, options, ledger, churn);
     const workingHead = git.run(["rev-parse", "HEAD"]).trim();
     const scannedHead = git.run(["rev-parse", options.head]).trim();
     const typecheckCurrentHead = options.typecheck && workingHead === scannedHead;
+    // The additive gate reads git objects (`show <tree>:<path>`,
+    // `diff <base> <head>`), never the working tree, so the runner is
+    // always available — including the normal CI case, where the checkout
+    // is the synthetic merge commit and `--head` is the pull-request head.
+    const commandRunner = new SystemCommandRunner();
+    const additiveRunner: AdditiveRunner = {
+      worktree: root,
+      run: commandRunner.run.bind(commandRunner),
+    };
     const result: ScanResult = {
-      ...scanned,
+      ...readScan(git, options, ledger, additiveRunner),
       typecheckGaps: typecheckCurrentHead
         ? findForkOwnedTypecheckGaps(
             root,
-            new Set(readChangedPaths(git, scanned.range.base, scanned.range.head)),
+            new Set(readChangedPaths(git, resolveRange(git, options).base, options.head)),
           )
         : [],
     };
     process.stdout.write(renderScanReport(result));
-    process.stdout.write(renderLessonGuidance(lessons, evidence));
     if (!options.typecheck) {
       process.stdout.write("typecheck: skipped (--no-typecheck)\n");
     } else if (!typecheckCurrentHead) {
@@ -780,24 +1223,6 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     if (failures.length > 0) {
       for (const line of scanFailureSummary(result)) process.stderr.write(`${line}\n`);
       return 1;
-    }
-    if (result.warnings.length > 0) {
-      const adoptedFailures =
-        resolveAuthoringSince(git, options) === null
-          ? []
-          : result.warnings.filter(({ rule }) => ADOPTED_AUTHORING_GUARDS.has(rule));
-      if (!options.strict && adoptedFailures.length > 0) {
-        process.stdout.write(
-          `failed: ${adoptedFailures.length} adopted authoring guard warning(s) in --since range; repair the named fork boundary\n`,
-        );
-        return 1;
-      }
-      process.stdout.write(
-        options.strict
-          ? `failed: ${result.warnings.length} ledger guard warning(s) under --strict\n`
-          : `warned: ${result.warnings.length} ledger guard warning(s); advisory, --strict fails on them\n`,
-      );
-      if (options.strict) return 1;
     }
     process.stdout.write(
       `ok: ${result.domains.length} domain rebase scans cover every shared file their commits touch\n`,

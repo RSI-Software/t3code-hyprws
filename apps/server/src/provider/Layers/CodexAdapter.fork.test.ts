@@ -38,6 +38,7 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import { createModelSelection } from "@t3tools/shared/model";
 const encodeChildItemRenderDetailJson = Schema.encodeSync(
   Schema.fromJsonString(ChildItemRenderDetail),
@@ -198,6 +199,13 @@ const validationLayer = it.layer(
 validationLayer("CodexAdapterLive validation", (it) => {
   // Moved from the upstream file: session identity rides on `environment`, so
   // the runtime options are asserted as identity plus the upstream shape.
+  forkSupersedes({
+    upstream:
+      "apps/server/src/provider/Layers/CodexAdapter.test.ts > maps codex model options before starting a session",
+    reason:
+      "the fork splits session identity (environment) from launch options (startOptions) while upstream asserts the combined shape",
+    commit: "afe622b5dc",
+  });
   it.effect("maps codex model options before starting a session", () =>
     Effect.gen(function* () {
       validationRuntimeFactory.factory.mockClear();
