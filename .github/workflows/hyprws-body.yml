@@ -45,7 +45,7 @@ jobs:
       # A live `pingdotgg/t3code#N` or item URL in a fork body posts a backlink
       # on the upstream thread, and a bare `#N` the fork never issued resolves
       # there, so a citation must sit in a code span or a fence and a fork item
-      # must name this fork in full (docs/internals/fork-development.md). The
+      # must name this fork in full (docs/fork/internals/fork-development.md). The
       # guard reports every bare number, because it cannot tell those apart
       # offline. This is a backstop, not the gate:
       # the body is already published by the time the run starts, so it reports
@@ -54,7 +54,7 @@ jobs:
       # and it is the only thing that covers an issue or a comment. Fetch the
       # current body once for both checks. Citations run before the squash-body
       # ledger so a failure there cannot hide this one; see
-      # docs/internals/scripts.md for what stays unguarded.
+      # docs/fork/internals/scripts.md for what stays unguarded.
       - name: Upstream citations
         if: github.event_name == 'pull_request'
         env:
