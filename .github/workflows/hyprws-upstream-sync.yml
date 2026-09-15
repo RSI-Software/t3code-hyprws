@@ -131,6 +131,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: vp run fork:forecast
 
+      # Every census writes its rows here as it walks, so a forecast that is cancelled
+      # or times out still hands over the stops it reached.
+      - name: Upload census rows
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: forecast-census-${{ github.run_attempt }}
+          path: .dump/runs/fork-census/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   generate:
     name: Report
     runs-on: ubuntu-latest
@@ -334,6 +345,7 @@ jobs:
             ${{ runner.temp }}/fork-outcome-receipts.json
             ${{ runner.temp }}/fork-auto-rebase-issues.json*
             ${{ runner.temp }}/fork-churn-report-receipt.json
+            .dump/runs/fork-census/*.json
           if-no-files-found: warn
           retention-days: 90
 

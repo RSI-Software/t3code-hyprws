@@ -4,6 +4,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
@@ -52,6 +53,7 @@ import {
   encodeFeasibilityArtifact,
   parseFeasibilityArtifact,
 } from "./lib/fork-feasibility-artifact.ts";
+import type { CensusPartial } from "./lib/fork-census-partial.ts";
 import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import {
@@ -792,6 +794,33 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       /census rebase failed/,
     );
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("leaves a truncated census's rows where the next run can find them", () => {
+  const fixture = fixtureRepository();
+  try {
+    const census = rehearseStopCensus(
+      fixture.root,
+      fixture.fork,
+      fixture.base,
+      { tag: "v1.1.0-nightly.20260828.1209", sha: fixture.conflict, position: 3, stable: false },
+      { stopLimit: 1, timeLimitMs: 60_000, now: () => NodePerfHooks.performance.now() },
+    );
+    assert.strictEqual(census.truncatedBy, "stop-limit");
+    const kept = NodePath.join(fixture.root, ".dump/runs/fork-census");
+    const files = NodeFS.readdirSync(kept).filter((name) => name.endsWith(".json"));
+    assert.strictEqual(files.length, 1);
+    const partial = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(kept, files[0]!), "utf8"),
+    ) as CensusPartial;
+    assert.strictEqual(partial.truncatedBy, "stop-limit");
+    assert.strictEqual(partial.evidence.complete, false);
+    assert.deepStrictEqual(partial.evidence.rows, census.evidence!.rows);
+    assert.strictEqual(partial.evidence.sourceSha, fixture.fork);
+    assert.strictEqual(partial.evidence.targetSha, fixture.conflict);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
