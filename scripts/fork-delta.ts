@@ -48,6 +48,8 @@ const OptionalTrailer = Schema.optionalKey(Schema.String);
 export const ForkCommit = Schema.Struct({
   sha: Schema.String,
   short: Schema.String,
+  /** Strict-ISO author date (`%aI`); absent only for a synthesized squash commit. */
+  authorDate: OptionalTrailer,
   subject: Schema.String,
   domain: OptionalTrailer,
   tier: OptionalTrailer,
@@ -340,26 +342,67 @@ export type ForkInventory = typeof ForkInventory.Type;
 
 const encodeInventoryJson = Schema.encodeSync(fromJsonStringPretty(ForkInventory));
 
-// Pre-#861 backlog. Remove this list when the host's leased flatten lands; no new entry is ever added.
-export const GRANDFATHERED_WALK_REPAIR_SHAS = new Set([
-  "a6f5968317bea1df22d9111d0fe749fbeb093510",
-  "cdf36f34e7e075ade1917f3048dbb8264f6b3eda",
-  "5388030d8599f0d542b634c687040256538117d8",
-  "9f2cdce4a1a5a95202ec521bb806e27f8cc170aa",
-  "eacdcc238cfc99c7b74a7de422b57371702a2d20",
-  "4dfe7908e443c85b328c632eb16fb1cf50b1d53f",
-  "70c9be4d0e2d768220969dec065f7c3551e93c1c",
-  "eb29187aa8e152b5a6f7ebee98845ac49d8ab892",
-  "3a2d7ca89eabcbde75440aa6539a67d2b7d9d33f",
-  "7454aab1398215f0f7e6440fa193ad752700b416",
+// Pre-#861 backlog, 10 commits, never grown since. Keyed by (author date, subject) rather than
+// sha: a fold (scripts/lib/fork-rewrite-build.ts rebuildCommit) rewrites every commit's tree and
+// parent, so its sha changes, but copies the author header and message verbatim, so this pair
+// survives unchanged. Subject alone is not unique here — three of the ten share
+// "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414" — so drop the author
+// date half and this exemption stops working, silently, on the next fold. Remove this list when
+// the host's leased flatten lands; no new entry is ever added.
+export const grandfatheredWalkRepairKey = (
+  commit: Pick<ForkCommit, "authorDate" | "subject">,
+): string => `${commit.authorDate ?? ""}\u0000${commit.subject}`;
+
+export const GRANDFATHERED_WALK_REPAIR_KEYS = new Set([
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-10T18:24:02+12:00",
+    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-10T18:20:26+12:00",
+    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260910.1473",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-10T18:16:29+12:00",
+    subject: "chore(fork-sync): repair fork budget after v0.0.41-nightly.20260910.1473",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T17:22:13+12:00",
+    subject: "chore(fork-sync): repair budget after v0.0.41-nightly.20260909.1426",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T16:00:02+12:00",
+    subject: "chore(fork-sync): repair tests after v0.0.41-nightly.20260908.1414",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T15:44:32+12:00",
+    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T15:30:10+12:00",
+    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T14:37:33+12:00",
+    subject: "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T14:36:47+12:00",
+    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+  }),
+  grandfatheredWalkRepairKey({
+    authorDate: "2026-09-09T14:28:59+12:00",
+    subject: "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+  }),
 ]);
 
 export const legacyWalkRepairFindings = (
   commits: ReadonlyArray<ForkCommit>,
-  grandfathered = GRANDFATHERED_WALK_REPAIR_SHAS,
+  grandfathered = GRANDFATHERED_WALK_REPAIR_KEYS,
 ): ReadonlyArray<ForkFinding> =>
   commits.flatMap((commit) =>
-    /^chore\(fork-sync\): repair\b/.test(commit.subject) && !grandfathered.has(commit.sha)
+    /^chore\(fork-sync\): repair\b/.test(commit.subject) &&
+    !grandfathered.has(grandfatheredWalkRepairKey(commit))
       ? [
           {
             short: commit.short,
