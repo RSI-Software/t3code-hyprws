@@ -29,13 +29,12 @@ import {
 import { applyAdditiveFixes, checkAdditive, type AdditiveFinding } from "./lib/fork-additive.ts";
 import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import {
-  executeConflictOutcome,
-  isUnresolved,
   readConflictStages,
   seamKey,
   type ConflictOutcome,
   type UnresolvedOutcome,
 } from "./lib/fork-conflict-outcomes.ts";
+import { rerereReplayed, resolveConflictPath } from "./lib/fork-conflict-resolution.ts";
 import { appendDecision, type WalkDecision } from "./lib/fork-decisions.ts";
 import {
   formatCommand,
@@ -3650,25 +3649,8 @@ const rererePathIsClean = (
   remaining: ReadonlySet<string>,
   worktree: string,
   runner: CommandRunner,
-): boolean => {
-  if (remaining.has(row.path)) return false;
-  let contents: string;
-  try {
-    contents = NodeFS.readFileSync(NodePath.join(worktree, row.path), "utf8");
-  } catch {
-    return false;
-  }
-  if (/^(?:<{7}|={7}|>{7})/m.test(contents)) return false;
-  return (
-    runner.run(
-      "git",
-      ["-c", "core.commentChar=auto", "diff", "--check", "--", row.path],
-      worktree,
-      undefined,
-      { ...process.env, ...COMMENT_CONFIG },
-    ).status === 0
-  );
-};
+): boolean =>
+  rerereReplayed(runner, worktree, row.path, remaining, { ...process.env, ...COMMENT_CONFIG });
 
 export type AutoConflictResolution =
   | { readonly kind: "resolved"; readonly report: SyncReport }
@@ -3766,7 +3748,12 @@ export const autoResolveConflicts = (
     // row is resolved or staged they are gone, and this key is what ties the row to a record.
     const key = seamKeyFor(runner, worktree, row.path);
     if (key !== null) keys.set(row, key);
-    if (isRerereRow(row) && rererePathIsClean(row, remaining, worktree, runner)) {
+    // Supersession evidence deliberately plays no part in the executor: gate 4 keeps the commit, so
+    // taking the upstream side of its files would keep the commit and drop the behaviour it carries.
+    const resolution = resolveConflictPath(runner, worktree, row.path, {
+      rerereRemaining: isRerereRow(row) ? remaining : null,
+    });
+    if (resolution.stage === "rerere") {
       const prior = key === null ? null : priorDecision(key);
       decided.set(row, {
         class: "mechanical",
@@ -3786,13 +3773,11 @@ export const autoResolveConflicts = (
       });
       continue;
     }
-    // Supersession evidence deliberately plays no part here: gate 4 keeps the commit, so taking
-    // the upstream side of its files would keep the commit and drop the behaviour it carries.
-    const outcome = executeConflictOutcome(runner, worktree, row.path);
-    if (isUnresolved(outcome)) {
-      unresolved.push({ ...outcome, subject: row.subject, seamKey: key });
+    if (resolution.stage === "unresolved") {
+      unresolved.push({ ...resolution.outcome, subject: row.subject, seamKey: key });
       continue;
     }
+    const outcome = resolution.outcome;
     decided.set(row, { class: outcome.conflictClass, resolution: outcome.resolution });
     decisions.push({
       kind: "conflict",

@@ -1,3 +1,4 @@
+import type { ResolutionStage } from "./fork-conflict-resolution.ts";
 import type { ForkRebaseFeasibility } from "./fork-rebase-feasibility.ts";
 import { parseUpstreamReleaseTag } from "./fork-policy.ts";
 
@@ -27,9 +28,38 @@ export interface RebaseStopCensus {
   readonly timeLimitSeconds: number;
 }
 
+/**
+ * How a census produced its rows. `sequential-rebase-stage3-provisional` is the measure before
+ * RSI-Software/t3code-hyprws#1007: it counted every conflicted path, because it resolved each one
+ * provisionally from stage 3 without asking the walk's resolver first. `sequential-rebase-walk-resolution`
+ * runs the walk's own resolution sequence per path, so its rows say which stage owned each one.
+ */
+export type CensusMethod =
+  | "sequential-rebase-stage3-provisional"
+  | "sequential-rebase-walk-resolution";
+
+/**
+ * The stage that owned a conflicted path, in the walk's vocabulary. `hook-reapply-unverified` is a
+ * census-only value: a rehearsal worktree has no installed modules, so the census skips the scoped
+ * typecheck the walk runs on a re-insertion and says so rather than claiming a checked resolution.
+ * `unmeasured` is a row from a `sequential-rebase-stage3-provisional` census, which recorded none.
+ */
+export type CensusStage = ResolutionStage | "hook-reapply-unverified" | "unmeasured";
+
+const CENSUS_STAGES: ReadonlySet<string> = new Set<CensusStage>([
+  "rerere",
+  "upstream-only",
+  "fork-only",
+  "keep-both",
+  "hook-reapply",
+  "hook-reapply-unverified",
+  "unresolved",
+  "unmeasured",
+]);
+
 export interface SequentialCensusEvidence {
   readonly version: 1;
-  readonly method: "sequential-rebase-stage3-provisional";
+  readonly method: CensusMethod;
   readonly sourceSha: string;
   readonly baseSha: string;
   readonly targetSha: string;
@@ -43,13 +73,48 @@ export interface SequentialCensusEvidence {
     readonly domain: string | null;
     readonly path: string;
     readonly kind: "add/add" | "modify/delete" | "content" | "other-unmerged";
+    /**
+     * Which stage of the walk's resolution sequence owned this path. Absent on a row written
+     * before the census ran that sequence; read it through `censusRowStage`, never directly. The
+     * parser must not materialise it, because a stored seam record is re-digested from its parsed
+     * payload and a field the stored JSON never carried would move every historical id.
+     */
+    readonly stage?: CensusStage;
   }>;
 }
+
+/** A row that predates the resolution stages recorded none; its observation measures a conflict only. */
+export const censusRowStage = (row: SequentialCensusEvidence["rows"][number]): CensusStage =>
+  row.stage ?? "unmeasured";
 
 export const censusTotals = (rows: SequentialCensusEvidence["rows"]) => ({
   conflictingForkCommitCount: new Set(rows.map((row) => row.commit)).size,
   conflictingFileCount: rows.length,
 });
+
+/**
+ * What the conflict totals never said: how much of the walk an operator actually sees. The totals
+ * above stay the conflict count, because forecast and churn measure seam pressure with them; this
+ * splits the same rows by the stage that owned them (RSI-Software/t3code-hyprws#1007).
+ *
+ * The three counts are separate on purpose. `unverifiedFileCount` is a hook re-apply the census
+ * placed but never typechecked, so it belongs to neither side: the optimistic human total is
+ * `humanFileCount`, the pessimistic one is `humanFileCount + unverifiedFileCount`, and a reader
+ * must be able to compute both.
+ */
+export const censusResolutionSplit = (rows: SequentialCensusEvidence["rows"]) => {
+  const human = rows.filter((row) => censusRowStage(row) === "unresolved");
+  const unverified = rows.filter((row) => censusRowStage(row) === "hook-reapply-unverified");
+  const unmeasured = rows.filter((row) => censusRowStage(row) === "unmeasured");
+  return {
+    mechanicalFileCount: rows.length - human.length - unverified.length - unmeasured.length,
+    unverifiedFileCount: unverified.length,
+    humanFileCount: human.length,
+    unmeasuredFileCount: unmeasured.length,
+    humanForkCommitCount: new Set(human.map((row) => row.commit)).size,
+    humanStopCount: new Set(human.map((row) => row.stop)).size,
+  };
+};
 
 /** The marker retains exact paths and provenance independently of Markdown escaping. */
 export const parseSequentialCensusEvidence = (body: string): SequentialCensusEvidence | null => {
@@ -65,7 +130,8 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
     typeof value === "string" && /^[0-9a-f]{40,64}$/.test(value);
   if (
     evidence.version !== 1 ||
-    evidence.method !== "sequential-rebase-stage3-provisional" ||
+    (evidence.method !== "sequential-rebase-stage3-provisional" &&
+      evidence.method !== "sequential-rebase-walk-resolution") ||
     !sha(evidence.sourceSha) ||
     !sha(evidence.baseSha) ||
     !sha(evidence.targetSha) ||
@@ -90,7 +156,8 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
       (row.kind !== "add/add" &&
         row.kind !== "modify/delete" &&
         row.kind !== "content" &&
-        row.kind !== "other-unmerged")
+        row.kind !== "other-unmerged") ||
+      (row.stage !== undefined && !CENSUS_STAGES.has(row.stage as string))
     )
       throw new Error("invalid census stop row");
     const priorCommit = stops.get(row.stop);
@@ -107,11 +174,12 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
       domain: row.domain,
       path: row.path,
       kind: row.kind,
+      ...(row.stage === undefined ? {} : { stage: row.stage as CensusStage }),
     };
   });
   return {
     version: 1,
-    method: evidence.method,
+    method: evidence.method as CensusMethod,
     sourceSha: evidence.sourceSha,
     baseSha: evidence.baseSha,
     targetSha: evidence.targetSha,
@@ -221,6 +289,35 @@ interface BlockedPlan {
   readonly feasibility: ForkRebaseFeasibility;
 }
 
+/**
+ * The three counts a walk-resolution census reports, and the unverified rows by name. The
+ * unverified count stands apart from both totals: the census placed those hooks but never ran the
+ * walk's scoped typecheck, so a reader takes `humanFileCount` as the optimistic operator cost and
+ * `humanFileCount + unverifiedFileCount` as the pessimistic one.
+ */
+const censusSplitProse = (
+  evidence: SequentialCensusEvidence,
+  split: ReturnType<typeof censusResolutionSplit>,
+): ReadonlyArray<string> => {
+  const unverified = evidence.rows.filter(
+    (row) => censusRowStage(row) === "hook-reapply-unverified",
+  );
+  return [
+    `Each path was decided by the walk's own resolution sequence, so the stage column says who owns it. Of ${evidence.rows.length} conflict-file ${evidence.rows.length === 1 ? "observation" : "observations"}: ${split.mechanicalFileCount} mechanical, ${split.unverifiedFileCount} unverified, ${split.humanFileCount} human, over ${split.humanStopCount} ${split.humanStopCount === 1 ? "stop" : "stops"} in ${split.humanForkCommitCount} fork ${split.humanForkCommitCount === 1 ? "commit" : "commits"}. The operator cost is at least ${split.humanFileCount} and at most ${split.humanFileCount + split.unverifiedFileCount} ${split.humanFileCount + split.unverifiedFileCount === 1 ? "file" : "files"}.`,
+    `An unverified row is a hook re-apply this census placed without running the scoped typecheck the walk runs, so it does not know whether the result compiles; it is never counted mechanical. A declined path is resolved provisionally from index stage 3 so the rehearsal can continue.`,
+    ...(unverified.length === 0
+      ? []
+      : [
+          "",
+          "Unverified hook re-applies:",
+          ...unverified.map(
+            (row) =>
+              `- stop ${row.stop}: ${inlineCode(row.path)} in ${inlineCode(`${row.commit} ${row.subject}`)}`,
+          ),
+        ]),
+  ];
+};
+
 export const buildBlockedIssue = (
   plan: BlockedPlan,
   stopCensus: RebaseStopCensus | null = null,
@@ -243,6 +340,7 @@ export const buildBlockedIssue = (
   const remaining =
     plan.feasibility.ffBoundary.upstreamCommitCount - plan.feasibility.ffBoundary.cleanCommitCount;
   const evidence = stopCensus?.evidence;
+  const split = evidence === undefined ? null : censusResolutionSplit(evidence.rows);
   const totals = stopCensus;
   const cell = (value: string) => inlineCode(value.replaceAll("\\", "\\\\").replaceAll("|", "\\|"));
   const body = [
@@ -267,13 +365,17 @@ export const buildBlockedIssue = (
         ]
       : [
           `Method: ${inlineCode(evidence.method)}. Source: ${inlineCode(evidence.sourceSha)}; base: ${inlineCode(evidence.baseSha)}; target: ${inlineCode(evidence.targetSha)}. ${evidence.complete ? "Complete" : "Partial"} observation set.`,
-          "Continuation provisionally takes fork-side index stage 3 (or its deletion) with rerere disabled. These observations record no human or agent resolution verdict.",
+          ...(evidence.method === "sequential-rebase-stage3-provisional"
+            ? [
+                "Continuation provisionally takes fork-side index stage 3 (or its deletion) with rerere disabled. These observations record no human or agent resolution verdict.",
+              ]
+            : censusSplitProse(evidence, split!)),
           "",
-          "| Stop | File | Conflict kind | Replayed fork commit | Domain |",
-          "| ---: | --- | --- | --- | --- |",
+          "| Stop | File | Conflict kind | Stage | Replayed fork commit | Domain |",
+          "| ---: | --- | --- | --- | --- | --- |",
           ...evidence.rows.map(
             (row) =>
-              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
+              `| ${row.stop} | ${cell(row.path)} | ${row.kind} | ${censusRowStage(row)} | ${cell(`${row.commit} ${row.subject}`)} | ${cell(row.domain ?? "?")} |`,
           ),
           `<!-- sequential-census-v1:${JSON.stringify(evidence).replaceAll("<", "\\u003c")} -->`,
         ]),
