@@ -918,7 +918,9 @@ for diagnostics, for picking a stopped walk up by hand, and for the series rewri
    touched. It then repairs
    the lane in place, scoped to the paths the replay touched, and records every command it ran in
    the report's verification and `walk.repairs`. A repair failure stops the walk with the reason it
-   belongs to and leaves the report at the stage it reached. Only a series rewrite pushes the
+   belongs to and leaves the report at the stage it reached. The check may be rerun on a `checked`
+   lane to re-render seams and rebind the head; declared seams replace recorded ones by path. Only a
+   series rewrite pushes the
    rehearsal lane and waits up to 45 minutes for a CI verdict, polling every 30 seconds; a timeout
    or a completed red run fails that gate with bounded evidence — the run URL, its id and
    conclusion, the failed job names, and an ANSI-stripped tail of each failed job's log capped per
