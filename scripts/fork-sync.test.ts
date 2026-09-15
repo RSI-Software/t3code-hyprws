@@ -3596,7 +3596,7 @@ it("records the stack size a walk replays, per domain and shared file", () => {
   // The size read: the replayed series with its trailers, per-commit numstat with the
   // blank line git puts after the format header, and both net diffs.
   runner.set("git", rehearsal([...forkLogArguments(B, "HEAD")]), {
-    stdout: `\x1e${A}\x1f${A.slice(0, 7)}\x1ffeat: one\x1fFork-Domain: zmux-estate\nFork-Tier: core\n\x1e`,
+    stdout: `\x1e${A}\x1f${A.slice(0, 7)}\x1f2026-09-09T14:28:59+12:00\x1ffeat: one\x1fFork-Domain: zmux-estate\nFork-Tier: core\n\x1e`,
   });
   runner.set("git", rehearsal([...commitNumstatArguments([A])]), {
     stdout: `\x1e${A}\n\n3\t1\tapps/web/src/app.ts\n2\t0\tpackages/shared/src/upstream.ts\n`,
