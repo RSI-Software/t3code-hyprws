@@ -1303,6 +1303,45 @@ it("produces exactly three warnings for an unmarked line, a deleted upstream lin
   assert.match(warnings[2]?.detail ?? "", /missing from FORK_HOOKS/);
 });
 
+it("does not charge a marked in-place substitution: the positional rule the walk runs exempts it", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      ["-  return base;", "+forkThing(base); // fork-hook: project-windows/spawn-target", ""].join(
+        "\n",
+      ),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still charges an unmarked in-place substitution", () => {
+  const warnings = hookWarnings(hookPatch("-  return base;\n+return transform(base);\n"));
+  assert.strictEqual(warnings.length, 2, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /adds 1 line\(s\) outside a marked fork-hook/);
+  assert.match(warnings[1]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+});
+
+it("still charges a removal outside every marked span, with a marked hook elsewhere in the file", () => {
+  // The marked JSX hook sits in its own hunk at the top of the file; the removal is a second
+  // hunk far below it. The alignment is positional, so the marked span absorbs nothing: a
+  // "the marked lines can absorb N removals" budget passes neither this nor the walk's version
+  // of the same case in fork-conflict-outcomes.test.ts.
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+      {/* fork-hook: project-windows/preview-pane */}",
+        "+      <PreviewPane target={spawnTarget} />",
+        "+      {/* fork-hook-end */}",
+        "@@ -12,1 +12,2 @@",
+        "-const filler9 = 9;",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /removes or rewrites 1 upstream line\(s\)/);
+});
+
 it("never refuses: the rule is absent from the adopted set", () => {
   assert.isFalse(ADOPTED_AUTHORING_GUARDS.has("fork-hook-seam"));
 });
