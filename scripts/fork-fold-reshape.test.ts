@@ -87,6 +87,9 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
       if (!("refused" in result)) {
         assert.strictEqual(result.expected.changedSlots, 2);
         assert.strictEqual(result.slots[2]!.changes.length, 0);
+        // Nothing was hand-chosen, so the manifest keeps its pre-override shape.
+        assert.strictEqual(result.overrides, undefined);
+        assert.strictEqual(result.slots[0]!.changes[0]!.origin, undefined);
         const receipt = buildRewrite(repo.root, Buffer.from(JSON.stringify(result)));
         assert.strictEqual(receipt.finalTree, result.sourceTree);
         assert.strictEqual(receipt.slots[2]!.treeChanged, false);
@@ -112,6 +115,32 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
         ]).trim();
         assert.strictEqual(libBlob(rebuiltParentTree), libBlob(rebuiltReshapeTree));
         assert.strictEqual(libBlob(rebuiltReshapeTree).length > 0, true);
+      }
+    }),
+  );
+
+  it.effect("keeps a fold whose every override did nothing, and records what did nothing", () =>
+    Effect.gen(function* () {
+      const repo = yield* fixture([
+        { message: "feat: adds lib", files: { "lib.ts": "fork-line\nsep\nz\n" } },
+        { message: "feat: edits lib elsewhere", files: { "lib.ts": "fork-line\nsep\nZ\n" } },
+        { message: "reshape: fold the fork line", files: { "lib.ts": "folded-line\nsep\nZ\n" } },
+      ]);
+      const reshape = repo.shas[2]!;
+      // A typo'd --leave is a fact about the run, not a claim about the fold. The fold derives the
+      // same thing it would have without the flag, so it succeeds and the record says so.
+      const result = derive(repo, reshape, [reshape], undefined, new Set(["never-touched.ts"]));
+      assert.strictEqual("refused" in result, false, JSON.stringify(result));
+      if (!("refused" in result)) {
+        assert.deepStrictEqual(result.overrides, {
+          attributed: [],
+          left: [],
+          unused: ["leave never-touched.ts"],
+        });
+        // Nothing was hand-attributed, so every change still states blame provenance.
+        assert.deepStrictEqual(result.slots[0]!.changes[0]!.origin, { kind: "blame" });
+        const receipt = buildRewrite(repo.root, Buffer.from(JSON.stringify(result)));
+        assert.strictEqual(receipt.finalTree, result.sourceTree);
       }
     }),
   );
@@ -464,5 +493,82 @@ it.layer(NodeServices.layer)("fold-reshape derivation", (it) => {
         else process.env.FORK_QUIET = quiet;
       }
     }),
+  );
+
+  it.effect(
+    "records every operator override, and only a hand-touched fold carries the record",
+    () =>
+      Effect.gen(function* () {
+        const repo = yield* fixture([
+          { message: "feat: fork line", files: { "lib.ts": "a\nB-fork\nc\n" } },
+          {
+            message: "reshape: folds lib, attaches one file and leaves another",
+            files: {
+              "lib.ts": "a\nB-fold\nc\n",
+              "feature.fork.ts": "hook\n",
+              "left.fork.ts": "stay\n",
+            },
+          },
+        ]);
+        const origin = repo.shas[0]!;
+        const reshape = repo.shas[1]!;
+        const result = derive(
+          repo,
+          reshape,
+          [reshape],
+          new Map([
+            ["feature.fork.ts", origin],
+            ["never-touched.ts", origin],
+          ]),
+          new Set(["left.fork.ts", "never-left.ts"]),
+        );
+        assert.strictEqual("refused" in result, false, JSON.stringify(result));
+        if ("refused" in result) return;
+        const overrides = result.overrides!;
+        assert.deepStrictEqual(overrides.attributed, [{ path: "feature.fork.ts", commit: origin }]);
+        assert.deepStrictEqual(overrides.left, ["left.fork.ts"]);
+        assert.deepStrictEqual(overrides.unused, [
+          `attribute never-touched.ts=${origin}`,
+          "leave never-left.ts",
+        ]);
+        // Every change states its provenance, and only the overridden path names the operator.
+        const changes = new Map(result.slots[0]!.changes.map((change) => [change.path, change]));
+        assert.deepStrictEqual(changes.get("lib.ts")!.origin, { kind: "blame" });
+        assert.deepStrictEqual(changes.get("feature.fork.ts")!.origin, {
+          kind: "operator",
+          commit: origin,
+        });
+        assert.strictEqual(
+          result.slots.every((slot) => slot.changes.every((change) => change.origin !== undefined)),
+          true,
+        );
+        const raw = Buffer.from(JSON.stringify(result));
+        assert.strictEqual(buildRewrite(repo.root, raw).finalTree, result.sourceTree);
+        // Dropping the attribution reintroduces the refusal, so the record names a decision the
+        // fold could not have made for itself.
+        const blame = derive(repo, reshape, [reshape], undefined, new Set(["left.fork.ts"]));
+        assert.strictEqual("refused" in blame, true);
+        // Stripping the record leaves the manifest a pre-record one: it still parses and builds,
+        // and the digest that covers the record differs.
+        const stripped = {
+          ...result,
+          overrides: undefined,
+          slots: result.slots.map((slot) => ({
+            ...slot,
+            changes: slot.changes.map((change) => ({
+              path: change.path,
+              before: change.before,
+              after: change.after,
+              reason: change.reason,
+            })),
+          })),
+        };
+        const legacy = Buffer.from(JSON.stringify(stripped));
+        assert.strictEqual(buildRewrite(repo.root, legacy).finalTree, result.sourceTree);
+        assert.notStrictEqual(
+          buildRewrite(repo.root, raw).manifestSha256,
+          buildRewrite(repo.root, legacy).manifestSha256,
+        );
+      }),
   );
 });
