@@ -240,19 +240,40 @@ export const autoOutcomeReceipts = (
   return requireOutcomeReceipts(receipts);
 };
 
+/** The sync walk's executor from the environment, shared by the declaration and the receipt. */
+const syncExecutor = (): OutcomeAttempt["executor"] =>
+  process.env.FORK_OUTCOME_EXECUTOR === "agent"
+    ? "agent"
+    : process.env.FORK_OUTCOME_EXECUTOR === "human"
+      ? "human"
+      : "unknown";
+
+/**
+ * The sync path's `prepareAutoOutcome` (RSI-Software/t3code-hyprws#1023): declare the attempt the
+ * moment the walk binds its target and source, before the phases that can fail — orient, retire
+ * evidence, verdict resolution — so a thrown walk still leaves an attempt identity instead of
+ * vanishing at the `!report.target || !report.source` guards, which stay strict.
+ */
+export const declareSyncOutcome = (
+  report: SyncReport,
+  target: { readonly sha: string; readonly tag: string },
+  sourceSha: string,
+): void => {
+  const path = `${report.reportPath}.outcome.json`;
+  const previous = NodeFS.existsSync(path) ? readBundle(path) : [];
+  saveBundle(path, [
+    ...previous,
+    ...declareOutcomeAttempt(target, sourceSha, report.bot?.mode ?? "unknown", syncExecutor()),
+  ]);
+};
+
 export const syncOutcomeReceipts = (
   report: SyncReport,
   id = attemptId(),
   failure?: { readonly phase: string; readonly detail: string },
 ): ReadonlyArray<OutcomeReceipt> => {
   if (!report.target || !report.source) return [];
-  const executor = report.botCarried
-    ? "bot"
-    : process.env.FORK_OUTCOME_EXECUTOR === "agent"
-      ? "agent"
-      : process.env.FORK_OUTCOME_EXECUTOR === "human"
-        ? "human"
-        : "unknown";
+  const executor = report.botCarried ? "bot" : syncExecutor();
   const receipts = [
     ...declareOutcomeAttempt(
       report.target,
