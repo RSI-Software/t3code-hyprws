@@ -13,6 +13,8 @@ import {
   SearchBar,
 } from "react-native-screens";
 
+import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
+import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { MaterialFilesHeader } from "./MaterialFilesHeader";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
@@ -21,7 +23,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-inspector-ignored-listing-import
+import { mobilePreferencesAtom } from "../../state/preferences"; // fork-hook: workspace-files/mobile-inspector-ignored-preference
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
@@ -41,7 +43,9 @@ export function ThreadFileNavigatorPane(props: {
   const foregroundColor = theme["--color-foreground"];
   const sheetColor = theme["--color-sheet"];
   const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
-  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd); // fork-hook: workspace-files/mobile-inspector-ignored-listing-call
+  const preferences = useAtomValue(mobilePreferencesAtom); // fork-hook: workspace-files/mobile-inspector-ignored-preference
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true; // fork-hook: workspace-files/mobile-inspector-ignored-preference
   const fileAccessSession = useEnvironmentQuery(
     environmentSession.sessionStateAtom(props.environmentId),
   );
@@ -57,7 +61,7 @@ export function ThreadFileNavigatorPane(props: {
     environmentId: props.environmentId,
     cwd: canReadFiles ? props.cwd : null,
     searchQuery,
-    includeIgnored: workspaceFileListing.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-pane
+    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-inspector-ignored-listing
   });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {

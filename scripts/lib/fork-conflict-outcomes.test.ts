@@ -20,6 +20,7 @@ import {
   isUnresolved,
   preservesUpstreamAdditions,
 } from "./fork-conflict-outcomes.ts";
+import type { ForkHookAnchor } from "./fork-hooks.ts";
 
 const stages = (
   base: string,
@@ -555,4 +556,257 @@ it("refuses a removal outside every marked span even with a marked hook elsewher
   } finally {
     NodeFS.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// RSI-Software/t3code-hyprws#1024 phase 2: the seven real seams, marked. Each test stages one
+// real seam's conflict — upstream rewrote the seam's upstream line, the fork substituted it in
+// place behind the marker the fork tree now carries — and asserts `executeConflictOutcome` lifts
+// it as a mechanical hook re-apply. Fragments are trimmed to the seam, so the manifest slice
+// given to the executor carries exactly the hooks the fragment's fork side marks.
+// ---------------------------------------------------------------------------
+
+/** Stages one marked seam and asserts the walk lifts it, re-inserting the seam's hook. */
+const seamLifts = (
+  path: string,
+  hook: { readonly key: string; readonly anchor: ForkHookAnchor },
+  manifest: Record<string, { path: string; anchor: ForkHookAnchor }>,
+  stages: { readonly base: string; readonly ours: string; readonly theirs: string },
+): void => {
+  const root = fixture();
+  try {
+    stageConflict(root, path, stages);
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, manifest);
+    assert.isFalse(isUnresolved(outcome), "unexpectedly unresolved");
+    if (isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.source, "hook-reapply");
+    assert.strictEqual(outcome.conflictClass, "mechanical");
+    assert.include(outcome.reinsertedHooks as unknown[], hook.key);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+/** Stages one seam and asserts the walk refuses it with the given cause. */
+const seamRefuses = (
+  path: string,
+  manifest: Record<string, { path: string; anchor: ForkHookAnchor }>,
+  stages: { readonly base: string; readonly ours: string; readonly theirs: string },
+  cause: string,
+): void => {
+  const root = fixture();
+  try {
+    stageConflict(root, path, stages);
+    const outcome = executeConflictOutcome(typecheckRunner(), root, path, manifest);
+    assert.isTrue(isUnresolved(outcome), "unexpectedly resolved");
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, cause);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+};
+
+const ROUTE_SCREEN = "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx";
+const routeManifest = {
+  "workspace-files/mobile-route-ignored-listing-import": {
+    path: ROUTE_SCREEN,
+    anchor: { kind: "import-block" },
+  },
+  "workspace-files/mobile-route-ignored-listing-call": {
+    path: ROUTE_SCREEN,
+    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
+  },
+  "workspace-files/mobile-route-ignored-listing-condition": {
+    path: ROUTE_SCREEN,
+    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
+  },
+  "workspace-files/mobile-route-ignored-listing-input": {
+    path: ROUTE_SCREEN,
+    anchor: { kind: "after-decl", symbol: "entriesQuery" },
+  },
+} as const;
+
+const routeScreenStages = () => ({
+  base: 'import { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {\n  const revealedInspectorRef = useRef(false);\n  const entriesQuery = useEnvironmentQuery(\n    environmentId !== null && cwd !== null && !fileInspector.supported\n      ? projectEnvironment.listEntries({\n          environmentId,\n          input: { cwd },\n        })\n      : null,\n  );\n}\n',
+  // Upstream evolves the same condition line the fork rewires to the ignored listing.
+  ours: 'import { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {\n  const revealedInspectorRef = useRef(false);\n  const entriesQuery = useEnvironmentQuery(\n    environmentId !== null && cwd !== null && fileInspector.ready\n      ? projectEnvironment.listEntries({\n          environmentId,\n          input: { cwd, follow: true },\n        })\n      : null,\n  );\n}\n',
+  theirs:
+    'import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import\nimport { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {\n  const revealedInspectorRef = useRef(false);\n  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call\n  const entriesQuery = useEnvironmentQuery(\n    environmentId !== null && workspaceFileListing !== null && !fileInspector.supported // fork-hook: workspace-files/mobile-route-ignored-listing-condition\n      ? projectEnvironment.listEntries({\n          environmentId,\n          input: workspaceFileListing, // fork-hook: workspace-files/mobile-route-ignored-listing-input\n        })\n      : null,\n  );\n}\n',
+});
+
+it("lifts the mobile route condition substitution (workspace-files/mobile-route-ignored-listing-condition)", () => {
+  seamLifts(
+    ROUTE_SCREEN,
+    {
+      key: "workspace-files/mobile-route-ignored-listing-condition",
+      anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
+    },
+    routeManifest,
+    routeScreenStages(),
+  );
+});
+
+it("lifts the mobile route input substitution (workspace-files/mobile-route-ignored-listing-input)", () => {
+  seamLifts(
+    ROUTE_SCREEN,
+    {
+      key: "workspace-files/mobile-route-ignored-listing-input",
+      anchor: { kind: "after-decl", symbol: "entriesQuery" },
+    },
+    routeManifest,
+    routeScreenStages(),
+  );
+});
+
+it("lifts the mobile inspector input substitution (workspace-files/mobile-inspector-ignored-listing-input)", () => {
+  const path = "apps/mobile/src/features/files/thread-file-navigator-pane.tsx";
+  seamLifts(
+    path,
+    {
+      key: "workspace-files/mobile-inspector-ignored-listing-input",
+      anchor: { kind: "after-decl", symbol: "entriesQuery" },
+    },
+    {
+      "workspace-files/mobile-inspector-ignored-listing-import": {
+        path,
+        anchor: { kind: "import-block" },
+      },
+      "workspace-files/mobile-inspector-ignored-listing-call": {
+        path,
+        anchor: { kind: "after-decl", symbol: "headerScrollEdgeEffects" },
+      },
+      "workspace-files/mobile-inspector-ignored-listing-input": {
+        path,
+        anchor: { kind: "after-decl", symbol: "entriesQuery" },
+      },
+    },
+    {
+      base: 'import { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFileNavigatorPane(props: {\n  cwd: string;\n}) {\n  const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);\n  const entriesQuery = useEnvironmentQuery(\n    projectEnvironment.listEntries({\n      environmentId: props.environmentId,\n      input: { cwd: props.cwd },\n    }),\n  );\n}\n',
+      ours: 'import { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFileNavigatorPane(props: {\n  cwd: string;\n}) {\n  const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);\n  const entriesQuery = useEnvironmentQuery(\n    projectEnvironment.listEntries({\n      environmentId: props.environmentId,\n      input: { cwd: props.cwd, follow: true },\n    }),\n  );\n}\n',
+      theirs:
+        'import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-inspector-ignored-listing-import\nimport { preloadWorkspaceFileContents } from "./preload-workspace-file";\nexport function ThreadFileNavigatorPane(props: {\n  cwd: string;\n}) {\n  const headerScrollEdgeEffects = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);\n  const workspaceFileListing = useIgnoredWorkspaceFileListing(props.cwd); // fork-hook: workspace-files/mobile-inspector-ignored-listing-call\n  const entriesQuery = useEnvironmentQuery(\n    projectEnvironment.listEntries({\n      environmentId: props.environmentId,\n      input: workspaceFileListing, // fork-hook: workspace-files/mobile-inspector-ignored-listing-input\n    }),\n  );\n}\n',
+    },
+  );
+});
+
+it("lifts the workspace entries list-result substitution (workspace-files/workspace-entries-list-ignored-result)", () => {
+  const path = "apps/server/src/workspace/WorkspaceEntries.ts";
+  const body =
+    '        const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;\n        return yield* searchIndex.list();\n      }).pipe(\n        Effect.provide(workspaceSearchIndexes.get("paths")),\n      );\n';
+  seamLifts(
+    path,
+    {
+      key: "workspace-files/workspace-entries-list-ignored-result",
+      anchor: { kind: "after-decl", symbol: "list" },
+    },
+    {
+      "workspace-files/workspace-entries-list-ignored-result": {
+        path,
+        anchor: { kind: "after-decl", symbol: "list" },
+      },
+    },
+    {
+      base:
+        'import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";\nexport const make = Effect.gen(function* () {\n  const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(\n    function* (input) {\n      const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);\n      return yield* Effect.gen(function* () {\n' +
+        body +
+        "    },\n  );\n});\n",
+      ours:
+        'import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";\nexport const make = Effect.gen(function* () {\n  const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(\n    function* (input) {\n      const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);\n      const listed = yield* Effect.gen(function* () {\n' +
+        body +
+        "    },\n  );\n});\n",
+      theirs:
+        'import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";\nexport const make = Effect.gen(function* () {\n  const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(\n    function* (input) {\n      const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);\n      const result = yield* Effect.gen(function* () { // fork-hook: workspace-files/workspace-entries-list-ignored-result\n' +
+        body +
+        "      return yield* WorkspaceEntriesFork.withIgnoredWorkspaceFiles({\n        vcsDrivers,\n        cwd: normalizedCwd,\n        includeIgnored: input.includeIgnored === true,\n        result,\n      }); // fork-hook: workspace-files/workspace-entries-list-ignored\n    },\n  );\n});\n",
+    },
+  );
+});
+
+it("lifts the file browser listing-call substitution already inside its marked statement (workspace-files/file-browser-ignored-listing-call)", () => {
+  const path = "apps/web/src/components/files/FileBrowserPanel.tsx";
+  seamLifts(
+    path,
+    {
+      key: "workspace-files/file-browser-ignored-listing-call",
+      anchor: { kind: "after-call", symbol: "useComposerHandleContext" },
+    },
+    {
+      "workspace-files/file-browser-ignored-listing-call": {
+        path,
+        anchor: { kind: "after-call", symbol: "useComposerHandleContext" },
+      },
+    },
+    {
+      base: 'import { useProjectEntriesQuery } from "./projectFilesQueryState";\nexport default function FileBrowserPanel({ environmentId, cwd }: FileBrowserPanelProps) {\n  const composerRef = useComposerHandleContext();\n  const entriesQuery = useProjectEntriesQuery(environmentId, cwd);\n  return entriesQuery;\n}\n',
+      ours: 'import { useProjectEntriesQuery } from "./projectFilesQueryState";\nexport default function FileBrowserPanel({ environmentId, cwd }: FileBrowserPanelProps) {\n  const composerRef = useComposerHandleContext();\n  const entriesQuery = useProjectEntriesQuery(environmentId, cwd, { live: true });\n  return entriesQuery;\n}\n',
+      theirs:
+        'import { ShowIgnoredFilesButton, useIgnoredWorkspaceFileListing } from "./FileBrowserPanel.fork"; // fork-hook: workspace-files/file-browser-ignored-listing\nexport default function FileBrowserPanel({ environmentId, cwd }: FileBrowserPanelProps) {\n  const composerRef = useComposerHandleContext();\n  const { entriesQuery, showIgnoredFiles, updateClientSettings, ignoredGitStatus } =\n    useIgnoredWorkspaceFileListing(environmentId, cwd); // fork-hook: workspace-files/file-browser-ignored-listing-call\n  return entriesQuery;\n}\n',
+    },
+  );
+});
+
+it("refuses the settings-overrides env-mode-wire seam on its unmarked gap additions (worktrunk-hooks/settings-overrides-env-mode-wire)", () => {
+  const path = "packages/contracts/src/settings.ts";
+  seamRefuses(
+    path,
+    {
+      "worktrunk-hooks/settings-overrides-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+      },
+    },
+    {
+      base: "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown>);\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+      ours: "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown> & Record<string, unknown>);\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+      theirs:
+        "const QuitConfirmationModeSetting = Schema.Union([QuitConfirmationMode, LegacyConfirmQuit]);\nexport const ProjectSettingsOverrides = Schema.Struct({\n  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),\n  enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),\n} satisfies Record<ProjectScopedServerSettingKey, unknown> & { // fork-hook: worktrunk-hooks/settings-overrides-env-mode-wire\n  // Fork: the `...Fork` sibling is deliberately NOT a standalone scopable\n  // key — it only travels with the wire slot it belongs to.\n  defaultThreadEnvModeFork?: unknown;\n});\nexport type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;\n",
+    },
+    "adds lines beyond its marked hooks",
+  );
+});
+
+it("lifts the settings-restore env-mode-wire substitution (worktrunk-hooks/settings-restore-env-mode-wire)", () => {
+  const path = "apps/web/src/components/settings/SettingsPanels.tsx";
+  seamLifts(
+    path,
+    {
+      key: "worktrunk-hooks/settings-restore-env-mode-wire",
+      anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+    },
+    {
+      "worktrunk-hooks/settings-restore-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+      },
+    },
+    {
+      base: 'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+      ours: 'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(settings.defaultThreadEnvMode !== undefined\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+      theirs:
+        'export function useSettingsRestore(onRestored?: () => void) {\n  const labels = [\n    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),\n    ...(fromWireThreadEnvModeFields(settings) !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode // fork-hook: worktrunk-hooks/settings-restore-env-mode-wire\n      ? ["New thread mode"]\n      : []),\n  ];\n  return labels;\n}\n',
+    },
+  );
+});
+
+it("lifts the decider env-mode-wire substitution (worktrunk-hooks/decider-thread-env-mode-wire)", () => {
+  const path = "apps/server/src/orchestration/decider.ts";
+  seamLifts(
+    path,
+    {
+      key: "worktrunk-hooks/decider-thread-env-mode-wire",
+      anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+    },
+    {
+      "worktrunk-hooks/decider-thread-env-mode-wire": {
+        path,
+        anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
+      },
+    },
+    {
+      base: 'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: command.defaultThreadEnvMode }\n        : {}),\n    };\n  },\n);\n',
+      ours: 'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: command.defaultThreadEnvMode, locked: true }\n        : {}),\n    };\n  },\n);\n',
+      theirs:
+        'export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(\n  function* (command) {\n    if (command.type !== "project.meta-update") {\n      return yield* refusal;\n    }\n    return {\n      ...(command.title !== undefined ? { title: command.title } : {}),\n      ...(command.defaultThreadEnvMode !== undefined\n        ? { defaultThreadEnvMode: fromWireThreadEnvModeFields(command) } // fork-hook: worktrunk-hooks/decider-thread-env-mode-wire\n        : {}),\n    };\n  },\n);\n',
+    },
+  );
 });
