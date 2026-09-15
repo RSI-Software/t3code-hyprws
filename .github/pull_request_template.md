@@ -55,13 +55,16 @@ we may close it without merging it, or never review it.
        worktrunk-hooks
        zmux-estate
 
-     This list is FORK_DOMAINS in scripts/lib/fork-trailers.ts, and hyprws CI
-     refuses a disagreement between the two. The check cannot tell a wrong domain
+     This list copies FORK_DOMAINS in scripts/lib/fork-trailers.ts. It cannot tell a wrong domain
      from a right one, only a known value from an unknown one, so a plausible
      wrong pick quietly mis-attributes the change to a domain nobody touched.
 
      Valid Fork-Tier values: core, qol, bugfix.
      Fork-Upstreamable values: yes, no. Required when Fork-Tier is bugfix.
+
+     Write a fork issue in full: `Closes RSI-Software/t3code-hyprws#N`.
+     A bare `#N` counts as a live upstream reference and fails the Body job;
+     `vp run fork:upstream-refs <file>` runs the same check on a draft body.
 
      Do not copy Base branch or Head branch prompt context into the PR body.
      Do not add prose, metadata, mentions, or headings after the trailers.
