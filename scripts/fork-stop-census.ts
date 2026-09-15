@@ -14,6 +14,7 @@ import * as NodePerfHooks from "node:perf_hooks";
 import { requireSuccess, type PositionedTag } from "./fork-auto-rebase-plan.ts";
 import { CensusPartialRecord } from "./lib/fork-census-partial.ts";
 import { SystemGit } from "./lib/fork-command.ts";
+import { makeProgressReporter } from "./lib/fork-progress.ts";
 import type { GitCommandResult } from "./lib/fork-rebase-feasibility.ts";
 import {
   censusTotals,
@@ -62,6 +63,16 @@ const moveAside = (worktree: string, cemetery: string, path: string, index: numb
   NodeFS.renameSync(absolute, NodePath.join(cemetery, String(index)));
 };
 
+/**
+ * Truncation is a one-off fact rather than progress, so it is said once and never
+ * throttled away. A census that stops early used to report it only in its return value,
+ * where an operator watching the walk never saw it.
+ */
+const announce = (message: string): void => {
+  if (process.env.FORK_QUIET === "1") return;
+  process.stderr.write(`census: ${message}\n`);
+};
+
 const timedOut = (result: GitCommandResult): boolean =>
   result.error instanceof Error && "code" in result.error && result.error.code === "ETIMEDOUT";
 
@@ -83,6 +94,7 @@ export const rehearseStopCensus = (
   let movedFileCount = 0;
   let truncatedBy: RebaseStopCensus["truncatedBy"] = null;
   let finished = false;
+  const progress = makeProgressReporter("census");
   const partial = new CensusPartialRecord(root, { sourceSha: headSha, targetSha: target.sha });
   const observed = (complete: boolean): SequentialCensusEvidence => ({
     version: 1,
@@ -171,6 +183,7 @@ export const rehearseStopCensus = (
                   : "other-unmerged",
         });
       }
+      progress("stops", stopCount, limits.stopLimit);
       // The rows of this stop are on disk before the walk risks another one.
       partial.record(observed(false), truncatedBy);
       if (stopCount >= limits.stopLimit) {
@@ -194,6 +207,9 @@ export const rehearseStopCensus = (
       rebase = runRebase([...rebaseArgs, "--continue"]);
     }
     finished = true;
+    if (truncatedBy !== null) {
+      announce(`truncated by ${truncatedBy} after ${String(stopCount)} stops`);
+    }
     return {
       targetTag: target.tag,
       evidence: observed(truncatedBy === null),

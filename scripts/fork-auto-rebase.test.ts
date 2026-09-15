@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
 
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -821,6 +822,67 @@ it("leaves a truncated census's rows where the next run can find them", () => {
     assert.deepStrictEqual(partial.evidence.rows, census.evidence!.rows);
     assert.strictEqual(partial.evidence.sourceSha, fixture.fork);
     assert.strictEqual(partial.evidence.targetSha, fixture.conflict);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+// The suite runs quiet; these two turn that off for their own scope, because what they
+// assert on is the operator's stream.
+const spoken = (quiet: boolean, run: () => void): Array<string> => {
+  const lines: Array<string> = [];
+  const original = process.stderr.write.bind(process.stderr);
+  const previous = process.env.FORK_QUIET;
+  if (quiet) process.env.FORK_QUIET = "1";
+  else delete process.env.FORK_QUIET;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    run();
+  } finally {
+    process.stderr.write = original;
+    if (previous === undefined) delete process.env.FORK_QUIET;
+    else process.env.FORK_QUIET = previous;
+  }
+  return lines;
+};
+
+it("says on the operator's stream that the census is walking and that it stopped early", () => {
+  const fixture = fixtureRepository();
+  const walk = (): void => {
+    rehearseStopCensus(
+      fixture.root,
+      fixture.fork,
+      fixture.base,
+      { tag: "v1.1.0-nightly.20260828.1209", sha: fixture.conflict, position: 3, stable: false },
+      { stopLimit: 1, timeLimitMs: 60_000, now: () => NodePerfHooks.performance.now() },
+    );
+  };
+  try {
+    const lines = spoken(false, walk);
+    assert.include(lines, "census: stops 1/1\n");
+    // Truncation used to live only in the return value, where a watching operator never saw it.
+    assert.include(lines, "census: truncated by stop-limit after 1 stops\n");
+    assert.deepStrictEqual(spoken(true, walk), []);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("counts the feasibility walk's two loops on the operator's stream", () => {
+  const fixture = fixtureRepository();
+  const reader = new SystemGit(fixture.root);
+  const baseSha = reader.run(["merge-base", fixture.fork, "upstream/main"]).trim();
+  const walk = (): void => {
+    buildFeasibility(reader, fixture.fork, fixture.conflict, baseSha);
+  };
+  try {
+    const lines = spoken(false, walk);
+    assert.isTrue(lines.some((line) => /^feasibility: upstream \d+\/\d+\n$/.test(line)));
+    assert.isTrue(lines.some((line) => /^feasibility: fork \d+\/\d+\n$/.test(line)));
+    assert.deepStrictEqual(spoken(true, walk), []);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }

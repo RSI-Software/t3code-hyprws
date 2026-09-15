@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
 
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";

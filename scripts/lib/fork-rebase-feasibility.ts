@@ -1,5 +1,6 @@
 // Read-only merge feasibility for the fork rebase orientation report.
 
+import { makeProgressReporter } from "./fork-progress.ts";
 import { parseForkTrailers } from "./fork-trailers.ts";
 
 const FIELD_SEPARATOR = "\u001f";
@@ -282,6 +283,9 @@ export const buildFeasibility = (
 ): ForkRebaseFeasibility => {
   const mergeTree = (left: string, right: string): MergeTreeResult =>
     memo.resolve(git, left, right);
+  // One merge simulation per commit in each loop, minutes on a full stack; a carried
+  // memo makes an iteration free, so the line tracks commits rather than merges.
+  const progress = makeProgressReporter("feasibility");
 
   const upstreamCommits = readUpstreamCommits(git, baseSha, targetSha);
   const changes: Array<FeasibilityBoundaryChange> = [];
@@ -290,6 +294,7 @@ export const buildFeasibility = (
   let cleanCommitCount = upstreamCommits.length;
 
   for (const [index, commit] of upstreamCommits.entries()) {
+    progress("upstream", index + 1, upstreamCommits.length);
     const current = new Set(mergeTree(sourceSha, commit.sha).conflicts);
     if (firstConflict === null && current.size > 0) {
       firstConflict = commit;
@@ -309,7 +314,8 @@ export const buildFeasibility = (
     const parent = git.run(["rev-parse", `${forkCommits[0]?.sha}^`]).trim();
     priorForkConflicts = new Set(mergeTree(parent, targetSha).conflicts);
   }
-  for (const commit of forkCommits) {
+  for (const [index, commit] of forkCommits.entries()) {
+    progress("fork", index + 1, forkCommits.length);
     const current = new Set(mergeTree(commit.sha, targetSha).conflicts);
     for (const path of current) {
       if (!priorForkConflicts.has(path)) attribution.set(path, commit);

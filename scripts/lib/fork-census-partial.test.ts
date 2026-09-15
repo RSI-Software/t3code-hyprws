@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercises a file the fork bot writes without Effect.
+import "./fork-test-quiet.ts";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -43,6 +44,26 @@ const inTemporaryDir = (run: (root: string) => void): void => {
 };
 
 const read = (path: string): CensusPartial => JSON.parse(NodeFS.readFileSync(path, "utf8"));
+
+/** The suite runs quiet; a test that asserts on the operator's stream turns that off. */
+const spoken = (run: () => void): Array<string> => {
+  const lines: Array<string> = [];
+  const original = process.stderr.write.bind(process.stderr);
+  const quiet = process.env.FORK_QUIET;
+  delete process.env.FORK_QUIET;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    run();
+  } finally {
+    process.stderr.write = original;
+    if (quiet === undefined) delete process.env.FORK_QUIET;
+    else process.env.FORK_QUIET = quiet;
+  }
+  return lines;
+};
 
 it("keeps the rows a walk has observed, under the repository's run evidence", () => {
   inTemporaryDir((root) => {
@@ -117,21 +138,14 @@ it("lets a walk finish even when its rows cannot be kept", () => {
     const blocked = NodePath.join(root, "blocked");
     NodeFS.writeFileSync(blocked, "not a directory\n");
     process.env.FORK_CENSUS_PARTIAL_DIR = NodePath.join(blocked, "census");
-    const written: Array<string> = [];
-    const stderr = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string) => {
-      written.push(String(chunk));
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      const record = new CensusPartialRecord(root, { sourceSha: SOURCE, targetSha: TARGET });
+    let record: CensusPartialRecord | null = null;
+    const written = spoken(() => {
+      record = new CensusPartialRecord(root, { sourceSha: SOURCE, targetSha: TARGET });
       record.record(evidence(1), null);
       record.record(evidence(2), null, true);
-      assert.strictEqual(NodeFS.existsSync(record.path), false);
-    } finally {
-      process.stderr.write = stderr;
-      delete process.env.FORK_CENSUS_PARTIAL_DIR;
-    }
+    });
+    delete process.env.FORK_CENSUS_PARTIAL_DIR;
+    assert.strictEqual(NodeFS.existsSync(record!.path), false);
     assert.strictEqual(written.length, 1);
     assert.match(written[0] ?? "", /^census: partial rows are not being kept \(/);
   });
