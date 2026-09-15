@@ -47,6 +47,19 @@ export class ServerCliBuildAssetMissingError extends Schema.TaggedError<ServerCl
   }
 }
 
+export class ServerCliPackTarballNameMismatchError extends Schema.TaggedError<ServerCliPackTarballNameMismatchError>()(
+  "ServerCliPackTarballNameMismatchError",
+  {
+    destination: Schema.String,
+    expectedName: Schema.String,
+    packedNames: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `vp pm pack wrote ${this.packedNames.length > 0 ? this.packedNames.join(", ") : "no tarball"} into ${this.destination}; expected ${this.expectedName}. The pinned-runtime installer resolves that exact name (forkServerTarballName in src/cloud/forkRuntimeRelease.ts).`;
+  }
+}
+
 export class ServerCliExecutableImportError extends Schema.TaggedError<ServerCliExecutableImportError>()(
   "ServerCliExecutableImportError",
   {
