@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fixture repositories use synchronous Node helpers.
 
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
@@ -48,6 +50,12 @@ import {
   type SequentialCensusEvidence,
 } from "./lib/fork-rebase-issues.ts";
 import { parseCensusFiles, parseLedger, censusChurn } from "./fork-churn-ledger.ts";
+import {
+  encodeFeasibilityArtifact,
+  parseFeasibilityArtifact,
+} from "./lib/fork-feasibility-artifact.ts";
+import type { CensusPartial } from "./lib/fork-census-partial.ts";
+import { buildFeasibility, MergeTreeMemo } from "./lib/fork-rebase-feasibility.ts";
 import { buildPushInvocation } from "./lib/fork-rebase-push.ts";
 import {
   buildAutoRebasePlan,
@@ -91,6 +99,7 @@ it("parses bot modes and output flags", () => {
       githubOutput: true,
       summary: "summary.md",
       issueJson: "issues.json",
+      feasibility: null,
     },
   );
   assert.throws(() => parseArgs(["--mode", "maybe"]), UsageError);
@@ -331,6 +340,7 @@ const dryRunOptions = {
   githubOutput: false,
   summary: null,
   issueJson: null,
+  feasibility: null,
 };
 
 it("selects dependency setup from shared-base-to-target manifest changes", () => {
@@ -368,6 +378,71 @@ it("plans a no-op at the base and rejects an override beyond the clean window", 
       UsageError,
     );
     assert.throws(() => buildAutoRebasePlan(reader, fixture.fork, fixture.stable), UsageError);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+// The report job walks the same source and base an hour before the rebase job does;
+// these two cover what the rebase job may take from it and what it must redo.
+const carriedArtifactFor = (fixture: Fixture, targetSha: string) => {
+  const reader = new SystemGit(fixture.root);
+  const baseSha = reader.run(["merge-base", fixture.fork, "upstream/main"]).trim();
+  const memo = new MergeTreeMemo();
+  const feasibility = buildFeasibility(reader, fixture.fork, targetSha, baseSha, memo);
+  return parseFeasibilityArtifact(
+    encodeFeasibilityArtifact(
+      "vp run fork:rebase-report",
+      { sourceSha: fixture.fork, targetSha, baseSha },
+      feasibility,
+      memo,
+    ),
+  );
+};
+
+it("carries a feasibility walk computed against the same three shas", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    const walked = buildAutoRebasePlan(reader, fixture.fork, null);
+    const carried = buildAutoRebasePlan(
+      reader,
+      fixture.fork,
+      null,
+      carriedArtifactFor(fixture, walked.horizon?.sha ?? walked.baseSha),
+    );
+    assert.deepStrictEqual(carried.feasibility, walked.feasibility);
+    assert.deepStrictEqual(carried.target, walked.target);
+    assert.strictEqual(carried.feasibilitySource.carried, true);
+    assert.strictEqual(carried.feasibilitySource.refusal, null);
+    assert.strictEqual(carried.feasibilitySource.mergesComputed, 0);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("refuses a feasibility walk whose target moved and recomputes the same result", () => {
+  const fixture = fixtureRepository();
+  try {
+    const reader = new SystemGit(fixture.root);
+    const walked = buildAutoRebasePlan(reader, fixture.fork, null);
+    // The stable tag is a real upstream commit, just not the one the plan targets.
+    const stale = buildAutoRebasePlan(
+      reader,
+      fixture.fork,
+      null,
+      carriedArtifactFor(fixture, fixture.stable),
+    );
+    assert.strictEqual(stale.feasibilitySource.carried, false);
+    assert.match(
+      stale.feasibilitySource.refusal ?? "",
+      /^targetSha [0-9a-f]{12} is now [0-9a-f]{12}$/,
+    );
+    assert.deepStrictEqual(stale.feasibility, walked.feasibility);
+    assert.deepStrictEqual(stale.target, walked.target);
+    // Every merge is addressed by its two commits, so the refused artifact still pays
+    // for the merges both walks share.
+    assert.ok(stale.feasibilitySource.mergesCarried > 0);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
@@ -720,6 +795,94 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
       /census rebase failed/,
     );
     assert.strictEqual(git(fixture.root, ["worktree", "list", "--porcelain"]), before);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("leaves a truncated census's rows where the next run can find them", () => {
+  const fixture = fixtureRepository();
+  try {
+    const census = rehearseStopCensus(
+      fixture.root,
+      fixture.fork,
+      fixture.base,
+      { tag: "v1.1.0-nightly.20260828.1209", sha: fixture.conflict, position: 3, stable: false },
+      { stopLimit: 1, timeLimitMs: 60_000, now: () => NodePerfHooks.performance.now() },
+    );
+    assert.strictEqual(census.truncatedBy, "stop-limit");
+    const kept = NodePath.join(fixture.root, ".dump/runs/fork-census");
+    const files = NodeFS.readdirSync(kept).filter((name) => name.endsWith(".json"));
+    assert.strictEqual(files.length, 1);
+    const partial = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(kept, files[0]!), "utf8"),
+    ) as CensusPartial;
+    assert.strictEqual(partial.truncatedBy, "stop-limit");
+    assert.strictEqual(partial.evidence.complete, false);
+    assert.deepStrictEqual(partial.evidence.rows, census.evidence!.rows);
+    assert.strictEqual(partial.evidence.sourceSha, fixture.fork);
+    assert.strictEqual(partial.evidence.targetSha, fixture.conflict);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+// The suite runs quiet; these two turn that off for their own scope, because what they
+// assert on is the operator's stream.
+const spoken = (quiet: boolean, run: () => void): Array<string> => {
+  const lines: Array<string> = [];
+  const original = process.stderr.write.bind(process.stderr);
+  const previous = process.env.FORK_QUIET;
+  if (quiet) process.env.FORK_QUIET = "1";
+  else delete process.env.FORK_QUIET;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    run();
+  } finally {
+    process.stderr.write = original;
+    if (previous === undefined) delete process.env.FORK_QUIET;
+    else process.env.FORK_QUIET = previous;
+  }
+  return lines;
+};
+
+it("says on the operator's stream that the census is walking and that it stopped early", () => {
+  const fixture = fixtureRepository();
+  const walk = (): void => {
+    rehearseStopCensus(
+      fixture.root,
+      fixture.fork,
+      fixture.base,
+      { tag: "v1.1.0-nightly.20260828.1209", sha: fixture.conflict, position: 3, stable: false },
+      { stopLimit: 1, timeLimitMs: 60_000, now: () => NodePerfHooks.performance.now() },
+    );
+  };
+  try {
+    const lines = spoken(false, walk);
+    assert.include(lines, "census: stops 1/1\n");
+    // Truncation used to live only in the return value, where a watching operator never saw it.
+    assert.include(lines, "census: truncated by stop-limit after 1 stops\n");
+    assert.deepStrictEqual(spoken(true, walk), []);
+  } finally {
+    NodeFS.rmSync(fixture.container, { recursive: true, force: true });
+  }
+});
+
+it("counts the feasibility walk's two loops on the operator's stream", () => {
+  const fixture = fixtureRepository();
+  const reader = new SystemGit(fixture.root);
+  const baseSha = reader.run(["merge-base", fixture.fork, "upstream/main"]).trim();
+  const walk = (): void => {
+    buildFeasibility(reader, fixture.fork, fixture.conflict, baseSha);
+  };
+  try {
+    const lines = spoken(false, walk);
+    assert.isTrue(lines.some((line) => /^feasibility: upstream \d+\/\d+\n$/.test(line)));
+    assert.isTrue(lines.some((line) => /^feasibility: fork \d+\/\d+\n$/.test(line)));
+    assert.deepStrictEqual(spoken(true, walk), []);
   } finally {
     NodeFS.rmSync(fixture.container, { recursive: true, force: true });
   }
