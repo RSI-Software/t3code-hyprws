@@ -58,6 +58,7 @@ import {
   validateReport,
   validateSignedRecord,
   walkSummary,
+  walkRebaseArgs,
   type CommandResult,
   type CommandRunner,
   type RetireEvidence,
@@ -1212,6 +1213,27 @@ it("enables rerere without staging its reused resolutions", () => {
     ),
     ["apps/web/src/reused.ts"],
   );
+});
+
+it("drops commits that start empty from the trunk walk without touching the shared args", () => {
+  // --no-keep-empty is startup-only: it is not valid on `rebase --skip`/`--continue` and is
+  // wrong for the interactive autosquash, so it belongs to the walk's startup invocation and
+  // must never leak into rehearsalRebaseArgs.
+  const walk = walkRebaseArgs(B);
+  assert.ok(walk.includes("--no-keep-empty"));
+  assert.deepStrictEqual(rehearsalRebaseArgs(["rebase", B]), [
+    "-c",
+    "core.commentChar=auto",
+    "-c",
+    "diff.algorithm=histogram",
+    "-c",
+    "rerere.enabled=true",
+    "-c",
+    "rerere.autoupdate=false",
+    "rebase",
+    B,
+  ]);
+  assert.strictEqual(walk[walk.length - 1], B);
 });
 
 it("auto-classifies and stages rerere rows as mechanical agent decisions", () => {
