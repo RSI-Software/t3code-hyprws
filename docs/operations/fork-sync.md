@@ -66,6 +66,25 @@ changing, removing or redirecting one invalidates construction and every later g
 `--json` emits one complete ANSI-free result/error object. Exits: 0 verified, 1 runtime failure,
 2 usage/schema error, 3 stale or unsupported proof precondition. Help performs no work.
 
+### Why every gate rebuilds
+
+`rewrite-build` writes a receipt beside the manifest, and every later gate — `rewrite-rehearse`,
+`unblock-check`, `unblock-review`, `unblock-apply` — recomputes the whole construction instead of
+reading it. That is deliberate. The receipt is an ordinary external JSON file; nothing signs it, and
+`verifyRewriteBuild` proves it by building a fresh one and comparing, so the rebuild is the
+verification and the stored copy is only what an operator diffs against. Whoever can edit the
+manifest can edit the receipt.
+
+The cheaper check is strictly weaker. Re-hashing the manifest bytes and proving each slot's
+`resultTree` exists in the object database shows that some construction produced trees that are
+present; it does not show those trees are the ones this manifest's `changes` produce. A receipt
+naming any tree that happens to exist would pass. This ladder is the only thing between a reviewed
+manifest and rewritten published fork history, so it does not take a weaker proof to save time.
+
+The time it was saving is gone anyway. A 275-slot `rewrite-build` now completes in under five
+minutes, so the full five-gate ladder costs minutes rather than the hours that made replay look
+unaffordable.
+
 Pause the bot for the walk series, then use:
 
 ```bash
