@@ -292,6 +292,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "useRightPanelStore" },
   },
+  // custom-agents — right-panel surface reshaped on RSI-Software/t3code-hyprws#991.
+  "custom-agents/right-panel-open-agents-decl-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "custom-agents/right-panel-agents-singleton-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-singleton": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "custom-agents/right-panel-migrate-agents-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-migrate-agents": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
+  },
   "project-windows/index-fork-css": {
     path: "apps/web/src/index.css",
     anchor: { kind: "import-block" },

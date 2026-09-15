@@ -18,15 +18,19 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
+import { agentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-agents-singleton-import
 import { createOpenAgents } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-import
 import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
 import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
 import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
+import { normalizeAgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-migrate-agents-import
 import { normalizeGitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
 import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
 import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
+import type { AgentsSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-agents-surface-import
 import type { GitHubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
 import type { GitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
+import type { OpenAgentsFork } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-decl-import
 import type { OpenGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
 
 const RIGHT_PANEL_KINDS = [
@@ -98,12 +102,7 @@ export type RightPanelSurface =
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
   | GitHubIssueSurfaceFork // fork-hook: github-issues/right-panel-surface
-  | {
-      id: "agents";
-      kind: "agents";
-      selectedAgentId: string | null;
-      rosterFocusAgentId: string | null;
-    };
+  | AgentsSurfaceFork; // fork-hook: custom-agents/right-panel-agents-surface
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -167,13 +166,7 @@ interface RightPanelStoreState {
     },
   ) => void;
   openGitHubIssue: OpenGitHubIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
-  openAgents: (
-    ref: ScopedThreadRef,
-    target?: {
-      readonly selectedAgentId?: string | null;
-      readonly rosterFocusAgentId?: string | null;
-    },
-  ) => void; // fork-hook: custom-agents/right-panel-open-agents-decl
+  openAgents: OpenAgentsFork; // fork-hook: custom-agents/right-panel-open-agents-decl
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -219,7 +212,7 @@ const singletonSurface = (
     case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
       return githubIssueHubSurfaceFork(); // fork-hook: github-issues/right-panel-hub-singleton
     case "agents":
-      return { id: "agents", kind, selectedAgentId: null, rosterFocusAgentId: null };
+      return agentsSurfaceFork(); // fork-hook: custom-agents/right-panel-agents-singleton
     case "device":
       return { id: "device", kind };
   }
@@ -431,24 +424,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                     }
                     if (surface.kind === "github-issue")
                       return normalizeGitHubIssueSurfaceFork(surface); // fork-hook: github-issues/right-panel-migrate-github-issue
-                    if (surface.kind === "agents") {
-                      return [
-                        {
-                          id: "agents",
-                          kind: "agents",
-                          selectedAgentId:
-                            "selectedAgentId" in surface &&
-                            typeof surface.selectedAgentId === "string"
-                              ? surface.selectedAgentId
-                              : null,
-                          rosterFocusAgentId:
-                            "rosterFocusAgentId" in surface &&
-                            typeof surface.rosterFocusAgentId === "string"
-                              ? surface.rosterFocusAgentId
-                              : null,
-                        },
-                      ];
-                    }
+                    if (surface.kind === "agents") return normalizeAgentsSurfaceFork(surface); // fork-hook: custom-agents/right-panel-migrate-agents
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
