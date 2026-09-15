@@ -1,10 +1,24 @@
 // @effect-diagnostics nodeBuiltinImport:off - This standalone Git bot runs before an Effect runtime exists.
-// Rehearses a sequential rebase to count where it would stop, without moving the fork.
+// Rehearses a sequential rebase to count its conflicts and, of those, the ones an operator
+// would have to resolve, without moving the fork.
 //
-// The walk runs the real `git rebase` in a disposable worktree and resolves each
-// conflicted path provisionally from stage 3, so the stops it reports are the stops the
-// operator would hit. It is bounded by a stop count and a wall clock, and it keeps its
-// rows on disk as it goes (see `CensusPartialRecord`) so an interrupted walk is not lost.
+// The walk runs the real `git rebase` in a disposable worktree and hands every conflicted
+// path to `resolveConflictPath` — the same sequence `fork-sync` runs, so the two cannot
+// disagree about what reaches a human. Each row records the stage that owned it; only an
+// `unresolved` row is an operator stop. A path the executor declines is then resolved
+// provisionally from index stage 3, which is what lets the rehearsal continue.
+//
+// This rehearsal never runs a check it cannot pay for, and never counts a resolution it did
+// not see. It does not run the scoped typecheck the walk runs on a re-inserted hook, because
+// that needs installed modules a disposable worktree does not have, so a hook re-apply is
+// recorded as `hook-reapply-unverified`: the census does not know whether it typechecks, and
+// its count is reported on its own, never inside the mechanical total. It cannot run a
+// generator either, so a generated path is an operator stop here even though the real walk
+// restores HEAD and regenerates it. Nothing else is skipped: rerere replay and the outcome
+// executor run in full.
+//
+// It is bounded by a stop count and a wall clock, and it keeps its rows on disk as it goes
+// (see `CensusPartialRecord`) so an interrupted walk is not lost.
 
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -13,11 +27,14 @@ import * as NodePerfHooks from "node:perf_hooks";
 
 import { requireSuccess, type PositionedTag } from "./fork-auto-rebase-plan.ts";
 import { CensusPartialRecord } from "./lib/fork-census-partial.ts";
-import { SystemGit } from "./lib/fork-command.ts";
+import { SystemCommandRunner, SystemGit } from "./lib/fork-command.ts";
+import { resolveConflictPath, type ConflictResolution } from "./lib/fork-conflict-resolution.ts";
+import { GENERATED_HOOK_PATH } from "./lib/fork-hook-guard.ts";
 import { makeProgressReporter } from "./lib/fork-progress.ts";
 import type { GitCommandResult } from "./lib/fork-rebase-feasibility.ts";
 import {
   censusTotals,
+  type CensusStage,
   type RebaseStopCensus,
   type SequentialCensusEvidence,
 } from "./lib/fork-rebase-issues.ts";
@@ -73,6 +90,19 @@ const announce = (message: string): void => {
   process.stderr.write(`census: ${message}\n`);
 };
 
+/**
+ * The stage a census row carries. A census never runs the scoped typecheck a hook re-apply gets in
+ * the real walk, so it records that resolution as unverified rather than claiming a checked one.
+ */
+const censusStage = (resolution: ConflictResolution): CensusStage =>
+  resolution.stage === "hook-reapply" && resolution.outcome.verified !== true
+    ? "hook-reapply-unverified"
+    : resolution.stage;
+
+/** Why a generated path is an operator stop here and not in the walk. */
+const GENERATED_REASON =
+  "generated path: the walk restores HEAD and regenerates it, which this rehearsal cannot run";
+
 const timedOut = (result: GitCommandResult): boolean =>
   result.error instanceof Error && "code" in result.error && result.error.code === "ETIMEDOUT";
 
@@ -88,6 +118,7 @@ export const rehearseStopCensus = (
   const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-census-"));
   const cemetery = `${worktree}-files`;
   const rootGit = new SystemGit(root);
+  const runner = new SystemCommandRunner();
   let worktreeGit: SystemGit | null = null;
   const rows: Array<SequentialCensusEvidence["rows"][number]> = [];
   let stopCount = 0;
@@ -98,7 +129,7 @@ export const rehearseStopCensus = (
   const partial = new CensusPartialRecord(root, { sourceSha: headSha, targetSha: target.sha });
   const observed = (complete: boolean): SequentialCensusEvidence => ({
     version: 1,
-    method: "sequential-rebase-stage3-provisional",
+    method: "sequential-rebase-walk-resolution",
     sourceSha: headSha,
     baseSha,
     targetSha: target.sha,
@@ -162,11 +193,34 @@ export const rehearseStopCensus = (
         path,
         stages: worktreeGit!.run(["ls-files", "--stage", "--", path]),
       }));
-      // Observe every path before provisional continuation or a limit interrupts the stop.
+      const rerereRemaining = rerereEnabled
+        ? new Set(
+            worktreeGit
+              .run(["-c", "rerere.enabled=true", "rerere", "remaining"])
+              .split("\n")
+              .filter(Boolean),
+          )
+        : null;
+      // A path is decided while its index stages still exist, so resolution and observation share
+      // one pass; the provisional continuation below would destroy the stages the executor reads.
+      const provisional: Array<{ readonly path: string; readonly stages: string }> = [];
       for (const { path, stages } of stagesByPath) {
+        if (remainingTime() <= 0) {
+          truncatedBy = "time-limit";
+          break;
+        }
         const base = hasStage(stages, 1);
         const ours = hasStage(stages, 2);
         const theirs = hasStage(stages, 3);
+        // A generated path is the walk's own: it restores HEAD and runs the generator. This
+        // rehearsal has no installed toolchain to run it with, so it has not seen the path
+        // resolve and records it as an operator stop rather than claiming the walk's result.
+        const resolution: ConflictResolution = GENERATED_HOOK_PATH.test(path)
+          ? { path, stage: "unresolved", outcome: { path, reason: GENERATED_REASON } }
+          : resolveConflictPath(runner, worktree, path, {
+              rerereRemaining,
+              verifyHookReapply: false,
+            });
         rows.push({
           stop: stopCount,
           commit,
@@ -181,16 +235,23 @@ export const rehearseStopCensus = (
                 : base && ours && theirs
                   ? "content"
                   : "other-unmerged",
+          stage: censusStage(resolution),
         });
+        // rerere already wrote its resolution into the worktree; the executor already staged its
+        // own. What is left over is what this rehearsal did not resolve, and it continues past
+        // each of those from index stage 3.
+        if (resolution.stage === "rerere") worktreeGit.run(["add", "--", path]);
+        else if (resolution.stage === "unresolved") provisional.push({ path, stages });
       }
       progress("stops", stopCount, limits.stopLimit);
       // The rows of this stop are on disk before the walk risks another one.
       partial.record(observed(false), truncatedBy);
+      if (truncatedBy !== null) break;
       if (stopCount >= limits.stopLimit) {
         truncatedBy = "stop-limit";
         break;
       }
-      for (const [index, { path, stages }] of stagesByPath.entries()) {
+      for (const [index, { path, stages }] of provisional.entries()) {
         if (remainingTime() <= 0) {
           truncatedBy = "time-limit";
           break;
@@ -203,7 +264,7 @@ export const rehearseStopCensus = (
         worktreeGit.run(["add", "--all", "--", path]);
       }
       if (truncatedBy !== null) break;
-      movedFileCount += conflictPaths.length;
+      movedFileCount += provisional.length;
       rebase = runRebase([...rebaseArgs, "--continue"]);
     }
     finished = true;
