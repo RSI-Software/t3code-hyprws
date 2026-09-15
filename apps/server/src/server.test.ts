@@ -98,6 +98,14 @@ const SUCCESSFUL_GIT_EXECUTION = {
   stdoutTruncated: false,
   stderrTruncated: false,
 };
+export type ZmuxBootstrapHarnessFork = {
+  buildAppUnderTest: typeof buildAppUnderTest;
+  getWsServerUrl: typeof getWsServerUrl;
+  withWsRpcClient: typeof withWsRpcClient;
+  defaultModelSelection: typeof defaultModelSelection;
+  defaultProjectId: typeof defaultProjectId;
+  SUCCESSFUL_GIT_EXECUTION: typeof SUCCESSFUL_GIT_EXECUTION;
+}; // fork-hook: zmux-estate/zmux-bootstrap-harness
 const decodeTransferThreadSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationThreadDetailSnapshot),
 );
@@ -184,6 +192,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as CheckoutMutationCoordinator from "./git/CheckoutMutationCoordinator.ts";
 import { checkoutMoveTestsFork } from "./server.checkoutMoves.fork.suite.ts"; // fork-hook: zmux-estate/checkout-move-tests-import
 import * as ZmuxSessionBinder from "./zmux/ZmuxSessionBinder.ts";
+import { zmuxBootstrapTestsFork } from "./server.zmuxBootstrap.fork.suite.ts"; // fork-hook: zmux-estate/zmux-bootstrap-tests-import
 import * as WorktrunkHookRunner from "./worktrunk/WorktrunkHookRunner.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
@@ -12421,214 +12430,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("attempts to bind a bootstrap worktree and records failures as activity", () =>
-    Effect.gen(function* () {
-      const dispatchedCommands: Array<OrchestrationCommand> = [];
-      const bind = vi.fn((_worktreePath: string) =>
-        Effect.succeed({
-          status: "failed" as const,
-          notice: {
-            summary: "zmux session failed to bind",
-            detail: "branch_conflict: branch is already bound",
-          },
-        }),
-      );
-
-      yield* buildAppUnderTest({
-        layers: {
-          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
-          // repository whose base resolves; stand both gates in so the fork's
-          // zmux bind at the created worktree stays under test.
-          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
-          gitVcsDriver: {
-            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
-            createWorktree: () =>
-              Effect.succeed({
-                worktree: {
-                  refName: "t3code/bootstrap-refName",
-                  path: "/tmp/bootstrap-worktree",
-                },
-              }),
-          },
-          orchestrationEngine: {
-            dispatch: (command) =>
-              Effect.sync(() => {
-                dispatchedCommands.push(command);
-                return { sequence: dispatchedCommands.length };
-              }),
-            readEvents: () => Stream.empty,
-          },
-          zmuxSessionBinder: { bind },
-        },
-      });
-
-      const createdAt = "2026-01-01T00:00:00.000Z";
-      const wsUrl = yield* getWsServerUrl("/ws");
-      yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
-            type: "thread.turn.start",
-            commandId: CommandId.make("cmd-bootstrap-turn-start-zmux-bind"),
-            threadId: ThreadId.make("thread-bootstrap-zmux-bind"),
-            message: {
-              messageId: MessageId.make("msg-bootstrap-zmux-bind"),
-              role: "user",
-              text: "hello",
-              attachments: [],
-            },
-            modelSelection: defaultModelSelection,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: defaultProjectId,
-                title: "Bootstrap Thread",
-                modelSelection: defaultModelSelection,
-                runtimeMode: "full-access",
-                interactionMode: "default",
-                branch: "main",
-                worktreePath: null,
-                createdAt,
-              },
-              prepareWorktree: {
-                projectCwd: "/tmp/project",
-                baseBranch: "main",
-                branch: "t3code/bootstrap-refName",
-              },
-            },
-            createdAt,
-          }),
-        ),
-      );
-
-      assert.deepStrictEqual(bind.mock.calls[0], [
-        "/tmp/bootstrap-worktree",
-        { projectPath: "/tmp/project" },
-      ]);
-      assert.deepStrictEqual(
-        dispatchedCommands.map((command) => command.type),
-        [
-          "thread.create",
-          "thread.message.user.append",
-          "thread.activity.append",
-          "thread.session.set",
-          "thread.activity.append",
-          "thread.meta.update",
-          "thread.turn.start",
-          "thread.activity.append",
-        ],
-      );
-      // Target's bootstrap projects its own setup activities around the fork's
-      // zmux bind record; pick the bind failure by kind, not by position.
-      const bindFailureActivity = dispatchedCommands.find(
-        (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append" &&
-          command.activity.kind === "zmux-session.failed",
-      );
-      assert.equal(bindFailureActivity?.activity.kind, "zmux-session.failed");
-      assert.deepStrictEqual(bindFailureActivity?.activity.payload, {
-        detail: "branch_conflict: branch is already bound",
-        worktreePath: "/tmp/bootstrap-worktree",
-      });
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("records the verified zmux adoption outcome on the bootstrap thread", () =>
-    Effect.gen(function* () {
-      const dispatchedCommands: Array<OrchestrationCommand> = [];
-      const bind = vi.fn((_worktreePath: string) =>
-        Effect.succeed({
-          status: "bound" as const,
-          target: "project/t3code-bootstrap-refName",
-          outcome: "reused" as const,
-        }),
-      );
-
-      yield* buildAppUnderTest({
-        layers: {
-          // Upstream's tracked-bootstrap flow only prepares a worktree in a real
-          // repository whose base resolves; stand both gates in so the fork's
-          // zmux bind at the created worktree stays under test.
-          vcsDriver: { isInsideWorkTree: () => Effect.succeed(true) }, // fork-hook: server/zmux-bootstrap-bind
-          gitVcsDriver: {
-            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION), // fork-hook: server/zmux-bootstrap-bind
-            createWorktree: () =>
-              Effect.succeed({
-                worktree: {
-                  refName: "t3code/bootstrap-refName",
-                  path: "/tmp/bootstrap-worktree",
-                },
-              }),
-          },
-          orchestrationEngine: {
-            dispatch: (command) =>
-              Effect.sync(() => {
-                dispatchedCommands.push(command);
-                return { sequence: dispatchedCommands.length };
-              }),
-            readEvents: () => Stream.empty,
-          },
-          zmuxSessionBinder: { bind },
-        },
-      });
-
-      const createdAt = "2026-01-01T00:00:00.000Z";
-      const wsUrl = yield* getWsServerUrl("/ws");
-      yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
-            type: "thread.turn.start",
-            commandId: CommandId.make("cmd-bootstrap-turn-start-zmux-bound"),
-            threadId: ThreadId.make("thread-bootstrap-zmux-bound"),
-            message: {
-              messageId: MessageId.make("msg-bootstrap-zmux-bound"),
-              role: "user",
-              text: "hello",
-              attachments: [],
-            },
-            modelSelection: defaultModelSelection,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            bootstrap: {
-              createThread: {
-                projectId: defaultProjectId,
-                title: "Bootstrap Thread",
-                modelSelection: defaultModelSelection,
-                runtimeMode: "full-access",
-                interactionMode: "default",
-                branch: "main",
-                worktreePath: null,
-                createdAt,
-              },
-              prepareWorktree: {
-                projectCwd: "/tmp/project",
-                baseBranch: "main",
-                branch: "t3code/bootstrap-refName",
-              },
-            },
-            createdAt,
-          }),
-        ),
-      );
-
-      assert.deepStrictEqual(bind.mock.calls[0]?.[0], "/tmp/bootstrap-worktree");
-      // Target's bootstrap projects its own setup activities around the fork's
-      // zmux bind record; pick the bind outcome by kind, not by position.
-      const bindActivity = dispatchedCommands.find(
-        (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append" &&
-          command.activity.kind === "zmux-session.bound",
-      );
-      assert.equal(bindActivity?.activity.kind, "zmux-session.bound");
-      assert.equal(bindActivity?.activity.summary, "zmux session reused");
-      assert.equal(bindActivity?.activity.tone, "info");
-      assert.deepStrictEqual(bindActivity?.activity.payload, {
-        outcome: "reused",
-        target: "project/t3code-bootstrap-refName",
-        worktreePath: "/tmp/bootstrap-worktree",
-      });
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
+  zmuxBootstrapTestsFork(it, {
+    buildAppUnderTest,
+    getWsServerUrl,
+    withWsRpcClient,
+    defaultModelSelection,
+    defaultProjectId,
+    SUCCESSFUL_GIT_EXECUTION,
+  }); // fork-hook: zmux-estate/zmux-bootstrap-tests
 
   it.effect("records setup-script failures without aborting bootstrap turn start", () =>
     Effect.gen(function* () {

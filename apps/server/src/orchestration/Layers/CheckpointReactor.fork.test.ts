@@ -20,9 +20,10 @@ import { forkSupersedes } from "../../../../../scripts/lib/fork-supersedes.ts";
 import type { OrchestrationEngineShape } from "../Services/OrchestrationEngine.ts";
 import { CheckoutDirectoryWatch } from "../../git/CheckoutDirectoryWatch.fork.ts";
 
-// The upstream harness imports and registers the cases below. Keep this file a
-// valid standalone Vitest target when the runner discovers it directly.
-it.skip("registers checkout watcher cases through the shared reactor harness", () => {});
+// The upstream harness imports and registers the cases below. This passing
+// no-op keeps the file a valid standalone Vitest target when the runner
+// discovers it directly.
+it("registers checkout watcher cases through the shared reactor harness", () => {});
 
 interface WatcherHarness {
   readonly cwd: string;
