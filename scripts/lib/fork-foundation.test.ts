@@ -57,7 +57,7 @@ it("parses trailers from the full body above a co-author paragraph", () => {
     tier: "bugfix",
     upstreamable: "no",
   });
-  const raw = `abc${FS}abc${FS}fix: example${FS}${body}${RS}`;
+  const raw = `abc${FS}abc${FS}2026-09-09T14:28:59+12:00${FS}fix: example${FS}${body}${RS}`;
   assert.equal(parseForkLog(raw)[0]?.domain, "fork-meta");
 });
 
