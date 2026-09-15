@@ -1508,6 +1508,27 @@ it("still charges a real deletion inside a marked JSX region (1013)", () => {
   );
 });
 
+it("classifies a CSS at-rule import hook as one construct (1013)", () => {
+  // The shape list was TypeScript-only, so `@import` — the spelling a stylesheet must use to
+  // pull in the fork sheet — read as a second construct once block-suffix hooks were classified.
+  const cssPath = "apps/web/src/index.css";
+  const warnings = collectScanWarnings(
+    guardInput({
+      commits: [{ sha: hookSha, short: "bbbbbbb", domain: "project-windows" }],
+      filesBySha: new Map([[hookSha, [cssPath]]]),
+      patchesBySha: parseCommitPatches(
+        patch(
+          hookSha,
+          `--- a/${cssPath}\n+++ b/${cssPath}\n@@ -1,1 +1,2 @@\n+@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */\n`,
+        ),
+      ),
+      upstreamFiles: new Set([cssPath]),
+      forkHooks: new Set(["project-windows/index-fork-css"]),
+    }),
+  ).filter((warning) => warning.rule === "fork-hook-seam");
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
   // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
   // line, so gating on the line form alone left every hook inside a JSX attribute list, an

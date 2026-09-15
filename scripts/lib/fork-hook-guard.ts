@@ -39,7 +39,8 @@ export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 
 // A marked line hook must be exactly one of these shapes. The property/spread
 // shape additionally names a fork identifier; the others are structural.
-const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
+// `@import` is the CSS spelling of the same construct; a fork sheet is pulled in that way.
+const HOOK_IMPORT = /^\s*(?:@?import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
 const HOOK_SINGLE_CALL =
   /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
 // A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
