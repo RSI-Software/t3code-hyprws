@@ -18,6 +18,7 @@ import {
   verifyReplay,
   type AutoRebasePlan,
   type PositionedTag,
+  type FeasibilitySource,
   type ReplayVerifier,
   type VerificationDependencySetup,
 } from "./fork-auto-rebase-plan.ts";
@@ -40,10 +41,22 @@ import { prepareAutoOutcome } from "./fork-churn-outcomes.ts";
 
 export { SystemGit } from "./lib/fork-command.ts";
 import {
+  rehearseStopCensus,
+  STOP_CENSUS_LIMIT,
+  STOP_CENSUS_TIME_LIMIT_MS,
+  type StopCensusRunner,
+} from "./fork-stop-census.ts";
+
+export { rehearseStopCensus, type StopCensusRunner } from "./fork-stop-census.ts";
+import {
   buildFeasibility,
   type FeasibilityGit,
   type GitCommandResult,
 } from "./lib/fork-rebase-feasibility.ts";
+import {
+  readFeasibilityArtifact,
+  type FeasibilityArtifact,
+} from "./lib/fork-feasibility-artifact.ts";
 import { pushResult, remoteBranchSha, restoreRemoteBranch } from "./lib/fork-rebase-push.ts";
 import {
   buildBlockedIssue,
@@ -72,6 +85,7 @@ export interface AutoRebaseOptions {
   readonly githubOutput: boolean;
   readonly summary: string | null;
   readonly issueJson: string | null;
+  readonly feasibility: string | null;
 }
 
 export interface AutoRebaseResult {
@@ -111,6 +125,7 @@ Options:
   --github-output            Write result fields to $GITHUB_OUTPUT
   --summary <path>           Write a Markdown run summary
   --issue-json <path>        Write blocked and stable-candidate issue data
+  --feasibility <path>       Carry a feasibility artifact from the report job
   -h, --help                 Show help
 `;
 
@@ -122,13 +137,14 @@ const defaultOptions = (): AutoRebaseOptions => ({
   githubOutput: false,
   summary: null,
   issueJson: null,
+  feasibility: null,
 });
 
 export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOptions => {
   const options = { ...defaultOptions() };
   const seen = new Set<string>();
   const booleans = new Set(["--fetch", "--dry-run", "--github-output"]);
-  const values = new Set(["--mode", "--target", "--summary", "--issue-json"]);
+  const values = new Set(["--mode", "--target", "--summary", "--issue-json", "--feasibility"]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "-h" || argument === "--help") continue;
@@ -154,6 +170,7 @@ export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOpti
       options.mode = value;
     } else if (argument === "--target") options.target = value;
     else if (argument === "--summary") options.summary = value;
+    else if (argument === "--feasibility") options.feasibility = value;
     else options.issueJson = value;
   }
   return options;
@@ -162,188 +179,31 @@ export const parseAutoRebaseArgs = (argv: ReadonlyArray<string>): AutoRebaseOpti
 const trackingBranchExists = (git: Pick<FeasibilityGit, "runResult">, branch: string): boolean =>
   git.runResult(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).status === 0;
 
-export type StopCensusRunner = (
-  root: string,
-  headSha: string,
-  baseSha: string,
-  target: PositionedTag,
-) => RebaseStopCensus;
-
-const STOP_CENSUS_LIMIT = 128;
-const STOP_CENSUS_TIME_LIMIT_MS = 6 * 60 * 1000;
-
-interface StopCensusLimits {
-  readonly stopLimit: number;
-  readonly timeLimitMs: number;
-  readonly now: () => number;
-}
-
-const defaultStopCensusLimits = (): StopCensusLimits => ({
-  stopLimit: STOP_CENSUS_LIMIT,
-  timeLimitMs: STOP_CENSUS_TIME_LIMIT_MS,
-  now: () => NodePerfHooks.performance.now(),
-});
-
-const hasStage = (stages: string, stage: number): boolean =>
-  stages.split("\n").some((line) => line.includes(` ${stage}\t`));
-
-const moveAside = (worktree: string, cemetery: string, path: string, index: number): void => {
-  const absolute = NodePath.resolve(worktree, path);
-  if (!absolute.startsWith(`${NodePath.resolve(worktree)}${NodePath.sep}`)) {
-    throw new Error(`refusing to resolve a conflict path outside the census worktree: ${path}`);
-  }
+/**
+ * A carried artifact is an optimization, never a dependency: a missing or malformed
+ * one is reported and the walk runs, because recomputing is always correct.
+ */
+const carriedArtifact = (path: string | null): FeasibilityArtifact | null => {
+  if (path === null) return null;
   try {
-    NodeFS.lstatSync(absolute);
+    return readFeasibilityArtifact(path);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-    throw error;
+    if (process.env.FORK_QUIET !== "1") {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`auto-rebase: carried feasibility unusable (${message})\n`);
+    }
+    return null;
   }
-  NodeFS.mkdirSync(cemetery, { recursive: true });
-  NodeFS.renameSync(absolute, NodePath.join(cemetery, String(index)));
 };
 
-const timedOut = (result: GitCommandResult): boolean =>
-  result.error instanceof Error && "code" in result.error && result.error.code === "ETIMEDOUT";
-
-export const rehearseStopCensus = (
-  root: string,
-  headSha: string,
-  baseSha: string,
-  target: PositionedTag,
-  limits: StopCensusLimits = defaultStopCensusLimits(),
-  rerereEnabled = false,
-): RebaseStopCensus => {
-  const startedAt = limits.now();
-  const worktree = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "fork-rebase-census-"));
-  const cemetery = `${worktree}-files`;
-  const rootGit = new SystemGit(root);
-  let worktreeGit: SystemGit | null = null;
-  const rows: Array<SequentialCensusEvidence["rows"][number]> = [];
-  let stopCount = 0;
-  let movedFileCount = 0;
-  let truncatedBy: RebaseStopCensus["truncatedBy"] = null;
-  const remainingTime = (): number => limits.timeLimitMs - (limits.now() - startedAt);
-  const runRebase = (args: ReadonlyArray<string>): GitCommandResult | null => {
-    const remaining = remainingTime();
-    if (remaining <= 0) {
-      truncatedBy = "time-limit";
-      return null;
-    }
-    const result = worktreeGit?.runResult(args, Math.max(1, Math.ceil(remaining))) ?? null;
-    if (result !== null && timedOut(result)) {
-      truncatedBy = "time-limit";
-      return null;
-    }
-    return result;
-  };
-  const rebaseArgs = [
-    "-c",
-    "core.editor=true",
-    "-c",
-    "core.hooksPath=/dev/null",
-    "-c",
-    `rerere.enabled=${rerereEnabled ? "true" : "false"}`,
-    "-c",
-    "rerere.autoupdate=false",
-    "rebase",
-  ] as const;
-  try {
-    rootGit.run(["worktree", "add", "--detach", worktree, headSha]);
-    worktreeGit = new SystemGit(worktree);
-    let rebase = runRebase([...rebaseArgs, "--empty=drop", "--onto", target.sha, baseSha, headSha]);
-    while (
-      truncatedBy === null &&
-      rebase !== null &&
-      (rebase.status !== 0 || rebase.error !== undefined)
-    ) {
-      if (rebase.error !== undefined) requireSuccess("start or continue census rebase", rebase);
-      if (remainingTime() <= 0) {
-        truncatedBy = "time-limit";
-        break;
-      }
-      const rebaseHead = worktreeGit.runResult(["rev-parse", "--verify", "REBASE_HEAD"]);
-      const conflictPaths = worktreeGit
-        .run(["-c", "core.quotePath=false", "diff", "--name-only", "--diff-filter=U", "-z"])
-        .split("\0")
-        .filter(Boolean);
-      if (rebaseHead.status !== 0) requireSuccess("start or continue census rebase", rebase);
-      if (conflictPaths.length === 0) {
-        rebase = runRebase([...rebaseArgs, "--skip"]);
-        continue;
-      }
-      stopCount += 1;
-      const commit = rebaseHead.stdout.trim();
-      const message = worktreeGit.run(["show", "-s", "--format=%B", commit]);
-      const stagesByPath = conflictPaths.map((path) => ({
-        path,
-        stages: worktreeGit!.run(["ls-files", "--stage", "--", path]),
-      }));
-      // Observe every path before provisional continuation or a limit interrupts the stop.
-      for (const { path, stages } of stagesByPath) {
-        const base = hasStage(stages, 1);
-        const ours = hasStage(stages, 2);
-        const theirs = hasStage(stages, 3);
-        rows.push({
-          stop: stopCount,
-          commit,
-          subject: message.split("\n")[0] ?? "",
-          domain: parseForkTrailers(message).domain ?? null,
-          path,
-          kind:
-            !base && ours && theirs
-              ? "add/add"
-              : base && ours !== theirs
-                ? "modify/delete"
-                : base && ours && theirs
-                  ? "content"
-                  : "other-unmerged",
-        });
-      }
-      if (stopCount >= limits.stopLimit) {
-        truncatedBy = "stop-limit";
-        break;
-      }
-      for (const [index, { path, stages }] of stagesByPath.entries()) {
-        if (remainingTime() <= 0) {
-          truncatedBy = "time-limit";
-          break;
-        }
-        if (hasStage(stages, 3)) {
-          worktreeGit.run(["checkout-index", "--force", "--stage=3", "--", path]);
-        } else {
-          moveAside(worktree, cemetery, path, movedFileCount + index);
-        }
-        worktreeGit.run(["add", "--all", "--", path]);
-      }
-      if (truncatedBy !== null) break;
-      movedFileCount += conflictPaths.length;
-      rebase = runRebase([...rebaseArgs, "--continue"]);
-    }
-    return {
-      targetTag: target.tag,
-      evidence: {
-        version: 1,
-        method: "sequential-rebase-stage3-provisional",
-        sourceSha: headSha,
-        baseSha,
-        targetSha: target.sha,
-        targetTag: target.tag,
-        complete: truncatedBy === null,
-        rows,
-      },
-      ...censusTotals(rows),
-      truncated: truncatedBy !== null,
-      truncatedBy,
-      stopLimit: limits.stopLimit,
-      timeLimitSeconds: limits.timeLimitMs / 1000,
-    };
-  } finally {
-    worktreeGit?.runResult(["rebase", "--abort"]);
-    rootGit.runResult(["worktree", "remove", "--force", worktree]);
-    rootGit.runResult(["worktree", "prune"]);
-    NodeFS.rmSync(worktree, { recursive: true, force: true });
-    NodeFS.rmSync(cemetery, { recursive: true, force: true });
-  }
+const reportFeasibilitySource = (source: FeasibilitySource): void => {
+  if (process.env.FORK_QUIET === "1") return;
+  const merges = `${String(source.mergesCarried)} merges carried, ${String(source.mergesComputed)} computed`;
+  process.stderr.write(
+    source.carried
+      ? `auto-rebase: feasibility carried from the report job (${merges})\n`
+      : `auto-rebase: feasibility walked${source.refusal === null ? "" : ` (carried walk refused: ${source.refusal})`} (${merges})\n`,
+  );
 };
 
 const censusUnavailableReason = (root: string, error: unknown): string => {
@@ -658,7 +518,13 @@ export const run = (argv: ReadonlyArray<string>, cwd = process.cwd()): number =>
     if (options.fetch) fetchRefs(git);
     // Read exactly once. Every later hyprws mutation uses this expected old SHA.
     const oldSha = git.run(["rev-parse", "origin/hyprws^{commit}"]).trim();
-    const plan = buildAutoRebasePlan(git, oldSha, options.target);
+    const plan = buildAutoRebasePlan(
+      git,
+      oldSha,
+      options.target,
+      carriedArtifact(options.feasibility),
+    );
+    reportFeasibilitySource(plan.feasibilitySource);
     if (options.issueJson !== null)
       prepareAutoOutcome(
         NodePath.resolve(root, `${options.issueJson}.outcome.json`),

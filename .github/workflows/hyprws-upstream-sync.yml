@@ -131,6 +131,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: vp run fork:forecast
 
+      # Every census writes its rows here as it walks, so a forecast that is cancelled
+      # or times out still hands over the stops it reached.
+      - name: Upload census rows
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: forecast-census-${{ github.run_attempt }}
+          path: .dump/runs/fork-census/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   generate:
     name: Report
     runs-on: ubuntu-latest
@@ -151,7 +162,9 @@ jobs:
         run: git remote add upstream https://github.com/pingdotgg/t3code.git
 
       - name: Generate report
-        run: node scripts/fork-rebase-report.ts --fetch
+        run: |
+          node scripts/fork-rebase-report.ts --fetch \
+            --feasibility-out .dump/runs/fork-feasibility.json
 
       - name: Summarize
         run: cat docs/internals/generated/fork-rebase-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -166,12 +179,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # The walk this job already ran, for `rebase` to carry instead of repeating.
+      # It is keyed on the three shas it was computed against and carries the
+      # merge-tree memo; `rebase` proves both before it trusts either.
+      - name: Upload the feasibility walk
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-feasibility
+          path: .dump/runs/fork-feasibility.json
+          if-no-files-found: error
+          retention-days: 7
+
   rebase:
     name: Auto-rebase
     needs: [mirror, generate]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       issues: write
     outputs:
@@ -224,6 +249,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # An optimization, never a dependency: a missing or stale artifact only costs
+      # the walk that `fork:auto-rebase` would have run anyway, so the download
+      # never fails the job.
+      - name: Carry the feasibility walk
+        id: carried_feasibility
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: fork-feasibility
+          path: ${{ runner.temp }}/feasibility
+
       - name: Rebase fork stack
         id: rebase
         env:
@@ -231,9 +267,14 @@ jobs:
           REBASE_MODE: ${{ vars.HYPRWS_AUTO_REBASE || 'candidate' }}
         run: |
           set +e
+          carried=()
+          if [ -f "$RUNNER_TEMP/feasibility/fork-feasibility.json" ]; then
+            carried=(--feasibility "$RUNNER_TEMP/feasibility/fork-feasibility.json")
+          fi
           vp run fork:auto-rebase --fetch --mode "$REBASE_MODE" --github-output \
             --summary "$RUNNER_TEMP/fork-auto-rebase.md" \
             --issue-json "$RUNNER_TEMP/fork-auto-rebase-issues.json" \
+            "${carried[@]}" \
             2> >(tee "$RUNNER_TEMP/fork-auto-rebase-error.log" >&2)
           code=$?
           set -e
@@ -304,6 +345,7 @@ jobs:
             ${{ runner.temp }}/fork-outcome-receipts.json
             ${{ runner.temp }}/fork-auto-rebase-issues.json*
             ${{ runner.temp }}/fork-churn-report-receipt.json
+            .dump/runs/fork-census/*.json
           if-no-files-found: warn
           retention-days: 90
 
