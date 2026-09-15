@@ -25,6 +25,7 @@
 // unmarked, which over-warns until adoption makes the whole-file read cheap.
 
 import {
+  FORK_HOOK_BLOCK_SUFFIX,
   FORK_HOOK_JSX_END,
   FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_SUFFIX,
@@ -38,20 +39,45 @@ export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
 
 // A marked line hook must be exactly one of these shapes. The property/spread
 // shape additionally names a fork identifier; the others are structural.
-const HOOK_IMPORT = /^\s*(?:import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
+// `@import` is the CSS spelling of the same construct; a fork sheet is pulled in that way.
+const HOOK_IMPORT = /^\s*(?:@?import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
 const HOOK_SINGLE_CALL =
   /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
 // A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
 // the fork, so the whole statement is still one fork construct.
 const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
 const HOOK_CONST_FROM_CALL =
-  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?=\s*[A-Za-z_$][\w$.]*\s*\(/;
+  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
-const HOOK_PROPERTY = /^\s*(?:\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
+// The spread half covers both spellings of the same construct: an object spread and its JSX
+// attribute form, `{...forkProps}`, which is the shape that avoids rewriting upstream prop lines.
+const HOOK_PROPERTY =
+  /^\s*(?:\{\.\.\.[A-Za-z_$][\w$.]*\}|\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
 // Inside a JSX hook only an in-scope element is allowed — no derived rows, no
 // statements. These are the shapes that smuggle a second construct in.
 const JSX_HOOK_FLOW =
   /\b(?:if|for|while|switch)\s*\(|^\s*(?:const|let|var|function|return)\b|\.\s*(?:map|filter|flatMap|reduce|forEach)\s*\(/;
+
+/** A line closed by a trailing fork-hook marker in either the line-comment or block form. */
+const isForkHookSuffixLine = (line: string): boolean =>
+  FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
+
+/** The trailing marker removed in either form, leaving the code the hook classifies. */
+const stripForkHookSuffix = (line: string): string =>
+  stripForkHookLineMarker(line).replace(FORK_HOOK_BLOCK_SUFFIX, "");
+
+/**
+ * A `<>` or `</>` added only to give a marker pair a JSX parent. A JSX comment needs one, so
+ * hooking an expression that has none forces a fragment, and those two lines fall outside the
+ * region they exist to open. Adjacency is measured in the added lines, which is where the pair
+ * and its fragment meet however much unchanged code sits between them in the file.
+ */
+const isFragmentScaffold = (added: ReadonlyArray<string>, index: number): boolean => {
+  const line = added[index]?.trim();
+  if (line === "<>") return FORK_HOOK_JSX_OPEN.test(added[index + 1] ?? "");
+  if (line === "</>") return FORK_HOOK_JSX_END.test(added[index - 1] ?? "");
+  return false;
+};
 
 export interface ForkHookSeamCommit {
   readonly short: string;
@@ -108,20 +134,23 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
         continue;
       }
       if (line.includes("fork-hook:")) continue; // cause (c) counts the marker
+      if (isFragmentScaffold(change.added, index)) continue;
       unmarked.push(line);
     }
     // Each line marker is itself the whole hook — the statement its span covers — so a
     // multi-line hook is classified by its first line (`import {`), and a property/spread must
-    // name a fork identifier.
+    // name a fork identifier. Both suffix forms reach the check: the grammar mandates the block
+    // form wherever `//` would not be a comment, so gating on the line form alone exempted every
+    // hook inside a JSX attribute list, an object literal, or an expression.
     for (const hook of hooks) {
       if (hook.kind !== "line") continue;
       const markerLine = change.added[hook.endLine - 1];
-      if (markerLine === undefined || !FORK_HOOK_LINE_SUFFIX.test(markerLine)) continue;
+      if (markerLine === undefined || !isForkHookSuffixLine(markerLine)) continue;
       const classified =
         hook.startLine === hook.endLine
           ? markerLine
           : (change.added[hook.startLine - 1] ?? markerLine);
-      const code = stripForkHookLineMarker(classified);
+      const code = stripForkHookSuffix(classified);
       if (code.trim().length === 0) continue;
       if (HOOK_IMPORT.test(code)) continue;
       if (HOOK_SINGLE_CALL.test(code)) continue;
@@ -147,23 +176,36 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
     // deletion of every upstream `});`. Earlier fork commits in the stack can shift the
     // file off the target blob elsewhere, so a miss falls back to a bounded window of
     // ±3 lines before the line counts as the fork's own. A removal paired with an
-    // addition equal to it plus a trailing `// fork-hook:` marker (line or JSX pair
-    // form) is a marker attach, never a rewrite.
+    // addition equal to it plus a trailing fork-hook marker — either suffix form, or the JSX
+    // pair — is a marker attach, never a rewrite. A removal whose text a marked JSX region
+    // re-adds is the same fact one level out: wrapping an upstream element in a fork boundary
+    // re-indents every line of it, and the doctrine lists one JSX element as an allowed
+    // construct, which only exists via a wrap. The comparison is `.trim()`, so it is
+    // indentation-blind exactly like the marker attach above; a real deletion inside a region
+    // matches no added line and is still charged.
     const upstream = input.upstreamLines.get(path);
     const positions = input.removedPositions.get(path);
     const markerStripped = new Set(
       change.added
         .filter(
           (line) =>
-            FORK_HOOK_LINE_SUFFIX.test(line) ||
+            isForkHookSuffixLine(line) ||
             FORK_HOOK_JSX_OPEN.test(line) ||
             FORK_HOOK_JSX_END.test(line),
         )
         .map((line) =>
-          stripForkHookLineMarker(line)
+          stripForkHookSuffix(line)
             .replace(/\s*\{\/\*\s*fork-hook(?:-end)?[^*]*\*\/\}\s*/g, "")
             .trim(),
         ),
+    );
+    // The lines a marked JSX region adds between its markers, by trimmed text.
+    const regionAdded = new Set(
+      hooks
+        .filter((hook) => hook.kind === "jsx")
+        .flatMap((hook) => change.added.slice(hook.startLine, hook.endLine - 1))
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
     );
     const removedUpstream =
       upstream === undefined
@@ -175,7 +217,8 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
               (offset) => upstream[at - 1 + offset]?.trim() === line.trim(),
             );
             if (!matched) return false;
-            return !markerStripped.has(line.trim());
+            const trimmed = line.trim();
+            return !markerStripped.has(trimmed) && !regionAdded.has(trimmed);
           });
     if (removedUpstream.length > 0)
       details.push(
