@@ -13201,6 +13201,1978 @@
         }
       ],
       "elapsedMs": 556991
+    },
+    {
+      "tag": "v0.0.41-nightly.20260915.1752",
+      "before": "aa8276f105dd81e4e4932d7863a96bd501e014c6",
+      "after": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "recordUrl": "https://github.com/RSI-Software/t3code-hyprws/issues/933#issuecomment-5686338239",
+      "conflicts": [
+        {
+          "path": "apps/desktop/src/ipc/methods/window.test.ts",
+          "commit": "bbb8ad11149e",
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork openProjectWindow test block and imports kept, no upstream line dropped, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "commit": "df9f7b7de7ac",
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: route keeps fork-owned components/DraftStartError.tsx, upstream's duplicate inline copy removed, usage and retry state intact, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "commit": "85305aedaecd",
+          "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork's makeDesktopEnvironmentLayer factory keeps upstream T3CODE_PORT/VITE_DEV_SERVER_URL values, devtools opt-out test added, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "commit": "d81b9f0079be",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork TerminalSessionSection + terminalSessionMode wiring re-placed into upstream's moved settings lists, single definition, no duplicate rows, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/server.test.ts",
+          "commit": "ca47c00866a8",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "co-insertion of upstream's two fallback tests and the fork's zmux-bind test at one spot; rebuilt all three tests verbatim from their own sides (upstream HEAD, fork commit), no dropped lines, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "commit": "ca47c00866a8",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: ZmuxSessionBinder layer wiring re-placed into upstream's moved layer graph, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "ca47c00866a8",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "class": "mechanical",
+          "resolution": "pure co-insertion kept both: upstream recordWorktreeSetup and fork recordZmuxSessionBindFailure are distinct helpers, each used elsewhere; vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "commit": "0cfc40b3e1a5",
+          "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork restoreWindowSession + HyprlandPlacement wiring re-placed into upstream's moved DesktopWindow, openArguments restore-latch preserved, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "commit": "75a2d86ba146",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "class": "generated",
+          "resolution": "restore HEAD and regenerate",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "commit": "19376a0da852",
+          "subject": "fix: setup script terminals print a completion or failure marker",
+          "domain": "upstream-fixes",
+          "class": "human",
+          "resolution": "RE-RESOLVED after host review (prior take was upstream-side wholesale): keep-both — fork's completion-or-failure echo wrapper (`&& echo completed / or-else echo FAILED`) stays on the unobserved `commandLine` branch, upstream's completionSentinel capture stays on the observed branch; commit replayed non-empty at 90cd2fe17c right after the zmux-terminals commit; focused test file 8/8 green (marker path + sentinel path)",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork ignored-files reveal rows re-placed in upstream-moved screen, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/files/fileTree.ts",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork ignored-file tree entries re-placed in upstream-moved fileTree, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork reveal toggle re-placed in upstream-moved navigator pane, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.ts",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork listIgnoredWorkspaceFiles + includeIgnoredPaths re-placed onto upstream-moved entries service; upstream listWorkspaceFiles excludes ignored files so behaviour is fork-only, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceSearchIndex.ts",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: one-line fork indexing tweak for ignored files, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork ignored-files panel section re-placed in upstream-moved panel, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork query-state fields for ignored listing re-placed, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/project.ts",
+          "commit": "b8e56d9a9892",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork contract fields for ignored listing re-placed, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "commit": "0f686d05cfd6",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork followExternalWorkspaceSymlinks setting rows re-placed into upstream's moved restore/reset/panel lists, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "commit": "250a3a00e9a6",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork project-scoped pull-request route re-placed onto upstream-moved route, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/state/shell.ts",
+          "commit": "250a3a00e9a6",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork per-environment shell bootstrapped atom re-placed into upstream-moved shell state, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "2705b50e7459",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork issues RPC registrations re-placed into upstream-moved ws handlers, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "commit": "2705b50e7459",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork project-scoped issue/PR link resolution re-placed into upstream-moved lib, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/settingsSearch.ts",
+          "commit": "fb8a5961a7f1",
+          "subject": "feat(web): make issue handoff prompt configurable (#118)",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: one fork search-item entry re-inserted into upstream's moved SETTINGS_SEARCH_ITEMS list, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts",
+          "commit": "4f5bc0654bbf",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork attributed-item tests re-placed onto upstream-moved test file, following upstream's ProviderItemId→RuntimeItemId rename, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/settingsSearch.ts",
+          "commit": "4c78e9577c82",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: two fork search-item entries re-inserted into upstream's moved list, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubCli.ts",
+          "commit": "629b84f25e60",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork media-upload CLI surface re-placed onto upstream-moved GitHubCli, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "629b84f25e60",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork media-upload RPC registrations re-placed into upstream-moved ws handlers, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx",
+          "commit": "629b84f25e60",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork in-place upload composer re-placed into upstream-moved Summary tab, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+          "commit": "16f52200e263",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork attributed child-work fields re-placed into upstream's refactored ingestion, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/chat/MessagesTimeline.tsx",
+          "commit": "16f52200e263",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "class": "human",
+          "resolution": "both sides rewrote the same props interface: kept fork's onOpenAgents(agentId, rosterFocusAgentId) signature and upstream's five new props as a union; call site passes both ids; vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "commit": "788886bc154f",
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork legacy setup-script refresh re-placed into upstream's moved runner, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts",
+          "commit": "2c01d4f2bc71",
+          "subject": "refactor(web): isolate issue handoff settings search",
+          "domain": "github-issues",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork search filter moved behind fork-owned githubIssueSettingsSearch module, re-placed into upstream-moved hook, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/window.test.ts",
+          "commit": "358e70e06026",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork test-sibling migration removes migrated block from upstream-side file (moved to fork-owned sibling), staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts",
+          "commit": "358e70e06026",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: migrated attributed-work tests removed from upstream-side file (moved to fork-owned sibling), staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/package.json",
+          "commit": "c4a841ef2d59",
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork watch-path dev script one-liner re-applied to upstream's moved scripts block, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "commit": "30944d41044d",
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "domain": "upstream-fixes",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork bootstrap-before-discovery changes re-placed onto upstream's runner evolution (setup-worktree script, readSettings op), staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/package.json",
+          "commit": "b68de5de9357",
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork's explicit per-package watch-path dev script re-applied, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+          "commit": "011f39f57f4a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "stale rerere postimage (recorded pre-title-feature) dropped upstream's titleState columns; rebuilt from upstream-current + fork patch via index-stage 3-way, titleState + checkoutMove both kept, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+          "commit": "011f39f57f4a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "same stale-rerere drop; rebuilt union keeps upstream thread title handling and fork checkout-move reactor (event union takes superset), vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "commit": "011f39f57f4a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "same stale-rerere drop; rebuilt switch keeps upstream title.generate/refine cases and adds fork checkout-move.complete case in full, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/persistence/Layers/ProjectionThreads.ts",
+          "commit": "011f39f57f4a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "same stale-rerere drop; rebuilt union keeps upstream title_state_json persistence and adds fork checkoutMove column, import union sorted, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "commit": "011f39f57f4a",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "stale-rerere drop rebuilt via index-stage 3-way; RE-RESOLVED after host review: dropped the resurrected `AssistantDeliveryMode` export (upstream-deleted between base 2db675aeff and target — introduced by upstream 001902c881, absent at 50ff4c371eab, never touched by a fork commit; zero uses in the lane), upstream ProjectScript.async + ThreadTitleState/title schemas kept, vp fmt clean, contracts typecheck clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "commit": "98e7918d532b",
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "stale rerere postimage again dropped upstream-new imports/logic (useEnvironmentDisconnectDelay, isDesktopLocalConnectionTarget); rebuilt from upstream-current + fork patch via index-stage 3-way, all three sides' imports kept, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "commit": "dd8ff8e236ef",
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "class": "generated",
+          "resolution": "restore HEAD and regenerate",
+          "decidedBy": "agent"
+        },
+        {
+          "path": "apps/server/src/persistence/Layers/ProjectionThreads.ts",
+          "commit": "2d74216e7166",
+          "subject": "refactor(zmux-estate): move fork policy behind boundary modules upstream does not touch",
+          "domain": "zmux-estate",
+          "class": "seam-moved",
+          "resolution": "fork commit's intent: file ends upstream-identical, checkoutMove column moved to ThreadsCheckoutMove.fork.ts decorator; resolution keeps upstream titleState import and drops fork's ThreadCheckoutMove from imports, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "docs/operations/release.md",
+          "commit": "14924f256757",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "class": "human",
+          "resolution": "stale rerere postimage dropped upstream-new preview-channel and js-bundle docs; rebuilt via index-stage 3-way keeping upstream's PR-macOS-previews section and the fork's release-provenance section, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/app/DesktopApp.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork backend-attach wiring re-placed into upstream's moved bootstrap; removed symbols verified pre-existing fork relocations, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/electron/ElectronProtocol.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: CSP/protocol policy re-placed behind fork boundary per commit intent, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: preload bridge additions re-placed, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/desktop/src/settings/DesktopAppSettings.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: attach setting re-placed into upstream's moved settings schema, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/serverRuntimeState.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "human",
+          "resolution": "replay drops only fork-moved schema (by commit intent) but upstream-new serviceManaged field needed restore in fork-owned packages/shared/serverRuntimeState.ts; added there, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/connection/platform.ts",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: platform target resolution re-placed per commit intent, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/routes/__root.tsx",
+          "commit": "201b110ce637",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: auth-gate initial state re-placed per commit intent, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/scripts/cli.ts",
+          "commit": "d92d70ba08f3",
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork pinned-runtime CLI commands re-placed into upstream's moved cli script, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/cloud/pinnedRuntime.ts",
+          "commit": "d92d70ba08f3",
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution",
+          "class": "seam-moved",
+          "resolution": "rerere replay reviewed: fork forkReleaseInput hook re-inserted around upstream's new installFromArchive call (function defined in-file), staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/package.json",
+          "commit": "c4e959e1c7da",
+          "subject": "fix(server): watch the ssh package the server now imports",
+          "domain": "upstream-fixes",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: one watch-path entry (packages/ssh/src) added to the fork dev script, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/scopedSettings.test.ts",
+          "commit": "7752cfbc5db5",
+          "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
+          "domain": "worktrunk-hooks",
+          "class": "human",
+          "resolution": "stale rerere postimage replaced upstream-new enableAgentDeviceAccess test with fork's thread-mode test; restored both tests, vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "packages/contracts/src/settings.ts",
+          "commit": "7752cfbc5db5",
+          "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
+          "domain": "worktrunk-hooks",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: fork defaultThreadEnvModeFork sibling field + satisfies-clause extension re-placed into upstream's moved schema, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/package.json",
+          "commit": "ff5d4601c96c",
+          "subject": "fix(dev): cut the desktop dev graph dependency on the shared client build",
+          "domain": "project-windows",
+          "class": "mechanical",
+          "resolution": "rerere replay reviewed: one fork build:bundle:dev script line added alongside upstream's ssh-watching dev script, staged",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "commit": "3ccbb8e5bed4",
+          "subject": "refactor(upstream-fixes): external symlink seams sit behind fork-owned files",
+          "domain": "upstream-fixes",
+          "class": "human",
+          "resolution": "stale rerere postimage dropped upstream-new NotificationSettings/AlertDialog/streaming content; rebuilt via index-stage 3-way; RE-RESOLVED after host review: dropped the fork's `enableLegacyTokenStreaming` restore label (key upstream replaced with `responseStreamingMode` — decoding drops the old key, so the label could never fire; upstream's own Response streaming label already covers the replacement), symlink hook kept, vp fmt clean, no remaining references in lane",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "commit": "be31c9a3d9ba",
+          "subject": "refactor(zmux-estate): checkout-move decider cases dispatch from one fork handler",
+          "domain": "zmux-estate",
+          "class": "human",
+          "resolution": "commit removes only the fork's checkout-move case (now dispatched via decider.fork.ts hook); took HEAD side minus that case, keeping upstream title.generate/refine cases the naive theirs-side would have deleted; vp fmt clean",
+          "decidedBy": "human"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "commit": "ee4bce2d2038",
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues",
+          "class": "human",
+          "resolution": "union: kept earlier kept-commit's viewer-wrapped setLabels, replaced inline issues handlers with this commit's gitHubIssueRpcHandlersFork hook per its intent, vp fmt clean",
+          "decidedBy": "human"
+        }
+      ],
+      "decisions": [
+        {
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): add project route subtree",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(desktop): route project window intents",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): open project windows from hub actions",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(desktop): project windows keep Settings, PRs, and Usage in-window",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): keep pull requests on origin",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(agents): select custom main-thread agents (#31)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix: setup script terminals print a completion or failure marker",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): make issue handoff prompt configurable (#118)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260910.1473)"
+        },
+        {
+          "subject": "feat(web): show which pane owns keyboard focus",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): expose Worktrunk hook settings",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): add Issues to right-panel launchers (#193)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): retain completed thread timing",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): serve paginated child work (#195)",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): bound child-work detail responses",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260910.1473)"
+        },
+        {
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes",
+          "verdict": "partial",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(server): preserve child result and diff detail",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.38-nightly.20260831.1236)"
+        },
+        {
+          "subject": "feat(desktop): launch Electron from T3 Code actions into Hyprland workspaces (#224)",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.37)"
+        },
+        {
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): make sidebar group drops forgiving",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(web): preview sidebar group dissolution",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "ci(fork): run the matrix on merge_group, not on ready",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): read the blocked issue body at gate 1",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): name the real nightly condition in orientation",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): name the rehearsal lane after the head it replays",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): restore the lockfile before the rehearsed rebase",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): assign the target tag inside the gate 1 block",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): install before the gate 3 scan",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): tell registry drift from manifest drift after the replay",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): print the repair each scan gap class needs",
+          "domain": "distribution",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): keep terminals in managed zmux sessions",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(desktop): centralize preview window policy",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(fork): refresh persisted worktree setup scripts",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260910.1473)"
+        },
+        {
+          "subject": "refactor(mobile): isolate ignored file listing policy",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): isolate issue handoff settings search",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260913.1625)"
+        },
+        {
+          "subject": "refactor(web): isolate child-work navigation",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260913.1625)"
+        },
+        {
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(worktree): make setup independent of shell environment",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(dev): open isolated test apps alongside stable",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(sidebar): isolate physical scope from upstream derivation",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "fix(server): reconcile managed sessions after branch changes",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "feat(web): follow coordinated checkout moves",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): narrow rich Markdown editing to granular Milkdown packages",
+          "domain": "markdown-editing",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "refactor(web): read physical sidebar scope from an ambient provider",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(worktrunk-hooks): move the thread-mode fork boundary behind fork-owned modules",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260908.1414)"
+        },
+        {
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260910.1473)"
+        },
+        {
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta",
+          "verdict": "keep",
+          "action": "keep (target tree absent)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach",
+          "verdict": "keep",
+          "decidedBy": "inherited (v0.0.41-nightly.20260913.1625)"
+        },
+        {
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(server): watch the ssh package the server now imports",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
+          "domain": "worktrunk-hooks",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(dev): cut the desktop dev graph dependency on the shared client build",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): render collapsed sidebar groups from the visible thread list",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): make sidebar row centres and group headers grouping drop targets",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(web): apply the drag-ungroup preview on release",
+          "domain": "thread-ordering",
+          "verdict": "keep",
+          "action": "keep (target tree absent)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): composer custom-agent seams sit behind fork-owned files",
+          "domain": "custom-agents",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(workspace-files): ignored workspace files sit behind fork-owned seams",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): pull-request project scope supplied by one prop hook",
+          "domain": "project-windows",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(web): one fork component for the GitHub link destination; one project resolver",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(upstream-fixes): composer refocus folds into the window-focus predicate",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "action": "keep (target tree absent)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "fix(fork-sync): mark the single-substitution seams so the walk can lift them",
+          "domain": "workspace-files",
+          "verdict": "keep",
+          "action": "keep (target tree present)",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(upstream-fixes): external symlink seams sit behind fork-owned files",
+          "domain": "upstream-fixes",
+          "verdict": "keep",
+          "decidedBy": "human"
+        },
+        {
+          "subject": "refactor(zmux-estate): checkout-move decider cases dispatch from one fork handler",
+          "domain": "zmux-estate",
+          "verdict": "keep",
+          "decidedBy": "human"
+        }
+      ],
+      "censusFiles": [
+        {
+          "path": "apps/web/src/components/ChatView.tsx",
+          "hunks": null,
+          "commit": "21162b6dd1311ef855979dfaaf3a29730e7f1a2a",
+          "subject": "refactor(web): centralize thread route navigation",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/window.test.ts",
+          "hunks": null,
+          "commit": "bbb8ad11149e3b7cc71cb94e929405e7aff40cb4",
+          "subject": "feat(desktop): open project windows from renderer IPC",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.index.tsx",
+          "hunks": null,
+          "commit": "df9f7b7de7ac28559e089eee79b4a0cb3af002e4",
+          "subject": "fix(web): offer retry when scoped draft start fails",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.test.ts",
+          "hunks": null,
+          "commit": "85305aedaecdabb305a4a7130fd7823b71c02c57",
+          "subject": "fix(desktop): let dev runs opt out of automatic devtools",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingsPanels.tsx",
+          "hunks": null,
+          "commit": "d81b9f0079bea683c5cac5449b6abfbf6ff86389",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/server.test.ts",
+          "hunks": null,
+          "commit": "ca47c00866a853b1d52e4336d6438eb2ff20ac6c",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/server.ts",
+          "hunks": null,
+          "commit": "ca47c00866a853b1d52e4336d6438eb2ff20ac6c",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "hunks": null,
+          "commit": "ca47c00866a853b1d52e4336d6438eb2ff20ac6c",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "hunks": null,
+          "commit": "0cfc40b3e1a58202951fe0cad47932b3e29bb146",
+          "subject": "fix(desktop): restore project windows to their workspaces after an update (#29)",
+          "domain": "project-windows"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "hunks": null,
+          "commit": "75a2d86ba14631239d4d189068b7bd16cd3542d7",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "domain": "markdown-editing"
+        },
+        {
+          "path": "apps/server/src/project/ProjectSetupScriptRunner.ts",
+          "hunks": null,
+          "commit": "19376a0da852ea3f0c943624da9facd2b50f0df9",
+          "subject": "fix: setup script terminals print a completion or failure marker",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/mobile/src/features/files/fileTree.ts",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.ts",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceSearchIndex.ts",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/files/projectFilesQueryState.ts",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "packages/contracts/src/project.ts",
+          "hunks": null,
+          "commit": "b8e56d9a9892f9011de5fdb135cf9fbb599a30f6",
+          "subject": "feat(files): reveal ignored workspace files (#73)",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "250a3a00e9a653ecab648816afb7c920bbc99d1f",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/state/shell.ts",
+          "hunks": null,
+          "commit": "250a3a00e9a653ecab648816afb7c920bbc99d1f",
+          "subject": "feat(web): scope pull requests to project windows",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "hunks": null,
+          "commit": "2705b50e7459082415a9cc4bb2395db8c6d596b5",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "hunks": null,
+          "commit": "2705b50e7459082415a9cc4bb2395db8c6d596b5",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/web/src/components/settings/settingsSearch.ts",
+          "hunks": null,
+          "commit": "fb8a5961a7f1ce9ff5198a2e9b0f3a0837a1d7f8",
+          "subject": "feat(web): make issue handoff prompt configurable (#118)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts",
+          "hunks": null,
+          "commit": "4f5bc0654bbf6ece143d63df53721c956addd6d0",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/web/src/components/settings/settingsSearch.ts",
+          "hunks": null,
+          "commit": "4c78e9577c82cdf9395de56515c35c281df3ddae",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubCli.ts",
+          "hunks": null,
+          "commit": "629b84f25e609334db919c199f062ce70e6718b1",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "hunks": null,
+          "commit": "629b84f25e609334db919c199f062ce70e6718b1",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx",
+          "hunks": null,
+          "commit": "629b84f25e609334db919c199f062ce70e6718b1",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+          "hunks": null,
+          "commit": "16f52200e263357542459a2c435295dd9cdd586f",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/web/src/components/chat/MessagesTimeline.tsx",
+          "hunks": null,
+          "commit": "16f52200e263357542459a2c435295dd9cdd586f",
+          "subject": "feat(web): open child work from the Agents panel",
+          "domain": "custom-agents"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "2985650756fb3ccc909e1d4fb3f0ed26586fac82",
+          "subject": "refactor(web): isolate project-window pull request scope",
+          "domain": "project-windows"
+        },
+        {
+          "path": "apps/web/src/components/settings/useAvailableSettingsSearchItems.ts",
+          "hunks": null,
+          "commit": "2c01d4f2bc71cf8e9514ea72e7b67c3138e0714b",
+          "subject": "refactor(web): isolate issue handoff settings search",
+          "domain": "github-issues"
+        },
+        {
+          "path": "apps/desktop/src/ipc/methods/window.test.ts",
+          "hunks": null,
+          "commit": "358e70e06026695512176a2128f5b49c34bee522",
+          "subject": "test(fork): complete fork-owned test sibling migration",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/server/package.json",
+          "hunks": null,
+          "commit": "c4a841ef2d59936e4e9d918eb75db3e44cc6575c",
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "domain": "upstream-fixes"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts",
+          "hunks": null,
+          "commit": "011f39f57f4a3b3eac3133a17a067f3d680c7a3e",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+          "hunks": null,
+          "commit": "011f39f57f4a3b3eac3133a17a067f3d680c7a3e",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/orchestration/decider.ts",
+          "hunks": null,
+          "commit": "011f39f57f4a3b3eac3133a17a067f3d680c7a3e",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "apps/server/src/persistence/Layers/ProjectionThreads.ts",
+          "hunks": null,
+          "commit": "011f39f57f4a3b3eac3133a17a067f3d680c7a3e",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "packages/contracts/src/orchestration.ts",
+          "hunks": null,
+          "commit": "011f39f57f4a3b3eac3133a17a067f3d680c7a3e",
+          "subject": "feat(server): coordinate durable checkout moves",
+          "domain": "zmux-estate"
+        },
+        {
+          "path": "docs/operations/release.md",
+          "hunks": null,
+          "commit": "14924f256757107f8341953b2a8680537db8ed53",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "hunks": null,
+          "commit": "694a8cb2a9377b5854e641ec0ac368ef07b14c1b",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414",
+          "domain": "fork-meta"
+        },
+        {
+          "path": "apps/desktop/src/app/DesktopApp.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/desktop/src/electron/ElectronProtocol.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/desktop/src/preload.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/desktop/src/settings/DesktopAppSettings.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/server/src/serverRuntimeState.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/web/src/connection/platform.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/web/src/routes/__root.tsx",
+          "hunks": null,
+          "commit": "201b110ce6379d9fbcb92afce7b4e75538acbaeb",
+          "subject": "feat(desktop): attach to a running local backend instead of spawning a second one",
+          "domain": "backend-attach"
+        },
+        {
+          "path": "apps/server/scripts/cli.ts",
+          "hunks": null,
+          "commit": "d92d70ba08f3659f2fa75e813b58d1721d793052",
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution"
+        },
+        {
+          "path": "apps/server/src/cloud/pinnedRuntime.ts",
+          "hunks": null,
+          "commit": "d92d70ba08f3659f2fa75e813b58d1721d793052",
+          "subject": "install a pinned fork runtime from a release tarball",
+          "domain": "distribution"
+        },
+        {
+          "path": "apps/web/src/components/settings/scopedSettings.test.ts",
+          "hunks": null,
+          "commit": "7752cfbc5db55e336bdb4e27e8d6dbdd64f0f986",
+          "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "packages/contracts/src/settings.ts",
+          "hunks": null,
+          "commit": "7752cfbc5db55e336bdb4e27e8d6dbdd64f0f986",
+          "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "packages/contracts/src/project.ts",
+          "hunks": null,
+          "commit": "a43b802d1e4b9a60c12948270621e1848a78e808",
+          "subject": "refactor(workspace-files): ignored workspace files sit behind fork-owned seams",
+          "domain": "workspace-files"
+        },
+        {
+          "path": "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
+          "hunks": null,
+          "commit": "f59f9d1096f83cf0959da1e7e004fd32d037b2ce",
+          "subject": "refactor(worktrunk-hooks): thread-mode selector sits behind the enum seam",
+          "domain": "worktrunk-hooks"
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "hunks": null,
+          "commit": "ee4bce2d20384807d28a261c7736213bada54d8e",
+          "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
+          "domain": "github-issues"
+        }
+      ],
+      "silentSeams": [
+        {
+          "path": "apps/desktop/src/electron/ElectronProtocol.fork.test.ts",
+          "summary": "fork static asset tests re-wired onto the target protocol test layer",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+          "summary": "ignored-files preference threaded through the target lazy file tree",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+          "summary": "ignored-files preference threaded through the target lazy file tree",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/mobile/src/features/files/useFileTreeEntries.ts",
+          "summary": "ignored-files preference sent on every root listing and refetched on toggle",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/cloud/pinnedRuntime.fork.test.ts",
+          "summary": "fork tarball install test retargeted to the target staging layout",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/cloud/pinnedRuntime.ts",
+          "summary": "fork versions install the fork release tarball at the target installFromArchive seam",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/git/GitWorkflowService.test.ts",
+          "summary": "target freshness imports restored in the fork-era test splice",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/pullRequest/GitHubPullRequestCli.ts",
+          "summary": "attachment media calls pass verifiedHost: input.host into the pinned-credential execute guard (the ws uploadAttachment route stays unwrapped as on trunk)",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/pullRequest/PullRequestService.fork.test.ts",
+          "summary": "fork test stubs upstream resolveLink on the provider registry",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubCli.fork.test.ts",
+          "summary": "pinned credential attachment media path covered",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/sourceControl/GitHubCli.ts",
+          "summary": "execute accepts a verifiedHost that must equal the pinned credential host",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.fork.test.ts",
+          "summary": "directory listing ignored filter covered for all flag states",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.ts",
+          "summary": "explicit includeIgnored false hides ignored children in the target directory listing",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.fork.tsx",
+          "summary": "fork listing hook reduced to the show-ignored preference binding; the listing and ignored overlay are the target lazy directory entries",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/web/src/components/files/FileBrowserPanel.tsx",
+          "summary": "ignored-files preference re-placed on the target lazy directory entries hook",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/web/src/components/files/useDirectoryEntries.ts",
+          "summary": "includeIgnored sent on every listing and in-flight responses fenced on toggle",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestSummaryTab.test.tsx",
+          "summary": "prepared connection mocked for the fork attachment binding",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx",
+          "summary": "attachment reference passed through with host and expectedAccountId",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/components/settings/SettingInheritance.test.ts",
+          "summary": "contracts imports trimmed to what the target test uses",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/routes/_chat.pull-requests.tsx",
+          "summary": "target provider filter and shortcut context restored beside the fork project scope wiring",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "packages/client-runtime/src/connection/presentation.fork.test.ts",
+          "summary": "catalog entry gains the required enabled flag in the fork test",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "packages/contracts/src/project.ts",
+          "summary": "directory_list_failed literal restored beside the fork listing input",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/lib/openPullRequestLink.ts",
+          "summary": "rerere replay dropped upstream Forgejo port support; file rebuilt from target with the fork issue-link and preferred-project hooks re-placed",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/ws.ts",
+          "summary": "upstream appendSetupScriptActivity helper restored beside the fork activity recorders",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/web/src/state/shell.ts",
+          "summary": "upstream enabledEnvironmentIds filtering restored in both bootstrap loops",
+          "touchesBehaviour": true
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceSearchIndex.ts",
+          "summary": "upstream de-export of WORKSPACE_INDEX_MAX_ENTRIES restored; fork cap moved to WorkspaceEntries.fork.ts",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/workspace/WorkspaceEntries.fork.ts",
+          "summary": "fork index cap constant carried behind fork-hook workspace-files/index-cap",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "packages/shared/src/serverRuntimeState.ts",
+          "summary": "upstream devUrl and isProcessAlive doc comments restored in the fork sibling",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/desktop/src/window/DesktopWindow.ts",
+          "summary": "upstream reveal and zoom-level comments restored at their positions",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+          "summary": "hand-rebuilt union carried two thread.session-set case labels; merged into one so the fork checkout-move resumption is reachable again",
+          "touchesBehaviour": true
+        },
+        {
+          "path": ".github/workflows/hyprws-ci.yml",
+          "summary": "workflow review refreshed for preview-bundle test step",
+          "touchesBehaviour": false
+        },
+        {
+          "path": ".github/workflows/hyprws-release.yml",
+          "summary": "workflow review refreshed for preview channel and build_bundle",
+          "touchesBehaviour": false
+        },
+        {
+          "path": "apps/server/src/server.test.ts",
+          "summary": "fork bootstrap zmux bind cases stub the target isRepository and hasCommit gates",
+          "touchesBehaviour": false
+        }
+      ],
+      "repairCommits": [
+        {
+          "sha": "29a59580eccee19a29fd3d9d72cdc95b329e64f3",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "52f01d748c7144839452f8a052cd68c2056573c8",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
+          "tooling": true
+        },
+        {
+          "sha": "66bf627ff2defed5ba5c5f2489a937f0247fa63e",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "711d273f15d1a70b2d7ca351019afa9325ae51ba",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "2038582643ea5dc5566d742a88f2752279b1b521",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "d1023d00de09193168f15c70180723fcd34b37ee",
+          "subject": "chore(fork-sync): repair tests after v0.0.41-nightly.20260908.1414"
+        },
+        {
+          "sha": "aa1fa88832a338560cdc8d2cd7ad75edbe8be599",
+          "subject": "chore(fork-sync): run each focused suite from its own workspace",
+          "tooling": true
+        },
+        {
+          "sha": "a2f577500b374d45021ce4a22d2e81cd49993972",
+          "subject": "chore(fork-sync): rebind the stack size when the rehearsal head is refreshed",
+          "tooling": true
+        },
+        {
+          "sha": "63ced55efdf8766d31125e53ace8d70ccb0d8449",
+          "subject": "chore(fork-sync): repair budget after v0.0.41-nightly.20260909.1426",
+          "tooling": true
+        },
+        {
+          "sha": "a5e39200e7c0c7ef68acf9ee75bc394f7da8b913",
+          "subject": "chore(fork-sync): repair fork budget after v0.0.41-nightly.20260910.1473",
+          "tooling": true
+        },
+        {
+          "sha": "ceb44837e236b9907be570b142ac02849fca8b2d",
+          "subject": "chore(fork-sync): repair additive after v0.0.41-nightly.20260910.1473"
+        },
+        {
+          "sha": "7c83d6898ae1b1972ade087ac3a717945717dfdd",
+          "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260910.1473"
+        },
+        {
+          "sha": "1ebbc822073742aace2ed414fd96c0021b3b8a9b",
+          "subject": "chore(fork-sync): typecheck after v0.0.41-nightly.20260913.1625"
+        },
+        {
+          "sha": "7eaa83b97ab3d675a4737fe314ddf363fc8ade68",
+          "subject": "fix(fork): exempt transient walk fixups from the delta ledger",
+          "tooling": true
+        },
+        {
+          "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+          "subject": "chore(fork): refresh workflow reviews for v0.0.41-nightly.20260915.1752"
+        }
+      ],
+      "additive": {
+        "pass": true,
+        "attempts": 1,
+        "findings": 0
+      },
+      "walkDecisions": [
+        {
+          "kind": "retire",
+          "subject": "refactor(web): centralize thread route navigation",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): open project windows from hub actions",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): keep pull requests on origin",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(terminal): attach thread terminals to the checkout's managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): bind thread worktrees to a managed zmux session",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add rich Markdown editing (#28)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix: setup script terminals print a completion or failure marker",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): follow external workspace symlinks globally (#66)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(issues): add GitHub Issues surface scoped to project windows",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): show which pane owns keyboard focus",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(server): run Worktrunk hooks around thread worktrees",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): returning to a thread focuses the composer, not its terminal",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): move Worktrunk hook controls onto the worktree surfaces",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat: New worktrunk thread mode replaces the Worktrunk hook switches",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): preserve attributed child work (#177)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): retain completed thread timing",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): add GitHub link destination controls (#178)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(web): upload media in pull request descriptions",
+          "outcome": "partial",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "feat(web): group sidebar threads into named sections (#205)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(contracts): released clients decode threads from a worktrunk server (#233)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(desktop): keep AppImage launch paths stable",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): ignore dependency installs in dev watch",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(worktree): make setup independent of shell environment",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(worktree): bootstrap before Vite+ task discovery",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "fix(server): exclude dependency churn from watch roots",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        },
+        {
+          "kind": "retire",
+          "subject": "docs(fork): consolidate fork documentation for the domain flatten (#671)",
+          "outcome": "kept",
+          "decidedBy": "machine",
+          "tag": "v0.0.41-nightly.20260915.1752",
+          "recordedAt": "2026-09-15T18:51:07.231Z"
+        }
+      ]
     }
   ],
   "seamRecords": [
