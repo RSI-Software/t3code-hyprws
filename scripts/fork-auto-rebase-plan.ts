@@ -353,6 +353,9 @@ export const createRebasedStack = (
       "-c",
       "rerere.autoupdate=false",
       "rebase",
+      // Drop commits that start empty; they satisfy every tree comparison vacuously and would
+      // otherwise replay forever, because git keeps start-empty commits by default.
+      "--no-keep-empty",
       "--onto",
       targetSha,
       baseSha,
