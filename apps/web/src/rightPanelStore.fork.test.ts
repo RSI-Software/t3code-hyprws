@@ -8,7 +8,11 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
-import { githubIssueSurface, updatePullRequestTabStatus } from "./rightPanelStore.fork";
+import {
+  githubIssueSurface,
+  normalizeAgentsSurfaceFork,
+  updatePullRequestTabStatus,
+} from "./rightPanelStore.fork";
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {} });
@@ -60,6 +64,24 @@ describe("rightPanelStore", () => {
       selectedAgentId: null,
       rosterFocusAgentId: "agent-1",
     });
+  });
+  it("backfills a pre-widen Agents surface and round-trips a widened one", () => {
+    // A v13/v14 panel stored the surface before it carried drill-down state.
+    const stored = { id: "agents", kind: "agents" };
+    expect(normalizeAgentsSurfaceFork(stored)).toEqual([
+      { id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null },
+    ]);
+    const widened = {
+      id: "agents",
+      kind: "agents",
+      selectedAgentId: "agent-1",
+      rosterFocusAgentId: "agent-2",
+    } as const;
+    expect(normalizeAgentsSurfaceFork(widened)).toEqual([widened]);
+    // Anything but a stored string is drill-down state the roster cannot resolve.
+    expect(
+      normalizeAgentsSurfaceFork({ selectedAgentId: 7, rosterFocusAgentId: undefined }),
+    ).toEqual([{ id: "agents", kind: "agents", selectedAgentId: null, rosterFocusAgentId: null }]);
   });
   it("normalizes persisted GitHub issue surfaces to their reference-keyed tab", () => {
     const id = githubIssueSurface({
