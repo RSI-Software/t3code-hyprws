@@ -373,14 +373,21 @@ export const make = Effect.gen(function* () {
           if (!result || (result.exitCode !== 0 && result.exitCode !== 1)) break;
           for (const ignoredPath of result.stdout.split("\0")) ignored.add(ignoredPath);
         }
+        // fork-hook: workspace-files/workspace-entries-directory-ignored-filter — the
+        // fork's show-ignored preference filters the directory listing when the client
+        // explicitly asks to hide: only an explicit `includeIgnored: false` hides, so the
+        // upstream default (undefined) keeps listing ignored children, flagged.
         return {
-          entries: entries.map((entry) =>
-            ignored.has(entry.path) ? { ...entry, ignored: true } : entry,
-          ),
+          entries: entries.flatMap((entry) => {
+            if (!ignored.has(entry.path)) return [entry];
+            if (input.includeIgnored === false) return [];
+            return [{ ...entry, ignored: true }];
+          }),
           truncated: false,
         };
       }
       const result = yield* Effect.gen(function* () {
+        // fork-hook: workspace-files/workspace-entries-list-ignored-result
         const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
         return yield* searchIndex.list();
       }).pipe(
