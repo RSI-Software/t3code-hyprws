@@ -292,6 +292,35 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "collection", symbol: "useRightPanelStore" },
   },
+  // custom-agents — right-panel surface reshaped on RSI-Software/t3code-hyprws#991.
+  "custom-agents/right-panel-open-agents-decl-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "custom-agents/right-panel-agents-singleton-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-agents-singleton": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "custom-agents/right-panel-migrate-agents-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "custom-agents/right-panel-migrate-agents": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
+  },
   "project-windows/index-fork-css": {
     path: "apps/web/src/index.css",
     anchor: { kind: "import-block" },
@@ -827,6 +856,41 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "github-issues/right-panel-active-kind": {
     path: "apps/web/src/rightPanelStore.ts",
     anchor: { kind: "after-decl", symbol: "selectThreadRightPanelState" },
+  },
+  // github-issues — the hub surface marked on RSI-Software/t3code-hyprws#991.
+  "github-issues/right-panel-open-github-issue-decl-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-kind-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-kind": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RIGHT_PANEL_KINDS" },
+  },
+  "github-issues/right-panel-hub-surface-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  "github-issues/right-panel-hub-surface": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "RightPanelSurface" },
+  },
+  "github-issues/right-panel-hub-singleton-import": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "import-block" },
+  },
+  // The formatter keeps a switch label and its body on separate lines, so the case
+  // carries its own marker: one hook would otherwise leave the label unmarked.
+  "github-issues/right-panel-hub-singleton-case": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
+  },
+  "github-issues/right-panel-hub-singleton": {
+    path: "apps/web/src/rightPanelStore.ts",
+    anchor: { kind: "collection", symbol: "singletonSurface" },
   },
   "github-issues/command-palette-import": {
     path: "apps/web/src/components/CommandPalette.tsx",
