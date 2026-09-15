@@ -20,10 +20,14 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
 import { createOpenAgents } from "./rightPanelStore.fork"; // fork-hook: custom-agents/right-panel-open-agents-import
 import { createOpenGitHubIssue } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-import
+import { githubIssueHubKindsFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-kind-import
+import { githubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-singleton-import
 import { normalizeGitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-migrate-github-issue-import
 import { resolveGitHubIssueActiveSurfaceIdFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-surface-import
 import { selectActiveRightPanelKindFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-active-kind-import
+import type { GitHubIssueHubSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-hub-surface-import
 import type { GitHubIssueSurfaceFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-surface-import
+import type { OpenGitHubIssueFork } from "./rightPanelStore.fork"; // fork-hook: github-issues/right-panel-open-github-issue-decl-import
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -34,7 +38,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
-  "github-issues",
+  ...githubIssueHubKindsFork, // fork-hook: github-issues/right-panel-hub-kind
   "agents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -60,7 +64,7 @@ export type RightPanelSurface =
     }
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
-  | { id: "github-issues"; kind: "github-issues" }
+  | GitHubIssueHubSurfaceFork // fork-hook: github-issues/right-panel-hub-surface
   | {
       id: `file:${string}` | `attachment:${string}`;
       kind: "file";
@@ -162,10 +166,7 @@ interface RightPanelStoreState {
       url?: string;
     },
   ) => void;
-  openGitHubIssue: (
-    ref: ScopedThreadRef,
-    target: { environmentId: string; projectId: string; repository: string; number: number },
-  ) => void; // fork-hook: github-issues/right-panel-open-github-issue-decl
+  openGitHubIssue: OpenGitHubIssueFork; // fork-hook: github-issues/right-panel-open-github-issue-decl
   openAgents: (
     ref: ScopedThreadRef,
     target?: {
@@ -215,8 +216,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
-    case "github-issues":
-      return { id: "github-issues", kind };
+    case "github-issues": // fork-hook: github-issues/right-panel-hub-singleton-case
+      return githubIssueHubSurfaceFork(); // fork-hook: github-issues/right-panel-hub-singleton
     case "agents":
       return { id: "agents", kind, selectedAgentId: null, rosterFocusAgentId: null };
     case "device":

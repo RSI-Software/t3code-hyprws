@@ -59,6 +59,20 @@ export const createOpenAgents =
 // live here.
 // ---------------------------------------------------------------------------
 
+/** The `github-issues` hub kind, spread into upstream's ordered kind list. */
+export const githubIssueHubKindsFork = ["github-issues"] as const;
+
+/** The hub tab: one singleton surface listing the project's issues beside any issue tabs. */
+export interface GitHubIssueHubSurfaceFork {
+  id: "github-issues";
+  kind: "github-issues";
+}
+
+export const githubIssueHubSurfaceFork = (): GitHubIssueHubSurfaceFork => ({
+  id: "github-issues",
+  kind: "github-issues",
+});
+
 /** The `github-issue` member of the upstream `RightPanelSurface` union. */
 export interface GitHubIssueSurfaceFork {
   id: `github-issue:${string}`;
@@ -137,6 +151,17 @@ export const resolveGitHubIssueActiveSurfaceIdFork = (
     ? (surfaces.find((surface) => surface.kind === "github-issue")?.id ?? null)
     : null;
 
+/** The store slice's `openGitHubIssue` member, as the upstream interface declares it. */
+export type OpenGitHubIssueFork = (
+  ref: ScopedThreadRef,
+  target: {
+    environmentId: string;
+    projectId: string;
+    repository: string;
+    number: number;
+  },
+) => void;
+
 /** The store slice's `openGitHubIssue` member, composed with the store's own helpers. */
 export const createOpenGitHubIssue =
   (deps: {
@@ -146,15 +171,7 @@ export const createOpenGitHubIssue =
       threadKey: string,
       updater: ThreadUpdater,
     ) => ByThreadKey;
-  }): ((
-    ref: ScopedThreadRef,
-    target: {
-      environmentId: string;
-      projectId: string;
-      repository: string;
-      number: number;
-    },
-  ) => void) =>
+  }): OpenGitHubIssueFork =>
   (ref, target) =>
     deps.set((state) => ({
       byThreadKey: deps.updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => ({
