@@ -37,6 +37,13 @@ export interface ForkTrailers {
 export interface ParsedForkCommit extends ForkTrailers {
   readonly sha: string;
   readonly short: string;
+  /**
+   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A rewrite
+   * (`scripts/lib/fork-rewrite-build.ts` `rebuildCommit`) only ever replaces the `tree` and
+   * `parent` headers and copies `author`/`committer`/message verbatim, so this survives a fold
+   * unchanged even though `sha` does not. See `GRANDFATHERED_WALK_REPAIR_KEYS` in fork-delta.ts.
+   */
+  readonly authorDate: string;
   readonly subject: string;
 }
 
@@ -47,7 +54,7 @@ export const forkLogArguments = (base: string, head: string) =>
   [
     "log",
     "--reverse",
-    `--format=%H${FORK_LOG_FIELD_SEPARATOR}%h${FORK_LOG_FIELD_SEPARATOR}%s${FORK_LOG_FIELD_SEPARATOR}%b${FORK_LOG_RECORD_SEPARATOR}`,
+    `--format=%H${FORK_LOG_FIELD_SEPARATOR}%h${FORK_LOG_FIELD_SEPARATOR}%aI${FORK_LOG_FIELD_SEPARATOR}%s${FORK_LOG_FIELD_SEPARATOR}%b${FORK_LOG_RECORD_SEPARATOR}`,
     `${base}..${head}`,
   ] as const;
 
@@ -174,10 +181,10 @@ export const parseForkLog = (raw: string): ReadonlyArray<ParsedForkCommit> =>
     .map((record) => record.replace(/^\n/, ""))
     .filter((record) => record.trim().length > 0)
     .map((record) => {
-      const [sha = "", short = "", subject = "", body = ""] =
+      const [sha = "", short = "", authorDate = "", subject = "", body = ""] =
         record.split(FORK_LOG_FIELD_SEPARATOR);
       try {
-        return { sha, short, subject, ...parseForkTrailers(body) };
+        return { sha, short, authorDate, subject, ...parseForkTrailers(body) };
       } catch (error) {
         if (error instanceof DuplicateForkTrailerError) {
           // Name the offending commit, following the shape describeReplayMessageDiff established:
