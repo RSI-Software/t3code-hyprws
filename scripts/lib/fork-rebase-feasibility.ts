@@ -139,11 +139,18 @@ export const runMergeTree = (
 
 const memoKey = (left: string, right: string): string => `${left}\0${right}`;
 
+const treeExists = (git: Pick<FeasibilityGit, "runResult">, tree: string): boolean =>
+  git.runResult(["cat-file", "-e", `${tree}^{tree}`]).status === 0;
+
 /**
  * Memoizes `git merge-tree` by commit pair, inside one walk and across processes.
- * A pair of commit object ids fixes its merge result for good, so an entry seeded
- * from another job's walk cannot go stale the way a derived report can; see
- * `readFeasibilityArtifact` for how the fork sync workflow carries one.
+ * Only half of an entry travels: which paths conflict is a fact about the two
+ * commit object ids and cannot go stale, while `tree` names an object that
+ * `merge-tree --write-tree` wrote into the object store of whichever process ran
+ * it. Read conflict paths through `resolve`; read anything out of the tree through
+ * `resolveReadable`, which re-walks a carried entry this repository cannot
+ * dereference (RSI-Software/t3code-hyprws#1009). See `readFeasibilityArtifact`
+ * for how the fork sync workflow carries one between jobs.
  */
 export class MergeTreeMemo {
   private readonly results = new Map<string, MergeTreeResult>();
@@ -151,6 +158,7 @@ export class MergeTreeMemo {
   private carriedHits = 0;
   private walkRepeats = 0;
   private computedCount = 0;
+  private rewalkedCount = 0;
 
   constructor(seed: ReadonlyArray<MergeTreeMemoEntry> = []) {
     for (const entry of seed) {
@@ -170,11 +178,17 @@ export class MergeTreeMemo {
     return this.walkRepeats;
   }
 
-  /** Merges this walk actually ran. */
+  /** Merges this walk actually ran, including the ones it had to re-walk. */
   get computed(): number {
     return this.computedCount;
   }
 
+  /** Carried merges whose tree this object store could not read, so the walk ran them again. */
+  get rewalked(): number {
+    return this.rewalkedCount;
+  }
+
+  /** The conflict paths of a merge, which a seeded entry answers without running Git. */
   resolve(git: Pick<FeasibilityGit, "runResult">, left: string, right: string): MergeTreeResult {
     const key = memoKey(left, right);
     const cached = this.results.get(key);
@@ -187,6 +201,29 @@ export class MergeTreeMemo {
     const result = runMergeTree(git, left, right);
     this.results.set(key, result);
     return result;
+  }
+
+  /**
+   * The same merge, with the guarantee that its tree is readable here. A carried
+   * entry only records the id another process wrote, so it is proved against this
+   * object store and re-walked when the object is missing; re-walking writes the
+   * tree locally and costs the one merge the walk would have run anyway.
+   */
+  resolveReadable(
+    git: Pick<FeasibilityGit, "runResult">,
+    left: string,
+    right: string,
+  ): MergeTreeResult {
+    const key = memoKey(left, right);
+    const result = this.resolve(git, left, right);
+    if (!this.seeded.has(key) || treeExists(git, result.tree)) return result;
+    this.seeded.delete(key);
+    this.carriedHits -= 1;
+    this.rewalkedCount += 1;
+    this.computedCount += 1;
+    const rewalked = runMergeTree(git, left, right);
+    this.results.set(key, rewalked);
+    return rewalked;
   }
 
   entries(): ReadonlyArray<MergeTreeMemoEntry> {
@@ -326,12 +363,19 @@ export const buildFeasibility = (
     priorForkConflicts = current;
   }
 
-  const conflicts = finalMerge.conflicts.map((path): FeasibilityConflict => {
+  // Counting markers reads the merged blobs, so the final merge is the one place this
+  // walk needs a tree it can dereference rather than a conflict set it can trust.
+  const merged =
+    finalMerge.conflicts.length === 0
+      ? finalMerge
+      : memo.resolveReadable(git, sourceSha, targetSha);
+
+  const conflicts = merged.conflicts.map((path): FeasibilityConflict => {
     const introducing = attribution.get(path);
     if (introducing === undefined) {
       throw new Error(`could not attribute merge conflict to a fork commit: ${path}`);
     }
-    const mergedContents = git.run(["show", `${finalMerge.tree}:${path}`]);
+    const mergedContents = git.run(["show", `${merged.tree}:${path}`]);
     return {
       path,
       hunkCount: markerCount(mergedContents),
@@ -349,7 +393,7 @@ export const buildFeasibility = (
   const forkChanged = readChangedPaths(git, baseSha, sourceSha);
   const forkPaths = new Set(forkChanged);
   const overlap = upstreamChanged.filter((path) => forkPaths.has(path));
-  const hardConflicts = new Set(finalMerge.conflicts);
+  const hardConflicts = new Set(merged.conflicts);
   const automerged = overlap.filter((path) => !hardConflicts.has(path));
 
   return {
@@ -364,7 +408,7 @@ export const buildFeasibility = (
       upstreamChanged: upstreamChanged.length,
       forkChanged: forkChanged.length,
       overlap: overlap.length,
-      hardConflict: finalMerge.conflicts.length,
+      hardConflict: merged.conflicts.length,
       automerged,
     },
   };
