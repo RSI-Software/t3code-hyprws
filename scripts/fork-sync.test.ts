@@ -4491,6 +4491,54 @@ it("a rerun proves the replay through the fixups a stopped run left and folds th
   }
 });
 
+it("discovers an unrecorded fixup on the lane and folds it", () => {
+  const state = repairingRun();
+  const unrecorded = "d".repeat(40);
+  // No `walk.repairCommits` names this fixup: a run stopped between committing the fixup and
+  // writing the report. The check must still find it on the lane and autosquash it away.
+  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
+    stdout: `${unrecorded}\x00fixup! feat: one\n${A}\x00feat: one\n`,
+  });
+  state.runner.set("git", rehearsal(["log", "--format=%s", `${B}..HEAD`]), {
+    stdout: "feat: one\n",
+  });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the unrecorded fixup produced no autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an orphan fixup on the lane stops the check naming it", () => {
+  const state = repairingRun();
+  const orphan = "d".repeat(40);
+  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
+    stdout: `${orphan}\x00fixup! no such owner\n${A}\x00feat: one\n`,
+  });
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
+      /orphan fixup on the lane: "fixup! no such owner" has no owning fork commit/,
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("an owner shadowed by a same-subject newer commit refuses the repair", () => {
   const state = seamRepairedRun();
   // Two declared fork commits share the subject; the newer owns the repaired path, but the older

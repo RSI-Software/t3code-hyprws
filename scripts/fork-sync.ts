@@ -2283,10 +2283,41 @@ const unblockCheck = (
   // Autosquash must run for every `fixup!` on the lane: the ones this invocation created and the
   // ones a run stopped at the repair battery left behind (recorded in `walk.repairCommits`). A
   // rerun that only looked at its own commits could never fold the retained ones.
+  // Fixups are discovered on the lane, never remain at `checked`: a run interrupted between
+  // committing a seam fixup and `writeReport` leaves a fixup no record names, and no proof sees
+  // a `fixup!` subject. Read the lane's subjects, keep every `fixup!`, and require each one's
+  // owner to exist exactly once among the lane's non-fixup commits — an orphan fixup would
+  // survive autosquash silently.
+  const laneCommits = git(
+    runner,
+    worktree,
+    ["log", "--format=%H%x00%s", `${report.target!.sha}..HEAD`],
+    true,
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((row) => {
+      const [sha, subject] = row.split("\0");
+      if (sha === undefined || subject === undefined)
+        throw new Error(`invalid lane log row: ${row}`);
+      return { sha, subject };
+    });
+  const laneFixups = laneCommits.filter(({ subject }) => subject.startsWith("fixup! "));
+  for (const fixup of laneFixups) {
+    const owner = fixup.subject.slice("fixup! ".length);
+    const owners = laneCommits.filter(
+      ({ subject }) => !subject.startsWith("fixup! ") && subject === owner,
+    );
+    if (owners.length !== 1)
+      throw new Error(
+        `orphan fixup on the lane: "${fixup.subject}" ${owners.length === 0 ? "has no owning fork commit" : "names a duplicated owner"} in ${report.target!.sha}..HEAD`,
+      );
+  }
   const retainedRepairCommits = (report.walk?.repairCommits ?? []).filter(({ subject }) =>
     subject.startsWith("fixup! "),
   );
   const hasFixups =
+    laneFixups.length > 0 ||
     retainedRepairCommits.length > 0 ||
     [...seamCommits, ...additiveCommits, ...repaired].some(({ subject }) =>
       subject.startsWith("fixup! "),
@@ -2305,6 +2336,19 @@ const unblockCheck = (
       { ...process.env, ...COMMENT_CONFIG, GIT_SEQUENCE_EDITOR: "true", GIT_EDITOR: "true" },
       true,
     );
+    // A fixup that survives autosquash would sit at `checked` invisible to every proof.
+    const remaining = git(
+      runner,
+      worktree,
+      ["log", "--format=%s", `${report.target!.sha}..HEAD`],
+      true,
+    )
+      .split("\n")
+      .filter((subject) => subject.startsWith("fixup! "));
+    if (remaining.length > 0)
+      throw new Error(
+        `autosquash left fixup commits on the lane: ${remaining.map((s) => `"${s}"`).join(", ")}`,
+      );
   }
   let foldsWithRepairs = folds;
   if (hasFixups && folds.length > 0) {
