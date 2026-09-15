@@ -185,9 +185,16 @@ listed in the `FORK_HOOKS` manifest in `scripts/lib/fork-hooks.ts`. A hook is ex
 construct — one import, one call, one `const` from a single fork call, one JSX element, one
 fork-named property/spread, one re-export (`export { X };`, optionally `export type { X };`) — and never removes or modifies an upstream line, except that a marked JSX region may
 re-indent the lines it wraps, because a wrap is the only way one JSX element is expressible at
-all; a removal a marked region does not re-add is still a modification, and a needed deletion is
-reshape debt with a named reason. The `fork-hook-seam` guard warns when a fork commit adds
-outside a marked hook, deletes a line the upstream tree carries, or marks a hook the manifest
+all, and that an in-place substitution may remove the upstream line it replaces: the replacing
+line carries the marker, and the removed line needs none. The walk's removal check is
+positional, not a count: it aligns the base side against the fork side over significant lines
+and accepts a removed base line only when the position it was removed from falls inside a
+marked span, so a marked hook elsewhere in the file absorbs nothing and a removal outside every
+marked span is still refused; a needed deletion with no marked replacement is still reshape
+debt with a named reason. The `fork-hook-seam` guard warns when a fork commit adds outside a
+marked hook, deletes a line the upstream tree carries — including a substitution the walk's
+positional rule would accept, since the guard stays strict until the sweep exempts marked
+spans — or marks a hook the manifest
 does not know; `Fork-Tier: bugfix` **and** `Fork-Upstreamable: yes` commits, and generated
 paths (`pnpm-lock.yaml`, `*.gen.ts`), are outside the rule: generated and dependency files are
 never scored as reshape debt — the sync walk restores HEAD and regenerates them instead of
