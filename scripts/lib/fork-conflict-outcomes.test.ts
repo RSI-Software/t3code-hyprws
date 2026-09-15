@@ -426,6 +426,124 @@ it("declines a seam both sides rewrote, and keeps a pure co-insertion", () => {
   }
 });
 
+/**
+ * Distilled from the real carry that stopped the v0.0.41-nightly.20260915.1752 walk on
+ * `apps/server/src/server.test.ts` (RSI-Software/t3code-hyprws#665, stop surface #933). Stages
+ * built from git: base = `git merge-base ca47c00866^ 50ff4c371eab927a9650c114975241999f4cd7b1`
+ * (2db675aeffd9cb1e8b5ad76ddd018433b45b02e9), ours = the file at `50ff4c371e` (the `.1752` tag),
+ * theirs = the file at `ca47c00866` ("feat(server): bind thread worktrees to a managed zmux
+ * session"), trimmed to the two co-inserted tests whose shared boilerplate git's union merge
+ * interleaves into one `buildAppUnderTest({ layers: ... })` with `gitVcsDriver` twice. The hunk
+ * sides themselves are whole sibling tests with no shared key — only the union splice collides —
+ * so the guard that catches this is the parse, not a per-hunk key comparison.
+ */
+const SERVER_TEST_CO_INSERTION = {
+  base: `describe("threads", () => {
+  it.effect("runs a turn", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({});
+    }),
+  );
+});
+`,
+  ours: `describe("threads", () => {
+  it.effect("runs a turn", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({});
+    }),
+  );
+
+  it.effect("falls back when the worktree base has no commit", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const createWorktree = vi.fn(() => Effect.die("no base commit"));
+
+      yield* buildAppUnderTest({
+        layers: {
+          vcsDriver: {
+            isInsideWorkTree: () => Effect.succeed(true),
+          },
+          gitVcsDriver: {
+            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            createWorktree,
+          },
+          orchestrationEngine: {
+            dispatch: (command) => Effect.succeed(command),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      assert.equal(dispatchedCommands.length, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+});
+`,
+  theirs: `describe("threads", () => {
+  it.effect("runs a turn", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({});
+    }),
+  );
+
+  it.effect("binds a bootstrap worktree and records failures as activity", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const bind = vi.fn(() => Effect.succeed({ status: "failed" as const }));
+
+      yield* buildAppUnderTest({
+        layers: {
+          gitVcsDriver: {
+            createWorktree: () => Effect.succeed({ path: "/tmp/bootstrap-worktree" }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) => Effect.succeed(command),
+            readEvents: () => Stream.empty,
+          },
+          zmuxSessionBinder: { bind },
+        },
+      });
+
+      assert.equal(dispatchedCommands.length, 4);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+});
+`,
+};
+
+it("declines a keep-both union whose merged text does not parse (RSI-Software/t3code-hyprws#665)", () => {
+  const root = fixture();
+  const runner = new SystemCommandRunner();
+  const path = "apps/server/src/server.test.ts";
+  try {
+    stageConflict(root, path, SERVER_TEST_CO_INSERTION);
+    const outcome = executeConflictOutcome(runner, root, path);
+    assert.isTrue(isUnresolved(outcome));
+    if (!isUnresolved(outcome)) return;
+    // The decline names the seam's own failure, not the formatter error a later repair step
+    // would have found.
+    assert.include(outcome.reason, "keep-both declined: merged text does not parse (");
+    assert.include(outcome.reason, "expected");
+    // A decline writes nothing, so the conflicted path is left for the maintainer as it was.
+    assert.isFalse(NodeFS.existsSync(NodePath.join(root, path)));
+
+    // A clean three-way merge is guarded by the same parse: both sides appended a trailing-comma
+    // property to a manifest the lane never typechecks, and the merged text is not JSON.
+    const manifest = "package.json";
+    stageConflict(root, manifest, {
+      base: `"scripts": {},\n`,
+      ours: `"scripts": {},\n"fork": "1",\n`,
+      theirs: `"scripts": {},\n"fork": "1",\n`,
+    });
+    const json = executeConflictOutcome(runner, root, manifest);
+    assert.isTrue(isUnresolved(json));
+    if (!isUnresolved(json)) return;
+    assert.include(json.reason, "keep-both declined: merged text does not parse (");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("declines a kept-both resolution on a path the lane cannot verify", () => {
   const root = fixture();
   const runner = new SystemCommandRunner();
