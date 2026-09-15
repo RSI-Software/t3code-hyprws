@@ -4209,11 +4209,11 @@ const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
     { stdout: `${REPAIRED}\n` },
     { stdout: `${REPAIRED}\n` },
   ]);
-  // The replay proof counts the fork series; the stack size the record binds counts the head.
-  state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
-    { stdout: "1\n" },
-    { stdout: "2\n" },
-  ]);
+  // The replay proof counts the fork series from the message log; the stack size the record
+  // binds counts the head.
+  state.runner.set("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), {
+    stdout: "2\n",
+  });
   return state;
 };
 
@@ -4535,6 +4535,121 @@ it("--seam-owner naming a sha that is not a fork commit in the stack is a UsageE
         ),
       /is not a fork commit in/,
     );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a rerun proves the replay through the fixups a stopped run left and folds them", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // The lane carries the fixup after the replayed fork commit; the count proof must see through it.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one\x1efixup! feat: one\n\x1e` },
+  );
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(
+      state.runner.calls.some(({ args }) => args.includes("--autosquash")),
+      "the retained fixup produced no autosquash",
+    );
+    assert.isUndefined(checked.walk?.repairCommits);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("an owner shadowed by a same-subject newer commit refuses the repair", () => {
+  const state = seamRepairedRun();
+  // Two declared fork commits share the subject; the newer owns the repaired path, but the older
+  // would still be the oldest subject match in the autosquash todo.
+  const shadowed = "e".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${C}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Fix.tsx\n` +
+        `\x1e${shadowed}\x1ffeat: fork work\x1fFork-Domain: fork-meta\nFork-Tier: qol\n\x1f\napps/web/src/Other.tsx\n`,
+    },
+  );
+  try {
+    let detail = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      detail = String(
+        (error as { failure?: { detail?: string } }).failure?.detail ?? (error as Error).message,
+      );
+    }
+    assert.include(detail, 'duplicated subject: "feat: fork work"');
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a fold segment matching the stack more than once stops the walk", () => {
+  const state = repairingRun();
+  const retained = "d".repeat(40);
+  const replayed = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+  const segment = (onto: string) => ({
+    from: "1".repeat(40),
+    to: "2".repeat(40),
+    onto,
+    originalCount: 1,
+    originalMessages: "x\x1e",
+  });
+  NodeFS.writeFileSync(
+    state.reportPath,
+    JSON.stringify({
+      ...replayed,
+      folds: [segment(C), segment(C), segment(C)],
+      walk: { repairCommits: [{ sha: retained, subject: "fixup! feat: one" }] },
+    }),
+  );
+  // Baseline `feat: one` followed by three identical `x` landings: any segment's single-message
+  // block matches three positions, so relocation cannot tell them apart.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%B%x1e", `${B}..HEAD`]),
+    { stdout: `feat: one\x1ex\x1ex\x1ex\x1e` },
+  );
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--reverse", "--topo-order", "--format=%H%x1f%B%x1e", `${B}..HEAD`]),
+    {
+      stdout: `${A}\x1ffeat: one\n\x1e${C}\x1fx\n\x1e${"4".repeat(40)}\x1fx\n\x1e${"5".repeat(40)}\x1fx\n\x1e`,
+    },
+  );
+  try {
+    let message = "";
+    try {
+      execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.match(message, /matches the autosquashed stack more than once/);
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
