@@ -84,6 +84,12 @@ import {
   parseForkTrailers,
 } from "./lib/fork-trailers.ts";
 import { commitNumstatArguments, parseCommitNumstat } from "./lib/fork-numstat.ts";
+import {
+  excludeStartEmpty,
+  parseReplayMeta,
+  replayMetaArguments,
+  type ReplayMetaRecord,
+} from "./lib/fork-replay-meta.ts";
 import { classifyTrunkMovement } from "./lib/fork-sync-fold.ts";
 import {
   finishActiveFold,
@@ -1041,9 +1047,53 @@ const matchedRetiredCount = (messages: string, retired: ReadonlySet<string>): nu
  * that strips repairs from the lane but not from the baseline reads the earlier walk's bookkeeping
  * as a shrunk stack and halts a replay that is entirely healthy.
  */
-const originalSeries = (report: SyncReport): { messages: string; count: number } => {
-  const stripped = withoutRepairMessages(report.originalMessages ?? "");
-  return { messages: stripped.messages, count: (report.originalCount ?? 0) - stripped.removed };
+/** Proof-time reads of the ranges the stored replay series was bound over, for `excludeStartEmpty`. */
+interface ReplayProofMeta {
+  readonly baseline: ReadonlyArray<ReplayMetaRecord>;
+  readonly folds: ReadonlyArray<ReadonlyArray<ReplayMetaRecord>>;
+}
+
+const readReplayMeta = (
+  runner: CommandRunner,
+  cwd: string,
+  from: string,
+  to: string,
+): ReadonlyArray<ReplayMetaRecord> =>
+  parseReplayMeta(gitRaw(runner, cwd, replayMetaArguments(from, to), true), from);
+
+/**
+ * The start-empty exclusions the `--no-keep-empty` startup rebase applies, derived from git at
+ * proof time so reports bound before the flag existed prove without re-binding
+ * (RSI-Software/t3code-hyprws#665). The baseline was bound before any fold, over
+ * `sharedBase..sha`; `expectedOld` advances with every fold, so the bound range is read against
+ * the immutable orientation SHA. Each fold's own `from..to` is read per segment — folds record
+ * their ranges exactly, so the same rule applies without guessing overlap.
+ */
+const replayProofMeta = (
+  report: SyncReport,
+  runner: CommandRunner,
+): ReplayProofMeta | undefined => {
+  const source = report.source;
+  if (source === undefined) return undefined;
+  return {
+    baseline: readReplayMeta(runner, report.repositoryRoot, source.sharedBase, source.sha),
+    folds: (report.folds ?? []).map((fold) =>
+      readReplayMeta(runner, report.repositoryRoot, fold.from, fold.to),
+    ),
+  };
+};
+
+const originalSeries = (
+  report: SyncReport,
+  meta: ReadonlyArray<ReplayMetaRecord> = [],
+): { messages: string; count: number } => {
+  const adjusted = excludeStartEmpty(
+    report.originalMessages ?? "",
+    report.originalCount ?? 0,
+    meta,
+  );
+  const stripped = withoutRepairMessages(adjusted.messages);
+  return { messages: stripped.messages, count: adjusted.count - stripped.removed };
 };
 
 const expectedReplayCount = (
@@ -1099,18 +1149,27 @@ const walkSizeRecord = (report: SyncReport, runner: CommandRunner): WalkSize | u
  * excluded from the candidate side by SHA, from `repairCommits` on the segments, because they
  * never autosquash into the proved prefix.
  */
-const expectedSeriesWithFolds = (report: SyncReport): { messages: string; count: number } => {
-  const baseline = originalSeries(report);
+const expectedSeriesWithFolds = (
+  report: SyncReport,
+  meta?: ReplayProofMeta,
+): { messages: string; count: number } => {
+  const baseline = originalSeries(report, meta?.baseline ?? []);
   const folds = report.folds ?? [];
   if (folds.length === 0) return baseline;
-  const foldParts = folds.map((fold) => ({
-    ...withoutRepairMessages(fold.originalMessages),
-    declared: fold.originalCount,
-  }));
+  const foldParts = folds.map((fold, index) => {
+    // Fold parts follow the same rule as the baseline: drop the segment's start-empty commits
+    // before stripping repairs, so the record alignment against the segment's own read holds.
+    const adjusted = excludeStartEmpty(
+      fold.originalMessages,
+      fold.originalCount,
+      meta?.folds[index] ?? [],
+    );
+    const stripped = withoutRepairMessages(adjusted.messages);
+    return { messages: stripped.messages, declared: adjusted.count - stripped.removed };
+  });
   return {
     messages: [baseline.messages, ...foldParts.map((part) => part.messages)].join(""),
-    count:
-      baseline.count + foldParts.reduce((total, part) => total + (part.declared - part.removed), 0),
+    count: baseline.count + foldParts.reduce((total, part) => total + part.declared, 0),
   };
 };
 
@@ -1126,7 +1185,7 @@ export const verifyReplay = (report: SyncReport, runner: CommandRunner): void =>
   )
     throw new Error("replay binding is incomplete");
   const retired = retiredSubjectsForReport(report);
-  const baseline = expectedSeriesWithFolds(report);
+  const baseline = expectedSeriesWithFolds(report, replayProofMeta(report, runner));
   const matched = matchedRetiredCount(baseline.messages, retired);
   const expectedCount = expectedReplayCount(report, retired, baseline);
   // The walk appends its own repair commits after the replay, so both proofs run over the fork
@@ -1196,7 +1255,10 @@ const assertReplayedWithoutRebase = (report: SyncReport, runner: CommandRunner):
     ).status !== 0
   )
     throw new Error(`${restart}: ${report.target.tag} is not an ancestor of the lane head`);
-  const expectedCount = expectedReplayCount(report, retiredSubjectsForReport(report));
+  // The startup rebase dropped start-empty commits at todo build, so the expected count derives
+  // the same exclusions from git (RSI-Software/t3code-hyprws#665).
+  const baseline = originalSeries(report, replayProofMeta(report, runner)?.baseline ?? []);
+  const expectedCount = expectedReplayCount(report, retiredSubjectsForReport(report), baseline);
   const repairs = withoutRepairMessages(
     replayMessages(runner, worktree, `${report.target.sha}..HEAD`),
   ).removed;
