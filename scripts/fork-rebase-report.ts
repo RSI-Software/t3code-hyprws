@@ -80,7 +80,7 @@ export interface ReportLane {
 }
 
 export interface RetireSignal {
-  readonly kind: "already-upstream" | "behaviour-overlap";
+  readonly kind: "already-upstream" | "behaviour-overlap" | "empty-commit";
   readonly evidence: string;
 }
 
@@ -475,7 +475,17 @@ export const buildRetireCandidates = (
         forkCommit.sha,
       ]),
     );
-    if (reverse.conflicts.length === 0 && reverse.tree === targetTree) {
+    const changedPaths = changedPathsForCommit(git, forkCommit.sha);
+    if (changedPaths.length === 0) {
+      // An empty patch satisfies the already-upstream tree comparison vacuously, so it must not
+      // be reported as supersession evidence. The commit still carries its own retire signal —
+      // an empty commit on the stack is droppable outright — but under an honest name.
+      signals.push({
+        kind: "empty-commit",
+        evidence:
+          "the commit carries no file changes, so the already-upstream patch test is vacuous for it",
+      });
+    } else if (reverse.conflicts.length === 0 && reverse.tree === targetTree) {
       signals.push({
         kind: "already-upstream",
         evidence: "the target tree already contains this commit's patch",
@@ -488,7 +498,7 @@ export const buildRetireCandidates = (
         .filter((conflict) => conflict.introducingForkCommit.sha === forkCommit.sha)
         .map((conflict) => conflict.path),
     );
-    const weak = changedPathsForCommit(git, forkCommit.sha)
+    const weak = changedPaths
       .filter((path) => overlapPaths.has(path) && !hardPaths.has(path))
       .flatMap((path) => {
         const forkHunks = parseAddedHunkRanges(
