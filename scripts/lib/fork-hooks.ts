@@ -1,7 +1,10 @@
-// The fork-hook manifest. An upstream file may carry hook lines only: fork code
-// woven elsewhere is a woven seam and `fork-hook-seam` warns on it. Each hook
-// is marked in source so a tool can find it, and listed here so a marker without
-// a manifest entry — a hook the sync walk cannot reason about — is visible.
+// The fork-hook seam model. A `fork-hook:` marker in an upstream-owned source
+// fork job steps 2 and 5: the hook seam
+// Gate: none — pure seam model; read by the hook guard (fork:ci) and hook re-apply (sync tip).
+// file is the whole declaration of a seam: there is no hand-kept manifest, and
+// nothing outside the marked source decides whether a hook exists
+// (RSI-Software/t3code-hyprws#1155). `deriveForkHooks` reads the markers at the
+// fork tip and derives every entry the sync walk re-applies.
 //
 // Three marker forms:
 //
@@ -12,975 +15,41 @@
 // - a trailing `/* fork-hook: <domain>/<name> */` for one-line hooks in
 //   languages where `//` is not a comment (CSS).
 //
-// The manifest starts empty: the sweep issues fill it as each recurring commit
-// is reshaped into marked hooks. A hook is exactly one construct and never
-// removes or modifies an upstream line. Anchor notes: `collection <symbol>`
-// also covers a member of a type/interface/props/object named `symbol` (object
-// properties and store members included), and `after-decl <symbol>` marks a
-// hook placed immediately after the declaration of `symbol` — an export, const,
-// or function that must sit next to a named upstream declaration.
+// A hook is exactly one construct and never removes or modifies an upstream
+// line; `forkHookConstructViolation` is that doctrine as code. An unmatched
+// JSX pair or an unknown domain fails the derivation with `path:line`, and a
+// marker mid-comment marks nothing.
+
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import { FORK_DOMAINS } from "./fork-trailers.ts";
 
-/** Where the hook sits in the upstream file, as the sync walk re-applies it. */
-export type ForkHookAnchor =
-  | { readonly kind: "import-block" }
-  | { readonly kind: "collection"; readonly symbol: string }
-  | { readonly kind: "jsx-parent"; readonly symbol: string }
-  | { readonly kind: "after-call"; readonly symbol: string }
-  | { readonly kind: "after-decl"; readonly symbol: string };
+/**
+ * Where the hook sits in its file, derived from the marked span's context at
+ * the fork tip: the shortest run of immediately preceding lines that carry no
+ * marker of their own and occur exactly once in the file with every marked span
+ * removed. Re-apply puts the hook back directly after that run, so the anchor
+ * needs no typed kinds — an import block, a collection member and a JSX child
+ * are all "after these lines".
+ */
+export interface ForkHookAnchor {
+  readonly context: ReadonlyArray<string>;
+}
 
 export interface ForkHookEntry {
+  readonly key: string;
   /** The upstream-owned file the hook lives in. */
   readonly path: string;
   readonly anchor: ForkHookAnchor;
+  /** The marked span in the fork tip's text of `path`. */
+  readonly span: ParsedForkHook;
 }
 
-/**
- * Keyed `<domain>/<name>`. Empty until the sweep lands the first marked hook;
- * the schema test passes on an empty manifest and tightens as entries arrive.
- */
-export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
-  // custom-agents — marked on RSI-Software/t3code-hyprws#963; test seams marked on RSI-Software/t3code-hyprws#674 PR 2.
-  "custom-agents/codex-test-env-split": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
-    anchor: { kind: "after-call", symbol: "startSession" },
-  },
-  "custom-agents/codex-test-env-thread-id": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
-    anchor: { kind: "after-call", symbol: "startSession" },
-  },
-  "custom-agents/codex-test-env-project-id": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
-    anchor: { kind: "after-call", symbol: "startSession" },
-  },
-  "custom-agents/codex-test-start-options": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.test.ts",
-    anchor: { kind: "after-call", symbol: "startSession" },
-  },
-  // custom-agents — marked on RSI-Software/t3code-hyprws#674 PR 2.
-  "custom-agents/codex-session-identity-import": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/codex-session-agent-import": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/codex-driver-instance-env": {
-    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
-    anchor: { kind: "after-decl", symbol: "pathService" },
-  },
-  "custom-agents/codex-child-item-lifecycle-import": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/codex-collab-child-item": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "itemTypeRaw" },
-  },
-  "custom-agents/codex-collab-workspace-root": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "workspaceRoot" },
-  },
-  "custom-agents/codex-session-agent-resolve": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "after-call", symbol: "stopSessionInternal" },
-  },
-  "custom-agents/codex-session-identity-env": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "after-call", symbol: "readMcpProviderSession" },
-  },
-  "custom-agents/codex-session-agent-runtime-input": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "forkSessionEnvironment" },
-  },
-  "custom-agents/codex-session-identity-env-prop": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
-  },
-  "custom-agents/codex-session-agent-option": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
-  },
-  "custom-agents/codex-session-identity-mcp-env": {
-    path: "apps/server/src/provider/Layers/CodexAdapter.ts",
-    anchor: { kind: "collection", symbol: "CodexSessionRuntimeOptions" },
-  },
-  "custom-agents/claude-child-snapshot-import": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  // zmux-estate — marked on RSI-Software/t3code-hyprws#962.
-  "zmux-estate/decider-checkout-move-import": {
-    path: "apps/server/src/orchestration/decider.ts",
-    anchor: { kind: "import-block" },
-  },
-  "zmux-estate/decider-checkout-move-dispatch": {
-    path: "apps/server/src/orchestration/decider.ts",
-    anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
-  },
-  "zmux-estate/decider-turn-start-checkout-move-guard": {
-    path: "apps/server/src/orchestration/decider.ts",
-    anchor: { kind: "after-decl", symbol: "targetThread" },
-  },
-  "custom-agents/claude-child-snapshot-emit": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "handleAssistantMessage" },
-  },
-  "custom-agents/claude-child-snapshot-assistant": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-call", symbol: "rememberPendingTaskModel" },
-  },
-  "custom-agents/claude-child-snapshot-task-started": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-call", symbol: "offerRuntimeEvent" },
-  },
-  "custom-agents/claude-child-detail-denied": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "completedStamp" },
-  },
-  "custom-agents/ingestion-child-lifecycle-import": {
-    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/ingestion-child-lifecycle-guard": {
-    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
-    anchor: { kind: "after-decl", symbol: "isPersistableItemLifecycle" },
-  },
-  "custom-agents/ingestion-child-lifecycle-detail": {
-    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
-    anchor: { kind: "collection", symbol: "payload" },
-  },
-  "custom-agents/ingestion-timeline-bypass": {
-    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
-    anchor: { kind: "collection", symbol: "payload" },
-  },
-  "custom-agents/ingestion-provider-linkage": {
-    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
-    anchor: { kind: "after-decl", symbol: "taskLinkageActivityFields" },
-  },
-  "custom-agents/claude-child-detail-import": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/claude-agent-launch-args-import": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/claude-child-detail-updated": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-call", symbol: "inFlightTools.set" },
-  },
-  "custom-agents/claude-child-detail-started": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-call", symbol: "inFlightTools.set" },
-  },
-  "custom-agents/claude-child-detail-completed": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-decl", symbol: "toolUseResult" },
-  },
-  "custom-agents/claude-launch-args": {
-    path: "apps/server/src/provider/Layers/ClaudeAdapter.ts",
-    anchor: { kind: "after-call", symbol: "getModelSelectionStringOptionValue" },
-  },
-  "custom-agents/claude-agent-info-type": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "collection", symbol: "ClaudeCapabilitiesProbe" },
-  },
-  "custom-agents/claude-agent-options-import": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/claude-probe-agents-field": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "collection", symbol: "ClaudeCapabilitiesProbe" },
-  },
-  "custom-agents/claude-probe-agents-parse": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "collection", symbol: "probeClaudeCapabilities" },
-  },
-  "custom-agents/claude-model-agent-options": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "after-decl", symbol: "capabilities" },
-  },
-  "custom-agents/claude-dedupe-export": {
-    path: "apps/server/src/provider/Layers/ClaudeProvider.ts",
-    anchor: { kind: "after-decl", symbol: "probeClaudeCapabilities" },
-  },
-  "custom-agents/codex-agent-options-import": {
-    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/codex-agent-options-decorator": {
-    path: "apps/server/src/provider/Drivers/CodexDriver.ts",
-    anchor: { kind: "after-call", symbol: "makeCodexAdapter" },
-  },
-  "custom-agents/spawn-navigation-import": {
-    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/spawn-open-handler": {
-    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
-    anchor: { kind: "after-decl", symbol: "onToggleSpawnRow" },
-  },
-  "custom-agents/compact-menu-agent-prop": {
-    path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
-    anchor: { kind: "collection", symbol: "CompactComposerControlsMenu" },
-  },
-  "custom-agents/compact-menu-agent-render": {
-    path: "apps/web/src/components/chat/CompactComposerControlsMenu.tsx",
-    anchor: { kind: "jsx-parent", symbol: "MenuPopup" },
-  },
-  "custom-agents/composer-state-agent-menu-content": {
-    path: "apps/web/src/components/chat/composerProviderState.tsx",
-    anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
-  },
-  "custom-agents/composer-state-agent-picker": {
-    path: "apps/web/src/components/chat/composerProviderState.tsx",
-    anchor: { kind: "after-decl", symbol: "renderProviderTraitsPicker" },
-  },
-  "custom-agents/traits-persistence-export": {
-    path: "apps/web/src/components/chat/TraitsPicker.tsx",
-    anchor: { kind: "after-decl", symbol: "TraitsPersistence" },
-  },
-  "custom-agents/traits-default-badge-export": {
-    path: "apps/web/src/components/chat/TraitsPicker.tsx",
-    anchor: { kind: "after-decl", symbol: "DefaultBadge" },
-  },
-  "custom-agents/traits-replace-descriptor-export": {
-    path: "apps/web/src/components/chat/TraitsPicker.tsx",
-    anchor: { kind: "after-decl", symbol: "replaceDescriptorCurrentValue" },
-  },
-  "custom-agents/composer-agent-render-import": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/composer-agent-menu-content": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
-  },
-  "custom-agents/composer-agent-picker": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "after-decl", symbol: "providerTraitsPickerInput" },
-  },
-  "custom-agents/composer-agent-resting-block-import": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/composer-agent-resting-block": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "collection", symbol: "restingBlockDefs" },
-  },
-  "custom-agents/composer-agent-menu-prop": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "jsx-parent", symbol: "CompactComposerControlsMenu" },
-  },
-  "custom-agents/composer-agent-compact-menu-prop": {
-    path: "apps/web/src/components/chat/ChatComposer.tsx",
-    anchor: { kind: "jsx-parent", symbol: "CompactComposerControlsMenu" },
-  },
-  "custom-agents/right-panel-open-agents-decl": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RightPanelStoreState" },
-  },
-  "custom-agents/right-panel-open-agents-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/right-panel-open-agents": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "useRightPanelStore" },
-  },
-  // custom-agents — right-panel surface reshaped on RSI-Software/t3code-hyprws#991.
-  "custom-agents/right-panel-open-agents-decl-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/right-panel-agents-surface-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/right-panel-agents-surface": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RightPanelSurface" },
-  },
-  "custom-agents/right-panel-agents-singleton-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/right-panel-agents-singleton": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "singletonSurface" },
-  },
-  "custom-agents/right-panel-migrate-agents-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "custom-agents/right-panel-migrate-agents": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
-  },
-  "project-windows/index-fork-css": {
-    path: "apps/web/src/index.css",
-    anchor: { kind: "import-block" },
-  },
-  // upstream-fixes — external workspace symlinks marked on RSI-Software/t3code-hyprws#951.
-  "upstream-fixes/wfs-fork-import": {
-    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/wfs-external-symlinks-policy": {
-    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
-    anchor: { kind: "after-decl", symbol: "workspaceEntries" },
-  },
-  "upstream-fixes/wfs-external-symlinks-follow": {
-    path: "apps/server/src/workspace/WorkspaceFileSystem.ts",
-    anchor: { kind: "after-decl", symbol: "relativeRealPath" },
-  },
-  "upstream-fixes/wfs-server-settings-layer": {
-    path: "apps/server/src/server.ts",
-    anchor: { kind: "collection", symbol: "WorkspaceFileSystemLayerLive" },
-  },
-  "upstream-fixes/settings-row-import": {
-    path: "apps/web/src/components/settings/SettingsPanels.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/settings-restore-symlinks-label": {
-    path: "apps/web/src/components/settings/SettingsPanels.tsx",
-    anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
-  },
-  "upstream-fixes/settings-row-mount": {
-    path: "apps/web/src/components/settings/SettingsPanels.tsx",
-    anchor: { kind: "jsx-parent", symbol: "GeneralSettingsPanel" },
-  },
-  "upstream-fixes/settings-search-external-symlinks-import": {
-    path: "apps/web/src/components/settings/settingsSearch.ts",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/settings-search-external-symlinks": {
-    path: "apps/web/src/components/settings/settingsSearch.ts",
-    anchor: { kind: "collection", symbol: "SETTINGS_SEARCH_ITEMS" },
-  },
-  "upstream-fixes/settings-patch-field": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "collection", symbol: "ServerSettingsPatch" },
-  },
-  // upstream-fixes — pull-request media upload marked on RSI-Software/t3code-hyprws#957.
-  "upstream-fixes/pr-editor-attachment-import": {
-    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/pr-editor-attachment": {
-    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
-    anchor: { kind: "after-decl", symbol: "seed" },
-  },
-  "upstream-fixes/pr-editor-attachment-textarea": {
-    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
-    anchor: { kind: "jsx-parent", symbol: "Textarea" },
-  },
-  "upstream-fixes/pr-editor-attachment-bar": {
-    path: "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.tsx",
-    anchor: { kind: "jsx-parent", symbol: "PullRequestMarkdownEditor" },
-  },
-  "upstream-fixes/pr-attachment-rpc-import": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/pr-attachment-rpc-methods": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "collection", symbol: "WS_METHODS" },
-  },
-  "upstream-fixes/pr-attachment-rpc-group": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "collection", symbol: "WsRpcGroup" },
-  },
-  // upstream-fixes — composer refocus folded into the window-focus predicate on RSI-Software/t3code-hyprws#956.
-  "upstream-fixes/composer-refocus-import": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/composer-refocus-predicate": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-decl", symbol: "focusComposer" },
-  },
-  "upstream-fixes/terminal-focus-gate": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "useThreadShell" },
-  },
-  "upstream-fixes/terminal-focus-gate-request": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "useTerminalFocusGateFork" },
-  },
-  "upstream-fixes/terminal-focus-intent-drawer": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "setTerminalFocusRequestId" },
-  },
-  "upstream-fixes/terminal-focus-intent-panel": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "setTerminalFocusRequestId" },
-  },
-  "upstream-fixes/terminal-focus-command": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "pinThread" },
-  },
-  "upstream-fixes/drawer-open-focus-request": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-call", symbol: "setTerminalOpen" },
-  },
-  "upstream-fixes/drawer-focus-reset": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "after-decl", symbol: "localFocusRequestId" },
-  },
-  "upstream-fixes/thread-terminal-focus-import": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "upstream-fixes/thread-terminal-focus-command-set": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "collection", symbol: "THREAD_TERMINAL_WINDOW_COMMANDS" },
-  },
-  "upstream-fixes/terminal-focus-handled-ref": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-decl", symbol: "hasHandledExitRef" },
-  },
-  "upstream-fixes/terminal-focus-pending-ref": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-decl", symbol: "hasHandledExitRef" },
-  },
-  "upstream-fixes/terminal-focus-attach-gate": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-call", symbol: "synchronizeTerminalStatus" },
-  },
-  "upstream-fixes/terminal-focus-attach-consume": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-call", symbol: "synchronizeTerminalStatus" },
-  },
-  "upstream-fixes/terminal-focus-request-gate": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-call", symbol: "shouldHandleTerminalFocusRequest" },
-  },
-  "upstream-fixes/terminal-focus-request-consume": {
-    path: "apps/web/src/components/ThreadTerminalDrawer.tsx",
-    anchor: { kind: "after-call", symbol: "shouldHandleTerminalFocusRequest" },
-  },
-
-  // workspace-files — ignored workspace files reshaped behind one listing hook on RSI-Software/t3code-hyprws#955.
-  "workspace-files/file-browser-ignored-listing": {
-    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/file-browser-ignored-listing-call": {
-    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
-    anchor: { kind: "after-call", symbol: "useComposerHandleContext" },
-  },
-  "workspace-files/file-browser-ignored-git-status": {
-    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
-    anchor: { kind: "after-call", symbol: "buildFileTreePathUpdates" },
-  },
-  "workspace-files/file-browser-ignored-toggle": {
-    path: "apps/web/src/components/files/FileBrowserPanel.tsx",
-    anchor: { kind: "jsx-parent", symbol: "FileBrowserPanel" },
-  },
-  "workspace-files/project-list-entries-input": {
-    path: "packages/contracts/src/project.ts",
-    anchor: { kind: "collection", symbol: "ProjectListEntriesInput" },
-  },
-  "workspace-files/workspace-entries-ignored-listing-import": {
-    path: "apps/server/src/workspace/WorkspaceEntries.ts",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/workspace-entries-ignored-registry-import": {
-    path: "apps/server/src/workspace/WorkspaceEntries.ts",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/workspace-entries-ignored-registry": {
-    path: "apps/server/src/workspace/WorkspaceEntries.ts",
-    anchor: { kind: "after-decl", symbol: "workspaceSearchIndexes" },
-  },
-  "workspace-files/workspace-entries-list-ignored": {
-    path: "apps/server/src/workspace/WorkspaceEntries.ts",
-    anchor: { kind: "after-call", symbol: "workspaceSearchIndexes.get" },
-  },
-  "workspace-files/workspace-entries-list-ignored-result": {
-    path: "apps/server/src/workspace/WorkspaceEntries.ts",
-    anchor: { kind: "after-decl", symbol: "list" },
-  },
-  "workspace-files/git-driver-ignored-import": {
-    path: "apps/server/src/vcs/GitVcsDriver.ts",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/git-driver-ignored-listing": {
-    path: "apps/server/src/vcs/GitVcsDriver.ts",
-    anchor: { kind: "after-decl", symbol: "listWorkspaceFiles" },
-  },
-  "workspace-files/vcs-driver-ignored-member": {
-    path: "apps/server/src/vcs/VcsDriver.ts",
-    anchor: { kind: "collection", symbol: "Service" },
-  },
-  "workspace-files/server-workspace-entries-registry": {
-    path: "apps/server/src/server.ts",
-    anchor: { kind: "after-decl", symbol: "WorkspaceEntriesLayerLive" },
-  },
-  "workspace-files/workspace-entries-test-registry-import": {
-    path: "apps/server/src/workspace/WorkspaceEntries.test.ts",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/workspace-entries-test-registry-layer": {
-    path: "apps/server/src/workspace/WorkspaceEntries.test.ts",
-    anchor: { kind: "collection", symbol: "TestLayer" },
-  },
-  "workspace-files/mobile-route-ignored-listing-import": {
-    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/mobile-route-ignored-listing-call": {
-    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
-    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
-  },
-  "workspace-files/mobile-route-ignored-listing-condition": {
-    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
-    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
-  },
-  "workspace-files/mobile-route-ignored-listing-input": {
-    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
-    anchor: { kind: "after-decl", symbol: "entriesQuery" },
-  },
-  "workspace-files/mobile-inspector-ignored-listing-import": {
-    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "workspace-files/mobile-inspector-ignored-listing-call": {
-    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
-    anchor: { kind: "after-decl", symbol: "headerScrollEdgeEffects" },
-  },
-  "workspace-files/mobile-inspector-ignored-listing-input": {
-    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
-    anchor: { kind: "after-decl", symbol: "entriesQuery" },
-  },
-  // project-windows — marked on RSI-Software/t3code-hyprws#952.
-  "project-windows/pull-request-page-scope-import": {
-    path: "apps/web/src/routes/_chat.pull-requests.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "project-windows/pull-request-page-scope": {
-    path: "apps/web/src/routes/_chat.pull-requests.tsx",
-    anchor: { kind: "after-decl", symbol: "capableEnvironments" },
-  },
-  "project-windows/pull-request-scope-search-field": {
-    path: "apps/web/src/routes/_chat.pull-requests.tsx",
-    anchor: { kind: "collection", symbol: "PullRequestsSearch" },
-  },
-  "project-windows/pull-request-scope-patch": {
-    path: "apps/web/src/routes/_chat.pull-requests.tsx",
-    anchor: { kind: "after-call", symbol: "updateSearch" },
-  },
-  "project-windows/pull-request-scope-toggle": {
-    path: "apps/web/src/routes/_chat.pull-requests.tsx",
-    anchor: { kind: "jsx-parent", symbol: "PullRequestsColumn" },
-  },
-  "project-windows/pull-request-filter-visibility": {
-    path: "apps/web/src/components/pullRequest/PullRequestListFilters.tsx",
-    anchor: { kind: "collection", symbol: "PullRequestFiltersMenu" },
-  },
-  "project-windows/sidebar-pr-list-route-import": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "import-block" },
-  },
-  // worktrunk-hooks — marked on RSI-Software/t3code-hyprws#960.
-  "worktrunk-hooks/env-mode-selector-import": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/workspace-icon-import": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/workspace-icon": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "collection", symbol: "WorkspaceIcon" },
-  },
-  "worktrunk-hooks/env-mode-menu-worktrunk": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "jsx-parent", symbol: "MenuRadioGroup" },
-  },
-  "worktrunk-hooks/env-mode-mobile-worktrunk-prop": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "jsx-parent", symbol: "MobileRunContextSelector" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-prop": {
-    path: "apps/web/src/components/BranchToolbar.tsx",
-    anchor: { kind: "jsx-parent", symbol: "BranchToolbarEnvModeSelector" },
-  },
-  "worktrunk-hooks/env-mode-selector-cog-import": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-item-import": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-prop-type": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "collection", symbol: "BranchToolbarEnvModeSelectorProps" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-default": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "collection", symbol: "BranchToolbarEnvModeSelector" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-option": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "collection", symbol: "envModeItems" },
-  },
-  "worktrunk-hooks/env-mode-selector-locked-icon": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "jsx-parent", symbol: "BranchToolbarEnvModeSelector" },
-  },
-  "worktrunk-hooks/env-mode-selector-trigger-icon": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "jsx-parent", symbol: "SelectTrigger" },
-  },
-  "worktrunk-hooks/env-mode-selector-worktrunk-item": {
-    path: "apps/web/src/components/BranchToolbarEnvModeSelector.tsx",
-    anchor: { kind: "jsx-parent", symbol: "SelectGroup" },
-  },
-  "worktrunk-hooks/env-mode-enum-import": {
-    path: "apps/web/src/components/BranchToolbar.logic.ts",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/env-mode-enum": {
-    path: "apps/web/src/components/BranchToolbar.logic.ts",
-    anchor: { kind: "collection", symbol: "EnvMode" },
-  },
-  "worktrunk-hooks/env-mode-label-import": {
-    path: "apps/web/src/components/BranchToolbar.logic.ts",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/env-mode-label": {
-    path: "apps/web/src/components/BranchToolbar.logic.ts",
-    anchor: { kind: "after-decl", symbol: "resolveEnvModeLabel" },
-  },
-  "worktrunk-hooks/draft-thread-env-mode-schema-import": {
-    path: "apps/web/src/composerDraftStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "worktrunk-hooks/draft-thread-env-mode-schema": {
-    path: "apps/web/src/composerDraftStore.ts",
-    anchor: { kind: "after-decl", symbol: "DraftThreadEnvModeSchema" },
-  },
-  "worktrunk-hooks/settings-overrides-env-mode-wire": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
-  },
-  "worktrunk-hooks/settings-restore-env-mode-wire": {
-    path: "apps/web/src/components/settings/SettingsPanels.tsx",
-    anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
-  },
-  "worktrunk-hooks/decider-thread-env-mode-wire": {
-    path: "apps/server/src/orchestration/decider.ts",
-    anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
-  },
-  // github-issues — marked on RSI-Software/t3code-hyprws#954.
-  "github-issues/chat-markdown-github-destination-import": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/chat-markdown-github-destination": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "after-decl", symbol: "openExternalLinkInPreview" },
-  },
-  "github-issues/chat-markdown-github-destination-state": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "collection", symbol: "componentState" },
-  },
-  "github-issues/chat-markdown-github-destination-deps": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "collection", symbol: "componentState" },
-  },
-  "github-issues/chat-markdown-github-destination-value": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "collection", symbol: "ChatMarkdownRendererContext" },
-  },
-  "github-issues/chat-markdown-github-destination-return": {
-    path: "apps/web/src/components/ChatMarkdown.tsx",
-    anchor: { kind: "after-decl", symbol: "linkChildren" },
-  },
-  "github-issues/open-pull-request-link-fork-import": {
-    path: "apps/web/src/lib/openPullRequestLink.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/issue-link-claim": {
-    path: "apps/web/src/lib/openPullRequestLink.ts",
-    anchor: { kind: "after-decl", symbol: "resolvedPanelRef" },
-  },
-  "github-issues/change-request-preferred-project": {
-    path: "apps/web/src/lib/openPullRequestLink.ts",
-    anchor: { kind: "after-decl", symbol: "preferredProjectId" },
-  },
-  "github-issues/settings-open-mode-import": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/settings-link-open-mode-export": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
-  },
-  "github-issues/settings-change-request-open-mode-export": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
-  },
-  "github-issues/settings-link-open-mode-field": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "collection", symbol: "ClientSettingsSchema" },
-  },
-  "github-issues/settings-change-request-open-mode-field": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "collection", symbol: "ClientSettingsSchema" },
-  },
-  "github-issues/settings-link-open-mode-patch": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
-  },
-  "github-issues/settings-change-request-open-mode-patch": {
-    path: "packages/contracts/src/settings.ts",
-    anchor: { kind: "collection", symbol: "ClientSettingsPatch" },
-  },
-
-  // markdown-editing — marked on RSI-Software/t3code-hyprws#958.
-  "markdown-editing/rich-preview-import": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "markdown-editing/rich-preview-mode": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "after-decl", symbol: "revealHandled" },
-  },
-  "markdown-editing/rich-preview-rendered": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "after-decl", symbol: "renderMarkdown" },
-  },
-  "markdown-editing/rich-preview-toggle-props": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
-  },
-  "markdown-editing/rich-preview-icon": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "jsx-parent", symbol: "FileSurfaceAction" },
-  },
-  "markdown-editing/rich-preview-boundary": {
-    path: "apps/web/src/components/files/FilePreviewPanel.tsx",
-    anchor: { kind: "jsx-parent", symbol: "RenderedMarkdownSurface" },
-  },
-
-  // github-issues — marked on RSI-Software/t3code-hyprws#959 (commit `9f92309411`).
-  "github-issues/rpc-import": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/rpc-methods": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "collection", symbol: "WS_METHODS" },
-  },
-  "github-issues/rpc-group": {
-    path: "packages/contracts/src/rpc.ts",
-    anchor: { kind: "collection", symbol: "WsRpcGroup" },
-  },
-  "github-issues/environment-capability": {
-    path: "packages/contracts/src/environment.ts",
-    anchor: { kind: "collection", symbol: "ExecutionEnvironmentCapabilities" },
-  },
-  "github-issues/contracts-reexport": {
-    path: "packages/contracts/src/index.ts",
-    anchor: { kind: "after-decl", symbol: "ExecutionEnvironmentCapabilities" },
-  },
-  "github-issues/ws-wiring-import": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/ws-service-import": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/ws-service-yield": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "after-decl", symbol: "pullRequestSync" },
-  },
-  "github-issues/ws-rpc-handlers": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "after-decl", symbol: "observeRpcStreamEffect" },
-  },
-  "github-issues/ws-route-service-yield": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "after-decl", symbol: "sql" },
-  },
-  "github-issues/ws-route-service-provide": {
-    path: "apps/server/src/ws.ts",
-    anchor: { kind: "after-call", symbol: "PullRequestService" },
-  },
-  "github-issues/server-wiring-import": {
-    path: "apps/server/src/server.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/server-service-live": {
-    path: "apps/server/src/server.ts",
-    anchor: { kind: "after-decl", symbol: "commandReadinessLayer" },
-  },
-  "github-issues/server-service-provide": {
-    path: "apps/server/src/server.ts",
-    anchor: { kind: "after-call", symbol: "PullRequestServiceLive" },
-  },
-  "github-issues/rpc-auth-list": {
-    path: "apps/server/src/auth/RpcAuthorization.ts",
-    anchor: { kind: "collection", symbol: "RPC_REQUIRED_SCOPES" },
-  },
-  "github-issues/rpc-auth-detail": {
-    path: "apps/server/src/auth/RpcAuthorization.ts",
-    anchor: { kind: "collection", symbol: "RPC_REQUIRED_SCOPES" },
-  },
-  "github-issues/server-environment-capability": {
-    path: "apps/server/src/environment/ServerEnvironment.ts",
-    anchor: { kind: "collection", symbol: "capabilities" },
-  },
-  "github-issues/right-panel-surface-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-surface": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RightPanelSurface" },
-  },
-  "github-issues/right-panel-open-github-issue-decl": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RightPanelStoreState" },
-  },
-  "github-issues/right-panel-open-github-issue-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-open-github-issue": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "useRightPanelStore" },
-  },
-  "github-issues/right-panel-migrate-github-issue-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-migrate-github-issue": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "after-decl", symbol: "normalizeRevealLine" },
-  },
-  "github-issues/right-panel-active-surface-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-active-surface": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "after-decl", symbol: "migratePersistedRightPanelState" },
-  },
-  "github-issues/right-panel-active-kind-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-active-kind": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "after-decl", symbol: "selectThreadRightPanelState" },
-  },
-  // github-issues — the hub surface marked on RSI-Software/t3code-hyprws#991.
-  "github-issues/right-panel-open-github-issue-decl-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-hub-kind-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-hub-kind": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RIGHT_PANEL_KINDS" },
-  },
-  "github-issues/right-panel-hub-surface-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/right-panel-hub-surface": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "RightPanelSurface" },
-  },
-  "github-issues/right-panel-hub-singleton-import": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "import-block" },
-  },
-  // The formatter keeps a switch label and its body on separate lines, so the case
-  // carries its own marker: one hook would otherwise leave the label unmarked.
-  "github-issues/right-panel-hub-singleton-case": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "singletonSurface" },
-  },
-  "github-issues/right-panel-hub-singleton": {
-    path: "apps/web/src/rightPanelStore.ts",
-    anchor: { kind: "collection", symbol: "singletonSurface" },
-  },
-  "github-issues/command-palette-import": {
-    path: "apps/web/src/components/CommandPalette.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/command-palette-entry": {
-    path: "apps/web/src/components/CommandPalette.tsx",
-    anchor: { kind: "after-decl", symbol: "buildIssuesNavigationCommand" },
-  },
-  "github-issues/command-palette-entry-push": {
-    path: "apps/web/src/components/CommandPalette.tsx",
-    anchor: { kind: "after-decl", symbol: "githubIssuesActionItem" },
-  },
-  "github-issues/sidebar-issues-icon": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "collection", symbol: "lucide-react" },
-  },
-  "github-issues/sidebar-issues-supported-import": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/sidebar-issues-supported": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "after-decl", symbol: "pullRequestsSupported" },
-  },
-  "github-issues/sidebar-issues-footer-page-import": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/sidebar-issues-footer-page": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "after-decl", symbol: "currentFooterPage" },
-  },
-  "github-issues/sidebar-issues-navigate-import": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/sidebar-issues-navigate": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "after-decl", symbol: "handlePullRequestsClick" },
-  },
-  "github-issues/sidebar-issues-entry": {
-    path: "apps/web/src/components/sidebar/SidebarChrome.tsx",
-    anchor: { kind: "jsx-parent", symbol: "SidebarUtilityMenu" },
-  },
-  "github-issues/chat-view-detail-import": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "import-block" },
-  },
-  "github-issues/chat-view-detail-surface": {
-    path: "apps/web/src/components/ChatView.tsx",
-    anchor: { kind: "jsx-parent", symbol: "GitHubIssueDetailSurfaceFork" },
-  },
-  "github-issues/panel-tab-title": {
-    path: "apps/web/src/components/RightPanelTabs.tsx",
-    anchor: { kind: "after-decl", symbol: "pull-requests" },
-  },
-  "github-issues/panel-tab-status-icon": {
-    path: "apps/web/src/components/RightPanelTabs.tsx",
-    anchor: { kind: "after-decl", symbol: "pull-requests" },
-  },
-};
+/** Every derived hook, in file path order and marker order within a file. */
+export type ForkHooksManifest = ReadonlyArray<ForkHookEntry>;
 
 export const forkHookKey = (domain: string, name: string): string => `${domain}/${name}`;
 
@@ -1010,6 +79,13 @@ export interface ParsedForkHook {
   readonly kind: "line" | "jsx";
   readonly startLine: number;
   readonly endLine: number;
+  /**
+   * `true` when the span was resolved in the replayed commit's text from the fork tip's marker
+   * rather than read from an in-file marker (RSI-Software/t3code-hyprws#1030). The marked lines
+   * carry no marker there, so re-insertion skips the marker-syntax assertion and the raw lines
+   * — unmarked — are what lands. `parseForkHookMarkers` never sets it.
+   */
+  readonly overlay?: boolean;
 }
 
 /** Literal state after scanning a prefix of the file: bracket depth and open string/template. */
@@ -1061,6 +137,9 @@ const scanLiteralLine = (line: string, start: LiteralScan): LiteralScan => {
     if (char === "{") {
       if (frames.length > 0) frames[frames.length - 1] = (frames[frames.length - 1] ?? 0) + 1;
       else depth += 1;
+      // An opening brace is a statement terminator for the backward walk: a hook that is the
+      // first member of a block or object literal has it as its whole preceding context.
+      lastCode = "{";
       continue;
     }
     if (char === ")" || char === "]") {
@@ -1090,6 +169,10 @@ const COMMENT_ONLY = /^(?:\/\/|\/\*|\*(?:\/|$))/;
  * comment-only, the statement continues upward. `null` when the start cannot be proven — the
  * marker sits inside a string or template text, or a stray close leaves the file unbalanced.
  * Pure and line-based; there is deliberately no parser dependency.
+ *
+ * "Open" is judged against the depth the statement itself ends at, not against the file's top
+ * level: a hook inside a function body sits at depth 1 for its whole life, and comparing with 0
+ * would walk the span out to the enclosing declaration and swallow upstream lines with it.
  */
 export const statementStartLine = (
   lines: ReadonlyArray<string>,
@@ -1101,20 +184,31 @@ export const statementStartLine = (
     states.push(state);
     state = scanLiteralLine(line, state);
   }
+  states.push(state);
   const index = markerLine - 1;
   const entered = states[index];
-  if (entered === undefined) return null;
+  const exited = states[index + 1];
+  if (entered === undefined || exited === undefined) return null;
+  // The statement's own nesting: where the marker line leaves the scan.
+  const baseline = exited.depth;
+  const frameDepth = exited.frames.length;
   // A marker inside a string or template text, or a file already unbalanced before it, is
   // unprovable. An open `${` frame is code, not text — the walk still applies.
-  if (entered.quote !== null || entered.depth < 0) return null;
+  if (entered.quote !== null || entered.depth < 0 || baseline < 0 || exited.quote !== null)
+    return null;
   let at = index;
   while (at > 0) {
     const previous = states[at];
     if (previous === undefined) return null;
-    if (previous.depth < 0) return null;
-    // A blank or comment-only line, or a top-level statement terminator, only ends the walk when
-    // no bracket or literal is still open across it; inside an open construct the walk continues.
-    if (previous.depth === 0 && previous.quote === null && previous.frames.length === 0) {
+    if (previous.depth < baseline) break; // the line above is outside the statement's scope
+    // A blank or comment-only line, or a statement terminator at the statement's own nesting,
+    // only ends the walk when no bracket or literal is still open across it; inside an open
+    // construct the walk continues.
+    if (
+      previous.depth === baseline &&
+      previous.quote === null &&
+      previous.frames.length === frameDepth
+    ) {
       const text = (lines[at - 1] ?? "").trim();
       if (text === "" || COMMENT_ONLY.test(text)) break;
       if (
@@ -1128,7 +222,14 @@ export const statementStartLine = (
     at -= 1;
   }
   const start = states[at];
-  if (start === undefined || start.depth !== 0 || start.quote !== null || start.frames.length > 0)
+  // The state the first line is entered with sits at the statement's own nesting, or below it when
+  // the statement is what opens the brackets the marker line is still inside.
+  if (
+    start === undefined ||
+    start.depth > baseline ||
+    start.quote !== null ||
+    start.frames.length > frameDepth
+  )
     return null;
   return at + 1;
 };
@@ -1190,4 +291,186 @@ export const isWellFormedForkHookKey = (key: string): boolean => {
     (FORK_DOMAINS as readonly string[]).includes(match[1] ?? "") &&
     (match[2] ?? "").length > 0
   );
+};
+
+// The marker-construct doctrine (RSI-Software/t3code-hyprws#1155 folded the
+// authoring guard's classifier in here, next to the parser it judges). A marked
+// line hook must be exactly one of these shapes; the property/spread shape
+// additionally names a fork identifier, the others are structural. `@import` is
+// the CSS spelling of the import construct: a fork sheet is pulled in that way.
+const HOOK_IMPORT = /^\s*(?:@?import\b|export\s+\{[^}]*\}\s*from\b|export\s*\*)/;
+const HOOK_SINGLE_CALL =
+  /^(?!\s*(?:if|for|while|switch|catch|return)\s*\()\s*[A-Za-z_$][\w$.]*\s*\(/;
+// A multi-line branch dispatch carried whole behind a closing-brace marker: the condition names
+// the fork, so the whole statement is still one fork construct.
+const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
+// `yield*` and `await` are how a single call is bound in the two idioms this repo is written in —
+// Effect generators on the server, async code everywhere — so the prefix is part of the binding,
+// not a second construct smuggled in behind it.
+const HOOK_CONST_FROM_CALL =
+  /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*(?:yield\s*\*\s*|await\s+)?[A-Za-z_$][\w$.]*\s*\(/;
+const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
+// The spread half covers both spellings of the same construct: an object spread and its JSX
+// attribute form, `{...forkProps}`, which is the shape that avoids rewriting upstream prop lines.
+const HOOK_PROPERTY =
+  /^\s*(?:\{\.\.\.[A-Za-z_$][\w$.]*\}|\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
+/**
+ * Inside a JSX hook only an in-scope element is allowed — no derived rows, no statements. These
+ * are the shapes that smuggle a second construct into a marked region.
+ */
+export const JSX_HOOK_FLOW =
+  /\b(?:if|for|while|switch)\s*\(|^\s*(?:const|let|var|function|return)\b|\.\s*(?:map|filter|flatMap|reduce|forEach)\s*\(/;
+
+/**
+ * Whether `code` — one hook's classifying line, marker already stripped — is more than one
+ * construct. A multi-line hook is classified by its first line (`import {`), and a branch opener
+ * counts as one construct only when the marker closes a multi-line block: a one-line control-flow
+ * statement is a second construct smuggled in behind the marker.
+ */
+export const forkHookConstructViolation = (code: string, multiline: boolean): boolean => {
+  if (code.trim().length === 0) return false;
+  if (HOOK_IMPORT.test(code)) return false;
+  if (HOOK_SINGLE_CALL.test(code)) return false;
+  if (HOOK_CONST_FROM_CALL.test(code)) return false;
+  if (HOOK_REEXPORT.test(code)) return false;
+  if (multiline && HOOK_BRANCH.test(code) && HOOK_FORK_NAMED.test(code)) return false;
+  if (HOOK_PROPERTY.test(code) && HOOK_FORK_NAMED.test(code)) return false;
+  return true;
+};
+
+/** A derivation refusal, always naming the marker it refused at as `path:line`. */
+export class ForkHookDeclarationError extends Error {}
+
+const declarationRefusal = (path: string, line: number, reason: string): never => {
+  throw new ForkHookDeclarationError(`${path}:${line}: ${reason}`);
+};
+
+/**
+ * The unmatched half of a JSX marker pair, as a 1-based line, or `null` when every open marker
+ * has an end marker and no end marker stands alone. `parseForkHookMarkers` deliberately bounds an
+ * unclosed region at end of file rather than swallowing the rest of the file silently; the
+ * derivation refuses the same shape outright.
+ */
+export const forkHookPairingError = (content: string): { readonly line: number } | null => {
+  let open: number | null = null;
+  for (const [index, line] of content.split("\n").entries()) {
+    if (open === null && FORK_HOOK_JSX_END.test(line)) return { line: index + 1 };
+    if (open !== null && FORK_HOOK_JSX_END.test(line)) {
+      open = null;
+      continue;
+    }
+    if (open === null && FORK_HOOK_JSX_OPEN.test(line)) open = index + 1;
+  }
+  return open === null ? null : { line: open };
+};
+
+/** The longest context a derived anchor carries before it gives up on being unique. */
+const MAX_ANCHOR_CONTEXT = 24;
+
+/** How many times `context` occurs in `lines` as one contiguous run of exact matches. */
+const contextRuns = (
+  lines: ReadonlyArray<string>,
+  context: ReadonlyArray<string>,
+  limit = Number.POSITIVE_INFINITY,
+): number => {
+  if (context.length === 0) return 1;
+  let runs = 0;
+  for (let start = 0; start + context.length <= lines.length; start += 1) {
+    let matched = true;
+    for (const [offset, text] of context.entries())
+      if (lines[start + offset] !== text) {
+        matched = false;
+        break;
+      }
+    if (matched) {
+      runs += 1;
+      if (runs >= limit) return runs;
+    }
+  }
+  return runs;
+};
+
+/** The shortest unique run of the `before` lines preceding a hook, capped at `MAX_ANCHOR_CONTEXT`. */
+const anchorFor = (unmarked: ReadonlyArray<string>, before: number): ForkHookAnchor => {
+  const most = Math.min(MAX_ANCHOR_CONTEXT, before);
+  for (let size = 1; size <= most; size += 1) {
+    const context = unmarked.slice(before - size, before);
+    if (contextRuns(unmarked, context, 2) === 1) return { context };
+  }
+  return { context: unmarked.slice(before - most, before) };
+};
+
+/** Every hook one file declares, in marker order. Refuses with `path:line`; see the contract above. */
+export const deriveForkHooksIn = (path: string, content: string): ForkHooksManifest => {
+  const unmatched = forkHookPairingError(content);
+  if (unmatched !== null)
+    declarationRefusal(
+      path,
+      unmatched.line,
+      "unmatched fork-hook JSX marker; every `{/* fork-hook: <domain>/<name> */}` needs its `fork-hook-end`",
+    );
+  const parsed = parseForkHookMarkers(content);
+  // A hook inside another hook's span is carried by the enclosing construct: the outer marker's
+  // lines already include it, so deriving both would re-insert the inner one twice. The outer
+  // declaration wins and the inner marker rides along inside it.
+  const hooks = parsed.filter(
+    (hook) =>
+      !parsed.some(
+        (outer) =>
+          outer !== hook && outer.startLine <= hook.startLine && outer.endLine >= hook.endLine,
+      ),
+  );
+  if (hooks.length === 0) return [];
+  const lines = content.split("\n");
+  const marked = new Set<number>();
+  for (const hook of parsed)
+    for (let line = hook.startLine; line <= hook.endLine; line += 1) marked.add(line);
+  // The file as the upstream base carries it: every marked span removed, so an anchor is written
+  // in lines the merged upstream text still has.
+  const unmarked: Array<string> = [];
+  const before: Array<number> = [0];
+  for (let line = 1; line <= lines.length; line += 1) {
+    before[line] = unmarked.length;
+    if (!marked.has(line)) unmarked.push(lines[line - 1] ?? "");
+  }
+  return hooks.map((span) => {
+    if (!(FORK_DOMAINS as readonly string[]).includes(span.domain))
+      declarationRefusal(
+        path,
+        span.kind === "line" ? span.endLine : span.startLine,
+        `unknown fork domain \`${span.domain}\`; a marker's domain must be one of FORK_DOMAINS`,
+      );
+    return { key: span.key, path, anchor: anchorFor(unmarked, before[span.startLine] ?? 0), span };
+  });
+};
+
+/** The manifest a tree of upstream-owned files declares, in path order then marker order. */
+export const deriveForkHooks = (tree: ReadonlyMap<string, string>): ForkHooksManifest =>
+  [...tree.keys()].toSorted().flatMap((path) => deriveForkHooksIn(path, tree.get(path) ?? ""));
+
+const REPO_ROOT = NodePath.resolve(NodePath.dirname(NodePath.dirname(import.meta.dirname)));
+
+/** The marked files of the working tree, read through `git grep` so ignored paths never appear. */
+export const readForkHookTree = (root = REPO_ROOT): ReadonlyMap<string, string> => {
+  const found = NodeChildProcess.spawnSync(
+    "git",
+    ["grep", "-l", "--", "fork-hook:", "--", "apps", "packages"],
+    { cwd: root, encoding: "utf8" },
+  );
+  const paths = (found.stdout ?? "").split("\n").filter((path) => path.trim() !== "");
+  return new Map(
+    paths.map((path) => [path, NodeFS.readFileSync(NodePath.join(root, path), "utf8")]),
+  );
+};
+
+let cached: ForkHooksManifest | null = null;
+
+/**
+ * The derived manifest of the working tree, read once per process. Callers that need another tree
+ * — a rehearsal worktree, the fork tip's blobs — build the map themselves and call
+ * `deriveForkHooks`.
+ */
+export const forkHookManifest = (): ForkHooksManifest => {
+  cached ??= deriveForkHooks(readForkHookTree());
+  return cached;
 };

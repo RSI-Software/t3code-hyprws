@@ -2888,7 +2888,7 @@ export const make = Effect.gen(function* () {
           maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
           // The probe is host-agnostic and the upload's owner/name repository
           // cannot prove a host in argv, so the caller-verified host rides the
-          // wrapper's credential check. // fork-hook: pull-requests/attachment-media-verified-host
+          // wrapper's credential check. // fork-hook: upstream-fixes/attachment-media-verified-host
           verifiedHost: input.host,
         })
         .pipe(
@@ -2921,7 +2921,7 @@ export const make = Effect.gen(function* () {
               env: cleanEnvironment,
               timeoutMs: ATTACHMENT_UPLOAD_TIMEOUT_MS,
               maxOutputBytes: ATTACHMENT_UPLOAD_MAX_OUTPUT_BYTES,
-              verifiedHost: input.host, // fork-hook: pull-requests/attachment-media-verified-host
+              verifiedHost: input.host, // fork-hook: upstream-fixes/attachment-media-verified-host
             }),
           ),
           Effect.flatMap((result) => {
