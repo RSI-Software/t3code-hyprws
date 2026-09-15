@@ -22,6 +22,55 @@ const replaceSurface = (
   activeSurfaceId: surface.id,
 });
 
+/**
+ * Upstream's singleton `agents` surface, widened with the thread-local drill-down state the
+ * fork's Agents panel keeps per thread. Upstream still owns the member; the fork owns the widen,
+ * which is why the two lines it replaces are recorded as reshape debt rather than as a hook.
+ */
+export interface AgentsSurfaceFork {
+  id: "agents";
+  kind: "agents";
+  selectedAgentId: string | null;
+  rosterFocusAgentId: string | null;
+}
+
+/** The singleton Agents surface. Absent drill-down state opens the roster unfocused. */
+export const agentsSurfaceFork = (target?: {
+  readonly selectedAgentId?: string | null;
+  readonly rosterFocusAgentId?: string | null;
+}): AgentsSurfaceFork => ({
+  id: "agents",
+  kind: "agents",
+  selectedAgentId: target?.selectedAgentId ?? null,
+  rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
+});
+
+/**
+ * Persisted-state migration for the Agents surface: a v13/v14 surface predates the widen, so
+ * anything but a stored string for either id backfills as `null`. A widened surface round-trips.
+ */
+export const normalizeAgentsSurfaceFork = (surface: {
+  readonly id?: unknown;
+  readonly kind?: unknown;
+  readonly selectedAgentId?: unknown;
+  readonly rosterFocusAgentId?: unknown;
+}): [AgentsSurfaceFork] => [
+  agentsSurfaceFork({
+    selectedAgentId: typeof surface.selectedAgentId === "string" ? surface.selectedAgentId : null,
+    rosterFocusAgentId:
+      typeof surface.rosterFocusAgentId === "string" ? surface.rosterFocusAgentId : null,
+  }),
+];
+
+/** The store slice's `openAgents` member, as the upstream interface declares it. */
+export type OpenAgentsFork = (
+  ref: ScopedThreadRef,
+  target?: {
+    readonly selectedAgentId?: string | null;
+    readonly rosterFocusAgentId?: string | null;
+  },
+) => void;
+
 /** The store slice's `openAgents` member, composed with the store's own helpers. */
 export const createOpenAgents =
   (deps: {
@@ -31,24 +80,11 @@ export const createOpenAgents =
       threadKey: string,
       updater: ThreadUpdater,
     ) => ByThreadKey;
-  }): ((
-    ref: ScopedThreadRef,
-    target?:
-      | {
-          readonly selectedAgentId?: string | null;
-          readonly rosterFocusAgentId?: string | null;
-        }
-      | undefined,
-  ) => void) =>
+  }): OpenAgentsFork =>
   (ref, target) =>
     deps.set((state) => ({
       byThreadKey: deps.updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
-        replaceSurface(current, {
-          id: "agents",
-          kind: "agents",
-          selectedAgentId: target?.selectedAgentId ?? null,
-          rosterFocusAgentId: target?.rosterFocusAgentId ?? null,
-        }),
+        replaceSurface(current, agentsSurfaceFork(target)),
       ),
     }));
 
@@ -58,6 +94,20 @@ export const createOpenAgents =
 // persistence migration, the active-surface fallback, and the open action all
 // live here.
 // ---------------------------------------------------------------------------
+
+/** The `github-issues` hub kind, spread into upstream's ordered kind list. */
+export const githubIssueHubKindsFork = ["github-issues"] as const;
+
+/** The hub tab: one singleton surface listing the project's issues beside any issue tabs. */
+export interface GitHubIssueHubSurfaceFork {
+  id: "github-issues";
+  kind: "github-issues";
+}
+
+export const githubIssueHubSurfaceFork = (): GitHubIssueHubSurfaceFork => ({
+  id: "github-issues",
+  kind: "github-issues",
+});
 
 /** The `github-issue` member of the upstream `RightPanelSurface` union. */
 export interface GitHubIssueSurfaceFork {
@@ -111,7 +161,7 @@ export function updatePullRequestTabStatus<Status extends { state: unknown; isDr
 }
 
 /** Persisted-state migration for a `github-issue` surface: keep it only when every field is valid. */
-export const normalizeGitHubIssueSurfaceFork = (surface: GitHubIssueSurfaceFork) => {
+export const normalizeGitHubIssueFork = (surface: GitHubIssueSurfaceFork) => {
   if (
     typeof surface.environmentId !== "string" ||
     surface.environmentId.length === 0 ||
@@ -137,6 +187,17 @@ export const resolveGitHubIssueActiveSurfaceIdFork = (
     ? (surfaces.find((surface) => surface.kind === "github-issue")?.id ?? null)
     : null;
 
+/** The store slice's `openGitHubIssue` member, as the upstream interface declares it. */
+export type OpenGitHubIssueFork = (
+  ref: ScopedThreadRef,
+  target: {
+    environmentId: string;
+    projectId: string;
+    repository: string;
+    number: number;
+  },
+) => void;
+
 /** The store slice's `openGitHubIssue` member, composed with the store's own helpers. */
 export const createOpenGitHubIssue =
   (deps: {
@@ -146,15 +207,7 @@ export const createOpenGitHubIssue =
       threadKey: string,
       updater: ThreadUpdater,
     ) => ByThreadKey;
-  }): ((
-    ref: ScopedThreadRef,
-    target: {
-      environmentId: string;
-      projectId: string;
-      repository: string;
-      number: number;
-    },
-  ) => void) =>
+  }): OpenGitHubIssueFork =>
   (ref, target) =>
     deps.set((state) => ({
       byThreadKey: deps.updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => ({
