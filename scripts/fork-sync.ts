@@ -509,6 +509,10 @@ const voidedLeaseMessage = (
 const foldNotice = (report: SyncReport, live: string): string =>
   `fold: origin/hyprws advanced to \`${live}\` past lease \`${report.source!.expectedOld}\`; the movement is a linear landing sequence, so \`vp run fork:sync unblock-fold\` folds it into the candidate instead of voiding the walk.`;
 
+/** Same shape, worded for a `conflicts` walk that has not replayed yet (RSI-Software/t3code-hyprws#665). */
+const conflictsFoldNotice = (report: SyncReport, live: string): string =>
+  `fold: origin/hyprws advanced to \`${live}\` past lease \`${report.source!.expectedOld}\`; the movement is a linear landing sequence, so rehearse to \`replayed\` with \`vp run fork:sync unblock-rehearse\`, then \`vp run fork:sync unblock-fold\` folds it into the candidate instead of voiding the walk.`;
+
 const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => {
   // Make every unblock verb stale-aware. A report that has no source binding
   // (a fresh listed lane) is not yet leased; everything else names the old
@@ -523,10 +527,11 @@ const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => 
   if (result.status !== 0 || live.length === 0) return;
   if (live === leaseSha) return;
   // A walk with a lane at `replayed`/`checked` no longer voids on linear trunk movement: the
-  // movement folds (RSI-Software/t3code-hyprws#922). A resumed fold (stage `conflicts` or
-  // `folding` with an active fold) is mid-flight: its movement is already being incorporated, so
-  // linear movement continues instead of voiding. Any other stage never had a lane to fold into,
-  // and movement classify cannot fold keeps the void.
+  // movement folds (RSI-Software/t3code-hyprws#922). A `conflicts` walk that has not replayed
+  // yet still holds its lane and can fold once `unblock-rehearse` promotes it, so linear
+  // movement no longer voids it either (RSI-Software/t3code-hyprws#665); a resumed fold (stage
+  // `folding` with an active fold) is mid-flight and continues the same way. Any other stage
+  // never had a lane to fold into, and movement classify cannot fold keeps the void.
   if (
     report.kind !== "rewrite" &&
     report.source !== undefined &&
@@ -534,8 +539,8 @@ const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => 
     report.lane !== undefined &&
     (report.stage === "replayed" ||
       report.stage === "checked" ||
-      ((report.stage === "conflicts" || report.stage === "folding") &&
-        report.activeFold !== undefined))
+      report.stage === "conflicts" ||
+      (report.stage === "folding" && report.activeFold !== undefined))
   ) {
     const movement = classifyTrunkMovement(
       report.repositoryRoot,
@@ -545,7 +550,9 @@ const ensureLeaseCurrent = (report: SyncReport, runner: CommandRunner): void => 
       report.target.sha,
     );
     if (movement.kind === "linear") {
-      if (report.stage === "replayed" || report.stage === "checked")
+      if (report.stage === "conflicts")
+        process.stdout.write(`${conflictsFoldNotice(report, live)}\n`);
+      else if (report.stage === "replayed" || report.stage === "checked")
         process.stdout.write(`${foldNotice(report, live)}\n`);
       return;
     }
