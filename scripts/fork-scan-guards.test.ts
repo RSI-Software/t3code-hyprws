@@ -1418,6 +1418,153 @@ it("warns when a marked hook carries more than one construct", () => {
   );
 });
 
+it("classifies a const from a fork call in its prettier spelling as one construct (1013)", () => {
+  // `const mode = resolveModeFork(…)` is the only spelling prettier emits; the shape used to
+  // demand a type annotation, which the house style tells the author not to write.
+  const warnings = hookWarnings(
+    hookPatch("+const mode = resolveModeFork(input); // fork-hook: project-windows/spawn-target\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("classifies a marked fork-named JSX spread attribute as one construct (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      "+      {...previewPaneFork.toggleProps} /* fork-hook: project-windows/preview-pane */\n",
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("does not charge the fragment scaffolding a marker pair needs (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+      <>",
+        "+        {/* fork-hook: project-windows/preview-pane */}",
+        "+        <PreviewPaneFork />",
+        "+        {/* fork-hook-end */}",
+        "+      </>",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still charges a fragment that opens no marker pair (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(["+      <>", "+        <PlainThing />", "+      </>", ""].join("\n")),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /adds 3 line\(s\) outside a marked fork-hook/);
+});
+
+// A target blob whose pre-image position 10 carries a JSX element, so a wrap of that element
+// lands where `hookPatch`'s hunk header puts the first removed line.
+const wrapBlob = [
+  ...Array.from({ length: 9 }, (_, n) => `const filler${n} = ${n};`),
+  "      <RenderedMarkdownSurface file={file} />",
+  "  const summary = summarize(input);",
+  "const filler9 = 9;",
+  "const filler10 = 10;",
+];
+
+const wrapWarnings = (body: string) =>
+  collectScanWarnings({
+    ...hookPatch(body),
+    upstreamHookLines: new Map([[hookPath, wrapBlob]]),
+  }).filter((warning) => warning.rule === "fork-hook-seam");
+
+it("does not charge a marked JSX region for the lines it re-indents (1013)", () => {
+  const warnings = wrapWarnings(
+    [
+      "-      <RenderedMarkdownSurface file={file} />",
+      "+      {/* fork-hook: project-windows/preview-pane */}",
+      "+      <PreviewBoundaryFork>",
+      "+        <RenderedMarkdownSurface file={file} />",
+      "+      </PreviewBoundaryFork>",
+      "+      {/* fork-hook-end */}",
+      "",
+    ].join("\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still charges a real deletion inside a marked JSX region (1013)", () => {
+  const warnings = wrapWarnings(
+    [
+      "-      <RenderedMarkdownSurface file={file} />",
+      "+      {/* fork-hook: project-windows/preview-pane */}",
+      "+      <PreviewBoundaryFork />",
+      "+      {/* fork-hook-end */}",
+      "",
+    ].join("\n"),
+  );
+  assert.strictEqual(
+    warnings.filter((warning) => /removes or rewrites 1 upstream line/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
+it("ignores a marker attach written in the block-suffix form (1013)", () => {
+  // The attach exemption knew the line-comment and JSX forms only, so attaching the form the
+  // grammar mandates in an expression position still read as a rewrite of the line it marks.
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "-  const summary = summarize(input);",
+        "+  const summary = summarize(input); /* fork-hook: project-windows/spawn-target */",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("classifies a CSS at-rule import hook as one construct (1013)", () => {
+  // The shape list was TypeScript-only, so `@import` — the spelling a stylesheet must use to
+  // pull in the fork sheet — read as a second construct once block-suffix hooks were classified.
+  const cssPath = "apps/web/src/index.css";
+  const warnings = collectScanWarnings(
+    guardInput({
+      commits: [{ sha: hookSha, short: "bbbbbbb", domain: "project-windows" }],
+      filesBySha: new Map([[hookSha, [cssPath]]]),
+      patchesBySha: parseCommitPatches(
+        patch(
+          hookSha,
+          `--- a/${cssPath}\n+++ b/${cssPath}\n@@ -1,1 +1,2 @@\n+@import "./index.fork.css"; /* fork-hook: project-windows/index-fork-css */\n`,
+        ),
+      ),
+      upstreamFiles: new Set([cssPath]),
+      forkHooks: new Set(["project-windows/index-fork-css"]),
+    }),
+  ).filter((warning) => warning.rule === "fork-hook-seam");
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
+  // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
+  // line, so gating on the line form alone left every hook inside a JSX attribute list, an
+  // object literal, or an expression unclassified.
+  const warnings = hookWarnings(
+    hookPatch("+if (x) forkThing(); /* fork-hook: project-windows/spawn-target */\n"),
+  );
+  assert.strictEqual(
+    warnings.filter((warning) => /more than one construct/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
+it("passes a single fork call closed by a block-suffix marker (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch("+forkThing(spawnTarget); /* fork-hook: project-windows/spawn-target */\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("does not refuse the deletion of a hook line the fork added itself", () => {
   const warnings = hookWarnings(
     hookPatch(
