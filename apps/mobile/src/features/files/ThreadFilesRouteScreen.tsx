@@ -344,10 +344,10 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const revealedInspectorRef = useRef(false);
   const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
   const entriesQuery = useEnvironmentQuery(
-    environmentId !== null && workspaceFileListing !== null && !fileInspector.supported
+    environmentId !== null && workspaceFileListing !== null && !fileInspector.supported // fork-hook: workspace-files/mobile-route-ignored-listing-condition
       ? projectEnvironment.listEntries({
           environmentId,
-          input: workspaceFileListing,
+          input: workspaceFileListing, // fork-hook: workspace-files/mobile-route-ignored-listing-input
         })
       : null,
   );

@@ -270,6 +270,7 @@ export const make = Effect.gen(function* () {
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
       const result = yield* Effect.gen(function* () {
+        // fork-hook: workspace-files/workspace-entries-list-ignored-result
         const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
         return yield* searchIndex.list();
       }).pipe(
