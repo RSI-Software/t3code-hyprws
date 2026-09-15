@@ -3,7 +3,7 @@ import { act, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-// fork-hook: web/pull-request-attachments — the fork adds the prepared-connection
+// fork-hook: upstream-fixes/pull-request-attachments — the fork adds the prepared-connection
 // attachment binding to the description editor; the tests here do not exercise it.
 vi.mock("~/state/session", () => ({
   usePreparedConnection: () => ({ _tag: "None" }),
