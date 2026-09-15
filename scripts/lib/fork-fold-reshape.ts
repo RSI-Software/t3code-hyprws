@@ -6,6 +6,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import { makeProgressReporter } from "./fork-progress.ts";
 import {
   parseRewriteManifest,
   REWRITE_MANIFEST_SCHEMA,
@@ -55,15 +56,34 @@ const hunkName = (hunk: DiffHunk): string => `${hunk.path}:${hunk.oldStart},+${h
 const PROOF_NAMES = ["snapshot-tests", "composition", "test-ownership", "compatibility"] as const;
 const NULL_DIGEST = "0".repeat(64);
 
-const entryAt = (git: FoldGit, treeish: string, path: string): FoldEntry | null => {
-  const raw = git(["ls-tree", treeish, "--", path]).trim();
-  if (raw.length === 0) return null;
-  const [meta, name] = raw.split("\t");
-  if (name !== path) throw new Error(`ls-tree returned unexpected path: ${name}`);
-  const [mode, type, oid] = (meta ?? "").split(" ");
-  if (mode === undefined || type === undefined || oid === undefined)
-    throw new Error(`unparsable ls-tree output for ${path}`);
-  return { mode, type, oid };
+/**
+ * One `ls-tree` per tree for a fixed path set, memoized on the tree OID.
+ *
+ * The slot walk only ever asks about the reshape's attributed paths, so a single spawn per
+ * tree answers every lookup; asking per path costs O(paths x slots) spawns on a long stack.
+ * Absence is cached as `null` alongside the hits, because a path missing from a slot tree and
+ * a path present but unchanged drive different fold branches. The cache holds one entry per
+ * distinct tree, each the size of the path set, and is rebuilt per reshape.
+ */
+const makeTreeReader = (git: FoldGit, paths: ReadonlyArray<string>) => {
+  const cache = new Map<string, ReadonlyMap<string, FoldEntry | null>>();
+  return (treeOid: string): ReadonlyMap<string, FoldEntry | null> => {
+    const known = cache.get(treeOid);
+    if (known !== undefined) return known;
+    const entries = new Map<string, FoldEntry | null>(paths.map((path) => [path, null]));
+    const raw = paths.length === 0 ? "" : git(["ls-tree", "-z", treeOid, "--", ...paths]);
+    for (const row of raw.split("\0").filter(Boolean)) {
+      const tab = row.indexOf("\t");
+      const name = row.slice(tab + 1);
+      if (!entries.has(name)) throw new Error(`ls-tree returned unexpected path: ${name}`);
+      const [mode, type, oid] = row.slice(0, tab).split(" ");
+      if (mode === undefined || type === undefined || oid === undefined)
+        throw new Error(`unparsable ls-tree output for ${name}`);
+      entries.set(name, { mode, type, oid });
+    }
+    cache.set(treeOid, entries);
+    return entries;
+  };
 };
 
 /**
@@ -397,7 +417,9 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
     string,
     Map<string, { mode: string; type: string; oid: string; name: string }>
   >();
-  for (const reshape of reshapes) {
+  const report = makeProgressReporter("fold-reshape");
+  for (const [reshapeIndex, reshape] of reshapes.entries()) {
+    report(`attributing ${shortSha(reshape)}`, reshapeIndex + 1, reshapes.length);
     const parent = git(["rev-parse", `${reshape}^`]).trim();
     const belowReshape = new Set(
       git(["rev-list", `${base}..${parent}`])
@@ -416,8 +438,9 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       commits,
     );
     refusals.push(...pathRefusals);
-    const parentTree = `${parent}^{tree}`;
-    const reshapeTree = `${reshape}^{tree}`;
+    const readTree = makeTreeReader(git, [...paths.keys()]);
+    const parentEntries = readTree(git(["rev-parse", `${parent}^{tree}`]).trim());
+    const reshapeEntries = readTree(git(["rev-parse", `${reshape}^{tree}`]).trim());
     for (const [path, blamed] of paths) {
       const override = input.attribute?.get(path);
       let origin = override ?? blamed;
@@ -434,10 +457,11 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       if (start < 0 || end < 0)
         refusals.push(`${path}: origin ${shortSha(origin)} is not in base..source`);
       if (refusals.length > 0) continue;
-      const parentBlob = entryAt(git, parentTree, path);
-      const reshapeBlob = entryAt(git, reshapeTree, path);
+      const parentBlob = parentEntries.get(path) ?? null;
+      const reshapeBlob = reshapeEntries.get(path) ?? null;
       if (parentBlob === null && reshapeBlob === null) continue;
       for (let index = start; index < end; index++) {
+        report(`${shortSha(reshape)} ${path}`, index - start + 1, end - start);
         const slotCommit = commits[index]!;
         const slotChanges =
           changesBySlot.get(slotCommit) ??
@@ -446,7 +470,7 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
           refusals.push(`${path}: already folded at ${shortSha(slotCommit)} by an earlier reshape`);
           continue;
         }
-        const before = entryAt(git, `${slotCommit}^{tree}`, path);
+        const before = readTree(treeOf.get(slotCommit) ?? "").get(path) ?? null;
         let after: FoldEntry | null;
         if (parentBlob === null)
           after = reshapeBlob; // R created the path: every slot takes R's blob.
@@ -478,7 +502,8 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
   }
   if (refusals.length > 0) return { refused: true, reasons: refusals };
 
-  const slots = commits.map((commit) => {
+  const slots = commits.map((commit, index) => {
+    report("building", index + 1, commits.length);
     const tree = treeOf.get(commit) ?? "";
     const changes = changesBySlot.get(commit);
     if (changes === undefined)

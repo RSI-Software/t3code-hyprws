@@ -1,10 +1,11 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off - Binary Git plumbing for an offline, object-only constructor; rate-limited stderr progress runs outside any Effect.
+// @effect-diagnostics nodeBuiltinImport:off - Binary Git plumbing for an offline, object-only constructor.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { UsageError } from "./fork-cli.ts";
 import { externalPath } from "./fork-external-path.ts";
+import { makeProgressReporter } from "./fork-progress.ts";
 
 export const REWRITE_MANIFEST_SCHEMA = "fork.rewrite-manifest.v1";
 export const REWRITE_RECEIPT_SCHEMA = "fork.rewrite-build.v1";
@@ -426,22 +427,6 @@ export const rebuildCommit = (raw: Buffer, tree: string, parent: string) => {
   };
 };
 
-/**
- * Rate-limited (>= 1s apart) stderr progress, e.g. `rewrite-build: verifying 137/275`.
- * Piping through `tee` (the normal way these gates are run) makes stderr a non-TTY pipe,
- * so this gates only on `FORK_QUIET`, never on `isTTY`.
- */
-const makeProgressReporter = (total: number) => {
-  let last = 0;
-  return (label: string, current: number) => {
-    if (process.env.FORK_QUIET === "1") return;
-    const now = Date.now();
-    if (now - last < 1000) return;
-    last = now;
-    process.stderr.write(`rewrite-build: ${label} ${current}/${total}\n`);
-  };
-};
-
 export const buildRewrite = (
   root: string,
   rawManifest: Buffer,
@@ -475,7 +460,8 @@ export const buildRewrite = (
     .split("\n");
   if (JSON.stringify(commits) !== JSON.stringify(manifest.slots.map((slot) => slot.commit)))
     fail("manifest must enumerate every original commit once, in order");
-  const reportProgress = makeProgressReporter(manifest.slots.length);
+  const reportProgress = makeProgressReporter("rewrite-build");
+  const slotCount = manifest.slots.length;
   let originalParent = manifest.base;
   const prepared = manifest.slots.map((slot, index) => {
     const raw = objects.git(["cat-file", "commit", slot.commit]);
@@ -509,7 +495,7 @@ export const buildRewrite = (
     }
     const tree = buildTree(objects, entries, false);
     if (tree !== slot.resultTree) fail(`snapshot output digest mismatch at ${slot.commit}`);
-    reportProgress("verifying", index + 1);
+    reportProgress("verifying", index + 1, slotCount);
     return { slot, entries, raw, tree };
   });
   if (prepared.at(-1)?.slot.resultTree !== manifest.sourceTree)
@@ -522,7 +508,7 @@ export const buildRewrite = (
   const preview = prepared.map(({ slot, raw, tree }, index) => {
     const rewritten = rebuildCommit(raw, tree, previewParent);
     previewParent = objects.hash("commit", rewritten.bytes, false);
-    reportProgress("previewing", index + 1);
+    reportProgress("previewing", index + 1, slotCount);
     return { slot, tree, rebuilt: previewParent, rewritten };
   });
   for (const { slot, tree } of preview)
@@ -551,7 +537,7 @@ export const buildRewrite = (
     if (!objects.git(["cat-file", "commit", rebuilt]).equals(rewritten.bytes))
       fail("commit readback changed bytes");
     parent = rebuilt;
-    reportProgress("writing", index + 1);
+    reportProgress("writing", index + 1, slotCount);
     return {
       original: slot.commit,
       rebuilt,
