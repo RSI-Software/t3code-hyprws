@@ -5712,6 +5712,137 @@ it("names the staleness and trash when any verb runs on a voided report", () => 
   NodeFS.rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * A `conflicts` walk holds its lane but never replayed, so its lease must survive linear trunk
+ * movement too (RSI-Software/t3code-hyprws#665): the fold notice names rehearse-then-fold instead
+ * of voiding, non-linear movement still voids, and a lane-less stage still voids even on linear
+ * movement. `classifyTrunkMovement` runs real git, so the linear case uses real commits.
+ */
+it("a conflicts lane folds linear trunk movement instead of voiding", () => {
+  const root = fixtureRoot();
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "t@t.test"], { cwd: root });
+  const commit = (file: string, content: string): string => {
+    NodeFS.writeFileSync(NodePath.join(root, file), content);
+    NodeChildProcess.execFileSync("git", ["add", file], { cwd: root });
+    NodeChildProcess.execFileSync("git", ["commit", "--quiet", "-m", file], { cwd: root });
+    return NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+  };
+  const sharedBase = commit("base.txt", "base\n");
+  const target = commit("target.txt", "target\n");
+  NodeChildProcess.execFileSync("git", ["reset", "--quiet", "--hard", sharedBase], { cwd: root });
+  const frontier = commit("frontier.txt", "frontier\n");
+  const live = commit("landing.txt", "landing\n");
+
+  const rep = report(root, {
+    stage: "conflicts",
+    target: { tag: "v1.2.3", sha: target },
+    source: { sha: frontier, expectedOld: frontier, sharedBase },
+    lane: { branch: `rehearse/v1.2.3-from-${frontier.slice(0, 12)}`, worktree: root },
+  });
+  NodeFS.writeFileSync(rep.reportPath, JSON.stringify(rep));
+  NodeFS.writeFileSync(rep.recordPath, renderRecord(rep));
+  const runner = new FakeRunner();
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${live}\n` });
+  try {
+    const { output } = captureStdout(() => {
+      try {
+        execute(["unblock-rehearse", "--report", rep.reportPath], root, runner);
+      } catch (error) {
+        if (!/replay binding is incomplete/.test(error instanceof Error ? error.message : ""))
+          throw error;
+      }
+    });
+    // The lease refusal is gone and the notice names rehearse-then-fold; the run proceeds past
+    // the lease and stops at the replay binding it cannot fake, which is the point.
+    assert.match(output, /fold: origin\/hyprws advanced to .* past lease /);
+    assert.include(output, "rehearse to `replayed` with `vp run fork:sync unblock-rehearse`");
+    assert.include(output, "then `vp run fork:sync unblock-fold` folds it into the candidate");
+    assert.notInclude(output, "staleness:");
+  } finally {
+    NodeFS.rmSync(NodePath.dirname(rep.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(rep.recordPath), { recursive: true, force: true });
+  }
+  NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
+it("a conflicts lane still voids on non-linear trunk movement", () => {
+  const root = fixtureRoot();
+  const rep = report(root, {
+    stage: "conflicts",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+    originalMessages: "msg",
+    originalCount: 1,
+  });
+  NodeFS.writeFileSync(rep.reportPath, JSON.stringify(rep));
+  NodeFS.writeFileSync(rep.recordPath, renderRecord(rep));
+  const runner = new FakeRunner();
+  // Movement to A off a C frontier cannot fold (C is not an ancestor of A).
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${A}\n` });
+  try {
+    let message = "";
+    try {
+      execute(["unblock-rehearse", "--report", rep.reportPath], root, runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.match(message, /staleness: origin\/hyprws moved past the report's lease/);
+    assert.match(message, /the walk re-lists from the moved trunk/);
+  } finally {
+    NodeFS.rmSync(NodePath.dirname(rep.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(rep.recordPath), { recursive: true, force: true });
+  }
+  NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
+it("an oriented walk without a lane still voids on linear trunk movement", () => {
+  const root = fixtureRoot();
+  NodeChildProcess.execFileSync("git", ["config", "user.name", "test"], { cwd: root });
+  NodeChildProcess.execFileSync("git", ["config", "user.email", "t@t.test"], { cwd: root });
+  const commit = (file: string, content: string): string => {
+    NodeFS.writeFileSync(NodePath.join(root, file), content);
+    NodeChildProcess.execFileSync("git", ["add", file], { cwd: root });
+    NodeChildProcess.execFileSync("git", ["commit", "--quiet", "-m", file], { cwd: root });
+    return NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
+      .toString()
+      .trim();
+  };
+  const sharedBase = commit("base.txt", "base\n");
+  const target = commit("target.txt", "target\n");
+  NodeChildProcess.execFileSync("git", ["reset", "--quiet", "--hard", sharedBase], { cwd: root });
+  const frontier = commit("frontier.txt", "frontier\n");
+  const live = commit("landing.txt", "landing\n");
+
+  const rep = report(root, {
+    stage: "oriented",
+    target: { tag: "v1.2.3", sha: target },
+    source: { sha: frontier, expectedOld: frontier, sharedBase },
+  });
+  NodeFS.writeFileSync(rep.reportPath, JSON.stringify(rep));
+  NodeFS.writeFileSync(rep.recordPath, renderRecord(rep));
+  const runner = new FakeRunner();
+  // The movement itself is linear; only the missing lane keeps the void.
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${live}\n` });
+  try {
+    let message = "";
+    try {
+      execute(["unblock-rehearse", "--report", rep.reportPath], root, runner);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    assert.match(message, /staleness: origin\/hyprws moved past the report's lease/);
+    assert.notInclude(message, "fold:");
+  } finally {
+    NodeFS.rmSync(NodePath.dirname(rep.reportPath), { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(rep.recordPath), { recursive: true, force: true });
+  }
+  NodeFS.rmSync(root, { recursive: true, force: true });
+});
+
 it("does not refuse when origin/hyprws is still at the leased SHA", () => {
   const root = fixtureRoot();
   const checked = report(root, {
