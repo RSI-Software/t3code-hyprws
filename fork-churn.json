@@ -14063,7 +14063,6 @@
           "subject": "fix(server): keep terminals in managed zmux sessions",
           "domain": "zmux-estate",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
@@ -14202,7 +14201,6 @@
           "subject": "chore(fork-sync): repair typecheck after v0.0.41-nightly.20260908.1414",
           "domain": "fork-meta",
           "verdict": "keep",
-          "action": "keep (target tree absent)",
           "decidedBy": "human"
         },
         {
@@ -14215,98 +14213,84 @@
           "subject": "install a pinned fork runtime from a release tarball",
           "domain": "distribution",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(server): watch the ssh package the server now imports",
           "domain": "upstream-fixes",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(web): carry the fork thread-env mode through the project-scope path",
           "domain": "worktrunk-hooks",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(dev): cut the desktop dev graph dependency on the shared client build",
           "domain": "project-windows",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(web): render collapsed sidebar groups from the visible thread list",
           "domain": "thread-ordering",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(web): make sidebar row centres and group headers grouping drop targets",
           "domain": "thread-ordering",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(web): apply the drag-ungroup preview on release",
           "domain": "thread-ordering",
           "verdict": "keep",
-          "action": "keep (target tree absent)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(web): composer custom-agent seams sit behind fork-owned files",
           "domain": "custom-agents",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(workspace-files): ignored workspace files sit behind fork-owned seams",
           "domain": "workspace-files",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(web): pull-request project scope supplied by one prop hook",
           "domain": "project-windows",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(web): one fork component for the GitHub link destination; one project resolver",
           "domain": "github-issues",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(upstream-fixes): composer refocus folds into the window-focus predicate",
           "domain": "upstream-fixes",
           "verdict": "keep",
-          "action": "keep (target tree absent)",
           "decidedBy": "human"
         },
         {
           "subject": "refactor(github-issues): Issues surface registrations sit behind marked hooks",
           "domain": "github-issues",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
           "subject": "fix(fork-sync): mark the single-substitution seams so the walk can lift them",
           "domain": "workspace-files",
           "verdict": "keep",
-          "action": "keep (target tree present)",
           "decidedBy": "human"
         },
         {
@@ -57152,6 +57136,46 @@
       "status": "failed",
       "detail": "unresolved blocking seams refused the policy pass; verdict is independent of publication",
       "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/34969066228"
+    },
+    {
+      "kind": "attempt",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35010619827/1/outcome",
+      "trigger": "push",
+      "executor": "bot",
+      "mode": "unknown",
+      "sourceSha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "runUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35010619827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35010619827/1/outcome",
+      "stage": "release-verification",
+      "status": "failed",
+      "detail": "release preflight result for the exact checkout",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35010619827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35010619827/1/outcome",
+      "stage": "release-build",
+      "status": "not-attempted",
+      "detail": "release build result for the exact preflight checkout",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35010619827"
+    },
+    {
+      "kind": "stage",
+      "targetSha": "50ff4c371eab927a9650c114975241999f4cd7b1",
+      "attemptId": "35010619827/1/outcome",
+      "stage": "distribution",
+      "status": "failed",
+      "detail": "release incomplete: preflight=failed, build=not-attempted, publication=not-attempted, assets=false, tagMatches=false, retainedApply=false",
+      "sha": "3f0228b226e92646d80195dc362cfef890d2ce08",
+      "evidenceUrl": "https://github.com/RSI-Software/t3code-hyprws/actions/runs/35010619827"
     },
     {
       "kind": "target",
