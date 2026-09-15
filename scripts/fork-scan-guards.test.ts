@@ -1427,6 +1427,15 @@ it("classifies a const from a fork call in its prettier spelling as one construc
   assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
 });
 
+it("classifies a marked fork-named JSX spread attribute as one construct (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      "+      {...previewPaneFork.toggleProps} /* fork-hook: project-windows/preview-pane */\n",
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
   // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
   // line, so gating on the line form alone left every hook inside a JSX attribute list, an

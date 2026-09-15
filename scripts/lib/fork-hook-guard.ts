@@ -48,7 +48,10 @@ const HOOK_BRANCH = /^\s*(?:if|for|while|switch)\s*\(/;
 const HOOK_CONST_FROM_CALL =
   /^\s*(?:export\s+)?const\s+[\w$]+(?:\s*:\s*[^=]+)?\s*=\s*[A-Za-z_$][\w$.]*\s*\(/;
 const HOOK_FORK_NAMED = /[Ff]ork|Hypr|hyprws/;
-const HOOK_PROPERTY = /^\s*(?:\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
+// The spread half covers both spellings of the same construct: an object spread and its JSX
+// attribute form, `{...forkProps}`, which is the shape that avoids rewriting upstream prop lines.
+const HOOK_PROPERTY =
+  /^\s*(?:\{\.\.\.[A-Za-z_$][\w$.]*\}|\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][\w$.]*)\s*,?\s*$/;
 // Inside a JSX hook only an in-scope element is allowed — no derived rows, no
 // statements. These are the shapes that smuggle a second construct in.
 const JSX_HOOK_FLOW =
