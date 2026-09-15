@@ -247,6 +247,17 @@ it("names the command that dirtied the worktree in a standalone non-legacy repai
   assert.strictEqual(repairKind(outcome.dirtiedBy ?? ""), "typecheck");
   assert.strictEqual(repairKind("vp fmt apps/web/src/window.ts"), "fmt");
   assert.strictEqual(repairKind("vp test run apps/web/src/window.test.ts"), "tests");
+  // The check's own seam commit renders a seam subject, not a borrowed tool name.
+  assert.strictEqual(repairKind("seam"), "seam");
+  assert.strictEqual(
+    repairCommitMessage({
+      kind: "seam",
+      tag: "v1.2.3",
+      domain: "fork-meta",
+      command: "seam",
+    }).split("\n")[0] ?? "",
+    "chore(fork-sync): repair seam after v1.2.3",
+  );
 
   // A pass that leaves the tree clean names nothing, so the walk has nothing to commit.
   assert.strictEqual(

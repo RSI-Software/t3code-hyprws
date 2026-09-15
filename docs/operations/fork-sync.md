@@ -906,7 +906,9 @@ for diagnostics, for picking a stopped walk up by hand, and for the series rewri
    release tag at the fork base for a trunk rewrite. A moved `upstream/main` therefore cannot fail a
    lane for upstream drift the lane did not introduce. Record one repaired seam with
    `--silent-seam '<path>=<summary>:type'` or
-   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. It then repairs
+   `--silent-seam '<path>=<summary>:behaviour'`; the report preserves that evidence. A lane repaired
+   by hand before the check is committed by the check as its own `seam` repair (fixup per owner,
+   standalone otherwise) ahead of the additive proof. It then repairs
    the lane in place, scoped to the paths the replay touched, and records every command it ran in
    the report's verification and `walk.repairs`. A repair failure stops the walk with the reason it
    belongs to and leaves the report at the stage it reached. Only a series rewrite pushes the

@@ -148,16 +148,18 @@ export interface RepairOutcome {
 /**
  * What a repair pass did, named after the command that wrote to the worktree.
  */
-export type RepairKind = "fmt" | "typecheck" | "tests" | "additive";
+export type RepairKind = "fmt" | "typecheck" | "tests" | "additive" | "seam";
 
 export const repairKind = (command: string): RepairKind =>
   /(^|\s)additive(\s|$)/.test(command)
     ? "additive"
-    : /(^|\s)fmt(\s|$)/.test(command)
-      ? "fmt"
-      : /(^|\s)test(\s|$)/.test(command)
-        ? "tests"
-        : "typecheck";
+    : /(^|\s)seam(\s|$)/.test(command)
+      ? "seam"
+      : /(^|\s)fmt(\s|$)/.test(command)
+        ? "fmt"
+        : /(^|\s)test(\s|$)/.test(command)
+          ? "tests"
+          : "typecheck";
 
 export interface RepairCommitInput {
   readonly kind: RepairKind;
@@ -173,7 +175,7 @@ export interface RepairCommitInput {
  */
 export const repairCommitMessage = ({ kind, tag, domain, command }: RepairCommitInput): string =>
   [
-    `chore(fork-sync): ${kind} after ${tag}`,
+    `chore(fork-sync): ${kind === "seam" ? "repair seam" : kind} after ${tag}`,
     "",
     `\`${command}\` rewrote the worktree while replaying onto ${tag}.`,
     "",
