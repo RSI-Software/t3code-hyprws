@@ -1062,6 +1062,59 @@ it("renders KPI fallbacks for a first walk", () => {
   assert.include(renderMarkdown([entry("v1", [])], ""), "## KPIs");
 });
 
+it("lists a stopped walk in the rendered document with its conflicts and repair commits", () => {
+  const document = renderMarkdown(
+    [
+      entry("v1", []),
+      {
+        ...entry("v2", [conflict("apps/web/src/ChatView.tsx", "seam-moved")]),
+        pending: true as const,
+        repairCommits: [{ sha: "1f8c22dc68a", subject: "lane repair" }],
+      },
+    ],
+    "",
+  );
+  const walkRow = document
+    .split("\n")
+    .filter((line) => line.startsWith("| `v"))
+    .find((line) => line.includes("| `v2` |"));
+  // The stopped row is present, marked, and carries its conflicts and repairs like an applied one.
+  assert.exists(walkRow);
+  assert.include(walkRow!, "→ **stopped**");
+  assert.include(walkRow!, "seam-moved: 1");
+  assert.include(walkRow!, "| 1 | ");
+});
+
+it("reports the applied and stopped split in Entries, and the plain count when nothing stopped", () => {
+  const split = renderMarkdown(
+    [entry("v1", []), entry("v2", []), { ...entry("v3", []), pending: true as const }],
+    "",
+  );
+  assert.include(split, "- Entries: 3 (2 applied, 1 stopped)");
+  assert.include(split, "- Tag range (applied walks only): `v1` → `v2`");
+  const plain = renderMarkdown([entry("v1", []), entry("v2", [])], "");
+  assert.include(plain, "- Entries: 2\n");
+  assert.equal(plain.includes("(2 applied, 0 stopped)"), false);
+});
+
+it("keeps the tag range over applied walks when a stopped walk attempted a later tag", () => {
+  const document = renderMarkdown(
+    [entry("v1", []), { ...entry("v9-nightly", []), pending: true as const }],
+    "",
+  );
+  assert.include(document, "- Tag range (applied walks only): `v1` → `v1`");
+});
+
+it("counts a path only ever seen on stopped walks as a hot seam", () => {
+  const seams = hotSeams([
+    { ...entry("v1", [conflict("stopped-seam.ts", "human")]), pending: true as const },
+    { ...entry("v2", [conflict("stopped-seam.ts", "human")]), pending: true as const },
+  ]);
+  assert.strictEqual(seams.length, 1);
+  assert.strictEqual(seams[0]?.path, "stopped-seam.ts");
+  assert.strictEqual(seams[0]?.walkCount, 2);
+});
+
 it("counts the conflict class mix and decided-by split across walks", () => {
   const section = renderChurnSection([
     entry("v1", [conflict("a", "generated"), conflict("b", "human")]),
