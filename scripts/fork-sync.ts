@@ -2,6 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Operator state machine runs before Effect exists.
 
 import * as NodeCrypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -1688,6 +1689,25 @@ const mergeRepairCommits = (
 };
 
 /**
+ * The delta gate proves the lane with the tooling checkout's own `fork-delta`, not the lane's
+ * replayed copy: product comes from the lane, tooling from the checkout that runs the verb, so a
+ * gate fix applies to a lane in flight without a fold. Resolved from the running script's
+ * location (`import.meta`, via `fileURLToPath`), not `report.repositoryRoot` — the record binds
+ * the walked repository, while the tooling is whatever checkout is executing this verb, and the
+ * two differ in every fixture, lane, and rehearsal.
+ */
+export const toolingDeltaCheck = (): {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+} => ({
+  command: "node",
+  args: [
+    NodePath.join(NodePath.dirname(fileURLToPath(import.meta.url)), "fork-delta.ts"),
+    "--check",
+  ],
+});
+
+/**
  * Commit a repair as one trailer-free fixup per unambiguous fork owner. Every repaired path must
  * have an owner — a fork commit in `target..HEAD` that touched it, or a `--seam-owner` declaration —
  * because an unowned repair has no fork decision to ride and a standalone bookkeeping commit can
@@ -1732,6 +1752,15 @@ const commitWalkRepairs = (
     }
     return owners.get(path);
   };
+  // A declared owner is validated only when a dirty path actually resolves to it: stale flags on
+  // a clean tree must not fail at usage, but a used-and-invalid declaration is still a usage error.
+  const usedDeclared = new Map(
+    paths.flatMap((path) => {
+      const declared = declaredOwners.get(path);
+      return declared === undefined ? [] : [[path, declared] as const];
+    }),
+  );
+  if (usedDeclared.size > 0) validateSeamOwners(report, runner, worktree, usedDeclared);
   // Refuse before any git mutation: an unowned path would otherwise ride a fixup for a sibling.
   const ownerless = paths.filter((path) => resolve(path) === undefined);
   if (ownerless.length > 0)
@@ -1929,7 +1958,7 @@ const runAdditivePhase = (
     repaired = commitWalkRepairs(report, runner, worktree, verificationEnv, declaredOwners);
     if (repaired.length === 0)
       throw new Error("additive repairs dirtied the tree but left no commit");
-    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    const delta = toolingDeltaCheck();
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
   }
   const retry = checkAdditive(runner, worktree, trees);
@@ -2071,7 +2100,24 @@ const unblockCheck = (
   const lane = report.lane!;
   const worktree = lane.worktree;
   const verificationEnv = laneEnv(worktree);
-  validateSeamOwners(report, runner, worktree, seamOwners);
+  // A run stopped after its autosquash retains `walk.repairCommits` entries whose SHAs the rebase
+  // rewrote out of existence. Drop the unreachable ones before they count toward the fixup gate,
+  // and persist the pruned list so no later guard reads a dead sha.
+  const reachableRepairCommits = (report.walk?.repairCommits ?? []).filter(({ sha }) => {
+    const reachable =
+      runner.run("git", ["cat-file", "-e", `${sha}^{commit}`], worktree).status === 0 &&
+      runner.run("git", ["merge-base", "--is-ancestor", sha, "HEAD"], worktree).status === 0;
+    if (!reachable)
+      process.stderr.write(`repair commit ${sha.slice(0, 12)} is no longer reachable; dropped\n`);
+    return reachable;
+  });
+  if (reachableRepairCommits.length !== (report.walk?.repairCommits ?? []).length) {
+    report = {
+      ...report,
+      walk: { ...(report.walk ?? {}), repairCommits: reachableRepairCommits },
+    };
+    writeReport(report);
+  }
   const before = readHeadFile(runner, worktree, "pnpm-lock.yaml");
   requireSuccess(
     runner,
@@ -2128,7 +2174,7 @@ const unblockCheck = (
       : (report.target as NonNullable<typeof report.target>).tag;
   const commands: Array<{ command: string; args: ReadonlyArray<string> }> = [
     { command: "vp", args: ["run", "--no-cache", "fork:scan", "--target", scanTag] },
-    { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] },
+    toolingDeltaCheck(),
   ];
   const verification: Array<{ command: string; result: string }> = [];
   for (const command of commands) {
@@ -2152,10 +2198,7 @@ const unblockCheck = (
     seamCommits = commitWalkRepairs(report, runner, worktree, verificationEnv, seamOwners);
     if (seamCommits.length > 0) {
       // Prove the repair in the lane before the additive proof builds on it.
-      const delta = {
-        command: "vp",
-        args: ["run", "--no-cache", "fork:delta", "--check"],
-      } as const;
+      const delta = toolingDeltaCheck();
       requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
       verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
       report = {
@@ -2230,7 +2273,7 @@ const unblockCheck = (
   let repairCommits = mergeRepairCommits(report.walk?.repairCommits, repaired);
   if (repaired.length > 0) {
     // Prove the repair in the lane before folding it into its declared owner.
-    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    const delta = toolingDeltaCheck();
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
@@ -2275,7 +2318,7 @@ const unblockCheck = (
     // `dropTransientFixups` keeps out of the ledger — so they never see the repair diff. Prove
     // the delta once more on the autosquashed stack, where the owner diff is what the walk will
     // apply and the wire-shape gate must judge it.
-    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    const delta = toolingDeltaCheck();
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
