@@ -2371,12 +2371,13 @@ const unblockCheck = (
     ...report,
     stage: "checked",
     installedHead: checkedHead,
-    // A repair moves the lane head the apply publishes, so the record's head and stack size bind
-    // that head. The gate compares them against the checkout, and the fork series is still
-    // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommits.length === 0 && seamCommits.length === 0
-      ? {}
-      : {
+    // A repair — or an autosquash folding retained fixups — moves the lane head the apply
+    // publishes, so the record's head and stack size bind the head the check actually proved
+    // (`Rebased head`, `Final head`, and `Stack size` all render from these two fields). The
+    // gate compares them against the checkout, and the fork series is still exactly what the
+    // replay proved: `## Repair commits` names everything appended after it.
+    ...(hasFixups || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+      ? {
           rebasedHead: checkedHead,
           stackSize: Number(
             git(
@@ -2386,7 +2387,8 @@ const unblockCheck = (
               true,
             ),
           ),
-        }),
+        }
+      : {}),
     ...(foldsWithRepairs.length > 0 &&
     (foldsWithRepairs !== report.folds ||
       foldsWithRepairs[foldsWithRepairs.length - 1]!.checkedHead !== checkedHead)
