@@ -69,6 +69,14 @@ const cacheEntry = (root: string, key: string, resolution: string): string => {
   return saveRerereCache(root, "rerere: test snapshot")!;
 };
 
+const lockfileCacheEntry = (root: string, key: string, resolution: string): string => {
+  const directory = NodePath.join(root, ".git", "rr-cache", key);
+  NodeFS.mkdirSync(directory, { recursive: true });
+  NodeFS.writeFileSync(NodePath.join(directory, "preimage"), "lockfileVersion: '9.0'\n");
+  NodeFS.writeFileSync(NodePath.join(directory, "postimage"), resolution);
+  return saveRerereCache(root, "rerere: test snapshot")!;
+};
+
 const withPublishers = (effect: (left: string, right: string, remote: string) => void): void => {
   withRepository((left) =>
     withRepository((right) => {
@@ -125,6 +133,85 @@ it("refuses same-key disagreement without overwriting either resolution", () => 
     );
     assert.strictEqual(resolveBotRef(remote, RERERE_REF), existing);
     assert.strictEqual(readBotRefFile(left, RERERE_REF, "same/postimage"), "left resolution\n");
+  });
+});
+
+it("never publishes a regenerated lockfile entry and never calls it a disagreement", () => {
+  withPublishers((left, right, remote) => {
+    const notes: string[] = [];
+    const logged = console.log;
+    console.log = (line: string) => notes.push(line);
+    try {
+      // Two walks regenerate the lockfile with different resolved versions, so the same
+      // rr-cache id carries disagreeing postimages that publication must skip, not fail on.
+      publishRerereSnapshot(right, lockfileCacheEntry(right, "a".repeat(40), "resolved v1\n"));
+      notes.length = 0;
+      const published = publishRerereSnapshot(
+        left,
+        lockfileCacheEntry(left, "a".repeat(40), "resolved v2\n"),
+      );
+      // A real resolution from the same walk still lands alongside the skipped entry.
+      // Drop the local lockfile entry so the follow-up snapshot carries only the real one.
+      NodeFS.rmSync(NodePath.join(left, ".git", "rr-cache", "a".repeat(40)), {
+        recursive: true,
+        force: true,
+      });
+      const snapshot = cacheEntry(left, "b".repeat(40), "human resolution\n");
+      assert.match(publishRerereSnapshot(left, snapshot), /^[a-f0-9]{40}$/);
+    } finally {
+      console.log = logged;
+    }
+    assert.deepStrictEqual(notes, [
+      `note: skipping regenerated lockfile rerere entry ${"a".repeat(40)}/postimage`,
+    ]);
+    assert.strictEqual(
+      readBotRefFile(remote, RERERE_REF, `${"a".repeat(40)}/postimage`),
+      null,
+      "the regenerated lockfile must never enter the shared rerere ref",
+    );
+    assert.strictEqual(
+      readBotRefFile(remote, RERERE_REF, `${"b".repeat(40)}/postimage`),
+      "human resolution\n",
+    );
+  });
+});
+
+it("restore never replays a shared lockfile entry into the local rr-cache", () => {
+  withRepository((root) => {
+    const key = "c".repeat(40);
+    // The ref tree carries the stale postimage a plain read-tree would check out.
+    const preimageBlob = runCommandText("git", ["hash-object", "-w", "--stdin"], {
+      cwd: root,
+      input: "lockfileVersion: '9.0'\n",
+    }).trim();
+    const postimageBlob = runCommandText("git", ["hash-object", "-w", "--stdin"], {
+      cwd: root,
+      input: "resolved on an older walk\n",
+    }).trim();
+    const subtree = runCommandText("git", ["mktree"], {
+      cwd: root,
+      input: `100644 blob ${preimageBlob}\tpreimage\n100644 blob ${postimageBlob}\tpostimage\n`,
+    }).trim();
+    const tree = runCommandText("git", ["mktree"], {
+      cwd: root,
+      input: `040000 tree ${subtree}\t${key}\n`,
+    }).trim();
+    const commit = runCommandText("git", ["commit-tree", tree, "-m", "rerere"], {
+      cwd: root,
+    }).trim();
+    runCommandText("git", ["update-ref", RERERE_REF, commit], { cwd: root });
+    const notes: string[] = [];
+    const logged = console.log;
+    console.log = (line: string) => notes.push(line);
+    try {
+      assert.strictEqual(restoreRerereCache(root), true);
+    } finally {
+      console.log = logged;
+    }
+    assert.deepStrictEqual(NodeFS.readdirSync(NodePath.join(root, ".git", "rr-cache")), []);
+    assert.deepStrictEqual(notes, [
+      `note: skipping regenerated lockfile rerere entry ${key}/postimage`,
+    ]);
   });
 });
 
