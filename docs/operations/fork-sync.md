@@ -878,11 +878,12 @@ verdicts never do.
 #### The fold rule
 
 A walk leases `origin/hyprws` at its `expected_old` (the incorporated frontier B) but does not
-freeze landings. A landing that advances the trunk linearly folds: `unblock-fold` replays
+freeze landings. A landing that advances the trunk linearly folds: a walk at `replayed`/`checked`, `unblock-fold` replays
 `B..live` onto the verified candidate with fixed SHAs, proves the segment, advances the frontier,
 and regresses the walk to `replayed` so `unblock-check` reruns the final-tree gates on the new
 head; `unblock-apply` performs the same fold-and-retry itself (bounded to three attempts) when its
-leased push is rejected as stale. Movement that cannot fold — a merge commit, a rewritten trunk,
+leased push is rejected as stale — and a `conflicts` walk that holds its lane but has not replayed
+yet defers the fold instead of voiding, rehearsing to `replayed` first. Movement that cannot fold — a merge commit, a rewritten trunk,
 a moved shared base, or a moved target — still voids the rehearsal and costs the full replay:
 `unblock-auto` re-lists from the moved trunk once by itself, and a single verb restarts at
 `unblock-list`, retaining the stopped lane as evidence. A tooling fix the walk itself needs goes
