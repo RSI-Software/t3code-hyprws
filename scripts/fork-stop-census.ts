@@ -50,6 +50,14 @@ export type StopCensusRunner = (
 export const STOP_CENSUS_LIMIT = 128;
 export const STOP_CENSUS_TIME_LIMIT_MS = 6 * 60 * 1000;
 
+/**
+ * Startup-only empty-commit drops. `--empty=drop` removes commits that become empty during the
+ * replay; `--no-keep-empty` removes commits that start empty (git keeps those by default, which
+ * is why the nine empty distribution commits replayed on every sync). Neither flag is valid on
+ * `rebase --skip`/`--continue`, so the tuple belongs on the startup invocation only.
+ */
+export const CENSUS_EMPTY_COMMIT_ARGS = ["--empty=drop", "--no-keep-empty"] as const;
+
 interface StopCensusLimits {
   readonly stopLimit: number;
   readonly timeLimitMs: number;
@@ -173,7 +181,14 @@ export const rehearseStopCensus = (
   try {
     rootGit.run(["worktree", "add", "--detach", worktree, headSha]);
     worktreeGit = new SystemGit(worktree);
-    let rebase = runRebase([...rebaseArgs, "--empty=drop", "--onto", target.sha, baseSha, headSha]);
+    let rebase = runRebase([
+      ...rebaseArgs,
+      ...CENSUS_EMPTY_COMMIT_ARGS,
+      "--onto",
+      target.sha,
+      baseSha,
+      headSha,
+    ]);
     while (
       truncatedBy === null &&
       rebase !== null &&
