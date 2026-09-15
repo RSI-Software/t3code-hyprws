@@ -833,6 +833,16 @@ export const rehearsalRebaseArgs = (args: ReadonlyArray<string>): ReadonlyArray<
   ...args,
 ];
 
+/**
+ * The trunk walk's startup rebase. `--no-keep-empty` drops commits that start empty — an empty
+ * patch satisfies the probe's already-upstream test vacuously and, worse, `git rebase` keeps
+ * start-empty commits by default, so the empty distribution commits replay on every sync.
+ * The flag is startup-only: it is not valid on `rebase --skip`/`--continue` and is wrong for the
+ * interactive autosquash, so it lives at this call site instead of inside `rehearsalRebaseArgs`.
+ */
+export const walkRebaseArgs = (targetSha: string): ReadonlyArray<string> =>
+  rehearsalRebaseArgs(["rebase", "--no-keep-empty", targetSha]);
+
 export const identifyRerereResolvedPaths = (
   conflicts: ReadonlyArray<string>,
   remaining: ReadonlyArray<string>,
@@ -1255,7 +1265,7 @@ const unblockRehearse = (
     report = { ...report, lane: { branch, worktree }, originalMessages, originalCount };
     const rebase = runner.run(
       "git",
-      rehearsalRebaseArgs(["rebase", target.sha]),
+      walkRebaseArgs(target.sha),
       worktree,
       undefined,
       { ...process.env, ...COMMENT_CONFIG, GIT_EDITOR: "true" },
