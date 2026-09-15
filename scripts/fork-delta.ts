@@ -767,8 +767,13 @@ export const collectWireShapeFindings = Effect.fn("collectWireShapeFindings")(fu
                 if (literal !== null)
                   return shape.kind === "literals" && shape.members.has(literal[1] ?? "");
                 const field = /^required field added: (.+)$/.exec(finding.change);
-                if (field !== null)
-                  return shape.kind === "struct" && shape.fields.has(field[1] ?? "");
+                if (field !== null) {
+                  // A field the upstream base carries only as optional is not a restoration:
+                  // reintroducing it as required imposes a new wire requirement on consumers.
+                  const upstream =
+                    shape.kind === "struct" ? shape.fields.get(field[1] ?? "") : undefined;
+                  return upstream !== undefined && !upstream.optional;
+                }
                 return false;
               };
               return found.filter((finding) => !isRestored(finding));

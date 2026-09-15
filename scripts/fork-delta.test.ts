@@ -771,6 +771,51 @@ it("judges a field addition against the upstream base the same way", async () =>
   }
 });
 
+it("keeps a required reintroduction of an upstream optional field", async () => {
+  const { root, contracts } = createGitFixture();
+  try {
+    const schemaPath = NodePath.join(contracts, "orchestration.ts");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String, tightening: Schema.optional(Schema.String) });\n',
+    );
+    const base = commitAll(root, "fixture: base");
+    git(root, ["branch", "upstream/main", base]);
+    // The stack drops the optional field; the fork commit reintroduces it as required, which
+    // imposes a new wire requirement the upstream base never made.
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String });\n',
+    );
+    const parent = commitAll(root, "fixture: drop the field");
+    NodeFS.writeFileSync(
+      schemaPath,
+      'import * as Schema from "effect/Schema";\nexport const ThreadMode = Schema.Struct({ plain: Schema.String, tightening: Schema.String });\n',
+    );
+    commitAll(
+      root,
+      "refactor(contracts): tighten the field",
+      "Fork-Domain: fork-meta\nFork-Tier: qol",
+    );
+
+    const findings = await Effect.gen(function* () {
+      const commits = yield* readForkLog(parent, "HEAD", root);
+      return yield* collectWireShapeFindings(commits, root);
+    })
+      .pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.runPromise)
+      .then((map) => [...map.values()].flat());
+    assert.deepStrictEqual(findings, [
+      {
+        schema: "ThreadMode",
+        change: "required field added: tightening",
+        hint: "add an optional fork-only sibling field instead, or add trailer Fork-Wire: reviewed <reason>",
+      },
+    ]);
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it("excludes changes unique to a diverged live base", async () => {
   const { root, contracts } = createGitFixture();
   try {
