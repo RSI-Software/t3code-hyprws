@@ -312,7 +312,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.defaultThreadEnvMode !== undefined
-            ? { defaultThreadEnvMode: fromWireThreadEnvModeFields(command) }
+            ? { defaultThreadEnvMode: fromWireThreadEnvModeFields(command) } // fork-hook: worktrunk-hooks/decider-thread-env-mode-wire
             : {}),
           ...(command.autoPull !== undefined ? { autoPull: command.autoPull } : {}),
           ...(command.faviconPath !== undefined ? { faviconPath: command.faviconPath } : {}),

@@ -1044,6 +1044,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
 } satisfies Record<ProjectScopedServerSettingKey, unknown> & {
+  // fork-hook: worktrunk-hooks/settings-overrides-env-mode-wire
   // Fork: the `...Fork` sibling is deliberately NOT a standalone scopable
   // key — it only travels with the wire slot it belongs to.
   defaultThreadEnvModeFork?: unknown;
