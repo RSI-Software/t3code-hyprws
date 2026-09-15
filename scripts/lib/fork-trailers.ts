@@ -1,3 +1,4 @@
+// Gate: none — trailer parsing every fork gate reads; gates nothing itself.
 export const FORK_DOMAINS = [
   "backend-attach",
   "browser-bookmarks",
@@ -26,7 +27,6 @@ export interface ForkTrailers {
   readonly domain?: string;
   readonly tier?: string;
   readonly upstreamable?: string;
-  readonly wireReviewed?: string;
   /**
    * The upstream tag whose walk appended this commit. Only the sync walk writes it, and it is the
    * marker that keeps a walk repair out of the replayed fork series the replay proofs compare.
@@ -38,10 +38,10 @@ export interface ParsedForkCommit extends ForkTrailers {
   readonly sha: string;
   readonly short: string;
   /**
-   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A rewrite
-   * (`scripts/lib/fork-rewrite-build.ts` `rebuildCommit`) only ever replaces the `tree` and
-   * `parent` headers and copies `author`/`committer`/message verbatim, so this survives a fold
-   * unchanged even though `sha` does not. See `GRANDFATHERED_WALK_REPAIR_KEYS` in fork-delta.ts.
+   * Strict-ISO author date (`%aI`), read straight off the commit's `author` header. A history
+   * rewrite only ever replaces the `tree` and `parent` headers and copies
+   * `author`/`committer`/message verbatim, so this survives a rewrite unchanged even though `sha`
+   * does not.
    */
   readonly authorDate: string;
   readonly subject: string;
@@ -164,13 +164,11 @@ export const parseForkTrailers = (body: string): ForkTrailers => {
   const domain = read("Fork-Domain");
   const tier = read("Fork-Tier");
   const upstreamable = read("Fork-Upstreamable");
-  const wireReviewed = read("Fork-Wire");
   const repair = read("Fork-Repair");
   return {
     ...(domain === undefined ? {} : { domain }),
     ...(tier === undefined ? {} : { tier }),
     ...(upstreamable === undefined ? {} : { upstreamable }),
-    ...(wireReviewed === undefined ? {} : { wireReviewed }),
     ...(repair === undefined ? {} : { repair }),
   };
 };
