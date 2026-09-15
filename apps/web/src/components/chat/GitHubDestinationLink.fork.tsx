@@ -6,12 +6,12 @@ import {
   ExternalLinkIcon,
   FolderGit2Icon,
   GithubIcon,
-  GitPullRequestIcon,
   Globe2Icon,
   PanelRightIcon,
 } from "lucide-react";
 
 import { readLocalApi } from "~/localApi";
+import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
@@ -133,7 +133,7 @@ function DestinationIcon({ destination }: { readonly destination: GitHubLinkDest
 
 function GitHubTargetIcon({ target }: { readonly target: GitHubLinkTarget }) {
   if (target.kind === "issue") return <CircleDotIcon />;
-  if (target.kind === "pull-request") return <GitPullRequestIcon />;
+  if (target.kind === "pull-request") return <PullRequestGlyph.pullRequest />;
   return <FolderGit2Icon />;
 }
 

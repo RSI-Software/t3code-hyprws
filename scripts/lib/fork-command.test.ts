@@ -130,15 +130,15 @@ it("exhausts transient retries and throws with the original text", () => {
   assert.include(message, "(after 3 attempts)");
 });
 
-it("streams a command's real exit status without capturing its output", () => {
+it("streams a command's output live and still captures it", () => {
   const result = runCommand(
     "node",
     ["-e", "console.log('to stdout'); console.error('to stderr'); process.exit(3)"],
     { stream: true },
   );
   assert.strictEqual(result.status, 3);
-  assert.strictEqual(result.stdout, "");
-  assert.strictEqual(result.stderr, "");
+  assert.match(result.stdout, /to stdout/);
+  assert.match(result.stderr, /to stderr/);
 });
 
 it("a short timeout override kills a slow command and names it in the error", () => {
