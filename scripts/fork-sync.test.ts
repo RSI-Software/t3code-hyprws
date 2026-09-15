@@ -4579,7 +4579,7 @@ it("stale --seam-owner flags on a clean tree are not a usage error", () => {
   }
 });
 
-it("re-checking a checked lane preserves decisions and proposer and rebinds nothing", () => {
+it("re-checking a checked lane preserves the proposer and rebinds stale head bindings", () => {
   const state = repairingRun();
   try {
     const first = execute(
@@ -4587,7 +4587,8 @@ it("re-checking a checked lane preserves decisions and proposer and rebinds noth
       state.root,
       state.runner,
     );
-    // Seed what only a first pass would have bound, as a nightly sign-off would have.
+    // Seed what only a first pass would have bound, as a nightly sign-off would have, plus head
+    // bindings left stale by an earlier run's autosquash (the lane head it does not name).
     const seeded = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
     NodeFS.writeFileSync(
       state.reportPath,
@@ -4597,9 +4598,10 @@ it("re-checking a checked lane preserves decisions and proposer and rebinds noth
         silentSeams: [
           { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
         ],
+        rebasedHead: "9".repeat(40),
+        stackSize: 290,
       }),
     );
-    const recordBefore = NodeFS.readFileSync(seeded.recordPath, "utf8");
     const second = execute(
       [
         "unblock-check",
@@ -4623,11 +4625,12 @@ it("re-checking a checked lane preserves decisions and proposer and rebinds noth
       { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
     ]);
     const recordAfter = NodeFS.readFileSync(seeded.recordPath, "utf8");
-    assert.strictEqual(
-      recordAfter.split("## Silent seams")[0],
-      recordBefore.split("## Silent seams")[0],
-      "the record header must not drift on an unchanged lane",
-    );
+    // The stale bindings follow the lane: head and recounted stack size, in report and record.
+    assert.strictEqual(second.rebasedHead, first.installedHead);
+    assert.strictEqual(second.stackSize, 1);
+    assert.include(recordAfter, `- Rebased head: \`${first.installedHead}\``);
+    assert.include(recordAfter, "- Stack size: `1` fork commits");
+    assert.notInclude(recordAfter, "9".repeat(40));
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });
