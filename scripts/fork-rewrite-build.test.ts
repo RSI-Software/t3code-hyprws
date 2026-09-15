@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Verify object-only construction in isolated Git repositories.
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
