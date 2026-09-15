@@ -5,7 +5,16 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { type CwdCommandRunner as CommandRunner } from "./fork-command.ts";
-import { FORK_HOOKS, parseForkHookMarkers, type ForkHookEntry } from "./fork-hooks.ts";
+import {
+  FORK_HOOKS,
+  FORK_HOOK_BLOCK_SUFFIX,
+  FORK_HOOK_JSX_END,
+  FORK_HOOK_JSX_OPEN,
+  parseForkHookMarkers,
+  stripForkHookLineMarker,
+  type ForkHookEntry,
+  type ParsedForkHook,
+} from "./fork-hooks.ts";
 import { unexplainedRemoval } from "./fork-hook-alignment.ts";
 import { reapplyForkHooks } from "./fork-hook-reapply.ts";
 import { isVerifiablePath, touchedWorkspaces } from "./fork-repairs.ts";
@@ -45,6 +54,13 @@ export interface ConflictStages {
   readonly base: string;
   readonly ours: string;
   readonly theirs: string;
+  /**
+   * The fork tip's blob for this path, when the caller resolved a fork-tip ref for it
+   * (RSI-Software/t3code-hyprws#1030). The hook gate reads markers the replayed commit predates
+   * from here; absent — a ref the caller did not thread, or a path the tip no longer has — the
+   * gate behaves exactly as it did before the tip existed.
+   */
+  readonly tip?: string;
 }
 
 /**
@@ -276,16 +292,36 @@ const readStage = (
   return result.stdout;
 };
 
-/** Read the three index stages of a conflicted path; `null` once the conflict is staged away. */
+/** The fork tip's blob for the path, or `null` when the tip has no such path — never an error. */
+const readTipBlob = (
+  runner: CommandRunner,
+  worktree: string,
+  forkTipRef: string,
+  path: string,
+): string | null => {
+  const result = runner.run("git", ["show", `${forkTipRef}:${path}`], worktree);
+  if (result.status !== 0 || result.error !== undefined) return null;
+  return result.stdout;
+};
+
+/**
+ * Read the three index stages of a conflicted path; `null` once the conflict is staged away.
+ * `forkTipRef` — an already-resolved commit-ish, never inferred from ambient rebase state — adds
+ * the fork tip's blob to the stages when the tip carries the path.
+ */
 export const readConflictStages = (
   runner: CommandRunner,
   worktree: string,
   path: string,
+  forkTipRef?: string,
 ): ConflictStages | null => {
   const base = readStage(runner, worktree, path, 1);
   const ours = readStage(runner, worktree, path, 2);
   const theirs = readStage(runner, worktree, path, 3);
-  return base === null || ours === null || theirs === null ? null : { base, ours, theirs };
+  if (base === null || ours === null || theirs === null) return null;
+  if (forkTipRef === undefined) return { base, ours, theirs };
+  const tip = readTipBlob(runner, worktree, forkTipRef, path);
+  return tip === null ? { base, ours, theirs } : { base, ours, theirs, tip };
 };
 
 const isText = (value: string): boolean => !value.includes("\0");
@@ -386,6 +422,146 @@ const manifestHooksFor = (
  * gets back carries `verified: false` so nothing downstream reads it as a checked resolution.
  */
 /**
+ * The tip-resolved spans and the keys whose tip declaration matched more than one significant line
+ * in the replayed commit. Empty when the stages carry no tip blob.
+ */
+export interface ResolvedTipSpans {
+  /** Per key, the span the tip's marker resolves to in `theirs`, for keys with no in-file marker. */
+  readonly spans: ReadonlyMap<string, ParsedForkHook>;
+  /** Keys whose tip declaration is ambiguous in this commit; each is a refusal naming the key. */
+  readonly ambiguous: ReadonlyArray<string>;
+  /** Keys the tip declares whose span could not be found in this commit at all. */
+  readonly absent: ReadonlyArray<string>;
+}
+
+const EMPTY_TIP_SPANS: ResolvedTipSpans = { spans: new Map(), ambiguous: [], absent: [] };
+
+/** Strip either marker-comment form from the tip's marker line, leaving the bare source text. */
+const bareHookLine = (line: string): string =>
+  stripForkHookLineMarker(line).replace(FORK_HOOK_BLOCK_SUFFIX, "").replace(/\s+$/, "");
+
+/**
+ * The significant lines of `lines` whose text equals `bare` (indentation-insensitive, like the
+ * re-indentation a replay may apply). Blank and whitespace-only lines never match, consistent with
+ * `significantLineCounts`.
+ */
+const bareLineMatches = (lines: ReadonlyArray<string>, bare: string): ReadonlyArray<number> => {
+  const target = bare.trim();
+  if (target === "") return [];
+  const found: Array<number> = [];
+  for (const [index, line] of lines.entries()) if (line.trim() === target) found.push(index);
+  return found;
+};
+
+/**
+ * The offsets where `block` occurs in `lines` as one contiguous run, each line matched
+ * indentation-insensitively; blank block lines match only blank lines. A whole statement is
+ * distinctive where its last line alone (`});`) matches every closer in the file.
+ */
+const blockMatches = (
+  lines: ReadonlyArray<string>,
+  block: ReadonlyArray<string>,
+): ReadonlyArray<number> => {
+  const targets = block.map((line) => line.trim());
+  const found: Array<number> = [];
+  for (let start = 0; start + block.length <= lines.length; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < block.length; offset += 1) {
+      const target = targets[offset] ?? "";
+      const line = lines[start + offset] ?? "";
+      if (target === "" ? line.trim() !== "" : line.trim() !== target) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) found.push(start);
+  }
+  return found;
+};
+
+/**
+ * Resolve the fork tip's declared hook spans in the replayed commit's text — the reconciliation
+ * the gate needs because its manifest comes from the tip module but its markers came, wrongly,
+ * from the replayed commit's blob (RSI-Software/t3code-hyprws#1030). For each manifest key on the
+ * path: a marker `theirs` genuinely carries wins, and the tip is not consulted; otherwise the
+ * tip's marked span, marker comment stripped, is located in `theirs` — exactly one match
+ * yields the span (the whole statement block for a line hook, the JSX pair for a JSX hook), no
+ * match means the seam does not exist at this commit and is recorded as absent, more than one is
+ * recorded as ambiguous and refused by the gate. The span is judgement only: it names lines of
+ * `theirs`, whose text stays untouched.
+ */
+export const resolveTipHookSpans = (
+  path: string,
+  stages: ConflictStages,
+  manifest: ForkHooksManifest = FORK_HOOKS,
+): ResolvedTipSpans => {
+  if (stages.tip === undefined) return EMPTY_TIP_SPANS;
+  const spans = new Map<string, ParsedForkHook>();
+  const ambiguous: Array<string> = [];
+  const absent: Array<string> = [];
+  const marked = new Set(parseForkHookMarkers(stages.theirs).map(({ key }) => key));
+  const theirsLines = stages.theirs.split("\n");
+  const tipLines = stages.tip.split("\n");
+  const tipMarkers = parseForkHookMarkers(stages.tip);
+  for (const { key } of manifestHooksFor(path, manifest)) {
+    if (marked.has(key)) continue; // the in-file marker wins; two spans never both land
+    const tip = tipMarkers.find((hook) => hook.key === key);
+    if (tip === undefined) continue; // the tip does not declare it; the gate needs no overlay
+    if (tip.kind === "line") {
+      // The hook's span is the whole statement `parseForkHookMarkers` walked back to, and the
+      // whole statement is what matches: the closing delimiter the marker sits on matches every
+      // `});` in the file (RSI-Software/t3code-hyprws#1030). Every line of the block is stripped,
+      // not just the marker's own: a span nested in an enclosing block can swallow a sibling
+      // hook's marked line, and the bare statement is what this commit carries.
+      const block = tipLines
+        .slice(tip.startLine - 1, tip.endLine)
+        .map((line) => bareHookLine(line));
+      const hits = blockMatches(theirsLines, block);
+      if (hits.length === 0) {
+        absent.push(key); // absent: the seam does not exist at this commit
+        continue;
+      }
+      if (hits.length > 1) {
+        ambiguous.push(key);
+        continue;
+      }
+      const startLine = (hits[0] ?? 0) + 1;
+      spans.set(key, {
+        ...tip,
+        startLine,
+        endLine: startLine + block.length - 1,
+        overlay: true,
+      });
+    } else {
+      const opens = bareLineMatches(
+        theirsLines,
+        (tipLines[tip.startLine - 1] ?? "").replace(FORK_HOOK_JSX_OPEN, ""),
+      );
+      const ends = bareLineMatches(
+        theirsLines,
+        (tipLines[tip.endLine - 1] ?? "").replace(FORK_HOOK_JSX_END, ""),
+      );
+      if (opens.length === 0 || ends.length === 0) {
+        absent.push(key);
+        continue;
+      }
+      if (opens.length > 1 || ends.length > 1) {
+        ambiguous.push(key);
+        continue;
+      }
+      const startLine = (opens[0] ?? 0) + 1;
+      const endLine = (ends[0] ?? 0) + 1;
+      if (startLine >= endLine) {
+        absent.push(key);
+        continue;
+      }
+      spans.set(key, { ...tip, startLine, endLine, overlay: true });
+    }
+  }
+  return { spans, ambiguous, absent };
+};
+
+/**
  * Whether the fork side of a conflicted merge adds nothing but marked hook lines and removes no
  * base line except inside a marked hook span, where the removal is a declared substitution: the
  * replacing line carries the marker, and the removed upstream line needs none (no new marker
@@ -393,11 +569,20 @@ const manifestHooksFor = (
  * re-insertions resolve the hunks to the upstream side, which would silently drop those lines —
  * exactly the gutting the fork forbids. Such a seam keeps keep-both's stop. Returns the refusing
  * cause so the stop names the case that actually refused, or `null` when the side is hook-only.
+ *
+ * `resolved` carries the fork tip's declaration spans (RSI-Software/t3code-hyprws#1030): a
+ * replayed commit that predates the marking commit has no in-file markers, so its hook lines
+ * count as marked only where the tip's declaration locates them here.
  */
-const forkSideHookOnlyRefusal = (stages: ConflictStages): string | null => {
-  const hooks = parseForkHookMarkers(stages.theirs);
+const forkSideHookOnlyRefusal = (
+  stages: ConflictStages,
+  resolved: ResolvedTipSpans = EMPTY_TIP_SPANS,
+): string | null => {
   const marked = new Set<number>();
-  for (const hook of hooks) for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  for (const hook of parseForkHookMarkers(stages.theirs))
+    for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
+  for (const hook of resolved.spans.values())
+    for (let n = hook.startLine; n <= hook.endLine; n += 1) marked.add(n);
   const removed = unexplainedRemoval(stages.base, stages.theirs, marked);
   if (removed !== null) return `removes base line ${removed} outside every marked hook`;
   const baseCounts = significantLineCounts(stages.base);
@@ -446,34 +631,61 @@ const hookReapply = (
   const entries = manifestHooksFor(path, manifest);
   if (entries.length === 0) return null;
   const keys = entries.map(({ key }) => `\`${key}\``).join(", ");
+  // The tip's declarations are resolved once, here, and handed to both consumers so the gate and
+  // the re-applier cannot drift about which spans count as marked (RSI-Software/t3code-hyprws#1030).
+  const resolvedTipSpans = resolveTipHookSpans(path, stages, manifest);
+  // A tip-declared key whose lines do not exist in this commit is diagnosis a maintainer would
+  // otherwise have to dig blobs for; it rides along on whatever refusal the path gets.
+  const absentTipNote =
+    resolvedTipSpans.absent.length === 0
+      ? ""
+      : `; the fork tip declares ${resolvedTipSpans.absent
+          .map((key) => `\`${key}\``)
+          .join(", ")} but no matching lines exist in this commit`;
   if (!isVerifiablePath(path))
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} refused: the path is outside the lane's scoped typecheck, so a re-inserted hook would carry no verification`,
+      `fork-hook reapply of ${keys} refused: the path is outside the lane's scoped typecheck, so a re-inserted hook would carry no verification${absentTipNote}`,
       keepBothReason,
     );
   const merged = mergeFile(runner, worktree, stages, "--diff3");
   if (merged === null || merged.conflicts === 0)
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} skipped: the three-way merge of this seam produced no conflict to re-apply into`,
+      `fork-hook reapply of ${keys} skipped: the three-way merge of this seam produced no conflict to re-apply into${absentTipNote}`,
       keepBothReason,
     );
-  const refusal = forkSideHookOnlyRefusal(stages);
+  if (resolvedTipSpans.ambiguous.length > 0)
+    return hookDeclined(
+      path,
+      `fork-hook reapply of ${keys} refused: the fork tip's declaration for ${resolvedTipSpans.ambiguous
+        .map((key) => `\`${key}\``)
+        .join(
+          ", ",
+        )} matches several lines in this commit's fork text, so the tip marker cannot be placed${absentTipNote}`,
+      keepBothReason,
+    );
+  const refusal = forkSideHookOnlyRefusal(stages, resolvedTipSpans);
   if (refusal !== null)
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} refused: the fork side of this seam ${refusal}, so there is no mechanical seam to lift`,
+      `fork-hook reapply of ${keys} refused: the fork side of this seam ${refusal}, so there is no mechanical seam to lift${absentTipNote}`,
       keepBothReason,
     );
   const upstream = resolveConflictsToUpstream(merged.text);
   if (upstream === null)
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} refused: the merged text could not be resolved to upstream's side`,
+      `fork-hook reapply of ${keys} refused: the merged text could not be resolved to upstream's side${absentTipNote}`,
       keepBothReason,
     );
-  const reapply = reapplyForkHooks(upstream, stages.theirs, entries, matchingDelimiter);
+  const reapply = reapplyForkHooks(
+    upstream,
+    stages.theirs,
+    entries,
+    matchingDelimiter,
+    resolvedTipSpans,
+  );
   const refused = reapply.results.filter(({ outcome }) => outcome.status === "refuse");
   if (refused.length > 0)
     return hookDeclined(
@@ -482,13 +694,13 @@ const hookReapply = (
         .map(
           ({ key, outcome }) => `\`${key}\` (${outcome.status === "refuse" ? outcome.reason : ""})`,
         )
-        .join("; ")}`,
+        .join("; ")}${absentTipNote}`,
       keepBothReason,
     );
   if (reapply.reinserted.length === 0)
     return hookDeclined(
       path,
-      `fork-hook reapply of ${keys} re-inserted nothing: every marked hook already survived the merge intact`,
+      `fork-hook reapply of ${keys} re-inserted nothing: every marked hook already survived the merge intact${absentTipNote}`,
       keepBothReason,
     );
   const workspaces = verify ? touchedWorkspaces([path]) : [];
@@ -497,7 +709,7 @@ const hookReapply = (
     if (checked.status !== 0)
       return hookDeclined(
         path,
-        `fork-hook reapply of ${reapply.reinserted.map((key) => `\`${key}\``).join(", ")} refused: the scoped typecheck of ${workspace} failed after re-insertion`,
+        `fork-hook reapply of ${reapply.reinserted.map((key) => `\`${key}\``).join(", ")} refused: the scoped typecheck of ${workspace} failed after re-insertion${absentTipNote}`,
         keepBothReason,
         checked.stderr.trim().split("\n")[0],
       );
@@ -887,18 +1099,17 @@ export const executeConflictOutcome = (
   path: string,
   manifest: ForkHooksManifest = FORK_HOOKS,
   verifyHookReapply = true,
+  forkTipRef?: string,
 ): OutcomeResult => {
-  const base = readStage(runner, worktree, path, 1);
-  const ours = readStage(runner, worktree, path, 2);
-  const theirs = readStage(runner, worktree, path, 3);
-  if (base === null || ours === null || theirs === null)
+  const stages = readConflictStages(runner, worktree, path, forkTipRef);
+  if (stages === null)
     return {
       path,
       reason:
         "conflict has no common ancestor on both sides (add/add, delete/modify, or rename); a maintainer owns this shape",
     };
+  const { base, ours, theirs } = stages;
   if (![base, ours, theirs].every(isText)) return { path, reason: "conflicted file is binary" };
-  const stages: ConflictStages = { base, ours, theirs };
   const classified = classifyConflictOutcome(stages);
   let outcome = classified;
   let resolved: string;

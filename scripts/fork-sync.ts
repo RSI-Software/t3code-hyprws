@@ -3793,6 +3793,16 @@ export const autoResolveConflicts = (
   }
   const stamp = decisionStamp(report);
   const priorDecision = priorDecisionLookup(report.repositoryRoot);
+  // The fork tip's markers are read per conflicted path from the tip blob (RSI-Software/
+  // t3code-hyprws#1030): the replayed commit may predate the commit that marked its seam. The
+  // ref is resolved once here and threaded explicitly; an unresolvable ref simply leaves the
+  // gate behaving as before the tip existed.
+  let forkTipRef: string | undefined;
+  try {
+    forkTipRef = git(runner, worktree, ["rev-parse", "origin/hyprws^{commit}"]);
+  } catch {
+    forkTipRef = undefined;
+  }
   const keys = new Map<ConflictRow, string>();
   const decisions: Array<WalkDecision> = [];
   const decided = new Map<ConflictRow, Pick<ConflictRow, "class" | "resolution">>();
@@ -3808,6 +3818,7 @@ export const autoResolveConflicts = (
     // taking the upstream side of its files would keep the commit and drop the behaviour it carries.
     const resolution = resolveConflictPath(runner, worktree, row.path, {
       rerereRemaining: isRerereRow(row) ? remaining : null,
+      ...(forkTipRef === undefined ? {} : { forkTipRef }),
     });
     if (resolution.stage === "rerere") {
       const prior = key === null ? null : priorDecision(key);
