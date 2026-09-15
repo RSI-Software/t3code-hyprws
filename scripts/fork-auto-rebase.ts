@@ -198,7 +198,11 @@ const carriedArtifact = (path: string | null): FeasibilityArtifact | null => {
 
 const reportFeasibilitySource = (source: FeasibilitySource): void => {
   if (process.env.FORK_QUIET === "1") return;
-  const merges = `${String(source.mergesCarried)} merges carried, ${String(source.mergesComputed)} computed`;
+  const rewalked =
+    source.mergesRewalked === 0
+      ? ""
+      : `, ${String(source.mergesRewalked)} re-walked for an unreadable tree`;
+  const merges = `${String(source.mergesCarried)} merges carried, ${String(source.mergesComputed)} computed${rewalked}`;
   process.stderr.write(
     source.carried
       ? `auto-rebase: feasibility carried from the report job (${merges})\n`
