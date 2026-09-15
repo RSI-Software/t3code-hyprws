@@ -2084,7 +2084,10 @@ const unblockCheck = (
     .split("\n")
     .filter(Boolean);
   const seamOwners = parseSeamOwners(seamOwnerEntries);
-  if (report.stage !== "replayed")
+  // A checked lane may be re-checked to re-render seams and rebind the head (the record
+  // promises reruns keep filled cells); a rewrite stays pinned to its replayed construction.
+  const recheck = report.kind !== "rewrite" && report.stage === "checked";
+  if (report.stage !== "replayed" && !recheck)
     throw new Error(`unblock-check requires replayed state, got ${report.stage}`);
   if (report.kind === "rewrite") {
     if (report.lane === undefined || report.rewrite === undefined)
@@ -2409,7 +2412,14 @@ const unblockCheck = (
       else walk.repairCommits = repairCommits;
       return walk;
     })(),
-    silentSeams: uniqueSilentSeams([...(report.silentSeams ?? []), ...silentSeams]),
+    // Declared seams replace the recorded rows by path, so the operator repeats only the flags
+    // that changed; a path not re-declared keeps its recorded summary and type.
+    silentSeams: uniqueSilentSeams([
+      ...(report.silentSeams ?? []).filter(
+        (recorded) => !silentSeams.some((declared) => declared.path === recorded.path),
+      ),
+      ...silentSeams,
+    ]),
   });
   writeReport(report);
   writeRecord(report);

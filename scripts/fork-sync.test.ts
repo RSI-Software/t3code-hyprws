@@ -4579,6 +4579,121 @@ it("stale --seam-owner flags on a clean tree are not a usage error", () => {
   }
 });
 
+it("re-checking a checked lane preserves decisions and proposer and rebinds nothing", () => {
+  const state = repairingRun();
+  try {
+    const first = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    // Seed what only a first pass would have bound, as a nightly sign-off would have.
+    const seeded = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...seeded,
+        proposedBy: { iface: "claude", provider: "anthropic", model: "test", session: "s1" },
+        silentSeams: [
+          { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+        ],
+      }),
+    );
+    const recordBefore = NodeFS.readFileSync(seeded.recordPath, "utf8");
+    const second = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--silent-seam",
+        "apps/web/src/Kept.tsx=kept seam:behaviour",
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(second.stage, "checked");
+    assert.strictEqual(second.installedHead, first.installedHead);
+    assert.deepStrictEqual(second.proposedBy, {
+      iface: "claude",
+      provider: "anthropic",
+      model: "test",
+      session: "s1",
+    });
+    assert.deepStrictEqual(second.silentSeams, [
+      { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+    ]);
+    const recordAfter = NodeFS.readFileSync(seeded.recordPath, "utf8");
+    assert.strictEqual(
+      recordAfter.split("## Silent seams")[0],
+      recordBefore.split("## Silent seams")[0],
+      "the record header must not drift on an unchanged lane",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a re-declared silent seam replaces its row by path and keeps the others", () => {
+  const state = repairingRun();
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const seeded = validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")));
+    NodeFS.writeFileSync(
+      state.reportPath,
+      JSON.stringify({
+        ...seeded,
+        silentSeams: [
+          { path: "apps/web/src/Old.tsx", summary: "old wording", touchesBehaviour: false },
+          { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+        ],
+      }),
+    );
+    const checked = execute(
+      [
+        "unblock-check",
+        "--report",
+        state.reportPath,
+        "--silent-seam",
+        "apps/web/src/Old.tsx=new wording:type",
+      ],
+      state.root,
+      state.runner,
+    );
+    assert.deepStrictEqual(checked.silentSeams, [
+      { path: "apps/web/src/Kept.tsx", summary: "kept seam", touchesBehaviour: true },
+      { path: "apps/web/src/Old.tsx", summary: "new wording", touchesBehaviour: false },
+    ]);
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a rewrite at checked is still refused", () => {
+  const root = fixtureRoot();
+  const rewrite = report(root, {
+    stage: "checked",
+    kind: "rewrite",
+    target: { tag: "v1.2.3", sha: B },
+    source: { sha: C, expectedOld: C, sharedBase: A },
+    lane: { branch: `rehearse/v1.2.3-from-${C.slice(0, 12)}`, worktree: root },
+  });
+  NodeFS.writeFileSync(rewrite.reportPath, JSON.stringify(rewrite));
+  const runner = new FakeRunner();
+  try {
+    assert.throws(
+      () => execute(["unblock-check", "--report", rewrite.reportPath], root, runner),
+      /unblock-check requires replayed state, got checked/,
+    );
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(rewrite.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("a fold segment matching the stack more than once stops the walk", () => {
   const state = repairingRun();
   const retained = "d".repeat(40);
