@@ -2223,6 +2223,15 @@ const unblockCheck = (
     writeReport(report);
     foldsWithRepairs = relocated;
   }
+  if (hasFixups) {
+    // The earlier delta reads run while the repairs are still `fixup!` commits, which
+    // `dropTransientFixups` keeps out of the ledger — so they never see the repair diff. Prove
+    // the delta once more on the autosquashed stack, where the owner diff is what the walk will
+    // apply and the wire-shape gate must judge it.
+    const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
+    requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+    verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
+  }
   // Fixups no longer exist after autosquash; with repairs folding into their owners, nothing this
   // run created stays reportable. Older standalone bookkeeping entries on the segments — from a
   // walk that ran a previous shape — are dropped when autosquash no longer leaves them reachable.
