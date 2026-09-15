@@ -52,6 +52,12 @@ export interface ConflictResolutionOptions {
   /** Off only for a caller that cannot run the scoped typecheck; see `executeConflictOutcome`. */
   readonly verifyHookReapply?: boolean;
   readonly manifest?: ForkHooksManifest;
+  /**
+   * An already-resolved fork-tip commit-ish (`git rev-parse origin/hyprws^{commit}`), threaded
+   * explicitly so the hook gate can read markers the replayed commit predates
+   * (RSI-Software/t3code-hyprws#1030). Never inferred from ambient rebase state.
+   */
+  readonly forkTipRef?: string;
 }
 
 const CONFLICTED_TEXT = /^(?:<{7}|={7}|>{7})/m;
@@ -109,6 +115,7 @@ export const resolveConflictPath = (
     path,
     options.manifest ?? FORK_HOOKS,
     options.verifyHookReapply ?? true,
+    options.forkTipRef,
   );
   return isUnresolved(outcome)
     ? { path, stage: "unresolved", outcome }

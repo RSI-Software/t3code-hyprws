@@ -810,3 +810,262 @@ it("lifts the decider env-mode-wire substitution (worktrunk-hooks/decider-thread
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// RSI-Software/t3code-hyprws#1030: the gate's manifest comes from the tip module, but the
+// replayed commit's blob predates the commit that marked its seam. The fork tip's blob becomes
+// the second input: its declarations are located in the replayed text, judged there, and the
+// overlay is judgement only — the marker comment never reaches the resolved text.
+// ---------------------------------------------------------------------------
+
+/** Commit `contents` for `path` as a detached tip commit; returns the ref the gate reads. */
+const stageTip = (root: string, path: string, contents: string): string => {
+  const identity = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "tip",
+    GIT_AUTHOR_EMAIL: "tip@example.test",
+    GIT_COMMITTER_NAME: "tip",
+    GIT_COMMITTER_EMAIL: "tip@example.test",
+  };
+  const blob = NodeChildProcess.execFileSync("git", ["hash-object", "-w", "--stdin"], {
+    cwd: root,
+    input: contents,
+  })
+    .toString()
+    .trim();
+  const mktree = (input: string): string =>
+    NodeChildProcess.execFileSync("git", ["mktree"], { cwd: root, input }).toString().trim();
+  const segments = path.split("/");
+  let tree = mktree(`100644 blob ${blob}\t${segments[segments.length - 1]}\n`);
+  for (let index = segments.length - 2; index >= 0; index -= 1)
+    tree = mktree(`040000 tree ${tree}\t${segments[index]}\n`);
+  return NodeChildProcess.execFileSync("git", ["commit-tree", tree], {
+    cwd: root,
+    input: "tip\n",
+    env: identity,
+  })
+    .toString()
+    .trim();
+};
+
+/** Remove the trailing line-marker comment the fork tip carries and the replayed commit does not. */
+const stripLineMarkers = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => line.replace(/ \/\/ fork-hook: [\w/-]+$/, ""))
+    .join("\n");
+
+const ROUTE_KEYS = Object.keys(routeManifest);
+
+it("lifts a seam the replayed fork blob predates by reading the fork tip's markers", () => {
+  const path = ROUTE_SCREEN;
+  const marked = routeScreenStages().theirs;
+  const stages = { ...routeScreenStages(), theirs: stripLineMarkers(marked) };
+  // Without the tip: the fork side is hook-shaped but unmarked at this commit, so the gate refuses.
+  const bareRoot = fixture();
+  try {
+    stageConflict(bareRoot, path, stages);
+    const bare = executeConflictOutcome(typecheckRunner(), bareRoot, path, routeManifest);
+    assert.isTrue(isUnresolved(bare), "expected the unmarked blob alone to refuse");
+    if (!isUnresolved(bare)) return;
+    assert.include(bare.reason, "outside every marked hook");
+  } finally {
+    NodeFS.rmSync(bareRoot, { recursive: true, force: true });
+  }
+  // With the tip: the same fork blob lifts, one re-insertion per declared hook.
+  const root = fixture();
+  try {
+    stageConflict(root, path, stages);
+    const tipRef = stageTip(root, path, marked);
+    const outcome = executeConflictOutcome(
+      typecheckRunner(),
+      root,
+      path,
+      routeManifest,
+      true,
+      tipRef,
+    );
+    assert.isFalse(
+      isUnresolved(outcome),
+      `expected the tip's markers to lift the seam: ${isUnresolved(outcome) ? outcome.reason : ""}`,
+    );
+    if (isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.source, "hook-reapply");
+    assert.deepStrictEqual([...(outcome.reinsertedHooks ?? [])].sort(), [...ROUTE_KEYS].sort());
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("resolves an already-marked fork blob identically with and without the tip blob", () => {
+  const path = ROUTE_SCREEN;
+  const marked = routeScreenStages().theirs;
+  const run = (withTip: boolean) => {
+    const root = fixture();
+    try {
+      stageConflict(root, path, routeScreenStages());
+      const tipRef = withTip ? stageTip(root, path, marked) : undefined;
+      const outcome = executeConflictOutcome(
+        typecheckRunner(),
+        root,
+        path,
+        routeManifest,
+        true,
+        tipRef,
+      );
+      assert.isFalse(isUnresolved(outcome));
+      if (isUnresolved(outcome)) return null;
+      return {
+        reinsertedHooks: outcome.reinsertedHooks,
+        text: NodeFS.readFileSync(NodePath.join(root, path), "utf8"),
+      };
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  };
+  assert.deepStrictEqual(run(true), run(false));
+});
+
+it("refuses an ambiguous tip declaration and names the key", () => {
+  const path = "packages/contracts/src/settings.ts";
+  const root = fixture();
+  try {
+    // The whole statement, not just its `});` closer, occurs twice in this commit's fork text.
+    const block = "export const tail = workspaceFileListing({\n  a: 1,\n});";
+    const theirs = `export interface ServerSettingsPatch {\n  rename: string;\n}\n\n${block}\n${block}\n`;
+    stageConflict(root, path, {
+      base: "export interface ServerSettingsPatch {\n  rename: string;\n  input: { cwd: props.cwd };\n}\n",
+      ours: "export interface ServerSettingsPatch {\n  name: string;\n}\n",
+      theirs,
+    });
+    const tipRef = stageTip(
+      root,
+      path,
+      theirs.replace(
+        "});\nexport const tail = workspaceFileListing({\n  a: 1,\n});\n",
+        "}); // fork-hook: upstream-fixes/test-sub\nexport const tail = workspaceFileListing({\n  a: 1,\n});\n",
+      ),
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner(),
+      root,
+      path,
+      gateManifest,
+      true,
+      tipRef,
+    );
+    assert.isTrue(isUnresolved(outcome), "expected the ambiguous declaration to refuse");
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "`upstream-fixes/test-sub`");
+    assert.include(outcome.reason, "fork tip");
+    assert.include(outcome.reason, "matches several lines");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("skips an absent tip declaration, so the seam declines for its own reason", () => {
+  const path = ROUTE_SCREEN;
+  const root = fixture();
+  try {
+    // The tip marks a seam renamed away from what this commit carries: no bare line matches.
+    const renamed = routeScreenStages().theirs.replaceAll("workspaceFileListing", "otherListing");
+    stageConflict(root, path, {
+      ...routeScreenStages(),
+      theirs: stripLineMarkers(routeScreenStages().theirs),
+    });
+    const tipRef = stageTip(root, path, renamed);
+    const outcome = executeConflictOutcome(
+      typecheckRunner(),
+      root,
+      path,
+      routeManifest,
+      true,
+      tipRef,
+    );
+    assert.isTrue(isUnresolved(outcome), "expected the absent declaration to skip");
+    if (!isUnresolved(outcome)) return;
+    assert.include(outcome.reason, "outside every marked hook");
+    assert.include(outcome.reason, "keep-both declined");
+    // Absent is visible: the refusal names every key the tip declared but this commit lacks.
+    for (const key of ROUTE_KEYS) assert.include(outcome.reason, `\`${key}\``);
+    assert.include(outcome.reason, "the fork tip declares");
+    assert.include(outcome.reason, "no matching lines exist in this commit");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("the resolved text carries no marker the replayed fork blob did not carry", () => {
+  const path = "packages/contracts/src/settings.ts";
+  const root = fixture();
+  try {
+    stageConflict(root, path, substitutionStages("  input: workspaceFileListing;\n", ""));
+    const tipRef = stageTip(
+      root,
+      path,
+      substitutionStages(
+        "  input: workspaceFileListing; // fork-hook: upstream-fixes/test-sub\n",
+        "",
+      ).theirs,
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner(),
+      root,
+      path,
+      gateManifest,
+      true,
+      tipRef,
+    );
+    assert.isFalse(isUnresolved(outcome));
+    if (isUnresolved(outcome)) return;
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    // The overlay is judgement only: at this commit the marker does not yet exist.
+    assert.isFalse(resolved.includes("fork-hook:"), "an overlaid marker reached the resolved text");
+    assert.include(resolved, "input: workspaceFileListing;");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("locates a closing-delimiter marker by its whole statement, not the marked line", () => {
+  const path = "packages/contracts/src/settings.ts";
+  const root = fixture();
+  try {
+    // The tip's marker sits on `}),`, which also occurs in the unchanged `pre` statement; the
+    // marked line alone matches twice, the whole statement exactly once.
+    const forkBlock = "  forkExtra: withDefaults({\n    x: 1,\n  }),";
+    const tail =
+      "export const tail = 0;\nexport const pre = fn({\n  z: 3,\n});\nexport const gone = 2;\n";
+    stageConflict(root, path, {
+      base: `export interface ServerSettingsPatch {\n  rename: string;\n  input: { cwd: props.cwd };\n}\n\n${tail}`,
+      ours: `export interface ServerSettingsPatch {\n  name: string;\n  mount: boolean;\n}\n\n${tail}`,
+      theirs: `export interface ServerSettingsPatch {\n  rename: string;\n${forkBlock}\n}\n\n${tail}`,
+    });
+    const tipRef = stageTip(
+      root,
+      path,
+      `export interface ServerSettingsPatch {\n  rename: string;\n${forkBlock.replace(
+        "  }),",
+        "  }), // fork-hook: upstream-fixes/test-sub",
+      )}\n}\n\n${tail}`,
+    );
+    const outcome = executeConflictOutcome(
+      typecheckRunner(),
+      root,
+      path,
+      gateManifest,
+      true,
+      tipRef,
+    );
+    assert.isFalse(isUnresolved(outcome), "expected the whole-statement match to locate the span");
+    if (isUnresolved(outcome)) return;
+    assert.strictEqual(outcome.source, "hook-reapply");
+    assert.deepStrictEqual(outcome.reinsertedHooks, [SUBSTITUTION_HOOK]);
+    const resolved = NodeFS.readFileSync(NodePath.join(root, path), "utf8");
+    assert.include(resolved, "forkExtra: withDefaults({");
+    assert.isFalse(resolved.includes("fork-hook:"), "an overlaid marker reached the resolved text");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+  }
+});

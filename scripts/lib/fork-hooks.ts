@@ -1010,6 +1010,13 @@ export interface ParsedForkHook {
   readonly kind: "line" | "jsx";
   readonly startLine: number;
   readonly endLine: number;
+  /**
+   * `true` when the span was resolved in the replayed commit's text from the fork tip's marker
+   * rather than read from an in-file marker (RSI-Software/t3code-hyprws#1030). The marked lines
+   * carry no marker there, so re-insertion skips the marker-syntax assertion and the raw lines
+   * — unmarked — are what lands. `parseForkHookMarkers` never sets it.
+   */
+  readonly overlay?: boolean;
 }
 
 /** Literal state after scanning a prefix of the file: bracket depth and open string/template. */
