@@ -2370,26 +2370,27 @@ const unblockCheck = (
   }
   if (git(runner, worktree, ["rev-parse", "HEAD"], true) !== checkedHead)
     throw new Error("HEAD changed after the installed-tree check");
+  // The head bindings come from the lane, not from this run's activity: a re-check of a lane
+  // whose fixups an earlier run squashed produces no repairs, yet its recorded `rebasedHead`
+  // and `stackSize` may still name the pre-squash rehearsal head (`Rebased head`, `Final head`,
+  // and `Stack size` all render from these two fields). Bind whenever the lane disagrees with
+  // the record — or this run created repairs — and otherwise, on a clean untouched lane, bind
+  // nothing at all. The fork series is still exactly what the replay proved: `## Repair
+  // commits` names everything appended after it.
+  const laneStackSize = Number(
+    git(runner, worktree, ["rev-list", "--count", `${report.target?.sha ?? ""}..HEAD`], true),
+  );
+  const headDrifted =
+    report.rebasedHead !== undefined &&
+    (checkedHead !== report.rebasedHead || laneStackSize !== report.stackSize);
   report = preserveRecordDecisions({
     ...report,
     stage: "checked",
     installedHead: checkedHead,
-    // A repair — or an autosquash folding retained fixups — moves the lane head the apply
-    // publishes, so the record's head and stack size bind the head the check actually proved
-    // (`Rebased head`, `Final head`, and `Stack size` all render from these two fields). The
-    // gate compares them against the checkout, and the fork series is still exactly what the
-    // replay proved: `## Repair commits` names everything appended after it.
-    ...(hasFixups || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
+    ...(headDrifted || repaired.length > 0 || additiveCommits.length > 0 || seamCommits.length > 0
       ? {
           rebasedHead: checkedHead,
-          stackSize: Number(
-            git(
-              runner,
-              worktree,
-              ["rev-list", "--count", `${report.target?.sha ?? ""}..HEAD`],
-              true,
-            ),
-          ),
+          stackSize: laneStackSize,
         }
       : {}),
     ...(foldsWithRepairs.length > 0 &&
