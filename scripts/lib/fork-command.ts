@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Fork scripts need a synchronous bootstrap runner.
+// Gate: none — synchronous child-process runner every fork script shares; gates nothing itself.
 
 import * as NodeChildProcess from "node:child_process";
 
@@ -16,12 +17,13 @@ export interface CommandOptions {
   readonly timeout?: number;
   readonly maxBuffer?: number;
   /**
-   * Opt-in: the child inherits our stdout/stderr instead of having them captured, so its native
-   * progress reaches wherever ours already goes — an interactive terminal, or an operator's own
-   * `2>&1 | tee run.log`. The trade-off is real, not a bug: `stdout`/`stderr` come back empty,
-   * because spawnSync can give you live output or captured text, never both. Callers that still
-   * need the captured text after a failure must read real state instead (e.g. `git status`), not
-   * lean on the (now-empty) result text.
+   * Opt-in: the child's piped stdout/stderr are captured, then written
+   * through to ours on return, so the captured text stays available for
+   * failure details. Live progress is lost for long children — nothing
+   * reaches the terminal until the child exits — but an operator's own
+   * `2>&1 | tee run.log` still records the whole run. Writes go to our
+   * stdout/stderr, never to the child's stdin, which stays closed so a
+   * prompting child fails fast.
    */
   readonly stream?: boolean;
 }
@@ -43,8 +45,9 @@ export const runCommand = (
 ): CommandResult => {
   if (options.stream === true && options.input !== undefined)
     throw new Error(
-      "runCommand: stream and input are mutually exclusive (inherited stdin can't also receive piped input)",
+      "runCommand: stream and input are mutually exclusive (piped stdin can't also receive piped input)",
     );
+  if (options.stream === true) return runCommandStreaming(command, args, options);
   const result = NodeChildProcess.spawnSync(command, [...args], {
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
@@ -55,12 +58,47 @@ export const runCommand = (
     // stdin stays "ignore", not "inherit": a child that unexpectedly prompts (a credential
     // helper, a pager, a rebase whose GIT_EDITOR did not take) should fail fast on a closed
     // stdin like before, not sit on the operator's terminal until the timeout fires.
-    ...(options.stream === true ? { stdio: ["ignore", "inherit", "inherit"] } : {}),
   });
   return {
     status: result.status ?? 1,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
+    ...(result.error === undefined ? {} : { error: result.error }),
+  };
+};
+
+/**
+ * `stream: true` without the capture trade-off: the child runs under
+ * spawnSync with piped stdio so its output is captured, then the captured
+ * text is written through to our own stdout/stderr on return, keeping the
+ * full text for failure details at the cost of live progress — nothing
+ * reaches the terminal until the child exits. (A synchronous poll of a
+ * live ChildProcess cannot observe its exit — `exitCode` never lands while
+ * this thread polls — so true arrival-time interleaving is out of reach
+ * here; write-through order is stdout, then stderr. stdin stays closed, so
+ * a prompting child still fails fast.)
+ */
+const runCommandStreaming = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: CommandOptions,
+): CommandResult => {
+  const result = NodeChildProcess.spawnSync(command, [...args], {
+    encoding: "utf8",
+    maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
+    timeout: options.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (stdout.length > 0) process.stdout.write(stdout);
+  if (stderr.length > 0) process.stderr.write(stderr);
+  return {
+    status: result.status ?? 1,
+    stdout,
+    stderr,
     ...(result.error === undefined ? {} : { error: result.error }),
   };
 };
