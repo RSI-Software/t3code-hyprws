@@ -502,6 +502,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/server/src/workspace/WorkspaceEntries.ts",
     anchor: { kind: "after-call", symbol: "workspaceSearchIndexes.get" },
   },
+  "workspace-files/workspace-entries-list-ignored-result": {
+    path: "apps/server/src/workspace/WorkspaceEntries.ts",
+    anchor: { kind: "after-decl", symbol: "list" },
+  },
   "workspace-files/git-driver-ignored-import": {
     path: "apps/server/src/vcs/GitVcsDriver.ts",
     anchor: { kind: "import-block" },
@@ -534,6 +538,14 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
     path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
     anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
   },
+  "workspace-files/mobile-route-ignored-listing-condition": {
+    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    anchor: { kind: "after-decl", symbol: "revealedInspectorRef" },
+  },
+  "workspace-files/mobile-route-ignored-listing-input": {
+    path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx",
+    anchor: { kind: "after-decl", symbol: "entriesQuery" },
+  },
   "workspace-files/mobile-inspector-ignored-listing-import": {
     path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
     anchor: { kind: "import-block" },
@@ -541,6 +553,10 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "workspace-files/mobile-inspector-ignored-listing-call": {
     path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
     anchor: { kind: "after-decl", symbol: "headerScrollEdgeEffects" },
+  },
+  "workspace-files/mobile-inspector-ignored-listing-input": {
+    path: "apps/mobile/src/features/files/thread-file-navigator-pane.tsx",
+    anchor: { kind: "after-decl", symbol: "entriesQuery" },
   },
   // project-windows — marked on RSI-Software/t3code-hyprws#952.
   "project-windows/pull-request-page-scope-import": {
@@ -651,6 +667,18 @@ export const FORK_HOOKS: Readonly<Record<string, ForkHookEntry>> = {
   "worktrunk-hooks/draft-thread-env-mode-schema": {
     path: "apps/web/src/composerDraftStore.ts",
     anchor: { kind: "after-decl", symbol: "DraftThreadEnvModeSchema" },
+  },
+  "worktrunk-hooks/settings-overrides-env-mode-wire": {
+    path: "packages/contracts/src/settings.ts",
+    anchor: { kind: "after-decl", symbol: "QuitConfirmationModeSetting" },
+  },
+  "worktrunk-hooks/settings-restore-env-mode-wire": {
+    path: "apps/web/src/components/settings/SettingsPanels.tsx",
+    anchor: { kind: "after-decl", symbol: "useSettingsRestore" },
+  },
+  "worktrunk-hooks/decider-thread-env-mode-wire": {
+    path: "apps/server/src/orchestration/decider.ts",
+    anchor: { kind: "after-decl", symbol: "decideOrchestrationCommand" },
   },
   // github-issues — marked on RSI-Software/t3code-hyprws#954.
   "github-issues/chat-markdown-github-destination-import": {
