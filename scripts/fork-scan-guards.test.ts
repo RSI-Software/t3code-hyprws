@@ -1436,6 +1436,54 @@ it("classifies a marked fork-named JSX spread attribute as one construct (1013)"
   assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
 });
 
+// A target blob whose pre-image position 10 carries a JSX element, so a wrap of that element
+// lands where `hookPatch`'s hunk header puts the first removed line.
+const wrapBlob = [
+  ...Array.from({ length: 9 }, (_, n) => `const filler${n} = ${n};`),
+  "      <RenderedMarkdownSurface file={file} />",
+  "  const summary = summarize(input);",
+  "const filler9 = 9;",
+  "const filler10 = 10;",
+];
+
+const wrapWarnings = (body: string) =>
+  collectScanWarnings({
+    ...hookPatch(body),
+    upstreamHookLines: new Map([[hookPath, wrapBlob]]),
+  }).filter((warning) => warning.rule === "fork-hook-seam");
+
+it("does not charge a marked JSX region for the lines it re-indents (1013)", () => {
+  const warnings = wrapWarnings(
+    [
+      "-      <RenderedMarkdownSurface file={file} />",
+      "+      {/* fork-hook: project-windows/preview-pane */}",
+      "+      <PreviewBoundaryFork>",
+      "+        <RenderedMarkdownSurface file={file} />",
+      "+      </PreviewBoundaryFork>",
+      "+      {/* fork-hook-end */}",
+      "",
+    ].join("\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still charges a real deletion inside a marked JSX region (1013)", () => {
+  const warnings = wrapWarnings(
+    [
+      "-      <RenderedMarkdownSurface file={file} />",
+      "+      {/* fork-hook: project-windows/preview-pane */}",
+      "+      <PreviewBoundaryFork />",
+      "+      {/* fork-hook-end */}",
+      "",
+    ].join("\n"),
+  );
+  assert.strictEqual(
+    warnings.filter((warning) => /removes or rewrites 1 upstream line/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
 it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
   // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
   // line, so gating on the line form alone left every hook inside a JSX attribute list, an

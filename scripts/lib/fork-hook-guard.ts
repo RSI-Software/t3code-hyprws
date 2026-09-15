@@ -162,7 +162,12 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
     // file off the target blob elsewhere, so a miss falls back to a bounded window of
     // ±3 lines before the line counts as the fork's own. A removal paired with an
     // addition equal to it plus a trailing `// fork-hook:` marker (line or JSX pair
-    // form) is a marker attach, never a rewrite.
+    // form) is a marker attach, never a rewrite. A removal whose text a marked JSX region
+    // re-adds is the same fact one level out: wrapping an upstream element in a fork boundary
+    // re-indents every line of it, and the doctrine lists one JSX element as an allowed
+    // construct, which only exists via a wrap. The comparison is `.trim()`, so it is
+    // indentation-blind exactly like the marker attach above; a real deletion inside a region
+    // matches no added line and is still charged.
     const upstream = input.upstreamLines.get(path);
     const positions = input.removedPositions.get(path);
     const markerStripped = new Set(
@@ -179,6 +184,14 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
             .trim(),
         ),
     );
+    // The lines a marked JSX region adds between its markers, by trimmed text.
+    const regionAdded = new Set(
+      hooks
+        .filter((hook) => hook.kind === "jsx")
+        .flatMap((hook) => change.added.slice(hook.startLine, hook.endLine - 1))
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
+    );
     const removedUpstream =
       upstream === undefined
         ? change.removed
@@ -189,7 +202,8 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
               (offset) => upstream[at - 1 + offset]?.trim() === line.trim(),
             );
             if (!matched) return false;
-            return !markerStripped.has(line.trim());
+            const trimmed = line.trim();
+            return !markerStripped.has(trimmed) && !regionAdded.has(trimmed);
           });
     if (removedUpstream.length > 0)
       details.push(
