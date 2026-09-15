@@ -1661,14 +1661,10 @@ const repairOwners = (
   for (const record of raw.split("\x1e").slice(1)) {
     const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
     const trailers = parseForkTrailers(body);
-    // Only a declared fork commit can own a repair. A prior fixup has no trailers,
-    // and a standalone walk repair is bookkeeping rather than an ownership claim.
-    if (
-      trailers.domain === undefined ||
-      trailers.tier === undefined ||
-      trailers.repair !== undefined
-    )
-      continue;
+    // Only a declared fork commit can own a repair. A prior fixup has no trailers. A commit
+    // carrying `Fork-Repair` owns its own paths: it is a repair applied to the lane by hand or by
+    // an earlier run, and a formatter fixup for its files must fold into it, not stop the walk.
+    if (trailers.domain === undefined || trailers.tier === undefined) continue;
     for (const file of lines(files)) if (!owners.has(file)) owners.set(file, { sha, subject });
   }
   return owners;
@@ -2253,6 +2249,59 @@ const unblockCheck = (
         .map(({ path }) => path),
     ]),
   ].sort();
+  // One walk over the replayed range feeds two consumers: fixup discovery (every `fixup!` on the
+  // lane must reach the autosquash, even one a run interrupted before `writeReport` left behind)
+  // and the formatter scope (every path a `Fork-Repair` commit, a `fixup!`, or a repair commit the
+  // check itself made touches, because a hand-applied repair committed before the check ran never
+  // sat in a conflict resolution and would land unformatted).
+  const laneCommits = gitRaw(
+    runner,
+    worktree,
+    ["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${report.target!.sha}..HEAD`],
+    true,
+  )
+    .split("\x1e")
+    .slice(1)
+    .map((record) => {
+      const [sha = "", subject = "", body = "", files = ""] = record.split("\x1f");
+      return {
+        sha,
+        subject,
+        body,
+        paths: lines(files),
+      };
+    });
+  const laneFixups = laneCommits.filter(({ subject }) => subject.startsWith("fixup! "));
+  for (const fixup of laneFixups) {
+    const owner = fixup.subject.slice("fixup! ".length);
+    const owners = laneCommits.filter(
+      ({ subject }) => !subject.startsWith("fixup! ") && subject === owner,
+    );
+    if (owners.length !== 1)
+      throw new Error(
+        `orphan fixup on the lane: "${fixup.subject}" ${owners.length === 0 ? "has no owning fork commit" : "names a duplicated owner"} in ${report.target!.sha}..HEAD`,
+      );
+  }
+  const walkMadeShas = new Set([
+    ...(report.walk?.repairCommits ?? []).map(({ sha }) => sha),
+    ...seamCommits.map(({ sha }) => sha),
+    ...additiveCommits.map(({ sha }) => sha),
+  ]);
+  const repairOwnedPaths = laneCommits
+    .filter(
+      ({ sha, subject, body }) =>
+        subject.startsWith("fixup! ") ||
+        walkMadeShas.has(sha) ||
+        parseForkTrailers(body).repair !== undefined,
+    )
+    .flatMap(({ paths }) => paths);
+  // The resolved paths are formatted inside the conflict resolution; this pass covers the rest of
+  // the union — the paths the lane's repair commits carry. Nothing to format, no command at all.
+  const repairScopeFormat = formatCommand([...new Set(repairOwnedPaths)].sort());
+  if (repairScopeFormat !== null) {
+    const formatted = runRepairs(runner, worktree, [repairScopeFormat], verificationEnv);
+    if (formatted.failure !== undefined) throw new RepairStop(formatted.failure, report.reportPath);
+  }
   // Fork-owned tests are the fork's own guards: every tracked `*.fork.test.{ts,tsx}` runs even
   // when the replay never touched its workspace, grouped by workspace like the focused suites.
   const forkTests = lines(
@@ -2288,36 +2337,6 @@ const unblockCheck = (
   // Autosquash must run for every `fixup!` on the lane: the ones this invocation created and the
   // ones a run stopped at the repair battery left behind (recorded in `walk.repairCommits`). A
   // rerun that only looked at its own commits could never fold the retained ones.
-  // Fixups are discovered on the lane, never remain at `checked`: a run interrupted between
-  // committing a seam fixup and `writeReport` leaves a fixup no record names, and no proof sees
-  // a `fixup!` subject. Read the lane's subjects, keep every `fixup!`, and require each one's
-  // owner to exist exactly once among the lane's non-fixup commits — an orphan fixup would
-  // survive autosquash silently.
-  const laneCommits = git(
-    runner,
-    worktree,
-    ["log", "--format=%H%x00%s", `${report.target!.sha}..HEAD`],
-    true,
-  )
-    .split("\n")
-    .filter(Boolean)
-    .map((row) => {
-      const [sha, subject] = row.split("\0");
-      if (sha === undefined || subject === undefined)
-        throw new Error(`invalid lane log row: ${row}`);
-      return { sha, subject };
-    });
-  const laneFixups = laneCommits.filter(({ subject }) => subject.startsWith("fixup! "));
-  for (const fixup of laneFixups) {
-    const owner = fixup.subject.slice("fixup! ".length);
-    const owners = laneCommits.filter(
-      ({ subject }) => !subject.startsWith("fixup! ") && subject === owner,
-    );
-    if (owners.length !== 1)
-      throw new Error(
-        `orphan fixup on the lane: "${fixup.subject}" ${owners.length === 0 ? "has no owning fork commit" : "names a duplicated owner"} in ${report.target!.sha}..HEAD`,
-      );
-  }
   const retainedRepairCommits = (report.walk?.repairCommits ?? []).filter(({ subject }) =>
     subject.startsWith("fixup! "),
   );

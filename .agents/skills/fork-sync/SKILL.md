@@ -211,7 +211,8 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. What a repair rewrites
    becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
    ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the additive proof runs before any
-   repair. After the autosquash the check proves the landed tree equals the tested tree, re-proves the
+   repair, and the formatter covers every repair commit the lane carries. After the autosquash the
+   check proves the landed tree equals the tested tree, re-proves the
    replay, and re-proves the fold segments. Before repairs, the walk proves the replayed tree purely additive
    (no deleted target files, migration deletions or collisions, shrunk tests, or re-added
    upstream-deleted lines) and repairs a failure once with the same `Fork-Repair` commit; a failure

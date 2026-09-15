@@ -802,7 +802,9 @@ confirms after the apply. A repair that fails because the lane cannot run its to
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
 resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit
 to its owning fork commit and is autosquashed from the target during the check (an ownerless path
-needs `--seam-owner '<path>=<full owner sha>'`), and the check only reports `checked` after proving
+needs `--seam-owner '<path>=<full owner sha>'`), and the formatter covers every repair commit the
+lane carries — a hand-applied repair's paths never sat in a conflict resolution. The check only
+reports `checked` after proving
 the landed tree equals the tested tree and re-proving the replay and the fold segments.
 
 Before any of that, the walk proves the replayed tree purely additive over the target — no target

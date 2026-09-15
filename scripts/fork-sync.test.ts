@@ -4520,14 +4520,84 @@ it("the check runs a tracked fork test outside the touched workspaces", () => {
   }
 });
 
+it("a Fork-Repair commit's paths enter the formatter scope", () => {
+  const state = repairingRun();
+  const hand = "e".repeat(40);
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${hand}\x1fchore(fork): refresh workflow reviews for v1.2.3\x1f` +
+        `Fork-Domain: fork-meta\nFork-Tier: qol\nFork-Repair: hand\n\x1f.github/fork-workflow-reviews.json\n`,
+    },
+  );
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    assert.isTrue(
+      state.runner.calls.some(
+        ({ command, args }) =>
+          command === "vp" && args.includes(".github/fork-workflow-reviews.json"),
+      ),
+      "the hand repair's path was never formatted",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a clean lane runs no formatter pass and keeps the report byte-identical", () => {
+  const state = repairingRun();
+  state.runner.set("git", rehearsal(["ls-files", "*.fork.test.ts", "*.fork.test.tsx"]), {
+    stdout: "",
+  });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isUndefined(
+      state.runner.calls.find(({ command, args }) => command === "vp" && args[0] === "fmt"),
+      "the check-level formatter ran on a clean lane",
+    );
+    // The battery and its recorded rows are exactly what a clean run always produced.
+    // The battery rows are the walk's own full sequence, unchanged from a run before the
+    // fork-test and formatter extensions: the new steps record nothing extra on a clean lane.
+    assert.deepStrictEqual(
+      checked.walk?.repairs?.map(({ command }) => command),
+      [
+        "vp run --no-cache fork:scan --target v1.2.3",
+        // Derive the delta row the way the record does, so the expectation holds wherever the
+        // repository is checked out.
+        `node ${toolingDeltaCheck().args[0]} --check`,
+        "vp run --filter ./scripts typecheck",
+      ],
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("discovers an unrecorded fixup on the lane and folds it", () => {
   const state = repairingRun();
   const unrecorded = "d".repeat(40);
   // No `walk.repairCommits` names this fixup: a run stopped between committing the fixup and
   // writing the report. The check must still find it on the lane and autosquash it away.
-  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
-    stdout: `${unrecorded}\x00fixup! feat: one\n${A}\x00feat: one\n`,
-  });
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${unrecorded}\x1ffixup! feat: one\x1f\x1fscripts/fork-sync.ts\n` +
+        `\x1e${A}\x1ffeat: one\x1f\x1fscripts/fork-sync.ts\n`,
+    },
+  );
   state.runner.set("git", rehearsal(["log", "--format=%s", `${B}..HEAD`]), {
     stdout: "feat: one\n",
   });
@@ -4553,9 +4623,15 @@ it("discovers an unrecorded fixup on the lane and folds it", () => {
 it("an orphan fixup on the lane stops the check naming it", () => {
   const state = repairingRun();
   const orphan = "d".repeat(40);
-  state.runner.set("git", rehearsal(["log", "--format=%H%x00%s", `${B}..HEAD`]), {
-    stdout: `${orphan}\x00fixup! no such owner\n${A}\x00feat: one\n`,
-  });
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout:
+        `\x1e${orphan}\x1ffixup! no such owner\x1f\x1fscripts/fork-sync.ts\n` +
+        `\x1e${A}\x1ffeat: one\x1f\x1fscripts/fork-sync.ts\n`,
+    },
+  );
   try {
     assert.throws(
       () => execute(["unblock-check", "--report", state.reportPath], state.root, state.runner),
