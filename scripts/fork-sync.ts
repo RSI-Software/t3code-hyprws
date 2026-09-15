@@ -2253,10 +2253,15 @@ const unblockCheck = (
         .map(({ path }) => path),
     ]),
   ].sort();
+  // Fork-owned tests are the fork's own guards: every tracked `*.fork.test.{ts,tsx}` runs even
+  // when the replay never touched its workspace, grouped by workspace like the focused suites.
+  const forkTests = lines(
+    git(runner, worktree, ["ls-files", "*.fork.test.ts", "*.fork.test.tsx"], true),
+  );
   const repairs = runRepairs(
     runner,
     worktree,
-    verifyPlan(worktree, repairPaths),
+    verifyPlan(worktree, repairPaths, undefined, forkTests),
     verificationEnv,
     () => git(runner, worktree, ["status", "--porcelain"], true).length > 0,
   );

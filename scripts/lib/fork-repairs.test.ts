@@ -61,6 +61,26 @@ it("keeps the formatter scoped to the resolved paths so a rebase stays continuab
   );
 });
 
+it("runs every fork-owned test even when the replay never touched its workspace", () => {
+  // `apps/server` is untouched, so nothing focuses it; `scripts/dev-desktop-task-graph.fork.test.ts`
+  // is tracked in the lane and runs anyway, from its own workspace.
+  assert.deepStrictEqual(
+    verifyPlan("/root", ["apps/web/src/window.ts"], present(["apps/web/src/window.test.ts"]), [
+      "scripts/dev-desktop-task-graph.fork.test.ts",
+      "apps/server/README.md",
+    ]),
+    [
+      { command: "vp", args: ["run", "--filter", "./apps/web", "typecheck"] },
+      { command: "vp", args: ["test", "run", "src/window.test.ts"], cwd: "apps/web" },
+      {
+        command: "vp",
+        args: ["test", "run", "dev-desktop-task-graph.fork.test.ts"],
+        cwd: "scripts",
+      },
+    ],
+  );
+});
+
 it("runs each suite from its own workspace so it gets that workspace's test config", () => {
   assert.deepStrictEqual(
     verifyPlan(

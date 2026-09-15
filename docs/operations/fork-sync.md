@@ -796,8 +796,8 @@ says two things at once. So are the shapes with no common ancestor on both sides
 delete/modify, rename) and binary files. A refused row is the walk's `conflict` stop.
 
 Repair runs inside the same invocation, scoped to what the replay touched: the formatter over the
-resolved paths, then `typecheck` for each touched workspace and the focused test files beside the
-touched sources. There is no full battery in the lane and no wait on a remote verdict — trunk CI
+resolved paths, then `typecheck` for each touched workspace, the focused test files beside the
+touched sources, and every fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. There is no full battery in the lane and no wait on a remote verdict — trunk CI
 confirms after the apply. A repair that fails because the lane cannot run its tools is the
 `environment` stop; a repair that fails on its own merits is the `conflict` stop, because the
 resolutions the walk staged do not hold. Whatever a repair rewrites becomes a `fixup!` commit

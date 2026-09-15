@@ -207,7 +207,8 @@ and `seam-moved` rows as `clear` by default unless the resolution dropped or mov
    The verb assigns importer lock drift to a manifest-owning commit, discards snapshots-only drift,
    installs at the final replay head, and runs scan and ledger locally. It then repairs the lane in
    place, scoped to the paths the replay touched: the formatter over resolved paths, each touched
-   workspace's typecheck, and the focused test files beside the touched sources. What a repair rewrites
+   workspace's typecheck, and the focused test files beside the touched sources plus every
+   fork-owned `*.fork.test.{ts,tsx}` tracked in the lane. What a repair rewrites
    becomes a `fixup!` commit to its owning fork commit and is autosquashed from the target (an
    ownerless path needs `--seam-owner '<path>=<full owner sha>'`); the additive proof runs before any
    repair. After the autosquash the check proves the landed tree equals the tested tree, re-proves the

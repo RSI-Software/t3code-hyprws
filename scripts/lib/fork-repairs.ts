@@ -103,12 +103,18 @@ export const verifyPlan = (
   root: string,
   paths: ReadonlyArray<string>,
   exists?: (path: string) => boolean,
+  /** Fork-owned tests run regardless of the touched paths: they are the fork's own guards. */
+  forkTests: ReadonlyArray<string> = [],
 ): ReadonlyArray<RepairCommand> => {
   const plan: Array<RepairCommand> = [];
   for (const workspace of touchedWorkspaces(paths))
     plan.push({ command: "vp", args: ["run", "--filter", `./${workspace}`, "typecheck"] });
   const byWorkspace = new Map<string, Array<string>>();
-  for (const test of focusedTests(root, paths, exists)) {
+  const selected = [
+    ...focusedTests(root, paths, exists),
+    ...forkTests.filter((test) => isTestPath(test)),
+  ].sort();
+  for (const test of selected) {
     const workspace = touchedWorkspaces([test])[0] ?? "";
     const relative = workspace === "" ? test : test.slice(workspace.length + 1);
     byWorkspace.set(workspace, [...(byWorkspace.get(workspace) ?? []), relative]);

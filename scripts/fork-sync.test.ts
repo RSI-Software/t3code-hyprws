@@ -4492,6 +4492,34 @@ it("a rerun proves the replay through the fixups a stopped run left and folds th
   }
 });
 
+it("the check runs a tracked fork test outside the touched workspaces", () => {
+  const state = repairingRun();
+  state.runner.set("git", rehearsal(["ls-files", "*.fork.test.ts", "*.fork.test.tsx"]), {
+    stdout: "scripts/dev-desktop-task-graph.fork.test.ts\n",
+  });
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    assert.strictEqual(checked.stage, "checked");
+    assert.isTrue(
+      state.runner.calls.some(
+        ({ command, args }) =>
+          command === "vp" &&
+          args[0] === "test" &&
+          args.includes("dev-desktop-task-graph.fork.test.ts"),
+      ),
+      "the fork-owned test was never run",
+    );
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("discovers an unrecorded fixup on the lane and folds it", () => {
   const state = repairingRun();
   const unrecorded = "d".repeat(40);
