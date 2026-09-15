@@ -223,3 +223,56 @@ it("refuses a marker whose statement start cannot be proven", () => {
     reason: "the fork side of this conflict carries no readable marker for the hook",
   });
 });
+
+// RSI-Software/t3code-hyprws#1030: a span resolved from the fork tip's marker points at raw
+// lines of the replayed fork text, which carry no marker at that commit. Re-insertion reads
+// those raw lines — never an annotated copy — and an in-file marker keeps precedence.
+
+it("re-inserts an overlaid tip span as the raw unmarked fork lines", () => {
+  const merged = 'import { a } from "a";\nconst x = a();\n';
+  const fork = 'import { forkThing } from "fork";\n';
+  const span = {
+    key: "dom/name",
+    domain: "dom",
+    name: "name",
+    kind: "line" as const,
+    startLine: 1,
+    endLine: 1,
+    overlay: true,
+  };
+  const result = reapplyForkHooks(
+    merged,
+    fork,
+    [{ key: "dom/name", anchor: { kind: "import-block" } }],
+    matchingDelimiter,
+    { spans: new Map([["dom/name", span]]) },
+  );
+  assert.deepStrictEqual(result.reinserted, ["dom/name"]);
+  assert.include(result.text, 'import { forkThing } from "fork";');
+  assert.isFalse(result.text.includes("fork-hook"), "the overlay marker reached the output");
+});
+
+it("an in-file marker wins over an overlaid tip span for the same key", () => {
+  const merged = 'import { a } from "a";\nconst x = a();\n';
+  const fork = 'import { forkThing } from "fork"; // fork-hook: dom/name\nconst other = 1;\n';
+  const span = {
+    key: "dom/name",
+    domain: "dom",
+    name: "name",
+    kind: "line" as const,
+    startLine: 2,
+    endLine: 2,
+    overlay: true,
+  };
+  const result = reapplyForkHooks(
+    merged,
+    fork,
+    [{ key: "dom/name", anchor: { kind: "import-block" } }],
+    matchingDelimiter,
+    { spans: new Map([["dom/name", span]]) },
+  );
+  assert.deepStrictEqual(result.reinserted, ["dom/name"]);
+  // The marked line was read, not the overlay span's line 2.
+  assert.include(result.text, 'import { forkThing } from "fork"; // fork-hook: dom/name');
+  assert.isFalse(result.text.includes("const other"));
+});
