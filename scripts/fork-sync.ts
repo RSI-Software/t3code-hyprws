@@ -4295,8 +4295,11 @@ const walkOnce = (
           "conflict",
           [
             "The outcome executor cannot produce a result for:",
+            // The captured detail is the operator's, not the record's: a stop prints it, a census
+            // row never stores it (RSI-Software/t3code-hyprws#1012).
             ...resolution.rows.map(
-              ({ path, subject, reason }) => `  - ${path} (${subject}): ${reason}`,
+              ({ path, subject, reason, detail }) =>
+                `  - ${path} (${subject}): ${reason}${detail === undefined ? "" : `: ${detail}`}`,
             ),
           ].join("\n"),
           started,
