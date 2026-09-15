@@ -4183,9 +4183,12 @@ it("attributes a repair to the domain that owns the files it rewrote", () => {
 /** A replayed walk whose repair pass leaves the worktree dirty. */
 const dirtyRepairRun = (): ReturnType<typeof replayedRun> => {
   const state = repairingRun();
+  // The dirt is the repair battery's, not the operator's: the check's seam commit reads the tree
+  // clean at its gate, and the battery dirties it afterwards.
   state.runner.set("git", rehearsal(["status", "--porcelain"]), {
     stdout: " M scripts/fork-sync.ts\n",
   });
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [{ stdout: "" }]);
   state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
     stdout: "scripts/fork-sync.ts\n",
   });
@@ -4326,6 +4329,97 @@ it("adds no commit when the repair pass rewrote nothing", () => {
     const record = NodeFS.readFileSync(checked.recordPath, "utf8");
     assert.deepStrictEqual(parseRepairCommits(record), []);
     assert.include(record, "## Repair commits\n\nNone.");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+/** A replayed walk that arrives at the check with a hand-repaired, dirty lane (`--silent-seam`). */
+const seamRepairedRun = (): ReturnType<typeof replayedRun> & { seamSha: string } => {
+  const state = repairingRun();
+  const seamSha = "d".repeat(40);
+  // The lane is dirty when the check opens and the seam commit cleans it; the battery afterwards
+  // sees a clean tree and adds nothing.
+  state.runner.setSequence("git", rehearsal(["status", "--porcelain"]), [
+    { stdout: " M apps/web/src/Fix.tsx\n" },
+  ]);
+  state.runner.set("git", rehearsal(["diff", "--cached", "--name-only"]), {
+    stdout: "apps/web/src/Fix.tsx\n",
+  });
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${seamSha}\x1fchore(fork-sync): repair seam after v1.2.3\n`,
+  });
+  state.runner.setSequence("git", rehearsal(["rev-parse", "HEAD"]), [
+    { stdout: `${A}\n` },
+    ...Array.from({ length: 5 }, () => ({ stdout: `${seamSha}\n` })),
+  ]);
+  // The proof counts the fork series (1) and then the head with the seam commit on it (2).
+  state.runner.setSequence("git", rehearsal(["rev-list", "--count", `${B}..HEAD`]), [
+    { stdout: "1\n" },
+    { stdout: "2\n" },
+  ]);
+  return { ...state, seamSha };
+};
+
+it("commits a hand-repaired lane as a seam repair before the additive proof runs", () => {
+  const state = seamRepairedRun();
+  try {
+    const checked = execute(
+      ["unblock-check", "--report", state.reportPath],
+      state.root,
+      state.runner,
+    );
+    const commits = state.runner.calls.filter(
+      ({ command, args }) => command === "git" && args.includes("commit"),
+    );
+    // Exactly one commit, the seam's, and no fork commit is amended by anything but autosquash.
+    assert.strictEqual(commits.length, 1);
+    const message = commits[0]?.args[5] ?? "";
+    assert.match(message, /^chore\(fork-sync\): repair seam after v1\.2\.3\n/);
+    assert.include(message, "Fork-Repair: v1.2.3");
+    // The seam proof runs in the lane between the commit and the additive phase.
+    const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
+    const deltaChecks = state.runner.calls.filter(
+      ({ command, args }) => command === "vp" && args.join(" ").includes("fork:delta --check"),
+    );
+    const seamProofAt = state.runner.calls.indexOf(deltaChecks[1]!);
+    assert.isTrue(seamProofAt > commitAt, "the seam commit must precede its delta proof");
+    assert.strictEqual(deltaChecks.length, 2);
+    // The seam commit is recorded on the walk, and the head binding follows it — the additive
+    // proof and every later guard read the head that contains the operator's repairs.
+    assert.deepStrictEqual(checked.walk?.repairCommits, [
+      { sha: state.seamSha, subject: "chore(fork-sync): repair seam after v1.2.3" },
+    ]);
+    assert.strictEqual(checked.installedHead, state.seamSha);
+    assert.strictEqual(checked.stage, "checked");
+  } finally {
+    NodeFS.rmSync(state.root, { recursive: true, force: true });
+    NodeFS.rmSync(state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a seam fixup on an owned path drives the autosquash step", () => {
+  const state = seamRepairedRun();
+  // The dirty path belongs to a fork commit on the stack, so the seam commit is a fixup.
+  state.runner.set(
+    "git",
+    rehearsal(["log", "--format=%x1e%H%x1f%s%x1f%b%x1f", "--name-only", `${B}..HEAD`]),
+    {
+      stdout: `\x1e${C}\x1ffeat(fork): owner\x1fFork-Domain: fork-meta\nFork-Tier: core\n\x1f\napps/web/src/Fix.tsx\n`,
+    },
+  );
+  state.runner.set("git", rehearsal(["show", "-s", "--format=%H%x1f%s", "HEAD"]), {
+    stdout: `${state.seamSha}\x1ffixup! feat(fork): owner\n`,
+  });
+  try {
+    execute(["unblock-check", "--report", state.reportPath], state.root, state.runner);
+    const commitAt = state.runner.calls.findIndex(({ args }) => args.includes("commit"));
+    const autosquashAt = state.runner.calls.findIndex(({ args }) => args.includes("--autosquash"));
+    assert.notStrictEqual(autosquashAt, -1, "the seam fixup produced no autosquash");
+    assert.isTrue(autosquashAt > commitAt, "autosquash must run after the seam commit");
   } finally {
     NodeFS.rmSync(state.root, { recursive: true, force: true });
     NodeFS.rmSync(state.worktree, { recursive: true, force: true });

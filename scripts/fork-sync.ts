@@ -1785,28 +1785,31 @@ const runAdditivePhase = (
   verificationEnv: NodeJS.ProcessEnv,
 ): {
   readonly additive: NonNullable<WalkRecord["additive"]>;
-  readonly repairCommit?: { readonly sha: string; readonly subject: string };
+  readonly repairCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }>;
 } => {
   const trees = {
     target: (report.target as NonNullable<typeof report.target>).sha,
     previous: report.source!.sharedBase,
   };
   const first = checkAdditive(runner, worktree, trees);
-  if (first.length === 0) return { additive: { pass: true, attempts: 1, findings: [], fixed: [] } };
+  if (first.length === 0)
+    return {
+      additive: { pass: true, attempts: 1, findings: [], fixed: [] },
+      repairCommits: [],
+    };
   const fixes = applyAdditiveFixes(runner, worktree, trees.target, first);
-  let commit: { readonly sha: string; readonly subject: string } | undefined;
+  let repaired: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
   if (fixes.paths.length > 0) {
-    // The fixes are the walk's own rewrite, so they land as an `additive` repair commit, and the
+    // The fixes are the walk's own rewrite, so they land as `additive` repair commit(s), and the
     // appended trailers are proven in the lane exactly like the repair pass's.
-    const [repaired] = commitWalkRepairs(report, runner, worktree, verificationEnv, {
+    repaired = commitWalkRepairs(report, runner, worktree, verificationEnv, {
       ran: [],
       dirtiedBy: "additive",
     });
-    if (repaired === undefined)
+    if (repaired.length === 0)
       throw new Error("additive repairs dirtied the tree but left no commit");
     const delta = { command: "vp", args: ["run", "--no-cache", "fork:delta", "--check"] } as const;
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
-    commit = repaired;
   }
   const retry = checkAdditive(runner, worktree, trees);
   return {
@@ -1815,9 +1818,9 @@ const runAdditivePhase = (
       attempts: 2,
       findings: retry.length === 0 ? first : retry,
       fixed: fixes.fixed,
-      ...(commit === undefined ? {} : { commit: commit.sha }),
+      ...(repaired.length === 0 ? {} : { commit: repaired[repaired.length - 1]!.sha }),
     },
-    ...(commit === undefined ? {} : { repairCommit: commit }),
+    repairCommits: repaired,
   };
 };
 
@@ -1960,30 +1963,60 @@ const unblockCheck = (
     );
     verification.push({ command: commandText(command.command, command.args), result: "passed" });
   }
+  // A lane repaired by hand before the check (`--silent-seam`) reaches this point with a dirty
+  // tree its repairs already clear: the additive proof would read a HEAD missing those fixes and
+  // stop on findings they no longer produce. The check commits them as its own `seam` repair
+  // ahead of the proof, so the proof reads the head that contains the operator's work.
+  let seamCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
+  if (report.kind !== "rewrite") {
+    seamCommits = commitWalkRepairs(report, runner, worktree, verificationEnv, {
+      ran: [],
+      dirtiedBy: "seam",
+    });
+    if (seamCommits.length > 0) {
+      // Prove the repair in the lane before the additive proof builds on it.
+      const delta = {
+        command: "vp",
+        args: ["run", "--no-cache", "fork:delta", "--check"],
+      } as const;
+      requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
+      verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
+      report = {
+        ...report,
+        walk: {
+          ...(report.walk ?? {}),
+          repairCommits: [...(report.walk?.repairCommits ?? []), ...seamCommits],
+        },
+      };
+      writeReport(report);
+      installedHead = seamCommits[seamCommits.length - 1]!.sha;
+    }
+  }
   // Purely-additive verification (RSI-Software/t3code-hyprws#661), between the replayed tree and
   // the repair battery: the walk checks its own tree against the two upstream trees, mechanically
   // repairs what it can make additive again as its own `additive` repair commit, and re-checks
   // exactly once. A check the machine cannot make pass stops the walk.
-  let additiveCommit: string | undefined;
+  let additiveCommits: ReadonlyArray<{ readonly sha: string; readonly subject: string }> = [];
   if (report.kind !== "rewrite" && report.target !== undefined && report.source !== undefined) {
     const phase = runAdditivePhase(report, runner, worktree, verificationEnv);
-    additiveCommit = phase.additive.commit;
+    additiveCommits = phase.repairCommits;
     report = {
       ...report,
       walk: {
         ...(report.walk ?? {}),
         additive: phase.additive,
-        ...(phase.repairCommit === undefined
+        ...(additiveCommits.length === 0
           ? {}
           : {
-              repairCommits: [...(report.walk?.repairCommits ?? []), phase.repairCommit],
+              repairCommits: [...(report.walk?.repairCommits ?? []), ...additiveCommits],
             }),
       },
     };
     writeReport(report);
-    // The additive commit is the lane head now; the installed-tree binding must follow it or the
-    // head guard below refuses the tree the walk itself just repaired.
-    if (additiveCommit !== undefined) installedHead = additiveCommit;
+    // The additive commits are the lane head now; the installed-tree binding must follow them or
+    // the head guard below refuses the tree the walk itself just repaired.
+    if (additiveCommits.length > 0)
+      installedHead = additiveCommits[additiveCommits.length - 1]!.sha;
     if (!phase.additive.pass) throw new AdditiveStop(phase.additive.findings, report.reportPath);
   }
   // In-lane repair, scoped to what the replay actually touched: the seams it automerged and the
@@ -2029,7 +2062,11 @@ const unblockCheck = (
     requireSuccess(runner, delta.command, delta.args, worktree, undefined, verificationEnv, true);
     verification.push({ command: commandText(delta.command, delta.args), result: "passed" });
   }
-  const hasFixups = repaired.some(({ subject }) => subject.startsWith("fixup! "));
+  // Autosquash must see every fixup this run produced — seam, additive phase, and repair battery
+  // alike — not only the battery's, or a seam fixup would ride the lane uncommitted to its owner.
+  const hasFixups = [...seamCommits, ...additiveCommits, ...repaired].some(({ subject }) =>
+    subject.startsWith("fixup! "),
+  );
   if (hasFixups) {
     // Interactive autosquash matches `fixup!` targets by SUBJECT, so with folds on the stack it
     // must run from the newest fold's `onto`: a target outside the todo cannot be matched, and an
@@ -2124,7 +2161,7 @@ const unblockCheck = (
     // A repair moves the lane head the apply publishes, so the record's head and stack size bind
     // that head. The gate compares them against the checkout, and the fork series is still
     // exactly what the replay proved: `## Repair commits` names everything appended after it.
-    ...(repaired.length === 0 && additiveCommit === undefined
+    ...(repaired.length === 0 && additiveCommits.length === 0 && seamCommits.length === 0
       ? {}
       : {
           rebasedHead: checkedHead,
