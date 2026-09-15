@@ -221,6 +221,18 @@ it("blocks a verified repair that returns on the new base and keeps partial cens
   assert.deepStrictEqual(lines, []);
 });
 
+it("accepts a stored record whose payload predates a parser field", () => {
+  // The ledger is re-digested from its parsed payload, so the parser has to be a pure validator:
+  // one field it materialises that the stored JSON never carried invalidates every record ever
+  // written. `stage` arrived with the walk-resolution census (RSI-Software/t3code-hyprws#1007),
+  // and the observations already on the ref were frozen without it.
+  const stored = seamRecord(freezeObservation(snapshot(A)));
+  assert.isUndefined(stored.evidence?.rows[0]?.stage);
+  const parsed = requireSeamRecords([stored]);
+  assert.deepStrictEqual(parsed, [stored]);
+  assert.strictEqual(parsed[0]?.id, stored.id);
+});
+
 it("separates repair, attested verification and comparable regression", () => {
   assert.deepStrictEqual(requireSeamRecords(records), records);
   assert.strictEqual(
