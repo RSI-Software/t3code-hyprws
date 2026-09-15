@@ -2,6 +2,7 @@ import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-action
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { environmentSession } from "../../state/session";
+import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import {
   StackActions,
   useNavigation,
@@ -10,6 +11,7 @@ import {
 } from "@react-navigation/native";
 import { useGT, useMessages } from "gt-react-native";
 import { type ComponentProps, type ReactNode, useId, useState } from "react";
+import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { Platform, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
@@ -40,6 +42,7 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { projectEnvironment } from "../../state/projects";
+import { mobilePreferencesAtom } from "../../state/preferences"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
 import {
   Inspector,
@@ -51,7 +54,6 @@ import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
@@ -484,7 +486,9 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     props.route.params,
   );
   const hasFileInspector = fileInspector.supported && threadId !== null;
-  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
+  const preferences = useAtomValue(mobilePreferencesAtom); // fork-hook: workspace-files/mobile-route-ignored-preference
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true; // fork-hook: workspace-files/mobile-route-ignored-preference
   const messages = useMessages();
   const fileAccessSession = useEnvironmentQuery(
     environmentId !== null ? environmentSession.sessionStateAtom(environmentId) : null,
@@ -504,7 +508,7 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     environmentId,
     cwd: canReadFiles && !hasFileInspector ? cwd : null,
     searchQuery,
-    includeIgnored: workspaceFileListing?.includeIgnored === true, // fork-hook: workspace-files/mobile-tree-ignored-screen
+    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-route-ignored-listing
   });
   const handleReturnToThread = () => {
     if (navigation.canGoBack()) {
