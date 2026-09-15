@@ -7,7 +7,10 @@
 // file per cause with a line count, on:
 //
 // (a) added lines outside a marked hook;
-// (b) removed or rewritten upstream lines — a hook never deletes upstream code;
+// (b) removed or rewritten upstream lines — a hook never deletes upstream code, except that an
+//     in-place substitution may remove the upstream line it replaces: the replacing line carries
+//     the marker, and the same positional alignment the sync walk runs (`fork-hook-alignment.ts`)
+//     decides the removal is declared rather than debt;
 // (c) markers with no entry in the `FORK_HOOKS` manifest;
 // (d) a marked hook that is more than one construct.
 //
@@ -33,6 +36,7 @@ import {
   parseForkHookMarkers,
   stripForkHookLineMarker,
 } from "./fork-hooks.ts";
+import { unexplainedRemovalLines } from "./fork-hook-alignment.ts";
 
 /** Generated dependency and codegen state no fork domain owns by hand. */
 export const GENERATED_HOOK_PATH = /(?:^|\/)pnpm-lock\.yaml$|\.gen\.ts$/;
@@ -61,6 +65,117 @@ const JSX_HOOK_FLOW =
 /** A line closed by a trailing fork-hook marker in either the line-comment or block form. */
 const isForkHookSuffixLine = (line: string): boolean =>
   FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
+
+/**
+ * The fork side of the diff, rebuilt so the removal charge can be judged on real positions the
+ * way the sync walk judges it: the upstream blob with the diff's removals taken out and its
+ * additions put back at their post-image positions. Returns `null` — charge, never exempt —
+ * when the shape does not reconstruct: position arrays out of alignment with their lines, one
+ * post-image position claimed twice, or an addition whose position the blob cannot reach. The
+ * failure direction is strict because a wrong exemption would bless a gutted line.
+ */
+const forkSideOfDiff = (
+  upstream: ReadonlyArray<string>,
+  removedAt: ReadonlyArray<number>,
+  added: ReadonlyArray<string>,
+  addedAt: ReadonlyArray<number>,
+): string | null => {
+  if (added.length !== addedAt.length) return null;
+  const removedSet = new Set(removedAt);
+  const addedByPost = new Map<number, string>();
+  for (const [index, post] of addedAt.entries()) {
+    const line = added[index];
+    if (line === undefined || addedByPost.has(post)) return null;
+    addedByPost.set(post, line);
+  }
+  const lines: Array<string> = [];
+  let pre = 1;
+  let post = 1;
+  while (pre <= upstream.length || addedByPost.has(post)) {
+    const inserted = addedByPost.get(post);
+    if (inserted !== undefined) {
+      lines.push(inserted);
+      post += 1;
+      continue;
+    }
+    const text = upstream[pre - 1];
+    if (text === undefined) return null;
+    if (!removedSet.has(pre)) {
+      lines.push(text);
+      post += 1;
+    }
+    pre += 1;
+  }
+  return lines.join("\n");
+};
+
+/**
+ * The change-block grouping the diff implies, turned into the declared-substitution set: for
+ * each maximal run of removals, the additions whose post-image positions fall in the gap it
+ * left are the lines that replaced it — git emits a block as its removals followed by its
+ * additions, so gap-adjacency is the pairing the patch itself asserts. A removal joins the set
+ * only when every addition in its gap is a line-kind marked hook; a gap holding an unmarked
+ * line or only a JSX region declares nothing. Malformed positions — one post-image slot
+ * claimed twice — declare nothing: the failure direction is strict.
+ */
+const declareSubstitutions = (
+  upstream: ReadonlyArray<string>,
+  removedAt: ReadonlyArray<number>,
+  added: ReadonlyArray<string>,
+  addedAt: ReadonlyArray<number>,
+  lineMarked: ReadonlySet<number>,
+  into: Set<number>,
+): void => {
+  if (added.length !== addedAt.length) return;
+  const removedSet = new Set(removedAt);
+  const postToAdded = new Map<number, number>();
+  for (const [index, post] of addedAt.entries()) {
+    if (added[index] === undefined || postToAdded.has(post)) return;
+    postToAdded.set(post, index);
+  }
+  const sortedPosts = [...postToAdded.keys()].toSorted((left, right) => left - right);
+  let gapRemovals: Array<number> = [];
+  let gapAdds: Array<number> = [];
+  let removalsSoFar = 0;
+  let consumed = 0;
+  let nextPost = 0;
+  const flush = () => {
+    if (gapRemovals.length > 0 && gapAdds.length > 0)
+      if (gapAdds.every((index) => lineMarked.has(index + 1)))
+        for (const pre of gapRemovals) into.add(pre);
+    gapRemovals = [];
+    gapAdds = [];
+  };
+  for (let pre = 1; pre <= upstream.length + 1; pre += 1) {
+    if (pre <= upstream.length && removedSet.has(pre)) {
+      gapRemovals.push(pre);
+      removalsSoFar += 1;
+      continue;
+    }
+    // A retained pre line lands at post `pre - removalsSoFar + consumed`; every addition at or
+    // below that slot — each consumption shifting the boundary by one — fell in the gap this
+    // retained line closes. Additions consumed while no gap is open are pure inserts before
+    // the first removal and declare nothing.
+    while (
+      nextPost < sortedPosts.length &&
+      (sortedPosts[nextPost] ?? 0) <= pre - removalsSoFar + consumed
+    ) {
+      const index = postToAdded.get(sortedPosts[nextPost] ?? -1);
+      if (index === undefined) return;
+      if (gapRemovals.length > 0) gapAdds.push(index);
+      nextPost += 1;
+      consumed += 1;
+    }
+    flush();
+  }
+  while (nextPost < sortedPosts.length) {
+    const index = postToAdded.get(sortedPosts[nextPost] ?? -1);
+    if (index === undefined) return;
+    if (gapRemovals.length > 0) gapAdds.push(index);
+    nextPost += 1;
+  }
+  flush();
+};
 
 /** The trailing marker removed in either form, leaving the code the hook classifies. */
 const stripForkHookSuffix = (line: string): string =>
@@ -97,6 +212,8 @@ export interface ForkHookSeamInput {
   readonly changedLines: ReadonlyMap<string, ForkHookSeamChange>;
   /** Pre-image line numbers per path, index-aligned with `changedLines`' `removed`. */
   readonly removedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
+  /** Post-image line numbers per path, index-aligned with `changedLines`' `added`. */
+  readonly addedPositions: ReadonlyMap<string, ReadonlyArray<number>>;
   readonly upstreamFiles: ReadonlySet<string>;
   readonly forkHooks: ReadonlySet<string>;
   /**
@@ -180,7 +297,10 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
     // pair — is a marker attach, never a rewrite. A removal whose text a marked JSX region
     // re-adds is the same fact one level out: wrapping an upstream element in a fork boundary
     // re-indents every line of it, and the doctrine lists one JSX element as an allowed
-    // construct, which only exists via a wrap. The comparison is `.trim()`, so it is
+    // construct, which only exists via a wrap. And a removal the positional alignment explains —
+    // the fork-side gap it left falls inside a marked span, judged on the fork side rebuilt
+    // from the blob and the diff's positions — is a declared substitution: the replacing line
+    // carries the marker. The comparison is `.trim()`, so it is
     // indentation-blind exactly like the marker attach above; a real deletion inside a region
     // matches no added line and is still charged.
     const upstream = input.upstreamLines.get(path);
@@ -207,6 +327,49 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
         .map((line) => line.trim())
         .filter((line) => line.length > 0),
     );
+    // The walk's positional rule, judged by the same alignment the sync walk runs: a removed
+    // upstream line whose removal position the alignment shows inside a marked span is a
+    // declared substitution — the replacing line carries the marker — and is not reshape debt.
+    // The judge runs on real positions, so the added lines are put back where the diff says
+    // they landed: the fork side is rebuilt from the blob and the diff's own position arrays.
+    // Two strictness gates keep the charge on every shape the rule does not declare:
+    //
+    // · Block purity. The diff groups one change block as its removals followed by its
+    //   additions, and the additions that landed in a removal's gap are the lines that replaced
+    //   it. Only when *every* addition in the gap is a line-kind marked hook is the removal
+    //   declared; a block that mixes marked hooks, an unmarked line, or a JSX region with the
+    //   removal charges exactly as before — a JSX region may only wrap upstream lines, and an
+    //   unmarked line in the gap means the seam was never declared.
+    // · The alignment itself. Even a pure block charges when the alignment still shows the
+    //   removal outside every marked span.
+    // Any shape that will not reconstruct — an unread tree, missing positions, an addition the
+    // blob cannot place — leaves both gates closed and charges exactly as before.
+    const addedPositions = input.addedPositions.get(path);
+    const lineMarked = new Set<number>();
+    for (const hook of hooks)
+      if (hook.kind === "line")
+        for (let n = hook.startLine; n <= hook.endLine; n += 1) lineMarked.add(n);
+    const declaredSubstitution = new Set<number>();
+    const unexplainedAt = new Set<number>();
+    if (upstream !== undefined && positions !== undefined && addedPositions !== undefined) {
+      declareSubstitutions(
+        upstream,
+        positions,
+        change.added,
+        addedPositions,
+        lineMarked,
+        declaredSubstitution,
+      );
+      const forkText = forkSideOfDiff(upstream, positions, change.added, addedPositions);
+      const markedPost = new Set<number>(
+        [...lineMarked]
+          .map((index) => addedPositions[index - 1])
+          .filter((post): post is number => post !== undefined),
+      );
+      if (forkText !== null)
+        for (const line of unexplainedRemovalLines(upstream.join("\n"), forkText, markedPost))
+          unexplainedAt.add(line);
+    }
     const removedUpstream =
       upstream === undefined
         ? change.removed
@@ -217,6 +380,8 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
               (offset) => upstream[at - 1 + offset]?.trim() === line.trim(),
             );
             if (!matched) return false;
+            // A declared substitution — pure block, alignment-explained — exempts outright.
+            if (declaredSubstitution.has(at) && !unexplainedAt.has(at)) return false;
             const trimmed = line.trim();
             return !markerStripped.has(trimmed) && !regionAdded.has(trimmed);
           });
