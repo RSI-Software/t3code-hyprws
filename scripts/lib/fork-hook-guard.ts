@@ -176,8 +176,8 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
     // deletion of every upstream `});`. Earlier fork commits in the stack can shift the
     // file off the target blob elsewhere, so a miss falls back to a bounded window of
     // ±3 lines before the line counts as the fork's own. A removal paired with an
-    // addition equal to it plus a trailing `// fork-hook:` marker (line or JSX pair
-    // form) is a marker attach, never a rewrite. A removal whose text a marked JSX region
+    // addition equal to it plus a trailing fork-hook marker — either suffix form, or the JSX
+    // pair — is a marker attach, never a rewrite. A removal whose text a marked JSX region
     // re-adds is the same fact one level out: wrapping an upstream element in a fork boundary
     // re-indents every line of it, and the doctrine lists one JSX element as an allowed
     // construct, which only exists via a wrap. The comparison is `.trim()`, so it is
@@ -189,12 +189,12 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
       change.added
         .filter(
           (line) =>
-            FORK_HOOK_LINE_SUFFIX.test(line) ||
+            isForkHookSuffixLine(line) ||
             FORK_HOOK_JSX_OPEN.test(line) ||
             FORK_HOOK_JSX_END.test(line),
         )
         .map((line) =>
-          stripForkHookLineMarker(line)
+          stripForkHookSuffix(line)
             .replace(/\s*\{\/\*\s*fork-hook(?:-end)?[^*]*\*\/\}\s*/g, "")
             .trim(),
         ),

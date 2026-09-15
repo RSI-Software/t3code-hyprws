@@ -1508,6 +1508,21 @@ it("still charges a real deletion inside a marked JSX region (1013)", () => {
   );
 });
 
+it("ignores a marker attach written in the block-suffix form (1013)", () => {
+  // The attach exemption knew the line-comment and JSX forms only, so attaching the form the
+  // grammar mandates in an expression position still read as a rewrite of the line it marks.
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "-  const summary = summarize(input);",
+        "+  const summary = summarize(input); /* fork-hook: project-windows/spawn-target */",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("classifies a CSS at-rule import hook as one construct (1013)", () => {
   // The shape list was TypeScript-only, so `@import` — the spelling a stylesheet must use to
   // pull in the fork sheet — read as a second construct once block-suffix hooks were classified.
