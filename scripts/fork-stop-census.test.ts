@@ -191,12 +191,14 @@ const stackFixture = (): {
   git(root, ["branch", "fork-stack"]);
 
   git(root, ["switch", "--quiet", "-c", "upstream-lane"]);
-  write(root, VERIFIABLE, "first\nshared\nthird\nupstream tail\n");
+  // The appended lines are bare identifiers: a kept-both resolution must parse, so fixture text
+  // that is two adjacent identifiers (e.g. "upstream tail") would decline instead (RSI-Software/t3code-hyprws#665).
+  write(root, VERIFIABLE, "first\nshared\nthird\nupstreamTail\n");
   write(root, "apps/web/src/other.ts", "upstream alpha\n");
   const target = commit(root, "fix: upstream change");
 
   git(root, ["switch", "--quiet", "fork-stack"]);
-  write(root, VERIFIABLE, "first\nshared\nthird\nfork tail\n");
+  write(root, VERIFIABLE, "first\nshared\nthird\nforkTail\n");
   const mechanical = commit(root, "feat(test): fork appends its own tail");
   write(root, "apps/web/src/other.ts", "fork alpha\n");
   const human = commit(root, "feat(test): fork rewrites the same line");
