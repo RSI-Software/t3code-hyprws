@@ -5,7 +5,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { captureSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
+import { captureSyncOutcome, declareSyncOutcome, runOutcome } from "./fork-churn-outcomes.ts";
 import { deriveFoldManifest, type FoldGit } from "./lib/fork-fold-reshape.ts";
 import {
   runRewriteBuild,
@@ -727,6 +727,11 @@ const unblockOrient = (
   if (liveTarget !== offered.sha) throw new Error(`target ${targetTag} moved since unblock-list`);
   const expectedOld = git(runner, root, ["rev-parse", "origin/hyprws^{commit}"]);
   const sharedBase = git(runner, root, ["merge-base", expectedOld, liveTarget]);
+  // Declare the attempt before the walk can fail (RSI-Software/t3code-hyprws#1023): orient,
+  // retire evidence, and verdict resolution all run after this line, and a throw in any of them
+  // used to leave no outcome bundle — the receipt guards see a report with no bound target yet
+  // and return nothing.
+  declareSyncOutcome(report, { tag: targetTag, sha: liveTarget }, expectedOld);
   const orientation = requireSuccess(
     runner,
     "node",
@@ -3435,6 +3440,46 @@ const stopAuto = (surface: string, reportPath: string): never => {
 };
 
 /**
+ * A stopped walk is a walk: it owes the ledger the same pending row `record-decisions` writes
+ * (RSI-Software/t3code-hyprws#1023), written here so the row exists even when no maintainer ever
+ * follows up. The write is best-effort — a churn bookkeeping failure must never mask why the walk
+ * stopped, and must never turn the stop into a different error — but it is never silent: a
+ * missing record and a failed write are named as the different outcomes they are, with the path
+ * the write looked for.
+ */
+const stopChurnRow = (stopped: SyncReport): void => {
+  const before = stopped.source?.expectedOld;
+  const target = stopped.target;
+  if (target === undefined || before === undefined) {
+    process.stderr.write(
+      `churn row not written: the stopped walk bound no target and source (${stopped.reportPath})\n`,
+    );
+    return;
+  }
+  if (!NodeFS.existsSync(stopped.recordPath)) {
+    process.stderr.write(
+      `churn row not written: no record to write from at ${stopped.recordPath}\n`,
+    );
+    return;
+  }
+  if (stopped.walk?.ledger?.state === "unpublished") {
+    // The stop is the ledger write's own failure: it already ran with its lease retry this
+    // invocation, named its reason in the report and on stderr, and re-attempting a refused
+    // write here would only duplicate the noise. The unpublished marker keeps the debt visible.
+    return;
+  }
+  try {
+    publishPendingDecisionRow(stopped, target.tag);
+  } catch (error) {
+    process.stderr.write(
+      `churn row write failed; the stop reason is unchanged: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+  }
+};
+
+/**
  * Record the stop before raising it, so the report the workflow uploads and the issue body it
  * posts carry the same sentence.
  */
@@ -3449,6 +3494,7 @@ const stopWalk = (
     walk: { ...(report.walk ?? {}), elapsedMs: Date.now() - started, stop: { reason, detail } },
   };
   writeReport(stopped);
+  stopChurnRow(stopped);
   return stopAuto(
     `${stopped.reportPath}\nStop (${reason}). ${detail}\n${walkSummary(stopped)}`,
     stopped.reportPath,

@@ -779,6 +779,70 @@ it("waits out a running bot and then orients", () => {
   }
 });
 
+it("declares the outcome attempt before orient can fail (#1023)", () => {
+  const root = fixtureRoot();
+  const listed = report(root, {
+    bot: { mode: "candidate", lastRun: null, nextFire: "2026-09-02T08:23:00.000Z" },
+  });
+  NodeFS.writeFileSync(listed.reportPath, JSON.stringify(listed));
+  const runner = new FakeRunner();
+  runner.set("gh", runListArgs, { stdout: "[]" });
+  runner.set("gh", modeArgs, { stdout: "candidate\n" });
+  runner.set(
+    "gh",
+    [
+      "issue",
+      "list",
+      "--state",
+      "open",
+      "--label",
+      "rebase-blocked",
+      "-R",
+      "RSI-Software/t3code-hyprws",
+      "--json",
+      "number,title,body",
+    ],
+    { stdout: issueJson },
+  );
+  runner.set("git", ["rev-parse", "refs/tags/v1.2.3^{commit}"], { stdout: `${B}\n` });
+  runner.set("git", ["rev-parse", "origin/hyprws^{commit}"], { stdout: `${C}\n` });
+  runner.set("git", ["merge-base", C, B], { stdout: `${A}\n` });
+  // Everything up to and including target/source binding succeeds; orient explodes.
+  runner.set("node", ["scripts/fork-orient.ts", "--target", "v1.2.3"], {
+    status: 1,
+    stderr: "orient exploded",
+  });
+  try {
+    assert.throws(() =>
+      execute(
+        ["unblock-orient", "--report", listed.reportPath, "--target", "v1.2.3"],
+        root,
+        runner,
+      ),
+    );
+    // The thrown walk still leaves a well-formed declaration: a target receipt and an attempt
+    // receipt, the same shape the receipt guards accept from prepareAutoOutcome.
+    const bundle = JSON.parse(NodeFS.readFileSync(`${listed.reportPath}.outcome.json`, "utf8"));
+    assert.strictEqual(bundle.version, 1);
+    assert.lengthOf(bundle.receipts, 2);
+    const [target, attempt] = bundle.receipts;
+    assert.strictEqual(target.kind, "target");
+    assert.deepStrictEqual(target.target, { tag: "v1.2.3", sha: B });
+    assert.strictEqual(target.eligible, true);
+    assert.strictEqual(attempt.kind, "attempt");
+    assert.strictEqual(attempt.targetSha, B);
+    assert.strictEqual(attempt.sourceSha, C);
+    assert.strictEqual(attempt.mode, "candidate");
+    // The executor is genuinely environment-dependent (run coordinate in Actions, `local/`
+    // elsewhere); only its presence is behaviour.
+    assert.strictEqual(typeof attempt.executor, "string");
+    assert.notEqual(attempt.executor, "");
+  } finally {
+    NodeFS.rmSync(root, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(listed.reportPath), { recursive: true, force: true });
+  }
+});
+
 it("fails loudly when the bot run outlasts the ceiling", () => {
   const root = fixtureRoot();
   const listed = report(root, {
@@ -3976,6 +4040,108 @@ it("stops the walk exactly twice: the lane cannot test, or the replay does not h
       NodeFS.rmSync(state.worktree, { recursive: true, force: true });
       NodeFS.rmSync(NodePath.dirname(state.reportPath), { recursive: true, force: true });
     }
+  }
+});
+
+/** Trigger the replay stop of `repairingRun`, with an optional record file seeded beside it. */
+const stoppedReplay = (
+  seedRecord: boolean,
+  fixtureLedger: boolean,
+): {
+  stderr: string;
+  output: string;
+  state: ReturnType<typeof repairingRun>;
+  recordPath: string;
+  restoreLedger?: (() => void) | undefined;
+} => {
+  const state = repairingRun();
+  const recordPath = NodePath.join(NodePath.dirname(state.reportPath), "record.md");
+  if (seedRecord)
+    NodeFS.writeFileSync(
+      recordPath,
+      renderRecord(validateReport(JSON.parse(NodeFS.readFileSync(state.reportPath, "utf8")))),
+    );
+  let restoreLedger: (() => void) | undefined;
+  if (fixtureLedger) restoreLedger = ledgerFixture(state.root, recordPath).restore;
+  state.runner.set("vp", ["run", "--filter", "./scripts", "typecheck"], {
+    status: 1,
+    stderr: "scripts/fork-sync.ts(12,3): error TS2322",
+  });
+  let stderr = "";
+  const { output } = captureStdout(() => {
+    stderr = withCapturedStderr(() => {
+      assert.strictEqual(
+        run(["unblock-auto", "--report", state.reportPath], state.root, state.runner),
+        2,
+      );
+    });
+  });
+  return { stderr, output, state, recordPath, restoreLedger };
+};
+
+it("a stopped walk writes its own pending churn row for the stopped tag (#1023)", () => {
+  const stopped = stoppedReplay(true, true);
+  try {
+    // The stop reaches the caller exactly as before the row write existed.
+    assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
+    // The pending row reached the seeded ledger ref, bound to the stopped tag, with the elapsed
+    // time the stop wrote into its own report.
+    const ledger = parseLedger(
+      readBotRefFile(stopped.state.root, CHURN_REF, CHURN_LEDGER_FILE) ?? "",
+    );
+    assert.deepStrictEqual(
+      ledger.map((entry) => entry.tag),
+      ["v1.2.3"],
+    );
+    assert.strictEqual(ledger[0]?.pending, true);
+    assert.strictEqual(typeof ledger[0]?.elapsedMs, "number");
+    assert.isTrue((ledger[0]?.elapsedMs ?? -1) >= 0);
+  } finally {
+    stopped.restoreLedger?.();
+    NodeFS.rmSync(stopped.state.root, { recursive: true, force: true });
+    NodeFS.rmSync(stopped.state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a stop with no record names what the churn write looked for (#1023)", () => {
+  const stopped = stoppedReplay(false, false);
+  try {
+    assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
+    // Not a swallowed failure: the note distinguishes "no record to write from" — naming the
+    // path — from a write that ran and failed.
+    assert.include(stopped.stderr, "churn row not written: no record to write from at ");
+    assert.include(stopped.stderr, stopped.recordPath);
+    assert.notInclude(stopped.stderr, "churn row write failed");
+    const report = validateReport(
+      JSON.parse(NodeFS.readFileSync(stopped.state.reportPath, "utf8")),
+    );
+    assert.strictEqual(report.walk?.stop?.reason, "conflict");
+    assert.isUndefined(report.walk?.ledger);
+  } finally {
+    NodeFS.rmSync(stopped.state.root, { recursive: true, force: true });
+    NodeFS.rmSync(stopped.state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.state.reportPath), { recursive: true, force: true });
+  }
+});
+
+it("a failed churn write never changes the stop reason the caller sees (#1023)", () => {
+  // The record exists, so the write runs — and the fixture root has no origin, so the leased
+  // publish fails. The stop still surfaces with its own reason and its own exit path.
+  const stopped = stoppedReplay(true, false);
+  try {
+    assert.include(stopped.output, "Stop (conflict). The replayed resolutions do not hold");
+    assert.include(stopped.stderr, "churn row write failed; the stop reason is unchanged");
+    assert.notInclude(stopped.stderr, "no record to write from");
+    const report = validateReport(
+      JSON.parse(NodeFS.readFileSync(stopped.state.reportPath, "utf8")),
+    );
+    assert.strictEqual(report.walk?.stop?.reason, "conflict");
+    assert.include(report.walk?.stop?.detail ?? "", "The replayed resolutions do not hold");
+  } finally {
+    NodeFS.rmSync(stopped.state.root, { recursive: true, force: true });
+    NodeFS.rmSync(stopped.state.worktree, { recursive: true, force: true });
+    NodeFS.rmSync(NodePath.dirname(stopped.state.reportPath), { recursive: true, force: true });
   }
 });
 
