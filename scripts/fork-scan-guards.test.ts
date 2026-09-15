@@ -1436,6 +1436,30 @@ it("classifies a marked fork-named JSX spread attribute as one construct (1013)"
   assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
 });
 
+it("does not charge the fragment scaffolding a marker pair needs (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(
+      [
+        "+      <>",
+        "+        {/* fork-hook: project-windows/preview-pane */}",
+        "+        <PreviewPaneFork />",
+        "+        {/* fork-hook-end */}",
+        "+      </>",
+        "",
+      ].join("\n"),
+    ),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
+it("still charges a fragment that opens no marker pair (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch(["+      <>", "+        <PlainThing />", "+      </>", ""].join("\n")),
+  );
+  assert.strictEqual(warnings.length, 1, JSON.stringify(warnings, null, 2));
+  assert.match(warnings[0]?.detail ?? "", /adds 3 line\(s\) outside a marked fork-hook/);
+});
+
 // A target blob whose pre-image position 10 carries a JSX element, so a wrap of that element
 // lands where `hookPatch`'s hunk header puts the first removed line.
 const wrapBlob = [

@@ -65,6 +65,19 @@ const isForkHookSuffixLine = (line: string): boolean =>
 const stripForkHookSuffix = (line: string): string =>
   stripForkHookLineMarker(line).replace(FORK_HOOK_BLOCK_SUFFIX, "");
 
+/**
+ * A `<>` or `</>` added only to give a marker pair a JSX parent. A JSX comment needs one, so
+ * hooking an expression that has none forces a fragment, and those two lines fall outside the
+ * region they exist to open. Adjacency is measured in the added lines, which is where the pair
+ * and its fragment meet however much unchanged code sits between them in the file.
+ */
+const isFragmentScaffold = (added: ReadonlyArray<string>, index: number): boolean => {
+  const line = added[index]?.trim();
+  if (line === "<>") return FORK_HOOK_JSX_OPEN.test(added[index + 1] ?? "");
+  if (line === "</>") return FORK_HOOK_JSX_END.test(added[index - 1] ?? "");
+  return false;
+};
+
 export interface ForkHookSeamCommit {
   readonly short: string;
   readonly domain: string;
@@ -120,6 +133,7 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
         continue;
       }
       if (line.includes("fork-hook:")) continue; // cause (c) counts the marker
+      if (isFragmentScaffold(change.added, index)) continue;
       unmarked.push(line);
     }
     // Each line marker is itself the whole hook — the statement its span covers — so a
