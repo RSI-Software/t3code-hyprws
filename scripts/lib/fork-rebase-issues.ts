@@ -80,12 +80,26 @@ export interface SequentialCensusEvidence {
      * payload and a field the stored JSON never carried would move every historical id.
      */
     readonly stage?: CensusStage;
+    /**
+     * Why the walk's resolution sequence left this path to a human, on an `unresolved` row only.
+     * Absent on every other row and on one written before the census recorded it; read it through
+     * `censusRowReason`, never directly. Like `stage`, the parser must not materialise it, because
+     * a stored seam record is re-digested from its parsed payload. For the same reason the text
+     * itself is the executor's deterministic `reason` and never its captured `detail`: a compiler
+     * message or a worktree path here would mint a different record id for the same seam on every
+     * machine (RSI-Software/t3code-hyprws#1012).
+     */
+    readonly reason?: string;
   }>;
 }
 
 /** A row that predates the resolution stages recorded none; its observation measures a conflict only. */
 export const censusRowStage = (row: SequentialCensusEvidence["rows"][number]): CensusStage =>
   row.stage ?? "unmeasured";
+
+/** What the walk recorded against this stop, or `null` on a row that carries no reason. */
+export const censusRowReason = (row: SequentialCensusEvidence["rows"][number]): string | null =>
+  row.reason ?? null;
 
 export const censusTotals = (rows: SequentialCensusEvidence["rows"]) => ({
   conflictingForkCommitCount: new Set(rows.map((row) => row.commit)).size,
@@ -157,7 +171,8 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
         row.kind !== "modify/delete" &&
         row.kind !== "content" &&
         row.kind !== "other-unmerged") ||
-      (row.stage !== undefined && !CENSUS_STAGES.has(row.stage as string))
+      (row.stage !== undefined && !CENSUS_STAGES.has(row.stage as string)) ||
+      (row.reason !== undefined && typeof row.reason !== "string")
     )
       throw new Error("invalid census stop row");
     const priorCommit = stops.get(row.stop);
@@ -175,6 +190,7 @@ export const requireSequentialCensusEvidence = (value: unknown): SequentialCensu
       path: row.path,
       kind: row.kind,
       ...(row.stage === undefined ? {} : { stage: row.stage as CensusStage }),
+      ...(row.reason === undefined ? {} : { reason: row.reason }),
     };
   });
   return {
