@@ -1,16 +1,13 @@
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { useAtomValue } from "@effect/atom-react"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { AsyncResult } from "effect/unstable/reactivity"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import type { MenuAction } from "@react-native-menu/menu";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import {
-  EnvironmentId,
-  type ProjectListEntriesResult,
-  type ProjectReadFileResult,
-  ThreadId,
-} from "@t3tools/contracts";
+import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   isWorkspaceBrowserPreviewPath,
@@ -38,6 +35,7 @@ import { useThreadSelection } from "../../state/use-thread-selection";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useEnvironmentQuery } from "../../state/query";
 import { projectEnvironment } from "../../state/projects";
+import { mobilePreferencesAtom } from "../../state/preferences"; // fork-hook: workspace-files/mobile-route-ignored-preference
 import type { AssetUrlFailureReason } from "../../state/asset-url-state";
 import {
   useAdaptiveWorkspaceLayout,
@@ -53,7 +51,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
-import { useIgnoredWorkspaceFileListing } from "./ignoredWorkspaceFileListing"; // fork-hook: workspace-files/mobile-route-ignored-listing-import
+import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -342,16 +340,15 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     props.route.params,
   );
   const revealedInspectorRef = useRef(false);
-  const workspaceFileListing = useIgnoredWorkspaceFileListing(cwd); // fork-hook: workspace-files/mobile-route-ignored-listing-call
-  const entriesQuery = useEnvironmentQuery(
-    environmentId !== null && workspaceFileListing !== null && !fileInspector.supported
-      ? projectEnvironment.listEntries({
-          environmentId,
-          input: workspaceFileListing,
-        })
-      : null,
-  );
-  const entriesData = entriesQuery.data as ProjectListEntriesResult | null;
+  const preferences = useAtomValue(mobilePreferencesAtom); // fork-hook: workspace-files/mobile-route-ignored-preference
+  const showIgnoredFiles =
+    AsyncResult.isSuccess(preferences) && preferences.value.showIgnoredFiles === true; // fork-hook: workspace-files/mobile-route-ignored-preference
+  const entriesQuery = useFileTreeEntries({
+    environmentId,
+    cwd: fileInspector.supported ? null : cwd,
+    searchQuery,
+    includeIgnored: showIgnoredFiles, // fork-hook: workspace-files/mobile-route-ignored-listing
+  });
   const handleReturnToThread = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -559,10 +556,14 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
         </>
       )}
       <FileTreeBrowser
-        entries={entriesData?.entries ?? []}
+        key={JSON.stringify([environmentId, cwd])}
+        entries={entriesQuery.entries}
+        loadedDirectories={entriesQuery.loadedDirectories}
+        onLoadDirectory={entriesQuery.loadDirectory}
         error={entriesQuery.error}
         isPending={entriesQuery.isPending}
         searchQuery={searchQuery}
+        searchTruncated={entriesQuery.searchTruncated}
         selectedPath={null}
         onPreviewFile={handlePreviewFile}
         onRefresh={entriesQuery.refresh}
