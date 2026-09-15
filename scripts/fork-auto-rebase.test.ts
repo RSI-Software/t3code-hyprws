@@ -782,6 +782,8 @@ it("rehearses sequential conflict stops in a disposable worktree", () => {
           stage: "unresolved",
           path: "shared.txt",
           kind: "content",
+          reason:
+            "upstream and the fork rewrote the same lines; keeping both would say two things at once, so a maintainer owns this seam",
         },
       ],
     });

@@ -226,11 +226,31 @@ it("accepts a stored record whose payload predates a parser field", () => {
   // one field it materialises that the stored JSON never carried invalidates every record ever
   // written. `stage` arrived with the walk-resolution census (RSI-Software/t3code-hyprws#1007),
   // and the observations already on the ref were frozen without it.
+  // `reason` arrived the same way (RSI-Software/t3code-hyprws#1012) and is held to the same rule.
   const stored = seamRecord(freezeObservation(snapshot(A)));
   assert.isUndefined(stored.evidence?.rows[0]?.stage);
+  assert.isUndefined(stored.evidence?.rows[0]?.reason);
   const parsed = requireSeamRecords([stored]);
   assert.deepStrictEqual(parsed, [stored]);
   assert.strictEqual(parsed[0]?.id, stored.id);
+  // A record whose rows do carry the newer fields keeps its own id too, and the frozen file list
+  // the observation compares against is unmoved by them.
+  const measured = seamRecord(
+    freezeObservation({
+      ...snapshot(A),
+      censusEvidence: {
+        ...snapshot(A).censusEvidence!,
+        rows: snapshot(A).censusEvidence!.rows.map((row) => ({
+          ...row,
+          stage: "unresolved" as const,
+          reason: "a recorded stop",
+        })),
+      },
+    }),
+  );
+  assert.strictEqual(measured.evidence?.rows[0]?.reason, "a recorded stop");
+  assert.deepStrictEqual(requireSeamRecords([measured]), [measured]);
+  assert.notStrictEqual(measured.id, stored.id);
 });
 
 it("separates repair, attested verification and comparable regression", () => {

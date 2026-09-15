@@ -99,6 +99,14 @@ const censusStage = (resolution: ConflictResolution): CensusStage =>
     ? "hook-reapply-unverified"
     : resolution.stage;
 
+/**
+ * Why a stop reached a human, for the rows that did. Only the executor's `reason` is recorded:
+ * its `detail` is captured process output, and a row is digested into a seam record that two
+ * machines must agree on (RSI-Software/t3code-hyprws#1012).
+ */
+const censusReason = (resolution: ConflictResolution): { readonly reason?: string } =>
+  resolution.stage === "unresolved" ? { reason: resolution.outcome.reason } : {};
+
 /** Why a generated path is an operator stop here and not in the walk. */
 const GENERATED_REASON =
   "generated path: the walk restores HEAD and regenerates it, which this rehearsal cannot run";
@@ -236,6 +244,7 @@ export const rehearseStopCensus = (
                   ? "content"
                   : "other-unmerged",
           stage: censusStage(resolution),
+          ...censusReason(resolution),
         });
         // rerere already wrote its resolution into the worktree; the executor already staged its
         // own. What is left over is what this rehearsal did not resolve, and it continues past
