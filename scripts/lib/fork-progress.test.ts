@@ -1,3 +1,4 @@
+import "./fork-test-quiet.ts";
 import { assert, it } from "@effect/vitest";
 
 import { makeProgressReporter } from "./fork-progress.ts";

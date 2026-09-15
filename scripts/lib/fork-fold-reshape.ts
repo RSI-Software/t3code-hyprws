@@ -439,8 +439,8 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
     );
     refusals.push(...pathRefusals);
     const readTree = makeTreeReader(git, [...paths.keys()]);
-    const parentTree = readTree(git(["rev-parse", `${parent}^{tree}`]).trim());
-    const reshapeTree = readTree(git(["rev-parse", `${reshape}^{tree}`]).trim());
+    const parentEntries = readTree(git(["rev-parse", `${parent}^{tree}`]).trim());
+    const reshapeEntries = readTree(git(["rev-parse", `${reshape}^{tree}`]).trim());
     for (const [path, blamed] of paths) {
       const override = input.attribute?.get(path);
       let origin = override ?? blamed;
@@ -457,8 +457,8 @@ export const deriveFoldManifest = (input: DeriveFoldInput): RewriteManifest | Fo
       if (start < 0 || end < 0)
         refusals.push(`${path}: origin ${shortSha(origin)} is not in base..source`);
       if (refusals.length > 0) continue;
-      const parentBlob = parentTree.get(path) ?? null;
-      const reshapeBlob = reshapeTree.get(path) ?? null;
+      const parentBlob = parentEntries.get(path) ?? null;
+      const reshapeBlob = reshapeEntries.get(path) ?? null;
       if (parentBlob === null && reshapeBlob === null) continue;
       for (let index = start; index < end; index++) {
         report(`${shortSha(reshape)} ${path}`, index - start + 1, end - start);

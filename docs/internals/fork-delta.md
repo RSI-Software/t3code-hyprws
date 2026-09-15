@@ -796,6 +796,7 @@ This domain exists so documentation and tooling commits are not mis-filed under 
 - `scripts/fork-upstream-watch.ts` with its `fork:upstream-watch` alias, and the `upstream-watch` label whose open issues it sweeps.
 - `scripts/fork-upstream-refs.ts` with its `fork:upstream-refs` alias, the guard that keeps fork prose from posting backlinks upstream.
 - The fork trailer section of `.github/pull_request_template.md`, and `scripts/lib/fork-pr-template.ts`, the guard that keeps its domain list equal to `FORK_DOMAINS`.
+- `scripts/lib/fork-progress.ts`, the throttled stderr reporter every long fork gate shares, and `scripts/lib/fork-test-quiet.ts`, which the fork's own test files import to silence it.
 
 ### Retirement condition
 

@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercise derivation against isolated Git repositories.
 // @effect-diagnostics preferSchemaOverJson:off - The constructor consumes raw manifest bytes.
+import "./lib/fork-test-quiet.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
