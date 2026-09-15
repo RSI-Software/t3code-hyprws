@@ -243,6 +243,9 @@ export const rehearseStopCensus = (
           : resolveConflictPath(runner, worktree, path, {
               rerereRemaining,
               verifyHookReapply: false,
+              // headSha is the fork tip this rehearsal replays: the gate reads its markers for
+              // seams the replayed commit predates (RSI-Software/t3code-hyprws#1030).
+              forkTipRef: headSha,
             });
         rows.push({
           stop: stopCount,
