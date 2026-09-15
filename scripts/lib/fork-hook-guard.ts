@@ -25,6 +25,7 @@
 // unmarked, which over-warns until adoption makes the whole-file read cheap.
 
 import {
+  FORK_HOOK_BLOCK_SUFFIX,
   FORK_HOOK_JSX_END,
   FORK_HOOK_JSX_OPEN,
   FORK_HOOK_LINE_SUFFIX,
@@ -52,6 +53,14 @@ const HOOK_PROPERTY = /^\s*(?:\.\.\.[A-Za-z_$][\w$.]*|[\w$"']+\s*:\s*[A-Za-z_$][
 // statements. These are the shapes that smuggle a second construct in.
 const JSX_HOOK_FLOW =
   /\b(?:if|for|while|switch)\s*\(|^\s*(?:const|let|var|function|return)\b|\.\s*(?:map|filter|flatMap|reduce|forEach)\s*\(/;
+
+/** A line closed by a trailing fork-hook marker in either the line-comment or block form. */
+const isForkHookSuffixLine = (line: string): boolean =>
+  FORK_HOOK_LINE_SUFFIX.test(line) || FORK_HOOK_BLOCK_SUFFIX.test(line);
+
+/** The trailing marker removed in either form, leaving the code the hook classifies. */
+const stripForkHookSuffix = (line: string): string =>
+  stripForkHookLineMarker(line).replace(FORK_HOOK_BLOCK_SUFFIX, "");
 
 export interface ForkHookSeamCommit {
   readonly short: string;
@@ -112,16 +121,18 @@ export const forkHookSeamWarnings = (input: ForkHookSeamInput): ReadonlyArray<st
     }
     // Each line marker is itself the whole hook — the statement its span covers — so a
     // multi-line hook is classified by its first line (`import {`), and a property/spread must
-    // name a fork identifier.
+    // name a fork identifier. Both suffix forms reach the check: the grammar mandates the block
+    // form wherever `//` would not be a comment, so gating on the line form alone exempted every
+    // hook inside a JSX attribute list, an object literal, or an expression.
     for (const hook of hooks) {
       if (hook.kind !== "line") continue;
       const markerLine = change.added[hook.endLine - 1];
-      if (markerLine === undefined || !FORK_HOOK_LINE_SUFFIX.test(markerLine)) continue;
+      if (markerLine === undefined || !isForkHookSuffixLine(markerLine)) continue;
       const classified =
         hook.startLine === hook.endLine
           ? markerLine
           : (change.added[hook.startLine - 1] ?? markerLine);
-      const code = stripForkHookLineMarker(classified);
+      const code = stripForkHookSuffix(classified);
       if (code.trim().length === 0) continue;
       if (HOOK_IMPORT.test(code)) continue;
       if (HOOK_SINGLE_CALL.test(code)) continue;

@@ -1418,6 +1418,27 @@ it("warns when a marked hook carries more than one construct", () => {
   );
 });
 
+it("runs the one-construct check on a block-suffix hook, not only the line form (1013)", () => {
+  // `/* fork-hook: … */` is the form the grammar mandates wherever `//` would not close the
+  // line, so gating on the line form alone left every hook inside a JSX attribute list, an
+  // object literal, or an expression unclassified.
+  const warnings = hookWarnings(
+    hookPatch("+if (x) forkThing(); /* fork-hook: project-windows/spawn-target */\n"),
+  );
+  assert.strictEqual(
+    warnings.filter((warning) => /more than one construct/.test(warning.detail)).length,
+    1,
+    JSON.stringify(warnings, null, 2),
+  );
+});
+
+it("passes a single fork call closed by a block-suffix marker (1013)", () => {
+  const warnings = hookWarnings(
+    hookPatch("+forkThing(spawnTarget); /* fork-hook: project-windows/spawn-target */\n"),
+  );
+  assert.deepStrictEqual(warnings, [], JSON.stringify(warnings, null, 2));
+});
+
 it("does not refuse the deletion of a hook line the fork added itself", () => {
   const warnings = hookWarnings(
     hookPatch(
