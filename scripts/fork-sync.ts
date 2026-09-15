@@ -2,7 +2,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off - Operator state machine runs before Effect exists.
 
 import * as NodeCrypto from "node:crypto";
-import { fileURLToPath } from "node:url";
+import * as NodeURL from "node:url";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -1702,7 +1702,7 @@ export const toolingDeltaCheck = (): {
 } => ({
   command: "node",
   args: [
-    NodePath.join(NodePath.dirname(fileURLToPath(import.meta.url)), "fork-delta.ts"),
+    NodePath.join(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "fork-delta.ts"),
     "--check",
   ],
 });
